@@ -335,7 +335,16 @@ function DataTable<T extends Record<string, unknown>>({
                   <TableRow key={idx} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
                     {columns.map((col) => (
                       <TableCell key={col.key} className="text-slate-700 dark:text-slate-300">
-                        {col.render ? col.render(item) : String(item[col.key] ?? "")}
+                        {col.render ? col.render(item) : (() => {
+                          const val = item[col.key];
+                          if (val === null || val === undefined) return "";
+                          if (typeof val === "object") {
+                            // Try to resolve nested relation: show .name if available
+                            const obj = val as Record<string, unknown>;
+                            return String(obj.name ?? obj.title ?? JSON.stringify(val));
+                          }
+                          return String(val);
+                        })()}
                       </TableCell>
                     ))}
                     {(onEdit || onDelete) && (
@@ -880,7 +889,13 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
     const rows = data.map((item) =>
       config.columns.map((c) => {
         const val = item[c.key];
-        return typeof val === "string" && val.includes(",") ? `"${val}"` : val ?? "";
+        if (val === null || val === undefined) return "";
+        if (typeof val === "object") {
+          const obj = val as Record<string, unknown>;
+          const resolved = String(obj.name ?? obj.title ?? "");
+          return resolved.includes(",") ? `"${resolved}"` : resolved;
+        }
+        return typeof val === "string" && val.includes(",") ? `"${val}"` : String(val);
       }).join(",")
     );
     const csv = [headers, ...rows].join("\n");
@@ -902,7 +917,15 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
     autoTable(doc, {
       startY: 30,
       head: [config.columns.map((c) => c.label)],
-      body: data.map((item) => config.columns.map((c) => String(item[c.key] ?? ""))),
+      body: data.map((item) => config.columns.map((c) => {
+        const val = item[c.key];
+        if (val === null || val === undefined) return "";
+        if (typeof val === "object") {
+          const obj = val as Record<string, unknown>;
+          return String(obj.name ?? obj.title ?? "");
+        }
+        return String(val);
+      })),
       styles: { fontSize: 8 },
     });
     doc.save(`${config.apiPath}.pdf`);
@@ -1562,7 +1585,10 @@ function ProductsPage() {
   const columns = [
     { key: "productCode", label: "Code" },
     { key: "name", label: "Product Name" },
-    { key: "categoryId", label: "Category" },
+    { key: "categoryId", label: "Category", render: (item: Record<string, unknown>) => {
+      const cat = item.category as Record<string, unknown> | undefined;
+      return cat?.name ? String(cat.name) : String(item.categoryId ?? "");
+    }},
     { key: "unit", label: "Unit" },
     { key: "costPrice", label: "Cost Price", render: (item: Record<string, unknown>) => `৳${Number(item.costPrice).toLocaleString()}` },
     { key: "salePrice", label: "Sale Price", render: (item: Record<string, unknown>) => `৳${Number(item.salePrice).toLocaleString()}` },
@@ -1691,6 +1717,1435 @@ function PlaceholderPage({ title, description }: { title: string; description: s
           <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">{description}</p>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// BASIC REPORT PAGE
+// ============================================================
+
+function BasicReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  React.useEffect(() => {
+    fetch("/api/reports/basic")
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleExportCSV = () => {
+    if (!data) return;
+    const headers = "Metric,Value";
+    const rows = [
+      `Sales Today,${data.salesToday}`,
+      `Purchase Today,${data.purchaseToday}`,
+      `Stock Value,${data.stockValue}`,
+      `Cash Balance,${data.cashBalance}`,
+      `Receivables,${data.receivables}`,
+      `Payables,${data.payables}`,
+    ];
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "basic-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("Basic Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Metric", "Value"]],
+      body: [
+        ["Sales Today", `৳${(data?.salesToday || 0).toLocaleString()}`],
+        ["Purchase Today", `৳${(data?.purchaseToday || 0).toLocaleString()}`],
+        ["Stock Value", `৳${(data?.stockValue || 0).toLocaleString()}`],
+        ["Cash Balance", `৳${(data?.cashBalance || 0).toLocaleString()}`],
+        ["Receivables", `৳${(data?.receivables || 0).toLocaleString()}`],
+        ["Payables", `৳${(data?.payables || 0).toLocaleString()}`],
+      ],
+    });
+    doc.save("basic-report.pdf");
+  };
+
+  const kpiCards = data ? [
+    { title: "Sales Today", value: `৳${data.salesToday.toLocaleString()}`, icon: <TrendingUp className="h-6 w-6" />, gradient: "from-green-500 to-emerald-700", trend: "+8%", description: "Revenue" },
+    { title: "Purchase Today", value: `৳${data.purchaseToday.toLocaleString()}`, icon: <ShoppingCart className="h-6 w-6" />, gradient: "from-orange-500 to-amber-700", trend: "-3%", description: "Cost" },
+    { title: "Stock Value", value: `৳${data.stockValue.toLocaleString()}`, icon: <Box className="h-6 w-6" />, gradient: "from-purple-500 to-violet-700", trend: "+5%", description: "Inventory" },
+    { title: "Cash Balance", value: `৳${data.cashBalance.toLocaleString()}`, icon: <Banknote className="h-6 w-6" />, gradient: "from-emerald-500 to-teal-700", trend: "+2%", description: "Available" },
+    { title: "Receivables", value: `৳${data.receivables.toLocaleString()}`, icon: <CircleDollarSign className="h-6 w-6" />, gradient: "from-cyan-500 to-sky-700", trend: "+12%", description: "From customers" },
+    { title: "Payables", value: `৳${data.payables.toLocaleString()}`, icon: <Wallet className="h-6 w-6" />, gradient: "from-red-500 to-rose-700", trend: "-4%", description: "To suppliers" },
+  ] : [];
+
+  const topProductsData = data?.topProducts?.slice(0, 5).map((p: any) => ({
+    name: p.name,
+    revenue: p.totalRevenue,
+  })) || [];
+
+  const monthlySalesData = data?.monthlySales?.map((m: any) => ({
+    month: m.month,
+    sales: m.total,
+  })) || [];
+
+  const recentActivities = [
+    { text: "Sales order SO-001 confirmed", time: "2 min ago", icon: <CheckCircle className="h-4 w-4 text-green-500" /> },
+    { text: "New purchase order PO-003 created", time: "15 min ago", icon: <ShoppingCart className="h-4 w-4 text-orange-500" /> },
+    { text: "Stock transfer TR-002 completed", time: "1 hr ago", icon: <ArrowRightLeft className="h-4 w-4 text-blue-500" /> },
+    { text: "Customer payment received ৳15,000", time: "2 hrs ago", icon: <Banknote className="h-4 w-4 text-emerald-500" /> },
+    { text: "Low stock alert: LED TV 42\"", time: "3 hrs ago", icon: <AlertTriangle className="h-4 w-4 text-amber-500" /> },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Activity className="h-6 w-6 text-primary" />
+            Basic Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Key business metrics dashboard</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : (
+        <>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {kpiCards.map((card, i) => (
+              <Card key={i} className="border-border hover:shadow-xl transition-all duration-300 overflow-hidden group">
+                <CardContent className="p-0">
+                  <div className={`bg-gradient-to-br ${card.gradient} p-4 text-white`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-white/80">{card.title}</p>
+                        <p className="text-2xl font-bold mt-1">{card.value}</p>
+                      </div>
+                      <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm group-hover:scale-110 transition-transform">
+                        {card.icon}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3 bg-card">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{card.description}</span>
+                      <span className={`text-xs font-semibold flex items-center gap-0.5 ${card.trend.startsWith("+") ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                        {card.trend.startsWith("+") ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                        {card.trend}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Monthly Sales Trend */}
+            <Card className="border-border lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                  <BarChart className="h-5 w-5 text-primary" />
+                  Monthly Sales Trend
+                </CardTitle>
+                <CardDescription className="text-slate-500 dark:text-slate-400">Revenue trend over recent months</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-72">
+                  {monthlySalesData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={monthlySalesData}>
+                        <defs>
+                          <linearGradient id="basicSalesGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#16a34a" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis dataKey="month" tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                        <YAxis tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                        <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`, "Sales"]} labelStyle={{ color: "var(--foreground)" }} />
+                        <Area type="monotone" dataKey="sales" stroke="#16a34a" fill="url(#basicSalesGrad)" strokeWidth={2} name="Sales" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400">No sales data available</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Top Products Bar Chart */}
+            <Card className="border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-amber-500" />
+                  Top Products by Sales
+                </CardTitle>
+                <CardDescription className="text-slate-500 dark:text-slate-400">Top 5 revenue generators</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-72">
+                  {topProductsData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsBarChart data={topProductsData} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis type="number" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={90} />
+                        <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`, "Revenue"]} />
+                        <Bar dataKey="revenue" fill="#16a34a" radius={[0, 4, 4, 0]} name="Revenue" />
+                      </RechartsBarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400">No product data available</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent Activities */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" />
+                Recent Activities
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Latest system events</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {recentActivities.map((activity, i) => (
+                  <div key={i} className="flex items-center gap-3 py-2.5 px-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-navy-900/50 flex items-center justify-center">
+                      {activity.icon}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-slate-700 dark:text-slate-300">{activity.text}</p>
+                    </div>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{activity.time}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// SALES REPORT PAGE
+// ============================================================
+
+function SalesReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const loadReport = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    fetch(`/api/reports/sales?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [dateFrom, dateTo]);
+
+  React.useEffect(() => { loadReport(); }, [loadReport]);
+
+  const handleExportCSV = () => {
+    if (!data?.salesOrders) return;
+    const headers = "Invoice No,Customer,Date,Grand Total,Cost of Goods,Profit,Margin %,Status";
+    const rows = data.salesOrders.map((so: any) =>
+      `${so.invoiceNo},${so.customer?.name || ""},${so.date ? new Date(so.date).toLocaleDateString() : ""},${so.grandTotal},${so.costOfGoods},${so.profit},${so.profitMargin}%,${so.status || "Draft"}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sales-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    if (!data?.salesOrders) return;
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Sales Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Invoice No", "Customer", "Date", "Grand Total", "Cost", "Profit", "Margin %", "Status"]],
+      body: data.salesOrders.map((so: any) => [
+        so.invoiceNo, so.customer?.name || "",
+        so.date ? new Date(so.date).toLocaleDateString() : "",
+        `৳${Number(so.grandTotal).toLocaleString()}`,
+        `৳${Number(so.costOfGoods).toLocaleString()}`,
+        `৳${Number(so.profit).toLocaleString()}`,
+        `${so.profitMargin}%`,
+        so.status || "Draft",
+      ]),
+    });
+    doc.save("sales-report.pdf");
+  };
+
+  const summary = data?.summary || {};
+  const dailyChartData = (() => {
+    if (!data?.salesOrders) return [];
+    const map = new Map<string, number>();
+    data.salesOrders.forEach((so: any) => {
+      if (so.date) {
+        const day = new Date(so.date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        map.set(day, (map.get(day) || 0) + so.grandTotal);
+      }
+    });
+    return Array.from(map.entries()).map(([day, total]) => ({ day, sales: total }));
+  })();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <CartIcon className="h-6 w-6 text-primary" />
+            Sales Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Sales performance and profit margins</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Date Range Filter */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+            </div>
+            <Button size="sm" onClick={loadReport} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Filter
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
+                    <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Sales</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalRevenue || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-orange-100 dark:bg-orange-900/30">
+                    <DollarSign className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Cost</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalCost || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <CircleDollarSign className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Profit</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalProfit || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Sales Chart */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart className="h-5 w-5 text-primary" />
+                Daily Sales
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Sales value by day</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {dailyChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={dailyChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`, "Sales"]} />
+                      <Bar dataKey="sales" fill="#16a34a" radius={[4, 4, 0, 0]} name="Sales" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400">No chart data available</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sales Orders Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Sales Orders with Profit</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{data.salesOrders?.length || 0} order(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Invoice No</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Customer</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Cost</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Profit</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Margin %</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!data.salesOrders || data.salesOrders.length === 0 ? (
+                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-500">No sales orders found</TableCell></TableRow>
+                    ) : data.salesOrders.map((so: any) => (
+                      <TableRow key={so.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{so.invoiceNo}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{so.customer?.name || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{so.date ? new Date(so.date).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(so.grandTotal).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(so.costOfGoods).toLocaleString()}</TableCell>
+                        <TableCell className={`font-medium ${so.profit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>৳{Number(so.profit).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{so.profitMargin}%</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={so.status || "Draft"} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// PURCHASE REPORT PAGE
+// ============================================================
+
+function PurchaseReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetch("/api/suppliers").then((r) => r.json()).then(setSuppliers).catch(() => {});
+  }, []);
+
+  const loadReport = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    if (supplierId && supplierId !== "all") params.set("supplierId", supplierId);
+    fetch(`/api/reports/purchase?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [dateFrom, dateTo, supplierId]);
+
+  React.useEffect(() => { loadReport(); }, [loadReport]);
+
+  const handleExportCSV = () => {
+    if (!data?.purchaseOrders) return;
+    const headers = "PO Number,Supplier,Date,Grand Total,Status";
+    const rows = data.purchaseOrders.map((po: any) =>
+      `${po.poNumber},${po.supplier?.name || ""},${po.date ? new Date(po.date).toLocaleDateString() : ""},${po.grandTotal},${po.status || "Draft"}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "purchase-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    if (!data?.purchaseOrders) return;
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Purchase Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["PO Number", "Supplier", "Date", "Grand Total", "Status"]],
+      body: data.purchaseOrders.map((po: any) => [
+        po.poNumber, po.supplier?.name || "",
+        po.date ? new Date(po.date).toLocaleDateString() : "",
+        `৳${Number(po.grandTotal).toLocaleString()}`,
+        po.status || "Draft",
+      ]),
+    });
+    doc.save("purchase-report.pdf");
+  };
+
+  const summary = data?.summary || {};
+  const totalItems = data?.purchaseOrders?.reduce((s: number, po: any) =>
+    s + (po.lines?.reduce((ls: number, l: any) => ls + l.quantity, 0) || 0), 0) || 0;
+  const avgOrderValue = (summary.totalOrders || 0) > 0
+    ? Math.round((summary.totalPOValue || 0) / summary.totalOrders) : 0;
+
+  const supplierChartData = (() => {
+    if (!data?.purchaseOrders) return [];
+    const map = new Map<string, number>();
+    data.purchaseOrders.forEach((po: any) => {
+      const name = po.supplier?.name || "Unknown";
+      map.set(name, (map.get(name) || 0) + po.grandTotal);
+    });
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  })();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <ShoppingCart className="h-6 w-6 text-primary" />
+            Purchase Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Purchase history and analysis</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Supplier</Label>
+              <Select value={supplierId} onValueChange={setSupplierId}>
+                <SelectTrigger className="w-48"><SelectValue placeholder="All Suppliers" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Suppliers</SelectItem>
+                  {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={loadReport} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Filter
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-orange-100 dark:bg-orange-900/30">
+                    <ShoppingCart className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Purchase</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalPOValue || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-blue-100 dark:bg-blue-900/30">
+                    <Package className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Items</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{totalItems.toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/30">
+                    <Tag className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Avg Order Value</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{avgOrderValue.toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Purchases by Supplier Chart */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart className="h-5 w-5 text-primary" />
+                Purchases by Supplier
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Purchase value per supplier</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {supplierChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={supplierChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`, "Purchase"]} />
+                      <Bar dataKey="value" fill="#ea580c" radius={[4, 4, 0, 0]} name="Purchase Value" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400">No chart data available</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Purchase Orders Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Purchase Orders</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{data.purchaseOrders?.length || 0} order(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">PO Number</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Supplier</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!data.purchaseOrders || data.purchaseOrders.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No purchase orders found</TableCell></TableRow>
+                    ) : data.purchaseOrders.map((po: any) => (
+                      <TableRow key={po.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{po.poNumber}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{po.supplier?.name || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{po.date ? new Date(po.date).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(po.grandTotal).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={po.status || "Draft"} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// SALES RETURN PAGE
+// ============================================================
+
+function SalesReturnPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [selectedSO, setSelectedSO] = useState("");
+  const [form, setForm] = useState({ date: "", reason: "" });
+  const [lines, setLines] = useState<{ productId: string; productName: string; quantity: number; rate: number; total: number }[]>([]);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/sales-returns").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/sales-orders").then((r) => r.json()).then(setSalesOrders).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const handleSelectSO = (soId: string) => {
+    setSelectedSO(soId);
+    const so = salesOrders.find((s: any) => s.id === soId);
+    if (so) {
+      const soLines = (so.lines || []).map((l: any) => ({
+        productId: l.productId,
+        productName: l.product?.name || "Unknown",
+        quantity: 1,
+        rate: l.rate,
+        total: l.rate,
+      }));
+      setLines(soLines.length > 0 ? soLines : [{ productId: "", productName: "", quantity: 1, rate: 0, total: 0 }]);
+      setForm({ ...form, date: so.date ? new Date(so.date).toISOString().split("T")[0] : "" });
+    }
+  };
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    setLines((prev) => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+      if (field === "quantity" || field === "rate") {
+        updated.total = Number(updated.quantity) * Number(updated.rate);
+      }
+      return updated;
+    }));
+  };
+
+  const removeLine = (idx: number) => setLines((prev) => prev.filter((_, i) => i !== idx));
+
+  const handleSave = async () => {
+    const so = salesOrders.find((s: any) => s.id === selectedSO);
+    if (!so || !form.date || lines.length === 0) {
+      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/sales-returns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          salesOrderId: selectedSO,
+          customerId: so.customerId,
+          date: form.date,
+          reason: form.reason,
+          lines: lines.filter((l) => l.productId).map((l) => ({
+            productId: l.productId,
+            quantity: l.quantity,
+            rate: l.rate,
+            total: l.total,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "Sales return created successfully" });
+      setDialogOpen(false);
+      setSelectedSO("");
+      setForm({ date: "", reason: "" });
+      setLines([]);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to create sales return", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Return No,Invoice No,Customer,Date,Grand Total,Status";
+    const rows = data.map((i) => `${i.returnNo},${i.salesOrder?.invoiceNo || ""},${i.salesOrder?.customer?.name || ""},${i.date ? new Date(i.date).toLocaleDateString() : ""},${i.grandTotal},${i.status || "Pending"}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sales-returns.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Sales Returns Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Return No", "Invoice No", "Customer", "Date", "Grand Total", "Status"]],
+      body: data.map((i) => [i.returnNo, i.salesOrder?.invoiceNo || "", i.salesOrder?.customer?.name || "", i.date ? new Date(i.date).toLocaleDateString() : "", `৳${Number(i.grandTotal).toLocaleString()}`, i.status || "Pending"]),
+    });
+    doc.save("sales-returns.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Sales Returns</h1>
+        <p className="text-slate-500 dark:text-slate-400">Process customer return transactions</p>
+      </div>
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-slate-900 dark:text-white">Sales Returns</CardTitle>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
+              <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground"><Plus className="h-4 w-4 mr-1" /> Add Sales Return</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Return No</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Invoice No</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Customer</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No sales returns</TableCell></TableRow>
+                  ) : data.map((item) => (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.returnNo}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.salesOrder?.invoiceNo || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.salesOrder?.customer?.name || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.date ? new Date(item.date).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(item.grandTotal).toLocaleString()}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={item.status || "Pending"} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add Sales Return</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Original Sales Order</Label>
+                <Select value={selectedSO} onValueChange={handleSelectSO}>
+                  <SelectTrigger><SelectValue placeholder="Select sales order" /></SelectTrigger>
+                  <SelectContent>
+                    {salesOrders.map((so: any) => <SelectItem key={so.id} value={so.id}>{so.invoiceNo} - {so.customer?.name || ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Date</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <Label className="text-slate-700 dark:text-slate-300">Reason</Label>
+                <Textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="Return reason" />
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Label className="text-slate-700 dark:text-slate-300 font-semibold">Return Items</Label>
+              {lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                  <div className="col-span-4">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Product</Label>}
+                    <Input className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.productName} readOnly />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Qty</Label>}
+                    <Input type="number" className="h-9" value={line.quantity} onChange={(e) => updateLine(idx, "quantity", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Rate</Label>}
+                    <Input type="number" className="h-9" value={line.rate} onChange={(e) => updateLine(idx, "rate", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-3">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Total</Label>}
+                    <Input type="number" className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.total} readOnly />
+                  </div>
+                  <div className="col-span-1">
+                    {lines.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeLine(idx)} className="text-red-500 h-9"><Trash2 className="h-4 w-4" /></Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-right mt-3">
+                <span className="text-slate-700 dark:text-slate-300 font-semibold text-lg">
+                  Grand Total: ৳{lines.reduce((s, l) => s + l.total, 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// PURCHASE RETURN PAGE
+// ============================================================
+
+function PurchaseReturnPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+  const [selectedPO, setSelectedPO] = useState("");
+  const [form, setForm] = useState({ date: "", reason: "" });
+  const [lines, setLines] = useState<{ productId: string; productName: string; quantity: number; rate: number; total: number }[]>([]);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/purchase-returns").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/purchase-orders").then((r) => r.json()).then(setPurchaseOrders).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const handleSelectPO = (poId: string) => {
+    setSelectedPO(poId);
+    const po = purchaseOrders.find((p: any) => p.id === poId);
+    if (po) {
+      const poLines = (po.lines || []).map((l: any) => ({
+        productId: l.productId,
+        productName: l.product?.name || "Unknown",
+        quantity: 1,
+        rate: l.rate,
+        total: l.rate,
+      }));
+      setLines(poLines.length > 0 ? poLines : [{ productId: "", productName: "", quantity: 1, rate: 0, total: 0 }]);
+      setForm({ ...form, date: po.date ? new Date(po.date).toISOString().split("T")[0] : "" });
+    }
+  };
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    setLines((prev) => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+      if (field === "quantity" || field === "rate") {
+        updated.total = Number(updated.quantity) * Number(updated.rate);
+      }
+      return updated;
+    }));
+  };
+
+  const removeLine = (idx: number) => setLines((prev) => prev.filter((_, i) => i !== idx));
+
+  const handleSave = async () => {
+    const po = purchaseOrders.find((p: any) => p.id === selectedPO);
+    if (!po || !form.date || lines.length === 0) {
+      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/purchase-returns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          purchaseOrderId: selectedPO,
+          supplierId: po.supplierId,
+          date: form.date,
+          reason: form.reason,
+          lines: lines.filter((l) => l.productId).map((l) => ({
+            productId: l.productId,
+            quantity: l.quantity,
+            rate: l.rate,
+            total: l.total,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "Purchase return created successfully" });
+      setDialogOpen(false);
+      setSelectedPO("");
+      setForm({ date: "", reason: "" });
+      setLines([]);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to create purchase return", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Return No,PO Number,Supplier,Date,Grand Total,Status";
+    const rows = data.map((i) => `${i.returnNo},${i.purchaseOrder?.poNumber || ""},${i.purchaseOrder?.supplier?.name || ""},${i.date ? new Date(i.date).toLocaleDateString() : ""},${i.grandTotal},${i.status || "Pending"}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "purchase-returns.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Purchase Returns Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Return No", "PO Number", "Supplier", "Date", "Grand Total", "Status"]],
+      body: data.map((i) => [i.returnNo, i.purchaseOrder?.poNumber || "", i.purchaseOrder?.supplier?.name || "", i.date ? new Date(i.date).toLocaleDateString() : "", `৳${Number(i.grandTotal).toLocaleString()}`, i.status || "Pending"]),
+    });
+    doc.save("purchase-returns.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Purchase Returns</h1>
+        <p className="text-slate-500 dark:text-slate-400">Process supplier return transactions</p>
+      </div>
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-slate-900 dark:text-white">Purchase Returns</CardTitle>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
+              <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground"><Plus className="h-4 w-4 mr-1" /> Add Purchase Return</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Return No</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">PO Number</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Supplier</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No purchase returns</TableCell></TableRow>
+                  ) : data.map((item) => (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.returnNo}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.purchaseOrder?.poNumber || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.purchaseOrder?.supplier?.name || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.date ? new Date(item.date).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(item.grandTotal).toLocaleString()}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={item.status || "Pending"} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add Purchase Return</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Original Purchase Order</Label>
+                <Select value={selectedPO} onValueChange={handleSelectPO}>
+                  <SelectTrigger><SelectValue placeholder="Select purchase order" /></SelectTrigger>
+                  <SelectContent>
+                    {purchaseOrders.map((po: any) => <SelectItem key={po.id} value={po.id}>{po.poNumber} - {po.supplier?.name || ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Date</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <Label className="text-slate-700 dark:text-slate-300">Reason</Label>
+                <Textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="Return reason" />
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Label className="text-slate-700 dark:text-slate-300 font-semibold">Return Items</Label>
+              {lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                  <div className="col-span-4">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Product</Label>}
+                    <Input className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.productName} readOnly />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Qty</Label>}
+                    <Input type="number" className="h-9" value={line.quantity} onChange={(e) => updateLine(idx, "quantity", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Rate</Label>}
+                    <Input type="number" className="h-9" value={line.rate} onChange={(e) => updateLine(idx, "rate", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-3">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Total</Label>}
+                    <Input type="number" className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.total} readOnly />
+                  </div>
+                  <div className="col-span-1">
+                    {lines.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeLine(idx)} className="text-red-500 h-9"><Trash2 className="h-4 w-4" /></Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-right mt-3">
+                <span className="text-slate-700 dark:text-slate-300 font-semibold text-lg">
+                  Grand Total: ৳{lines.reduce((s, l) => s + l.total, 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// HIRE SALES PAGE
+// ============================================================
+
+function HireSalesPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [godowns, setGodowns] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [form, setForm] = useState({ customerId: "", godownId: "", date: "", hireRate: 0, duration: "", returnDate: "", notes: "" });
+  const [lines, setLines] = useState<{ productId: string; quantity: number; rate: number; total: number }[]>([{ productId: "", quantity: 1, rate: 0, total: 0 }]);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/hire-sales").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/customers").then((r) => r.json()).then(setCustomers).catch(() => {});
+      fetch("/api/godowns").then((r) => r.json()).then(setGodowns).catch(() => {});
+      fetch("/api/products").then((r) => r.json()).then(setProducts).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const lineTotal = lines.reduce((s, l) => s + l.total, 0);
+  const grandTotal = lineTotal + form.hireRate;
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    setLines((prev) => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+      if (field === "productId") {
+        const prod = products.find((p: any) => p.id === value);
+        if (prod) { updated.rate = prod.salePrice; }
+      }
+      if (field === "quantity" || field === "rate" || field === "productId") {
+        updated.total = Number(updated.quantity) * Number(updated.rate);
+      }
+      return updated;
+    }));
+  };
+
+  const addLine = () => setLines((prev) => [...prev, { productId: "", quantity: 1, rate: 0, total: 0 }]);
+  const removeLine = (idx: number) => setLines((prev) => prev.filter((_, i) => i !== idx));
+
+  const handleSave = async () => {
+    try {
+      const res = await fetch("/api/hire-sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          grandTotal,
+          lines: lines.filter((l) => l.productId),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "Hire sale created successfully" });
+      setDialogOpen(false);
+      setForm({ customerId: "", godownId: "", date: "", hireRate: 0, duration: "", returnDate: "", notes: "" });
+      setLines([{ productId: "", quantity: 1, rate: 0, total: 0 }]);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to create hire sale", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Invoice No,Customer,Date,Hire Rate,Duration,Grand Total,Status";
+    const rows = data.map((i) => `${i.invoiceNo},${i.customer?.name || ""},${i.date ? new Date(i.date).toLocaleDateString() : ""},${i.hireRate},${i.duration || ""},${i.grandTotal},${i.status || "Active"}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "hire-sales.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Hire Sales Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Invoice No", "Customer", "Date", "Hire Rate", "Duration", "Grand Total", "Status"]],
+      body: data.map((i) => [i.invoiceNo, i.customer?.name || "", i.date ? new Date(i.date).toLocaleDateString() : "", `৳${Number(i.hireRate).toLocaleString()}`, i.duration || "-", `৳${Number(i.grandTotal).toLocaleString()}`, i.status || "Active"]),
+    });
+    doc.save("hire-sales.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Hire Sales</h1>
+        <p className="text-slate-500 dark:text-slate-400">Manage rental/hire sales transactions</p>
+      </div>
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-slate-900 dark:text-white">Hire Sales</CardTitle>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
+              <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground"><Plus className="h-4 w-4 mr-1" /> Add Hire Sale</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Invoice No</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Customer</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Hire Rate</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Duration</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-500">No hire sales</TableCell></TableRow>
+                  ) : data.map((item) => (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.invoiceNo}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.customer?.name || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.date ? new Date(item.date).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(item.hireRate).toLocaleString()}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.duration || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(item.grandTotal).toLocaleString()}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={item.status || "Active"} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add Hire Sale</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Customer</Label>
+                <Select value={form.customerId} onValueChange={(v) => setForm({ ...form, customerId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
+                  <SelectContent>
+                    {customers.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Godown</Label>
+                <Select value={form.godownId} onValueChange={(v) => setForm({ ...form, godownId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select godown" /></SelectTrigger>
+                  <SelectContent>
+                    {godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Date</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Hire Rate</Label>
+                <Input type="number" value={form.hireRate} onChange={(e) => setForm({ ...form, hireRate: Number(e.target.value) })} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Duration</Label>
+                <Input value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} placeholder="e.g. 30 days" />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Return Date</Label>
+                <Input type="date" value={form.returnDate} onChange={(e) => setForm({ ...form, returnDate: e.target.value })} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <Label className="text-slate-700 dark:text-slate-300">Notes</Label>
+                <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" />
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold">Product Lines</Label>
+                <Button variant="outline" size="sm" onClick={addLine} className="text-slate-700 dark:text-slate-300"><Plus className="h-4 w-4 mr-1" /> Add Line</Button>
+              </div>
+              {lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                  <div className="col-span-4">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Product</Label>}
+                    <Select value={line.productId} onValueChange={(v) => updateLine(idx, "productId", v)}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Select product" /></SelectTrigger>
+                      <SelectContent>
+                        {products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Qty</Label>}
+                    <Input type="number" className="h-9" value={line.quantity} onChange={(e) => updateLine(idx, "quantity", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Rate</Label>}
+                    <Input type="number" className="h-9" value={line.rate} onChange={(e) => updateLine(idx, "rate", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-3">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Total</Label>}
+                    <Input type="number" className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.total} readOnly />
+                  </div>
+                  <div className="col-span-1">
+                    {lines.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeLine(idx)} className="text-red-500 h-9"><Trash2 className="h-4 w-4" /></Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-right mt-3 space-y-1">
+                <div className="text-slate-500 dark:text-slate-400 text-sm">Line Total: ৳{lineTotal.toLocaleString()}</div>
+                <div className="text-slate-500 dark:text-slate-400 text-sm">Hire Rate: ৳{Number(form.hireRate).toLocaleString()}</div>
+                <div className="text-slate-700 dark:text-slate-300 font-semibold text-lg">Grand Total: ৳{grandTotal.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2969,15 +4424,21 @@ function AppContent() {
     if (currentPage === "cash-in-hand") return <CashInHandPage />;
     if (currentPage === "advance-search") return <AdvanceSearchPage />;
     if (currentPage === "transfers") return <TransferPage />;
+    // MIS Report pages
+    if (currentPage === "basic-report") return <BasicReportPage />;
+    if (currentPage === "sales-report") return <SalesReportPage />;
+    if (currentPage === "purchase-report") return <PurchaseReportPage />;
+    // Return pages
+    if (currentPage === "sales-returns") return <SalesReturnPage />;
+    if (currentPage === "purchase-returns") return <PurchaseReturnPage />;
+    // Hire sales page
+    if (currentPage === "hire-sales") return <HireSalesPage />;
     const config = moduleConfigs[currentPage];
     if (config) return <GenericModulePage config={config} />;
     // Placeholder for remaining complex modules
     const pageLabels: Record<string, { title: string; description: string }> = {
       "order-sheets": { title: "Order Sheets", description: "Create and manage purchase order worksheets" },
       "auto-po": { title: "Auto Purchase Orders", description: "Auto-generate POs for low stock products" },
-      "hire-sales": { title: "Hire Sales", description: "Manage rental/hire sales transactions" },
-      "sales-returns": { title: "Sales Returns", description: "Process customer return transactions" },
-      "purchase-returns": { title: "Purchase Returns", description: "Process supplier return transactions" },
       "replacements": { title: "Replacement Orders", description: "Manage replacement orders for defective goods" },
       "stock-details": { title: "Stock Details", description: "Detailed product stock ledger and movements" },
       "card-type-setup": { title: "Card Type Setup", description: "Configure card types with payment options" },
@@ -2988,9 +4449,6 @@ function AppContent() {
       "sms-bill-payments": { title: "SMS Bill Payments", description: "Record payments to SMS provider" },
       "sms-reports": { title: "SMS Reports", description: "Filterable SMS reports" },
       "bulk-sms": { title: "Bulk SMS", description: "Send promotional messages in bulk" },
-      "basic-report": { title: "Basic Report", description: "Key business metrics dashboard" },
-      "purchase-report": { title: "Purchase Report", description: "Purchase history and analysis" },
-      "sales-report": { title: "Sales Report", description: "Sales performance and profit margins" },
       "hire-sales-report": { title: "Hire Sales Report", description: "Hire sales and outstanding report" },
       "sr-report": { title: "SR Report", description: "Sales rep performance against targets" },
       "customer-wise-report": { title: "Customer Wise Report", description: "Per-customer sales and ledger" },

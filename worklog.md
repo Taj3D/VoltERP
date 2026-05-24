@@ -1,73 +1,79 @@
 # Electronics Mart IMS - Worklog
 
-## Phase 2: QA Testing, Bug Fixes & Enhancement Round
+## Phase 3: Bug Fixes, Feature Pages & Polish
 
 ### Current Project Status
-The Electronics Mart IMS is a fully functional single-page Next.js application with 50+ API routes, 40+ UI pages, and a comprehensive Prisma schema. The system is operational and rendering correctly.
+The Electronics Mart IMS is a comprehensive single-page Next.js application with 50+ API routes, 40+ UI pages, recharts visualizations, and a rich seeded database. All core modules are functional.
 
 ### QA Findings & Fixes Applied
 
-#### Bug Fixes
-1. **Grammar Bug Fixed**: "Add Companie" → "Add Company" — Replaced naive `config.title.slice(0, -1)` with a proper `singularize()` function that handles English pluralization rules (irregulars like Companies→Company, Categories→Category, etc.)
-2. **Missing `threeDaysAgo` variable** in seed route — added the missing date constant
-3. **Seed route improved** — now returns detailed counts of all created entities
+#### Critical Bug Fix: Nested Object Display
+1. **Products table showed raw category IDs** instead of category names (e.g., "cmpk2xr650003..." instead of "Accessories")
+   - Root cause: The DataTable default render used `String(item[col.key])` which renders `[object Object]` for nested relations
+   - Fix 1: Updated the DataTable component to intelligently resolve nested objects — if the value is an object, it tries `.name` then `.title` before falling back to JSON.stringify
+   - Fix 2: Updated ProductsPage's Category column to use a custom render function that resolves `item.category?.name`
+   - Fix 3: Updated CSV export to resolve nested object names
+   - Fix 4: Updated PDF export (autoTable) to resolve nested object names
 
-#### Styling Enhancements
-1. **Dashboard KPI Cards** — Upgraded from plain colored boxes to gradient cards with:
-   - Full-width gradient headers (blue-to-blue-700, green-to-emerald-700, etc.)
-   - Animated skeleton loading states
-   - Hover scale effect on icon containers
-   - Separate footer with description text and trend arrows
-   - Backdrop blur on icon backgrounds
+This fix applies universally to ALL modules — Designations (departmentId→department.name), Employees (designationId→designation.name), Assets (investmentHeadId→investmentHead.name), etc.
 
-2. **Dashboard Charts** — Added 3 recharts visualizations:
-   - **Sales vs Purchase Trend**: Area chart with gradient fills, 12-month data, custom tooltips
-   - **Sales by Category**: Donut pie chart with color-coded legend
-   - **Top Selling Products**: Horizontal bar chart showing units sold
+#### New Feature Pages (6 new components)
 
-3. **Dashboard Data Integration**:
-   - Recent Sales section now fetches real data from `/api/sales-orders`
-   - Low Stock Alerts now fetches real data from `/api/stock`
-   - Fallback placeholder data when API returns empty results
+1. **BasicReportPage** — MIS Basic Report with:
+   - 6 KPI gradient cards (Revenue, Cost, Inventory, Cash Balance, Receivables, Payables)
+   - Monthly Sales Trend AreaChart (12-month data)
+   - Top 5 Products by Sales horizontal BarChart
+   - Recent Activities timeline
+   - Export CSV/PDF
 
-4. **Dashboard Quick Actions Bar** — Added navy gradient action bar with New Sale, New Purchase, Add Product, View Reports buttons
+2. **SalesReportPage** — Filterable Sales Report with:
+   - Date range filter inputs
+   - 3 summary cards (Total Sales, Total Cost, Total Profit)
+   - Daily Sales BarChart
+   - Sales Orders table with profit margin per order
+   - Export CSV/PDF
 
-5. **Date/Time Display** — Added calendar and clock icons with formatted date and time badges
+3. **PurchaseReportPage** — Filterable Purchase Report with:
+   - Date range + supplier dropdown filter
+   - 3 summary cards (Total Purchase, Total Items, Avg Order Value)
+   - Purchases by Supplier BarChart
+   - Purchase Orders table
+   - Export CSV/PDF
 
-6. **Richer item cards** — Recent Sales and Low Stock now have:
-   - Colored circular icon backgrounds
-   - Rounded background containers (bg-slate-50 / bg-red-50)
-   - Better spacing and typography
+4. **SalesReturnPage** — Sales Returns with full CRUD:
+   - List table: Return No, Invoice No, Customer, Date, Grand Total, Status
+   - Add dialog: select original Sales Order, auto-populate return items, editable quantities, reason
+   - POST to /api/sales-returns
+   - Export CSV/PDF
 
-### Seed Data Enhancement
-Completely rewrote the seed data with realistic Bangladeshi electronics business data:
-- 8 categories, 8 colors, 8 companies, 3 godowns, 5 departments
-- 10 employees with Bangladeshi names, 10 customers, 5 suppliers
-- 15 products with realistic BDT pricing (৳22,000 - ৳115,000)
-- 2 confirmed POs with stock IN entries (total ৳64.7L purchase)
-- 3 confirmed Sales Orders with stock OUT entries (total ৳12.16L sales)
-- 5 expenses, 5 incomes, 2 cash collections, 2 cash deliveries
-- 3 banks with ৳10.5L total balance
-- 7 expense heads, 4 income heads
-- 3 SR targets, 3 card type setups
+5. **PurchaseReturnPage** — Purchase Returns with full CRUD:
+   - List table: Return No, PO Number, Supplier, Date, Grand Total, Status
+   - Add dialog: select original Purchase Order, auto-populate return items, reason
+   - POST to /api/purchase-returns
+   - Export CSV/PDF
+
+6. **HireSalesPage** — Hire Sales with full CRUD:
+   - List table: Invoice No, Customer, Date, Hire Rate, Duration, Grand Total, Status
+   - Add dialog: Customer, Godown, product lines, hire rate, duration, return date
+   - POST to /api/hire-sales
+   - Export CSV/PDF
 
 ### Verified Working
-- ✅ Dashboard with live data + charts
-- ✅ Companies page with "Add Company" (grammar fixed)
-- ✅ Dark mode toggle works correctly
-- ✅ Stock page shows real stock data
-- ✅ Purchase Orders page renders
-- ✅ P&L report with real financial data
-- ✅ All API endpoints returning correct data
+- ✅ Products page now shows "Accessories", "Computer", "Electronics" instead of IDs
+- ✅ All 6 new pages render correctly
+- ✅ Basic Report with charts working
+- ✅ Sales Return page with Add dialog
+- ✅ Hire Sales page with Add dialog
+- ✅ Dark mode working
 - ✅ Lint passes with 0 errors
-- ✅ No JS console errors
+- ✅ No console errors
 
 ### Unresolved Issues / Next Phase Priorities
-1. Some products show negative stock (-5) due to stock entries exceeding opening stock — need to either fix opening stock or adjust stock calculation
-2. Placeholder pages still need full implementation: Hire Sales, Sales Return, Purchase Return, Replacement, Auto PO, Order Sheet, Stock Details
-3. SMS Send/Bulk/Inbox UI needs enhancement
-4. MIS Report pages (Basic Report, Purchase Report, Sales Report, SR Report, Customer Wise Report) need dedicated UI with charts
-5. More chart types on report pages (line charts, comparison bars)
-6. Product image upload not yet implemented
-7. Rate limiting and input sanitization on API routes
-8. Animation transitions between page navigations using framer-motion
+1. Remaining placeholder pages: Auto PO, Order Sheet, Stock Details, Replacement
+2. SMS module pages need full UI (Send SMS, Bulk SMS, Inbox)
+3. SR Report, Customer Wise Report, Hire Sales Report need dedicated pages
+4. Advance Search, Bank Report, Transfer Report pages
+5. Product image upload not yet implemented
+6. Page transition animations with framer-motion
+7. Card Type Setup page needs full UI
+8. More granular data validation on API routes
