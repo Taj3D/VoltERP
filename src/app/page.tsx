@@ -12,7 +12,9 @@ import {
   CheckCircle, AlertTriangle, Box, Banknote, Layers,
   Palette, Grid3X3, Gauge, UserPlus, Building, PhoneCall,
   ArrowUpRight, ArrowDownRight, Activity, ShoppingCart as CartIcon,
-  FileSpreadsheet, FileText as FileTextIcon, Bell, LogOut, User
+  FileSpreadsheet, FileText as FileTextIcon, Bell, LogOut, User,
+  Calendar, Clock, Zap, Target, BarChart, PieChart as PieChartIcon,
+  CircleDollarSign, Wallet, ShoppingBag, Tag, Hash
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
 
 // ============================================================
 // TYPES
@@ -386,117 +389,379 @@ function DashboardPage() {
     pendingPO: 0, pendingSO: 0, totalExpenses: 0, totalIncome: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
 
   React.useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => r.json())
       .then((d) => { setStats(d); setLoading(false); })
       .catch(() => setLoading(false));
+    fetch("/api/sales-orders?limit=5")
+      .then((r) => r.json())
+      .then((d) => { setRecentSales(Array.isArray(d) ? d.slice(0, 5) : []); })
+      .catch(() => {});
+    fetch("/api/stock")
+      .then((r) => r.json())
+      .then((d) => {
+        const low = Array.isArray(d) ? d.filter((p: any) => Number(p.currentStock) < 10).slice(0, 5) : [];
+        setLowStockProducts(low);
+      })
+      .catch(() => {});
   }, []);
 
+  // Chart data
+  const monthlyData = [
+    { month: "Jan", sales: 45000, purchase: 32000, expense: 8000 },
+    { month: "Feb", sales: 52000, purchase: 38000, expense: 9500 },
+    { month: "Mar", sales: 48000, purchase: 35000, expense: 7200 },
+    { month: "Apr", sales: 61000, purchase: 42000, expense: 11000 },
+    { month: "May", sales: 55000, purchase: 39000, expense: 8800 },
+    { month: "Jun", sales: 67000, purchase: 45000, expense: 12300 },
+    { month: "Jul", sales: 72000, purchase: 48000, expense: 10500 },
+    { month: "Aug", sales: 63000, purchase: 41000, expense: 9800 },
+    { month: "Sep", sales: 78000, purchase: 52000, expense: 13200 },
+    { month: "Oct", sales: 85000, purchase: 55000, expense: 14100 },
+    { month: "Nov", sales: 91000, purchase: 58000, expense: 15600 },
+    { month: "Dec", sales: 98000, purchase: 62000, expense: 16800 },
+  ];
+
+  const categoryData = [
+    { name: "Electronics", value: 35, color: "#2563eb" },
+    { name: "Mobile", value: 25, color: "#16a34a" },
+    { name: "Computer", value: 20, color: "#ea580c" },
+    { name: "Accessories", value: 15, color: "#9333ea" },
+    { name: "Home Appliance", value: 5, color: "#e11d48" },
+  ];
+
+  const topProductsData = [
+    { name: "LED TV 42\"", sold: 45 },
+    { name: "Smartphone X", sold: 38 },
+    { name: "Laptop Pro", sold: 32 },
+    { name: "Bluetooth Speaker", sold: 28 },
+    { name: "Wireless Mouse", sold: 24 },
+    { name: "USB Cable", sold: 20 },
+  ];
+
   const cards = [
-    { title: "Total Products", value: stats.totalProducts, icon: <Package className="h-5 w-5" />, color: "bg-blue-500", trend: "+12%" },
-    { title: "Today's Sales", value: `৳${stats.todaySales.toLocaleString()}`, icon: <TrendingUp className="h-5 w-5" />, color: "bg-green-500", trend: "+8%" },
-    { title: "Today's Purchase", value: `৳${stats.todayPurchase.toLocaleString()}`, icon: <ShoppingCart className="h-5 w-5" />, color: "bg-orange-500", trend: "-3%" },
-    { title: "Stock Value", value: `৳${stats.stockValue.toLocaleString()}`, icon: <Box className="h-5 w-5" />, color: "bg-purple-500", trend: "+5%" },
-    { title: "Cash Balance", value: `৳${stats.cashBalance.toLocaleString()}`, icon: <Banknote className="h-5 w-5" />, color: "bg-emerald-500", trend: "+2%" },
-    { title: "Total Customers", value: stats.totalCustomers, icon: <Users className="h-5 w-5" />, color: "bg-cyan-500", trend: "+15%" },
-    { title: "Total Suppliers", value: stats.totalSuppliers, icon: <Truck className="h-5 w-5" />, color: "bg-amber-500", trend: "+4%" },
-    { title: "Total Expenses", value: `৳${stats.totalExpenses.toLocaleString()}`, icon: <TrendingDown className="h-5 w-5" />, color: "bg-red-500", trend: "+6%" },
+    { title: "Total Products", value: stats.totalProducts, icon: <Package className="h-6 w-6" />, gradient: "from-blue-500 to-blue-700", trend: "+12%", description: "Active items" },
+    { title: "Today's Sales", value: `৳${stats.todaySales.toLocaleString()}`, icon: <TrendingUp className="h-6 w-6" />, gradient: "from-green-500 to-emerald-700", trend: "+8%", description: "Revenue" },
+    { title: "Today's Purchase", value: `৳${stats.todayPurchase.toLocaleString()}`, icon: <ShoppingCart className="h-6 w-6" />, gradient: "from-orange-500 to-amber-700", trend: "-3%", description: "Cost" },
+    { title: "Stock Value", value: `৳${stats.stockValue.toLocaleString()}`, icon: <Box className="h-6 w-6" />, gradient: "from-purple-500 to-violet-700", trend: "+5%", description: "Inventory" },
+    { title: "Cash Balance", value: `৳${stats.cashBalance.toLocaleString()}`, icon: <Banknote className="h-6 w-6" />, gradient: "from-emerald-500 to-teal-700", trend: "+2%", description: "Available" },
+    { title: "Total Customers", value: stats.totalCustomers, icon: <Users className="h-6 w-6" />, gradient: "from-cyan-500 to-sky-700", trend: "+15%", description: "Active" },
+    { title: "Total Suppliers", value: stats.totalSuppliers, icon: <Truck className="h-6 w-6" />, gradient: "from-amber-500 to-yellow-700", trend: "+4%", description: "Partners" },
+    { title: "Total Expenses", value: `৳${stats.totalExpenses.toLocaleString()}`, icon: <TrendingDown className="h-6 w-6" />, gradient: "from-red-500 to-rose-700", trend: "+6%", description: "This month" },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
-          <p className="text-slate-500 dark:text-slate-400">Welcome to Electronics Mart IMS</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <LayoutDashboard className="h-6 w-6 text-primary" />
+            Dashboard
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Welcome to Electronics Mart IMS — your business at a glance</p>
         </div>
-        <Badge variant="outline" className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 flex items-center gap-1.5 py-1.5 px-3">
+            <Calendar className="h-3.5 w-3.5" />
+            {new Date().toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+          </Badge>
+          <Badge variant="outline" className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 flex items-center gap-1.5 py-1.5 px-3">
+            <Clock className="h-3.5 w-3.5" />
+            {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+          </Badge>
+        </div>
       </div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((card, i) => (
-          <Card key={i} className="border-border hover:shadow-lg transition-shadow">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">{card.title}</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-                    {loading ? "..." : card.value}
-                  </p>
-                </div>
-                <div className={`${card.color} p-3 rounded-lg text-white`}>
-                  {card.icon}
+          <Card key={i} className="border-border hover:shadow-xl transition-all duration-300 overflow-hidden group">
+            <CardContent className="p-0">
+              <div className={`bg-gradient-to-br ${card.gradient} p-4 text-white`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white/80">{card.title}</p>
+                    <p className="text-2xl font-bold mt-1">
+                      {loading ? (
+                        <span className="inline-block w-20 h-7 bg-white/20 rounded animate-pulse" />
+                      ) : card.value}
+                    </p>
+                  </div>
+                  <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm group-hover:scale-110 transition-transform">
+                    {card.icon}
+                  </div>
                 </div>
               </div>
-              <div className="mt-3 flex items-center text-xs">
-                <span className={card.trend.startsWith("+") ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                  {card.trend}
-                </span>
-                <span className="text-slate-400 ml-1">vs last month</span>
+              <div className="px-4 py-3 bg-card">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">{card.description}</span>
+                  <span className={`text-xs font-semibold flex items-center gap-0.5 ${card.trend.startsWith("+") ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    {card.trend.startsWith("+") ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                    {card.trend}
+                  </span>
+                </div>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-border">
-          <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-white">Recent Sales</CardTitle>
-            <CardDescription className="text-slate-500 dark:text-slate-400">Latest sales transactions</CardDescription>
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Sales Trend Chart */}
+        <Card className="border-border lg:col-span-2">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                  <BarChart className="h-5 w-5 text-primary" />
+                  Sales vs Purchase Trend
+                </CardTitle>
+                <CardDescription className="text-slate-500 dark:text-slate-400">Monthly comparison over the year</CardDescription>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {[
-                { inv: "INV-001", customer: "Customer A", amount: "৳15,000", status: "Completed" },
-                { inv: "INV-002", customer: "Customer B", amount: "৳8,500", status: "Pending" },
-                { inv: "INV-003", customer: "Customer C", amount: "৳22,300", status: "Completed" },
-                { inv: "INV-004", customer: "Customer D", amount: "৳5,200", status: "Draft" },
-              ].map((sale, i) => (
-                <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-white">{sale.inv}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{sale.customer}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-slate-900 dark:text-white">{sale.amount}</p>
-                    <StatusBadge status={sale.status} />
-                  </div>
-                </div>
-              ))}
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={monthlyData}>
+                  <defs>
+                    <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="purchaseGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ea580c" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#ea580c" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                  <YAxis tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }}
+                    formatter={(value: number) => [`৳${value.toLocaleString()}`, ""]}
+                    labelStyle={{ color: "var(--foreground)" }}
+                  />
+                  <Legend />
+                  <Area type="monotone" dataKey="sales" stroke="#2563eb" fill="url(#salesGrad)" strokeWidth={2} name="Sales" />
+                  <Area type="monotone" dataKey="purchase" stroke="#ea580c" fill="url(#purchaseGrad)" strokeWidth={2} name="Purchase" />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
+        {/* Category Breakdown Pie */}
         <Card className="border-border">
-          <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-white">Low Stock Alerts</CardTitle>
-            <CardDescription className="text-slate-500 dark:text-slate-400">Products below reorder level</CardDescription>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <PieChartIcon className="h-5 w-5 text-primary" />
+              Sales by Category
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Product category distribution</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {[
-                { product: "LED TV 42\"", stock: 3, reorder: 10 },
-                { product: "Bluetooth Speaker", stock: 5, reorder: 15 },
-                { product: "USB Cable Type-C", stock: 20, reorder: 50 },
-                { product: "Power Bank 10000mAh", stock: 8, reorder: 25 },
-              ].map((item, i) => (
-                <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-white">{item.product}</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">In Stock: {item.stock} | Reorder: {item.reorder}</p>
-                  </div>
-                  <Badge variant="destructive">Low Stock</Badge>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={categoryData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {categoryData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }}
+                    formatter={(value: number) => [`${value}%`, ""]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {categoryData.map((cat, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
+                  <span className="text-xs text-slate-600 dark:text-slate-400">{cat.name} ({cat.value}%)</span>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Bottom Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Sales - now with real data */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <ShoppingBag className="h-5 w-5 text-green-500" />
+              Recent Sales
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Latest transactions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {recentSales.length > 0 ? recentSales.map((sale: any, i: number) => (
+                <div key={i} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                      <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-slate-900 dark:text-white">{sale.invoiceNo || `INV-${i + 1}`}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{sale.customer?.name || "Customer"}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm text-slate-900 dark:text-white">৳{Number(sale.grandTotal || 0).toLocaleString()}</p>
+                    <StatusBadge status={sale.status || "Draft"} />
+                  </div>
+                </div>
+              )) : (
+                // Fallback placeholder data
+                [
+                  { inv: "INV-001", customer: "Rahim Electronics", amount: "৳15,000", status: "Completed" },
+                  { inv: "INV-002", customer: "Karim Store", amount: "৳8,500", status: "Pending" },
+                  { inv: "INV-003", customer: "Delta Traders", amount: "৳22,300", status: "Confirmed" },
+                  { inv: "INV-004", customer: "Nova Tech", amount: "৳5,200", status: "Draft" },
+                ].map((sale, i) => (
+                  <div key={i} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                        <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-slate-900 dark:text-white">{sale.inv}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{sale.customer}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-sm text-slate-900 dark:text-white">{sale.amount}</p>
+                      <StatusBadge status={sale.status} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Low Stock Alerts - now with real data */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Low Stock Alerts
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Items below reorder level</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {lowStockProducts.length > 0 ? lowStockProducts.map((item: any, i: number) => (
+                <div key={i} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                      <Box className="h-4 w-4 text-red-600 dark:text-red-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-slate-900 dark:text-white">{item.productName}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Stock: {item.currentStock}</p>
+                    </div>
+                  </div>
+                  <Badge variant="destructive" className="text-xs">Low</Badge>
+                </div>
+              )) : (
+                // Fallback placeholder
+                [
+                  { product: "LED TV 42\"", stock: 3, reorder: 10 },
+                  { product: "Bluetooth Speaker", stock: 5, reorder: 15 },
+                  { product: "USB Cable Type-C", stock: 2, reorder: 50 },
+                  { product: "Power Bank 10000mAh", stock: 8, reorder: 25 },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center justify-between py-2.5 px-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                        <Box className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm text-slate-900 dark:text-white">{item.product}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">In Stock: {item.stock} | Reorder: {item.reorder}</p>
+                      </div>
+                    </div>
+                    <Badge variant="destructive" className="text-xs">Low</Badge>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Top Products Bar Chart */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <Zap className="h-5 w-5 text-amber-500" />
+              Top Selling Products
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Best performing items</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsBarChart data={topProductsData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={100} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }}
+                  />
+                  <Bar dataKey="sold" fill="#2563eb" radius={[0, 4, 4, 0]} name="Units Sold" />
+                </RechartsBarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Actions */}
+      <Card className="border-border bg-gradient-to-r from-navy-950 to-navy-900 text-white">
+        <CardContent className="p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold flex items-center gap-2"><Zap className="h-5 w-5 text-amber-400" /> Quick Actions</h3>
+              <p className="text-navy-300 text-sm mt-1">Jump to frequently used operations</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" className="bg-primary hover:bg-primary/90 text-white gap-1.5">
+                <Plus className="h-4 w-4" /> New Sale
+              </Button>
+              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1.5">
+                <ShoppingCart className="h-4 w-4" /> New Purchase
+              </Button>
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5">
+                <Package className="h-4 w-4" /> Add Product
+              </Button>
+              <Button size="sm" variant="outline" className="border-navy-600 text-navy-200 hover:bg-navy-800 gap-1.5">
+                <BarChart3 className="h-4 w-4" /> View Reports
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -519,6 +784,28 @@ interface ModuleConfig {
   apiPath: string;
   fields: FieldDef[];
   columns: Column<Record<string, unknown>>[];
+}
+
+// Smart singularization helper
+function singularize(word: string): string {
+  const irregulars: Record<string, string> = {
+    "Companies": "Company", "Categories": "Category", "Colors": "Color",
+    "Banks": "Bank", "Departments": "Department", "Godowns": "Godown",
+    "Capacities": "Capacity", "Segments": "Segment", "Assets": "Asset",
+    "Liabilities": "Liability", "Designations": "Designation",
+    "Employees": "Employee", "Incomes": "Income", "Expenses": "Expense",
+    "Customers": "Customer", "Suppliers": "Supplier",
+    "Investment Heads": "Investment Head", "Expense/Income Heads": "Head",
+    "Card Types": "Card Type", "Payment Options": "Payment Option",
+    "Interest Percentages": "Interest Percentage",
+    "Cash Collections": "Cash Collection", "Cash Deliveries": "Cash Delivery",
+    "Bank Transactions": "Bank Transaction", "SMS Settings": "SMS Setting",
+  };
+  if (irregulars[word]) return irregulars[word];
+  if (word.endsWith("ies")) return word.slice(0, -3) + "y";
+  if (word.endsWith("es")) return word.slice(0, -2);
+  if (word.endsWith("s")) return word.slice(0, -1);
+  return word;
 }
 
 function GenericModulePage({ config }: { config: ModuleConfig }) {
@@ -656,14 +943,14 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
         onImport={handleImportCSV}
         onExportCSV={handleExportCSV}
         onExportPDF={handleExportPDF}
-        addLabel={`Add ${config.title.slice(0, -1)}`}
+        addLabel={`Add ${singularize(config.title)}`}
       />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">
-              {editing?.id ? `Edit ${config.title.slice(0, -1)}` : `Add ${config.title.slice(0, -1)}`}
+              {editing?.id ? `Edit ${singularize(config.title)}` : `Add ${singularize(config.title)}`}
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
