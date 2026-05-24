@@ -1,0 +1,759 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTHENTICATION
+// ============================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("admin")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// INVESTMENT MODULE
+// ============================================================
+
+model InvestmentHead {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  assets      Asset[]
+  liabilities Liability[]
+}
+
+model Asset {
+  id              String         @id @default(cuid())
+  investmentHeadId String
+  date            DateTime
+  amount          Float
+  description     String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+}
+
+model Liability {
+  id              String         @id @default(cuid())
+  investmentHeadId String
+  date            DateTime
+  amount          Float
+  description     String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+}
+
+// ============================================================
+// BASIC MODULES (SYSTEM SETUP)
+// ============================================================
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  phone     String?
+  email     String?
+  logo      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  products  Product[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  description String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  products  Product[]
+}
+
+model Color {
+  id         String   @id @default(cuid())
+  name       String
+  colorCode  String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  products   Product[]
+}
+
+model Bank {
+  id             String            @id @default(cuid())
+  bankName       String
+  branch         String?
+  accountNo      String
+  accountHolder  String
+  openingBalance Float             @default(0)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  bankTransactions BankTransaction[]
+  expenses      Expense[]
+  incomes       Income[]
+  cashCollections CashCollection[]
+  cashDeliveries CashDelivery[]
+}
+
+model Department {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  designations Designation[]
+  employees   Employee[]
+}
+
+model Godown {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  inCharge String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  products       Product[]
+  purchaseOrders PurchaseOrder[]
+  salesOrders    SalesOrder[]
+  hireSales      HireSales[]
+  transferFrom   StockTransfer[] @relation("TransferFrom")
+  transferTo     StockTransfer[] @relation("TransferTo")
+}
+
+model InterestPercentage {
+  id            String   @id @default(cuid())
+  percentage    Float
+  effectiveDate DateTime
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Segment {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  products    Product[]
+}
+
+model Capacity {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SRTargetSetup {
+  id          String   @id @default(cuid())
+  employeeId  String
+  month       Int
+  year        Int
+  targetAmount Float
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  employee    Employee @relation(fields: [employeeId], references: [id])
+}
+
+model PaymentOption {
+  id            String          @id @default(cuid())
+  name          String
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  cardTypeSetups CardTypeSetup[]
+  expenses      Expense[]
+  incomes       Income[]
+  salesOrders   SalesOrder[]
+  cashCollections CashCollection[]
+  cashDeliveries CashDelivery[]
+}
+
+model CardType {
+  id            String          @id @default(cuid())
+  name          String
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  cardTypeSetups CardTypeSetup[]
+}
+
+model CardTypeSetup {
+  id              String        @id @default(cuid())
+  paymentOptionId String
+  cardTypeId      String
+  chargePercentage Float        @default(0)
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  paymentOption   PaymentOption @relation(fields: [paymentOptionId], references: [id])
+  cardType        CardType      @relation(fields: [cardTypeId], references: [id])
+}
+
+// ============================================================
+// PRODUCT MASTER
+// ============================================================
+
+model Product {
+  id            String   @id @default(cuid())
+  productCode   String   @unique
+  name          String
+  categoryId    String
+  colorId       String?
+  unit          String?
+  sizeCapacity  String?
+  costPrice     Float    @default(0)
+  salePrice     Float    @default(0)
+  openingStock  Float    @default(0)
+  reorderLevel  Float    @default(0)
+  godownId      String?
+  segmentId     String?
+  companyId     String?
+  image         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  category      Category @relation(fields: [categoryId], references: [id])
+  color         Color?   @relation(fields: [colorId], references: [id])
+  godown        Godown?  @relation(fields: [godownId], references: [id])
+  segment       Segment? @relation(fields: [segmentId], references: [id])
+  company       Company? @relation(fields: [companyId], references: [id])
+  stockEntries       StockEntry[]
+  poLines            PurchaseOrderLine[]
+  salesLines         SalesOrderLine[]
+  orderSheetLines    OrderSheetLine[]
+  transferLines      StockTransferLine[]
+  hireSalesLines     HireSalesLine[]
+  replacementLines   ReplacementOrderLine[]
+  salesReturnLines   SalesReturnLine[]
+  purchaseReturnLines PurchaseReturnLine[]
+}
+
+// ============================================================
+// STAFF MANAGEMENT
+// ============================================================
+
+model Designation {
+  id           String     @id @default(cuid())
+  name         String
+  departmentId String
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  department   Department @relation(fields: [departmentId], references: [id])
+  employees    Employee[]
+}
+
+model Employee {
+  id            String          @id @default(cuid())
+  employeeCode  String          @unique
+  name          String
+  designationId String
+  departmentId  String
+  joiningDate   DateTime
+  phone         String?
+  address       String?
+  photo         String?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  designation   Designation     @relation(fields: [designationId], references: [id])
+  department    Department      @relation(fields: [departmentId], references: [id])
+  leaves        EmployeeLeave[]
+  srTargets     SRTargetSetup[]
+}
+
+model EmployeeLeave {
+  id          String   @id @default(cuid())
+  employeeId  String
+  leaveType   String
+  fromDate    DateTime
+  toDate      DateTime
+  reason      String?
+  status      String   @default("Pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  employee    Employee @relation(fields: [employeeId], references: [id])
+}
+
+// ============================================================
+// CUSTOMERS & SUPPLIERS
+// ============================================================
+
+model Customer {
+  id              String          @id @default(cuid())
+  customerCode    String          @unique
+  name            String
+  phone           String?
+  address         String?
+  openingBalance  Float           @default(0)
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  salesOrders     SalesOrder[]
+  hireSales       HireSales[]
+  salesReturns    SalesReturn[]
+  cashCollections CashCollection[]
+}
+
+model Supplier {
+  id              String           @id @default(cuid())
+  supplierCode    String           @unique
+  name            String
+  phone           String?
+  address         String?
+  openingBalance  Float            @default(0)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  purchaseOrders  PurchaseOrder[]
+  purchaseReturns PurchaseReturn[]
+  cashDeliveries  CashDelivery[]
+}
+
+// ============================================================
+// INVENTORY - ORDER SHEET & PURCHASE ORDER
+// ============================================================
+
+model OrderSheet {
+  id          String           @id @default(cuid())
+  sheetNo     String           @unique
+  date        DateTime
+  status      String           @default("Draft")
+  notes       String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  lines       OrderSheetLine[]
+}
+
+model OrderSheetLine {
+  id           String     @id @default(cuid())
+  orderSheetId String
+  productId    String
+  quantity     Float
+  rate         Float
+  total        Float
+  notes        String?
+  orderSheet   OrderSheet @relation(fields: [orderSheetId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
+}
+
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  poNumber     String              @unique
+  supplierId   String
+  date         DateTime
+  godownId     String?
+  status       String              @default("Draft")
+  notes        String?
+  grandTotal   Float               @default(0)
+  isActive     Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+  godown       Godown?             @relation(fields: [godownId], references: [id])
+  lines        PurchaseOrderLine[]
+  purchaseReturn PurchaseReturn[]
+}
+
+model PurchaseOrderLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Float
+  rate            Float
+  total           Float
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product         Product       @relation(fields: [productId], references: [id])
+}
+
+// ============================================================
+// INVENTORY - SALES ORDER
+// ============================================================
+
+model SalesOrder {
+  id              String           @id @default(cuid())
+  invoiceNo       String           @unique
+  customerId      String
+  date            DateTime
+  godownId        String?
+  discount        Float            @default(0)
+  grandTotal      Float            @default(0)
+  paymentOptionId String?
+  status          String           @default("Draft")
+  notes           String?
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  customer        Customer         @relation(fields: [customerId], references: [id])
+  godown          Godown?          @relation(fields: [godownId], references: [id])
+  paymentOption   PaymentOption?   @relation(fields: [paymentOptionId], references: [id])
+  lines           SalesOrderLine[]
+  salesReturns    SalesReturn[]
+  replacements    ReplacementOrder[]
+}
+
+model SalesOrderLine {
+  id           String      @id @default(cuid())
+  salesOrderId String
+  productId    String
+  quantity     Float
+  rate         Float
+  total        Float
+  salesOrder   SalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product      Product     @relation(fields: [productId], references: [id])
+}
+
+// ============================================================
+// INVENTORY - HIRE SALES
+// ============================================================
+
+model HireSales {
+  id           String          @id @default(cuid())
+  invoiceNo    String          @unique
+  customerId   String
+  date         DateTime
+  godownId     String?
+  hireRate     Float           @default(0)
+  duration     String?
+  returnDate   DateTime?
+  grandTotal   Float           @default(0)
+  status       String          @default("Active")
+  notes        String?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  customer     Customer        @relation(fields: [customerId], references: [id])
+  godown       Godown?         @relation(fields: [godownId], references: [id])
+  lines        HireSalesLine[]
+}
+
+model HireSalesLine {
+  id           String     @id @default(cuid())
+  hireSalesId  String
+  productId    String
+  quantity     Float
+  rate         Float
+  total        Float
+  hireSales    HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id])
+}
+
+// ============================================================
+// INVENTORY - RETURNS
+// ============================================================
+
+model SalesReturn {
+  id            String           @id @default(cuid())
+  returnNo      String           @unique
+  salesOrderId  String
+  customerId    String
+  date          DateTime
+  reason        String?
+  grandTotal    Float            @default(0)
+  status        String           @default("Pending")
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  salesOrder    SalesOrder       @relation(fields: [salesOrderId], references: [id])
+  customer      Customer         @relation(fields: [customerId], references: [id])
+  lines         SalesReturnLine[]
+}
+
+model SalesReturnLine {
+  id            String      @id @default(cuid())
+  salesReturnId String
+  productId     String
+  quantity      Float
+  rate          Float
+  total         Float
+  salesReturn   SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  product       Product     @relation(fields: [productId], references: [id])
+}
+
+model PurchaseReturn {
+  id              String             @id @default(cuid())
+  returnNo        String             @unique
+  purchaseOrderId String
+  supplierId      String
+  date            DateTime
+  reason          String?
+  grandTotal      Float              @default(0)
+  status          String             @default("Pending")
+  isActive        Boolean            @default(true)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  lines           PurchaseReturnLine[]
+}
+
+model PurchaseReturnLine {
+  id               String        @id @default(cuid())
+  purchaseReturnId String
+  productId        String
+  quantity         Float
+  rate             Float
+  total            Float
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  product          Product        @relation(fields: [productId], references: [id])
+}
+
+// ============================================================
+// INVENTORY - REPLACEMENT ORDER
+// ============================================================
+
+model ReplacementOrder {
+  id            String                @id @default(cuid())
+  replacementNo String                @unique
+  salesOrderId  String?
+  date          DateTime
+  reason        String?
+  status        String                @default("Pending")
+  isActive      Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  salesOrder    SalesOrder?           @relation(fields: [salesOrderId], references: [id])
+  lines         ReplacementOrderLine[]
+}
+
+model ReplacementOrderLine {
+  id                String           @id @default(cuid())
+  replacementOrderId String
+  productId         String
+  quantity          Float
+  rate              Float
+  total             Float
+  replacementOrder  ReplacementOrder @relation(fields: [replacementOrderId], references: [id], onDelete: Cascade)
+  product           Product          @relation(fields: [productId], references: [id])
+}
+
+// ============================================================
+// STOCK MANAGEMENT
+// ============================================================
+
+model StockEntry {
+  id          String   @id @default(cuid())
+  productId   String
+  godownId    String?
+  type        String   // "IN" or "OUT"
+  quantity    Float
+  reference   String?  // PO number, Invoice number, etc.
+  referenceType String? // "PurchaseOrder", "SalesOrder", "Transfer", "Return", "Adjustment"
+  date        DateTime
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+model StockTransfer {
+  id          String              @id @default(cuid())
+  transferNo  String              @unique
+  fromGodownId String
+  toGodownId   String
+  date        DateTime
+  status      String              @default("Pending")
+  notes       String?
+  isActive    Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  fromGodown  Godown              @relation("TransferFrom", fields: [fromGodownId], references: [id])
+  toGodown    Godown              @relation("TransferTo", fields: [toGodownId], references: [id])
+  lines       StockTransferLine[]
+}
+
+model StockTransferLine {
+  id              String        @id @default(cuid())
+  stockTransferId String
+  productId       String
+  quantity        Float
+  stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product         Product       @relation(fields: [productId], references: [id])
+}
+
+// ============================================================
+// ACCOUNT MANAGEMENT
+// ============================================================
+
+model ExpenseIncomeHead {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   // "Expense" or "Income"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expenses  Expense[]
+  incomes   Income[]
+}
+
+model Expense {
+  id               String            @id @default(cuid())
+  date             DateTime
+  headId           String
+  amount           Float
+  paymentOptionId  String?
+  bankId           String?
+  description      String?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  head             ExpenseIncomeHead @relation(fields: [headId], references: [id])
+  paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
+  bank             Bank?             @relation(fields: [bankId], references: [id])
+}
+
+model Income {
+  id               String            @id @default(cuid())
+  date             DateTime
+  headId           String
+  amount           Float
+  paymentOptionId  String?
+  bankId           String?
+  description      String?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  head             ExpenseIncomeHead @relation(fields: [headId], references: [id])
+  paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
+  bank             Bank?             @relation(fields: [bankId], references: [id])
+}
+
+model CashCollection {
+  id              String         @id @default(cuid())
+  customerId      String
+  date            DateTime
+  amount          Float
+  paymentOptionId String?
+  bankId          String?
+  description     String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  customer        Customer       @relation(fields: [customerId], references: [id])
+  paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
+  bank            Bank?          @relation(fields: [bankId], references: [id])
+}
+
+model CashDelivery {
+  id              String         @id @default(cuid())
+  supplierId      String
+  date            DateTime
+  amount          Float
+  paymentOptionId String?
+  bankId          String?
+  description     String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  supplier        Supplier       @relation(fields: [supplierId], references: [id])
+  paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
+  bank            Bank?          @relation(fields: [bankId], references: [id])
+}
+
+model BankTransaction {
+  id          String   @id @default(cuid())
+  bankId      String
+  date        DateTime
+  type        String   // "Deposit", "Withdraw"
+  amount      Float
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  bank        Bank     @relation(fields: [bankId], references: [id])
+}
+
+// ============================================================
+// SMS SERVICE
+// ============================================================
+
+model SmsSetting {
+  id        String   @id @default(cuid())
+  apiUrl    String
+  apiKey    String
+  senderId  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SmsLog {
+  id          String   @id @default(cuid())
+  recipient   String
+  message     String
+  status      String   @default("Pending")
+  sentAt      DateTime @default(now())
+  cost        Float    @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SmsBill {
+  id          String          @id @default(cuid())
+  period      String
+  totalSms    Int             @default(0)
+  totalCost   Float           @default(0)
+  paidAmount  Float           @default(0)
+  status      String          @default("Unpaid")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  payments    SmsBillPayment[]
+}
+
+model SmsBillPayment {
+  id        String   @id @default(cuid())
+  smsBillId String
+  amount    Float
+  date      DateTime
+  method    String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  smsBill   SmsBill  @relation(fields: [smsBillId], references: [id])
+}
+
+// ============================================================
+// LEDGER (for accounting reports)
+// ============================================================
+
+model LedgerEntry {
+  id          String   @id @default(cuid())
+  date        DateTime
+  account     String
+  particulars String?
+  debit       Float    @default(0)
+  credit      Float    @default(0)
+  reference   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
