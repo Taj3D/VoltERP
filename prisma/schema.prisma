@@ -757,3 +757,20 @@ model LedgerEntry {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "IMPORT"
+  module      String   // "Products", "PurchaseOrders", "SalesOrders", etc.
+  recordId    String?  // ID of the affected record
+  recordLabel String?  // Human-readable label for the record
+  userId      String?  // Who performed the action
+  userName    String?  // Display name of the user
+  details     String?  // JSON string with before/after data
+  ip          String?
+  createdAt   DateTime @default(now())
+}

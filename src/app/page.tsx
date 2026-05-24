@@ -14,7 +14,8 @@ import {
   ArrowUpRight, ArrowDownRight, Activity, ShoppingCart as CartIcon,
   FileSpreadsheet, FileText as FileTextIcon, Bell, LogOut, User,
   Calendar, Clock, Zap, Target, BarChart, PieChart as PieChartIcon,
-  CircleDollarSign, Wallet, ShoppingBag, Tag, Hash, Award
+  CircleDollarSign, Wallet, ShoppingBag, Tag, Hash, Award,
+  Lock, LogIn, ChevronLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,7 +58,7 @@ type PageKey =
   | "cash-in-hand" | "trial-balance" | "profit-loss" | "balance-sheet"
   | "basic-report" | "purchase-report" | "sales-report"
   | "hire-sales-report" | "sr-report" | "customer-wise-report"
-  | "advance-search" | "bank-report" | "transfer-report";
+  | "advance-search" | "bank-report" | "transfer-report" | "audit-log";
 
 interface SidebarGroup {
   label: string;
@@ -200,6 +201,7 @@ const sidebarGroups: SidebarGroup[] = [
       { key: "advance-search", label: "Advance Search", icon: <Search className="h-4 w-4" /> },
       { key: "bank-report", label: "Bank Report", icon: <Banknote className="h-4 w-4" /> },
       { key: "transfer-report", label: "Transfer Report", icon: <ArrowRightLeft className="h-4 w-4" /> },
+      { key: "audit-log", label: "Audit Log", icon: <FileText className="h-4 w-4" /> },
     ],
   },
 ];
@@ -804,6 +806,285 @@ function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Recent Activity */}
+      <RecentActivityTimeline />
+    </div>
+  );
+}
+
+function RecentActivityTimeline() {
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [actLoading, setActLoading] = useState(true);
+
+  React.useEffect(() => {
+    fetch("/api/audit-logs?limit=5")
+      .then((r) => r.json())
+      .then((d) => {
+        setActivityLogs(d.logs || []);
+        setActLoading(false);
+      })
+      .catch(() => setActLoading(false));
+  }, []);
+
+  const actionConfig: Record<string, { color: string; bg: string; icon: React.ReactNode }> = {
+    CREATE: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", icon: <Plus className="h-3.5 w-3.5" /> },
+    UPDATE: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", icon: <Pencil className="h-3.5 w-3.5" /> },
+    DELETE: { color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30", icon: <Trash2 className="h-3.5 w-3.5" /> },
+    LOGIN: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30", icon: <User className="h-3.5 w-3.5" /> },
+    EXPORT: { color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30", icon: <FileDown className="h-3.5 w-3.5" /> },
+  };
+
+  const formatTimeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  };
+
+  return (
+    <Card className="border-border page-slide-in">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+          <Activity className="h-5 w-5 text-primary" />
+          Recent Activity
+        </CardTitle>
+        <CardDescription className="text-slate-500 dark:text-slate-400">Latest system actions</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {actLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-10 bg-slate-200 dark:bg-slate-700 rounded shimmer" />
+            ))}
+          </div>
+        ) : activityLogs.length === 0 ? (
+          <p className="text-slate-400 dark:text-slate-500 text-sm text-center py-4">No recent activity</p>
+        ) : (
+          <div className="space-y-3 stagger-children">
+            {activityLogs.map((log: any) => {
+              const cfg = actionConfig[log.action] || { color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800", icon: <Activity className="h-3.5 w-3.5" /> };
+              return (
+                <div key={log.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+                  <div className={`w-8 h-8 rounded-full ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
+                    <span className={cfg.color}>{cfg.icon}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-900 dark:text-white truncate">{log.recordLabel || log.module}</span>
+                      <Badge variant="outline" className={`${cfg.color} border-0 text-[10px] px-1.5 py-0 ${cfg.bg}`}>{log.action}</Badge>
+                    </div>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{log.module} {log.userName ? `· ${log.userName}` : ""}</p>
+                  </div>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {formatTimeAgo(log.createdAt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================
+// AUDIT LOG PAGE
+// ============================================================
+
+function AuditLogPage() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [moduleFilter, setModuleFilter] = useState("all");
+  const [actionFilter, setActionFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [modules, setModules] = useState<string[]>([]);
+  const [actions, setActions] = useState<string[]>([]);
+  const [visibleCount, setVisibleCount] = useState(20);
+
+  const loadLogs = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (moduleFilter && moduleFilter !== "all") params.set("module", moduleFilter);
+    if (actionFilter && actionFilter !== "all") params.set("action", actionFilter);
+    if (searchQuery) params.set("search", searchQuery);
+    params.set("limit", "100");
+    fetch(`/api/audit-logs?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setLogs(d.logs || []);
+        setTotal(d.total || 0);
+        setModules(d.modules || []);
+        setActions(d.actions || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [moduleFilter, actionFilter, searchQuery]);
+
+  React.useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  const actionConfig: Record<string, { color: string; bg: string; icon: React.ReactNode }> = {
+    CREATE: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", icon: <Plus className="h-4 w-4" /> },
+    UPDATE: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", icon: <Pencil className="h-4 w-4" /> },
+    DELETE: { color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30", icon: <Trash2 className="h-4 w-4" /> },
+    LOGIN: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30", icon: <User className="h-4 w-4" /> },
+    EXPORT: { color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30", icon: <FileDown className="h-4 w-4" /> },
+    IMPORT: { color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-100 dark:bg-cyan-900/30", icon: <Upload className="h-4 w-4" /> },
+  };
+
+  const formatTimeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString();
+  };
+
+  const visibleLogs = logs.slice(0, visibleCount);
+  const hasMore = visibleCount < logs.length;
+
+  return (
+    <div className="space-y-6 page-slide-in">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <FileText className="h-6 w-6 text-primary" />
+            Audit Log
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Track all system activities and changes</p>
+        </div>
+        <Badge variant="outline" className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 py-1.5 px-3 self-start">
+          {total} total entries
+        </Badge>
+      </div>
+
+      {/* Filters */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Search audit logs..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 bg-white dark:bg-navy-900/50 border-slate-200 dark:border-slate-700"
+              />
+            </div>
+            <Select value={moduleFilter} onValueChange={setModuleFilter}>
+              <SelectTrigger className="w-full sm:w-44 bg-white dark:bg-navy-900/50 border-slate-200 dark:border-slate-700">
+                <SelectValue placeholder="Module" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Modules</SelectItem>
+                {modules.map((m) => (
+                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={actionFilter} onValueChange={setActionFilter}>
+              <SelectTrigger className="w-full sm:w-44 bg-white dark:bg-navy-900/50 border-slate-200 dark:border-slate-700">
+                <SelectValue placeholder="Action" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Actions</SelectItem>
+                {actions.map((a) => (
+                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Timeline */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+            <Activity className="h-5 w-5 text-primary" />
+            Activity Timeline
+          </CardTitle>
+          <CardDescription className="text-slate-500 dark:text-slate-400">
+            Showing {visibleLogs.length} of {logs.length} entries
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-4">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex gap-4 items-start">
+                  <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 shimmer" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded shimmer w-3/4" />
+                    <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded shimmer w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : visibleLogs.length === 0 ? (
+            <div className="flex flex-col items-center py-12 gap-2">
+              <FileText className="h-10 w-10 text-slate-300 dark:text-slate-600" />
+              <p className="text-slate-500 dark:text-slate-400 text-sm">No audit logs found</p>
+              <p className="text-slate-400 dark:text-slate-500 text-xs">Try adjusting your filters</p>
+            </div>
+          ) : (
+            <div className="relative stagger-children">
+              {/* Timeline vertical line */}
+              <div className="absolute left-5 top-0 bottom-0 w-0.5 audit-timeline-line" />
+              <div className="space-y-4">
+                {visibleLogs.map((log: any) => {
+                  const cfg = actionConfig[log.action] || { color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800", icon: <Activity className="h-4 w-4" /> };
+                  return (
+                    <div key={log.id} className="relative flex gap-4 items-start">
+                      <div className={`relative z-10 w-10 h-10 rounded-full ${cfg.bg} flex items-center justify-center flex-shrink-0 ${log === visibleLogs[0] ? "timeline-dot-pulse" : ""}`}>
+                        <span className={cfg.color}>{cfg.icon}</span>
+                      </div>
+                      <div className="flex-1 min-w-0 pb-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={`${cfg.color} ${cfg.bg} border-0 text-xs font-semibold px-2 py-0.5`}>
+                              {log.action}
+                            </Badge>
+                            <span className="text-sm font-medium text-slate-900 dark:text-white">{log.module}</span>
+                          </div>
+                          <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {formatTimeAgo(log.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5 truncate">
+                          {log.recordLabel || log.details || "—"}
+                        </p>
+                        {log.userName && (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">by {log.userName}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {hasMore && (
+            <div className="mt-4 text-center">
+              <Button variant="outline" onClick={() => setVisibleCount((c) => c + 20)} className="text-slate-600 dark:text-slate-300">
+                Load More ({logs.length - visibleCount} remaining)
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -858,6 +1139,8 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
   const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({});
   const [importOpen, setImportOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -992,7 +1275,7 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
       <DataTable
         title={config.title}
         columns={config.columns}
-        data={data}
+        data={data.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)}
         onAdd={openAdd}
         onEdit={openEdit}
         onDelete={handleDelete}
@@ -1001,6 +1284,50 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
         onExportPDF={handleExportPDF}
         addLabel={`Add ${singularize(config.title)}`}
       />
+
+      {/* Pagination */}
+      {data.length > itemsPerPage && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-2 page-slide-in">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Showing {Math.min((currentPage - 1) * itemsPerPage + 1, data.length)}-{Math.min(currentPage * itemsPerPage, data.length)} of {data.length} records
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="text-slate-600 dark:text-slate-300"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            {Array.from({ length: Math.ceil(data.length / itemsPerPage) }, (_, i) => i + 1)
+              .filter((p) => p === 1 || p === Math.ceil(data.length / itemsPerPage) || Math.abs(p - currentPage) <= 1)
+              .map((p, idx, arr) => (
+                <React.Fragment key={p}>
+                  {idx > 0 && arr[idx - 1] !== p - 1 && <span className="px-1 text-slate-400">...</span>}
+                  <Button
+                    variant={p === currentPage ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCurrentPage(p)}
+                    className={p === currentPage ? "bg-primary text-primary-foreground" : "text-slate-600 dark:text-slate-300"}
+                  >
+                    {p}
+                  </Button>
+                </React.Fragment>
+              ))}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage >= Math.ceil(data.length / itemsPerPage)}
+              onClick={() => setCurrentPage((p) => p + 1)}
+              className="text-slate-600 dark:text-slate-300"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
@@ -1736,6 +2063,7 @@ function ProductsPage() {
 }
 
 // Placeholder for complex pages
+
 function PlaceholderPage({ title, description }: { title: string; description: string }) {
   return (
     <div className="space-y-6">
@@ -9826,6 +10154,131 @@ function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 // ============================================================
+// LOGIN PAGE
+// ============================================================
+
+function LoginPage({ onLogin }: { onLogin: (user: { id: string; email: string; name: string; role: string }) => void }) {
+  const { theme } = useTheme();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [successAnim, setSuccessAnim] = useState(false);
+  const { toast } = useToast();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Login failed");
+        setLoading(false);
+        return;
+      }
+      setSuccessAnim(true);
+      if (remember) {
+        localStorage.setItem("ems_user", JSON.stringify(data));
+      }
+      toast({ title: "Welcome back!", description: `Logged in as ${data.name}` });
+      setTimeout(() => onLogin(data), 300);
+    } catch {
+      setError("Network error. Please try again.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className={`min-h-screen flex items-center justify-center login-bg-pattern bg-gradient-to-br from-navy-950 via-navy-900 to-navy-800 p-4 ${successAnim ? "success-pop" : ""}`}>
+      <div className="glass-strong rounded-2xl p-8 w-full max-w-md shadow-2xl">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-primary to-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-primary/30 mb-4">
+            <Package className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-white">Electronics Mart</h1>
+          <p className="text-navy-300 text-sm mt-1">Inventory Management System</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-300 text-sm text-center">
+              {error}
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label className="text-navy-200 text-sm font-medium">Email Address</Label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-navy-400" />
+              <Input
+                type="email"
+                placeholder="admin@electronics.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-navy-400 focus:ring-2 focus:ring-primary/40 focus:border-primary/50"
+                required
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-navy-200 text-sm font-medium">Password</Label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-navy-400" />
+              <Input
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-navy-400 focus:ring-2 focus:ring-primary/40 focus:border-primary/50"
+                required
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={remember}
+                onCheckedChange={(v) => setRemember(!!v)}
+                className="border-navy-400 data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+              />
+              <span className="text-sm text-navy-300">Remember me</span>
+            </div>
+            <button type="button" className="text-sm text-primary hover:text-primary/80 transition-colors">
+              Forgot password?
+            </button>
+          </div>
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-2.5 btn-press shadow-lg shadow-primary/20"
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <RefreshCcw className="h-4 w-4 animate-spin" /> Signing in...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <LogIn className="h-4 w-4" /> Sign In
+              </span>
+            )}
+          </Button>
+        </form>
+
+        <p className="text-center text-navy-400 text-xs mt-6">
+          Default: admin@electronics.com / admin123
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN APP COMPONENT
 // ============================================================
 
@@ -9836,6 +10289,29 @@ function AppContent() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Dashboard", "Basic Setup", "Inventory", "Products"]));
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
+  const [user, setUser] = useState<{ id: string; email: string; name: string; role: string } | null>(null);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+
+  // Restore user from localStorage on mount
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem("ems_user");
+      if (stored) {
+        setUser(JSON.parse(stored));
+      }
+    } catch {}
+  }, []);
+
+  const handleLogin = (userData: { id: string; email: string; name: string; role: string }) => {
+    setUser(userData);
+    localStorage.setItem("ems_user", JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("ems_user");
+    setUserDropdownOpen(false);
+  };
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
@@ -9862,6 +10338,10 @@ function AppContent() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  if (!user) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   const renderPage = () => {
     if (currentPage === "dashboard") return <DashboardPage />;
@@ -9910,6 +10390,7 @@ function AppContent() {
     if (currentPage === "sms-reports") return <SmsReportsPage />;
     if (currentPage === "bulk-sms") return <BulkSmsPage />;
     if (currentPage === "employee-leaves") return <EmployeeLeavePage />;
+    if (currentPage === "audit-log") return <AuditLogPage />;
     const config = moduleConfigs[currentPage];
     if (config) return <GenericModulePage config={config} />;
     // Placeholder for remaining complex modules
@@ -9977,14 +10458,35 @@ function AppContent() {
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center pulse-dot font-medium">3</span>
             </Button>
             <Separator orientation="vertical" className="h-6 bg-navy-700" />
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-navy-700 rounded-full flex items-center justify-center">
-                <User className="h-4 w-4" />
-              </div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-medium leading-tight">Admin</p>
-                <p className="text-[10px] text-navy-300">admin@electronicsmart.com</p>
-              </div>
+            <div className="relative">
+              <button
+                onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                className="flex items-center gap-2 hover:bg-navy-800 rounded-lg px-2 py-1 transition-colors"
+              >
+                <div className="w-8 h-8 bg-navy-700 rounded-full flex items-center justify-center">
+                  <User className="h-4 w-4" />
+                </div>
+                <div className="hidden sm:block text-left">
+                  <p className="text-sm font-medium leading-tight">{user?.name || "Admin"}</p>
+                  <p className="text-[10px] text-navy-300">{user?.email || "admin@electronicsmart.com"}</p>
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 text-navy-400 hidden sm:block" />
+              </button>
+              {userDropdownOpen && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-navy-900 rounded-lg border border-border shadow-lg z-50 py-1">
+                  <div className="px-3 py-2 border-b border-border">
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{user?.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{user?.role || "admin"}</p>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Log Out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -9993,7 +10495,7 @@ function AppContent() {
       <div className="flex flex-1">
         {/* Mobile sidebar overlay */}
         {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="fixed inset-0 z-40 bg-black/50 sidebar-overlay lg:hidden" onClick={() => setMobileSidebarOpen(false)} />
         )}
 
         {/* Sidebar */}
@@ -10010,7 +10512,7 @@ function AppContent() {
                 {group.items.length === 1 ? (
                   <button
                     onClick={() => handleNav(group.items[0].key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-200 rounded-r-lg ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-200 rounded-r-lg btn-press ${
                       currentPage === group.items[0].key
                         ? "bg-primary/90 text-white shadow-md shadow-primary/20 sidebar-item-active"
                         : "text-navy-300 hover:bg-navy-900/80 hover:text-white"
@@ -10041,7 +10543,7 @@ function AppContent() {
                           <button
                             key={item.key}
                             onClick={() => handleNav(item.key)}
-                            className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm rounded-md transition-all duration-200 ${
+                            className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm rounded-md transition-all duration-200 btn-press ${
                               currentPage === item.key
                                 ? "bg-primary/90 text-white shadow-sm shadow-primary/20 font-medium"
                                 : "text-navy-400 hover:bg-navy-800/80 hover:text-white"
@@ -10096,7 +10598,7 @@ function AppContent() {
               );
             })()}
           </div>
-          <div className="p-4 sm:p-6 lg:p-8 flex-1 page-enter">
+          <div className="p-4 sm:p-6 lg:p-8 flex-1 page-slide-in page-enter">
             {renderPage()}
           </div>
           {/* Footer */}

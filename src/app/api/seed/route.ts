@@ -679,6 +679,29 @@ export async function POST() {
         tx.ledgerEntry.create({ data: { date: oneMonthAgo, account: 'Rent Expense', particulars: 'Showroom rent February', debit: 65000, credit: 0, reference: 'EXP-001' } }),
         tx.ledgerEntry.create({ data: { date: oneWeekAgo, account: 'Salary Expense', particulars: 'Staff payroll February', debit: 320000, credit: 0, reference: 'EXP-004' } }),
       ]);
+
+      // ============================================================
+      // 18. DEFAULT ADMIN USER
+      // ============================================================
+      await tx.user.create({
+        data: { email: 'admin@electronics.com', name: 'Admin User', password: 'admin123', role: 'admin', isActive: true },
+      });
+
+      // ============================================================
+      // 19. SAMPLE AUDIT LOGS
+      // ============================================================
+      await Promise.all([
+        tx.auditLog.create({ data: { action: 'LOGIN', module: 'Auth', recordLabel: 'admin@electronics.com', userName: 'Admin User', createdAt: new Date(today.getTime() - 3600000) } }),
+        tx.auditLog.create({ data: { action: 'CREATE', module: 'Products', recordLabel: 'Samsung Galaxy S24 Ultra', userName: 'Admin User', createdAt: new Date(today.getTime() - 7200000) } }),
+        tx.auditLog.create({ data: { action: 'UPDATE', module: 'Products', recordLabel: 'LG 1.5 Ton AC', userName: 'Admin User', createdAt: new Date(today.getTime() - 10800000) } }),
+        tx.auditLog.create({ data: { action: 'CREATE', module: 'SalesOrders', recordLabel: 'INV-001', userName: 'Admin User', createdAt: new Date(today.getTime() - 14400000) } }),
+        tx.auditLog.create({ data: { action: 'EXPORT', module: 'Products', recordLabel: 'products.csv', userName: 'Admin User', createdAt: new Date(today.getTime() - 18000000) } }),
+        tx.auditLog.create({ data: { action: 'CREATE', module: 'PurchaseOrders', recordLabel: 'PO-001', userName: 'Admin User', createdAt: new Date(today.getTime() - 86400000) } }),
+        tx.auditLog.create({ data: { action: 'DELETE', module: 'Products', recordLabel: 'Old Model TV', userName: 'Admin User', createdAt: new Date(today.getTime() - 172800000) } }),
+        tx.auditLog.create({ data: { action: 'CREATE', module: 'Customers', recordLabel: 'Rahim Electronics', userName: 'Admin User', createdAt: new Date(today.getTime() - 259200000) } }),
+        tx.auditLog.create({ data: { action: 'UPDATE', module: 'Banks', recordLabel: 'Dutch Bangla Bank', userName: 'Admin User', createdAt: new Date(today.getTime() - 345600000) } }),
+        tx.auditLog.create({ data: { action: 'IMPORT', module: 'Products', recordLabel: '15 records', userName: 'Admin User', createdAt: new Date(today.getTime() - 432000000) } }),
+      ]);
     });
 
     return NextResponse.json({

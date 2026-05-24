@@ -331,3 +331,225 @@ button:focus-visible {
 .dialog-backdrop {
   backdrop-filter: blur(4px);
 }
+
+/* ============================================================
+   PHASE 6: ADVANCED STYLING ENHANCEMENTS
+   ============================================================ */
+
+/* Glass morphism effect */
+.glass {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.glass-strong {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+:not(.dark) .glass {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+:not(.dark) .glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Skeleton loading animation */
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.skeleton {
+  background: linear-gradient(90deg, oklch(0.92 0.003 260) 25%, oklch(0.96 0.003 260) 50%, oklch(0.92 0.003 260) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, oklch(0.22 0.02 260) 25%, oklch(0.28 0.025 260) 50%, oklch(0.22 0.02 260) 75%);
+  background-size: 200% 100%;
+}
+
+/* Page transition animations */
+@keyframes pageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes pageFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.page-slide-in {
+  animation: pageSlideIn 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Stagger children animation */
+@keyframes staggerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.stagger-children > * {
+  animation: staggerFadeIn 0.4s ease-out both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+/* Activity timeline dot pulse */
+@keyframes timelinePulse {
+  0% { box-shadow: 0 0 0 0 oklch(0.55 0.18 260 / 0.4); }
+  70% { box-shadow: 0 0 0 8px oklch(0.55 0.18 260 / 0); }
+  100% { box-shadow: 0 0 0 0 oklch(0.55 0.18 260 / 0); }
+}
+.timeline-dot-pulse {
+  animation: timelinePulse 2s infinite;
+}
+
+/* Floating label animation */
+@keyframes floatLabel {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.float-label-enter {
+  animation: floatLabel 0.2s ease-out;
+}
+
+/* Card border gradient animation */
+@keyframes borderGlow {
+  0%, 100% { border-color: oklch(0.55 0.18 260 / 0.3); }
+  50% { border-color: oklch(0.55 0.18 260 / 0.6); }
+}
+.card-border-glow {
+  animation: borderGlow 3s ease-in-out infinite;
+}
+
+/* Tooltip arrow */
+.tooltip-arrow {
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+/* Status indicator colors */
+.status-active { background: oklch(0.72 0.19 142.5); }
+.status-pending { background: oklch(0.75 0.183 55); }
+.status-confirmed { background: oklch(0.62 0.19 250); }
+.status-rejected { background: oklch(0.58 0.2 25); }
+.status-draft { background: oklch(0.7 0.015 260); }
+
+/* Enhanced table row styles */
+.table-row-hover {
+  transition: all 0.15s ease;
+}
+.table-row-hover:hover {
+  background-color: oklch(0.96 0.008 260);
+}
+.dark .table-row-hover:hover {
+  background-color: oklch(0.2 0.025 260);
+}
+.table-row-selected {
+  background-color: oklch(0.94 0.015 260) !important;
+}
+.dark .table-row-selected {
+  background-color: oklch(0.22 0.04 260) !important;
+}
+
+/* Login page background pattern */
+.login-bg-pattern {
+  background-image: 
+    radial-gradient(circle at 25% 25%, oklch(0.45 0.15 260 / 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, oklch(0.55 0.18 260 / 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, oklch(0.4 0.12 260 / 0.04) 0%, transparent 70%);
+}
+.dark .login-bg-pattern {
+  background-image: 
+    radial-gradient(circle at 25% 25%, oklch(0.35 0.12 260 / 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, oklch(0.45 0.15 260 / 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, oklch(0.3 0.1 260 / 0.08) 0%, transparent 70%);
+}
+
+/* Audit log timeline styles */
+.audit-timeline-line {
+  background: linear-gradient(to bottom, oklch(0.55 0.18 260 / 0.3), oklch(0.55 0.18 260 / 0.05));
+}
+
+/* Enhanced button press effect */
+.btn-press {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+.btn-press:active {
+  transform: scale(0.97);
+}
+
+/* Confetti-like success animation */
+@keyframes successPop {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.success-pop {
+  animation: successPop 0.3s ease-out;
+}
+
+/* Smooth counter animation for KPI values */
+@keyframes counterSlide {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.counter-animate {
+  animation: counterSlide 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Subtle card depth shadow */
+.card-depth {
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.03),
+    0 4px 8px rgba(0, 0, 0, 0.02);
+}
+.dark .card-depth {
+  box-shadow: 
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 2px 4px rgba(0, 0, 0, 0.15),
+    0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Input focus animation */
+@keyframes inputFocus {
+  from { box-shadow: 0 0 0 0 oklch(0.55 0.18 260 / 0); }
+  to { box-shadow: 0 0 0 3px oklch(0.55 0.18 260 / 0.15); }
+}
+input:focus, select:focus, textarea:focus {
+  animation: inputFocus 0.2s ease-out;
+}
+
+/* Responsive sidebar overlay blur */
+.sidebar-overlay {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
