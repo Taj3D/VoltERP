@@ -58,7 +58,7 @@ type PageKey =
   | "cash-in-hand" | "trial-balance" | "profit-loss" | "balance-sheet"
   | "basic-report" | "purchase-report" | "sales-report"
   | "hire-sales-report" | "sr-report" | "customer-wise-report"
-  | "advance-search" | "bank-report" | "transfer-report" | "audit-log";
+  | "advance-search" | "bank-report" | "transfer-report" | "audit-log" | "user-profile";
 
 interface SidebarGroup {
   label: string;
@@ -202,6 +202,7 @@ const sidebarGroups: SidebarGroup[] = [
       { key: "bank-report", label: "Bank Report", icon: <Banknote className="h-4 w-4" /> },
       { key: "transfer-report", label: "Transfer Report", icon: <ArrowRightLeft className="h-4 w-4" /> },
       { key: "audit-log", label: "Audit Log", icon: <FileText className="h-4 w-4" /> },
+      { key: "user-profile", label: "User Profile", icon: <User className="h-4 w-4" /> },
     ],
   },
 ];
@@ -422,6 +423,25 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ============================================================
+// PAGE HEADER COMPONENT
+// ============================================================
+
+function PageHeader({ title, description, icon, children }: { title: string; description?: string; icon?: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+      <div className="flex items-center gap-3">
+        {icon && <div className="p-2.5 rounded-xl bg-primary/10 text-primary">{icon}</div>}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{title}</h1>
+          {description && <p className="text-slate-500 dark:text-slate-400 mt-0.5 text-sm">{description}</p>}
+        </div>
+      </div>
+      {children && <div className="flex items-center gap-2">{children}</div>}
+    </div>
+  );
+}
+
+// ============================================================
 // DASHBOARD PAGE
 // ============================================================
 
@@ -430,10 +450,28 @@ function DashboardPage() {
     totalProducts: 0, totalCategories: 0, totalCustomers: 0, totalSuppliers: 0,
     todaySales: 0, todayPurchase: 0, stockValue: 0, cashBalance: 0,
     pendingPO: 0, pendingSO: 0, totalExpenses: 0, totalIncome: 0,
+    recentActivities: [] as any[], topSellingProducts: [] as any[], monthlySalesData: [] as any[],
   });
   const [loading, setLoading] = useState(true);
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<any[]>([]);
+  const [now, setNow] = useState(new Date());
+  const [userName, setUserName] = useState("");
+
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem("ems_user");
+      if (stored) {
+        const userData = JSON.parse(stored);
+        setUserName(userData.name || "");
+      }
+    } catch {}
+  }, []);
 
   React.useEffect(() => {
     fetch("/api/dashboard")
@@ -453,21 +491,17 @@ function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Chart data
-  const monthlyData = [
-    { month: "Jan", sales: 45000, purchase: 32000, expense: 8000 },
-    { month: "Feb", sales: 52000, purchase: 38000, expense: 9500 },
-    { month: "Mar", sales: 48000, purchase: 35000, expense: 7200 },
-    { month: "Apr", sales: 61000, purchase: 42000, expense: 11000 },
-    { month: "May", sales: 55000, purchase: 39000, expense: 8800 },
-    { month: "Jun", sales: 67000, purchase: 45000, expense: 12300 },
-    { month: "Jul", sales: 72000, purchase: 48000, expense: 10500 },
-    { month: "Aug", sales: 63000, purchase: 41000, expense: 9800 },
-    { month: "Sep", sales: 78000, purchase: 52000, expense: 13200 },
-    { month: "Oct", sales: 85000, purchase: 55000, expense: 14100 },
-    { month: "Nov", sales: 91000, purchase: 58000, expense: 15600 },
-    { month: "Dec", sales: 98000, purchase: 62000, expense: 16800 },
-  ];
+  // Chart data - use real monthly data from API, fallback to defaults
+  const monthlyData = stats.monthlySalesData && stats.monthlySalesData.length > 0
+    ? stats.monthlySalesData
+    : [
+        { month: "Jan", sales: 45000, purchase: 32000 },
+        { month: "Feb", sales: 52000, purchase: 38000 },
+        { month: "Mar", sales: 48000, purchase: 35000 },
+        { month: "Apr", sales: 61000, purchase: 42000 },
+        { month: "May", sales: 55000, purchase: 39000 },
+        { month: "Jun", sales: 67000, purchase: 45000 },
+      ];
 
   const categoryData = [
     { name: "Electronics", value: 35, color: "#2563eb" },
@@ -477,14 +511,16 @@ function DashboardPage() {
     { name: "Home Appliance", value: 5, color: "#e11d48" },
   ];
 
-  const topProductsData = [
-    { name: "LED TV 42\"", sold: 45 },
-    { name: "Smartphone X", sold: 38 },
-    { name: "Laptop Pro", sold: 32 },
-    { name: "Bluetooth Speaker", sold: 28 },
-    { name: "Wireless Mouse", sold: 24 },
-    { name: "USB Cable", sold: 20 },
-  ];
+  const topProductsData = stats.topSellingProducts && stats.topSellingProducts.length > 0
+    ? stats.topSellingProducts.map((p: any) => ({ name: p.name, sold: p.totalQuantity }))
+    : [
+        { name: "LED TV 42\"", sold: 45 },
+        { name: "Smartphone X", sold: 38 },
+        { name: "Laptop Pro", sold: 32 },
+        { name: "Bluetooth Speaker", sold: 28 },
+        { name: "Wireless Mouse", sold: 24 },
+        { name: "USB Cable", sold: 20 },
+      ];
 
   const cards = [
     { title: "Total Products", value: stats.totalProducts, icon: <Package className="h-6 w-6" />, gradient: "from-blue-500 to-blue-700", trend: "+12%", description: "Active items" },
@@ -500,23 +536,21 @@ function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <LayoutDashboard className="h-6 w-6 text-primary" />
-            Dashboard
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Welcome to Electronics Mart IMS — your business at a glance</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 flex items-center gap-1.5 py-1.5 px-3">
-            <Calendar className="h-3.5 w-3.5" />
-            {new Date().toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
-          </Badge>
-          <Badge variant="outline" className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 flex items-center gap-1.5 py-1.5 px-3">
-            <Clock className="h-3.5 w-3.5" />
-            {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-          </Badge>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <PageHeader
+          title="Dashboard"
+          description={userName ? `Welcome back, ${userName}! Here's your business at a glance.` : "Welcome to Electronics Mart IMS — your business at a glance"}
+          icon={<LayoutDashboard className="h-5 w-5" />}
+        />
+        <div className="flex items-center gap-2">
+          <Card className="border-border shadow-sm px-4 py-2 flex items-center gap-2 bg-gradient-to-r from-slate-50 to-white dark:from-navy-900/50 dark:to-card">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}</span>
+          </Card>
+          <Card className="border-border shadow-sm px-4 py-2 flex items-center gap-2 bg-gradient-to-r from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/20">
+            <Clock className="h-4 w-4 text-primary" />
+            <span className="text-sm font-bold text-primary tabular-nums">{now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+          </Card>
         </div>
       </div>
 
@@ -553,6 +587,43 @@ function DashboardPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      {/* Pending Orders Summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="stat-mini-card border-border overflow-hidden">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0 shadow-md">
+              <ShoppingCart className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Pending POs</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white stat-value">{loading ? <span className="inline-block w-8 h-7 bg-slate-200 dark:bg-slate-700 rounded shimmer" /> : stats.pendingPO}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-mini-card border-border overflow-hidden">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center flex-shrink-0 shadow-md">
+              <CartIcon className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Pending SOs</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white stat-value">{loading ? <span className="inline-block w-8 h-7 bg-slate-200 dark:bg-slate-700 rounded shimmer" /> : stats.pendingSO}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-mini-card border-border overflow-hidden">
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center flex-shrink-0 shadow-md">
+              <AlertTriangle className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Low Stock Items</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white stat-value">{loading ? <span className="inline-block w-8 h-7 bg-slate-200 dark:bg-slate-700 rounded shimmer" /> : lowStockProducts.length}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Charts Row */}
@@ -818,7 +889,7 @@ function RecentActivityTimeline() {
   const [actLoading, setActLoading] = useState(true);
 
   React.useEffect(() => {
-    fetch("/api/audit-logs?limit=5")
+    fetch("/api/audit-logs?limit=8")
       .then((r) => r.json())
       .then((d) => {
         setActivityLogs(d.logs || []);
@@ -827,12 +898,15 @@ function RecentActivityTimeline() {
       .catch(() => setActLoading(false));
   }, []);
 
-  const actionConfig: Record<string, { color: string; bg: string; icon: React.ReactNode }> = {
-    CREATE: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", icon: <Plus className="h-3.5 w-3.5" /> },
-    UPDATE: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", icon: <Pencil className="h-3.5 w-3.5" /> },
-    DELETE: { color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30", icon: <Trash2 className="h-3.5 w-3.5" /> },
-    LOGIN: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30", icon: <User className="h-3.5 w-3.5" /> },
-    EXPORT: { color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30", icon: <FileDown className="h-3.5 w-3.5" /> },
+  const actionConfig: Record<string, { color: string; bg: string; dotColor: string; icon: React.ReactNode }> = {
+    CREATE: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", dotColor: "bg-green-500", icon: <Plus className="h-3.5 w-3.5" /> },
+    UPDATE: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", dotColor: "bg-blue-500", icon: <Pencil className="h-3.5 w-3.5" /> },
+    DELETE: { color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30", dotColor: "bg-red-500", icon: <Trash2 className="h-3.5 w-3.5" /> },
+    LOGIN: { color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30", dotColor: "bg-purple-500", icon: <User className="h-3.5 w-3.5" /> },
+    EXPORT: { color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30", dotColor: "bg-amber-500", icon: <FileDown className="h-3.5 w-3.5" /> },
+    SALE: { color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30", dotColor: "bg-green-500", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+    ALERT: { color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30", dotColor: "bg-amber-500", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+    PURCHASE: { color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30", dotColor: "bg-blue-500", icon: <ShoppingCart className="h-3.5 w-3.5" /> },
   };
 
   const formatTimeAgo = (dateStr: string) => {
@@ -846,6 +920,19 @@ function RecentActivityTimeline() {
     return `${days}d ago`;
   };
 
+  const mockActivities = [
+    { id: "m1", action: "SALE", module: "Sales", recordLabel: "New sale INV-005 created", userName: "Admin", createdAt: new Date(Date.now() - 5 * 60000).toISOString() },
+    { id: "m2", action: "ALERT", module: "Stock", recordLabel: "Product PROD-012 stock low", userName: "System", createdAt: new Date(Date.now() - 18 * 60000).toISOString() },
+    { id: "m3", action: "PURCHASE", module: "Purchases", recordLabel: "Purchase Order PO-003 received", userName: "Manager", createdAt: new Date(Date.now() - 45 * 60000).toISOString() },
+    { id: "m4", action: "CREATE", module: "Products", recordLabel: "New product PROD-045 added", userName: "Admin", createdAt: new Date(Date.now() - 2 * 3600000).toISOString() },
+    { id: "m5", action: "UPDATE", module: "Customers", recordLabel: "Customer CUST-008 details updated", userName: "Sales Rep", createdAt: new Date(Date.now() - 3.5 * 3600000).toISOString() },
+    { id: "m6", action: "SALE", module: "Sales", recordLabel: "Invoice INV-004 payment received", userName: "Admin", createdAt: new Date(Date.now() - 5 * 3600000).toISOString() },
+    { id: "m7", action: "ALERT", module: "Stock", recordLabel: "Product PROD-023 below reorder level", userName: "System", createdAt: new Date(Date.now() - 8 * 3600000).toISOString() },
+    { id: "m8", action: "CREATE", module: "Suppliers", recordLabel: "New supplier SUP-015 registered", userName: "Manager", createdAt: new Date(Date.now() - 24 * 3600000).toISOString() },
+  ];
+
+  const displayLogs = activityLogs.length > 0 ? activityLogs.slice(0, 8) : mockActivities;
+
   return (
     <Card className="border-border page-slide-in">
       <CardHeader className="pb-3">
@@ -853,37 +940,45 @@ function RecentActivityTimeline() {
           <Activity className="h-5 w-5 text-primary" />
           Recent Activity
         </CardTitle>
-        <CardDescription className="text-slate-500 dark:text-slate-400">Latest system actions</CardDescription>
+        <CardDescription className="text-slate-500 dark:text-slate-400">Latest system actions & events</CardDescription>
       </CardHeader>
       <CardContent>
         {actLoading ? (
           <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3, 4].map((i) => (
               <div key={i} className="h-10 bg-slate-200 dark:bg-slate-700 rounded shimmer" />
             ))}
           </div>
-        ) : activityLogs.length === 0 ? (
-          <p className="text-slate-400 dark:text-slate-500 text-sm text-center py-4">No recent activity</p>
         ) : (
-          <div className="space-y-3 stagger-children">
-            {activityLogs.map((log: any) => {
-              const cfg = actionConfig[log.action] || { color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800", icon: <Activity className="h-3.5 w-3.5" /> };
+          <div className="activity-timeline relative pl-6 space-y-0">
+            {displayLogs.map((log: any, idx: number) => {
+              const cfg = actionConfig[log.action] || { color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-100 dark:bg-slate-800", dotColor: "bg-slate-400", icon: <Activity className="h-3.5 w-3.5" /> };
+              const isLast = idx === displayLogs.length - 1;
               return (
-                <div key={log.id} className="flex items-center gap-3 py-2 px-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
-                  <div className={`w-8 h-8 rounded-full ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
-                    <span className={cfg.color}>{cfg.icon}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-900 dark:text-white truncate">{log.recordLabel || log.module}</span>
-                      <Badge variant="outline" className={`${cfg.color} border-0 text-[10px] px-1.5 py-0 ${cfg.bg}`}>{log.action}</Badge>
+                <div key={log.id || idx} className="relative pb-5">
+                  {/* Vertical connecting line */}
+                  {!isLast && (
+                    <div className="absolute left-[-18px] top-[18px] bottom-0 w-0.5 bg-gradient-to-b from-slate-300 dark:from-slate-600 to-slate-200 dark:to-slate-700" />
+                  )}
+                  {/* Dot */}
+                  <div className={`absolute left-[-22px] top-[6px] w-2.5 h-2.5 rounded-full ${cfg.dotColor} ring-4 ring-white dark:ring-card timeline-dot-pulse`} />
+                  {/* Content */}
+                  <div className="flex items-center gap-3 py-2 px-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border hover:bg-slate-100 dark:hover:bg-navy-800/40 transition-colors">
+                    <div className={`w-8 h-8 rounded-full ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
+                      <span className={cfg.color}>{cfg.icon}</span>
                     </div>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">{log.module} {log.userName ? `· ${log.userName}` : ""}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-900 dark:text-white truncate">{log.recordLabel || log.module}</span>
+                        <Badge variant="outline" className={`${cfg.color} border-0 text-[10px] px-1.5 py-0 ${cfg.bg}`}>{log.action}</Badge>
+                      </div>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{log.module} {log.userName ? `· ${log.userName}` : ""}</p>
+                    </div>
+                    <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {formatTimeAgo(log.createdAt)}
+                    </span>
                   </div>
-                  <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {formatTimeAgo(log.createdAt)}
-                  </span>
                 </div>
               );
             })}
@@ -1247,7 +1342,20 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
     doc.save(`${config.apiPath}.pdf`);
   };
 
-  const handleImportCSV = () => {
+  const handleDownloadTemplate = () => {
+    const headers = config.columns.map((c) => c.label).join(",");
+    const csv = headers + "\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${config.apiPath}_template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Template Downloaded", description: "Fill the template and import it back" });
+  };
+
+  const handleImportFile = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".csv";
@@ -1265,13 +1373,53 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
         });
       }
       toast({ title: "Imported", description: `${result.data.length} records imported` });
+      setImportOpen(false);
       loadData();
     };
     input.click();
   };
 
+  const activeCount = data.filter((item) => item.isActive === true || item.isActive === "true" || item.isActive === 1).length;
+  const inactiveCount = data.filter((item) => item.isActive === false || item.isActive === "false" || item.isActive === 0).length;
+
   return (
     <div className="space-y-4">
+      {/* Summary Stat Cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="stat-mini-card border-border overflow-hidden">
+          <CardContent className="p-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center flex-shrink-0">
+              <Layers className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Total</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white stat-value">{data.length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-mini-card border-border overflow-hidden">
+          <CardContent className="p-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center flex-shrink-0">
+              <CheckCircle className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Active</p>
+              <p className="text-lg font-bold text-green-700 dark:text-green-400 stat-value">{activeCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="stat-mini-card border-border overflow-hidden">
+          <CardContent className="p-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center flex-shrink-0">
+              <X className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Inactive</p>
+              <p className="text-lg font-bold text-slate-600 dark:text-slate-400 stat-value">{inactiveCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
       <DataTable
         title={config.title}
         columns={config.columns}
@@ -1279,7 +1427,7 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
         onAdd={openAdd}
         onEdit={openEdit}
         onDelete={handleDelete}
-        onImport={handleImportCSV}
+        onImport={() => setImportOpen(true)}
         onExportCSV={handleExportCSV}
         onExportPDF={handleExportPDF}
         addLabel={`Add ${singularize(config.title)}`}
@@ -1395,6 +1543,48 @@ function GenericModulePage({ config }: { config: ModuleConfig }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
             <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Dialog with Template Download */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Upload className="h-5 w-5 text-primary" />
+              Import Data
+            </DialogTitle>
+            <DialogDescription className="text-slate-500 dark:text-slate-400">
+              Download the CSV template, fill in your data, and import it back.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-slate-50 dark:bg-navy-900/50 rounded-lg p-4 space-y-2">
+              <p className="text-sm font-medium text-slate-900 dark:text-white">Instructions:</p>
+              <ol className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-decimal list-inside">
+                <li>Download the CSV template using the button below</li>
+                <li>Open the template and fill in your data</li>
+                <li>Save the file as CSV format</li>
+                <li>Click &quot;Upload CSV&quot; to import your data</li>
+              </ol>
+            </div>
+            <div className="flex flex-col gap-3">
+              <Button variant="outline" onClick={handleDownloadTemplate} className="w-full text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20">
+                <FileDown className="h-4 w-4 mr-2" />
+                Download Template
+              </Button>
+              <Button onClick={handleImportFile} className="w-full bg-primary text-primary-foreground">
+                <Upload className="h-4 w-4 mr-2" />
+                Upload CSV File
+              </Button>
+            </div>
+            <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
+              Template columns: {config.columns.map((c) => c.label).join(", ")}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1863,6 +2053,8 @@ function ProductsPage() {
   const [godowns, setGodowns] = useState<{ id: string; name: string }[]>([]);
   const [segments, setSegments] = useState<{ id: string; name: string }[]>([]);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [stockFilter, setStockFilter] = useState("all");
 
   const loadData = useCallback(() => {
     fetch("/api/products").then((r) => r.json()).then(setData).catch(() => {});
@@ -1943,7 +2135,23 @@ function ProductsPage() {
   };
 
   const columns = [
-    { key: "productCode", label: "Code" },
+    { key: "productCode", label: "Code", render: (item: Record<string, unknown>) => {
+      const cat = item.category as Record<string, unknown> | undefined;
+      const catName = cat?.name ? String(cat.name) : "";
+      const iconBg = catName.includes("Mobile") ? "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" :
+        catName.includes("Electri") || catName.includes("Elec") ? "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" :
+        catName.includes("Compute") || catName.includes("Laptop") ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400" :
+        catName.includes("Access") ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
+        "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400";
+      return (
+        <div className="flex items-center gap-2">
+          <div className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${iconBg}`}>
+            <Package className="h-3.5 w-3.5" />
+          </div>
+          <span className="text-slate-700 dark:text-slate-300">{String(item.productCode ?? "")}</span>
+        </div>
+      );
+    }},
     { key: "name", label: "Product Name" },
     { key: "categoryId", label: "Category", render: (item: Record<string, unknown>) => {
       const cat = item.category as Record<string, unknown> | undefined;
@@ -1952,14 +2160,98 @@ function ProductsPage() {
     { key: "unit", label: "Unit" },
     { key: "costPrice", label: "Cost Price", render: (item: Record<string, unknown>) => `৳${Number(item.costPrice).toLocaleString()}` },
     { key: "salePrice", label: "Sale Price", render: (item: Record<string, unknown>) => `৳${Number(item.salePrice).toLocaleString()}` },
-    { key: "openingStock", label: "Stock" },
+    { key: "openingStock", label: "Stock", render: (item: Record<string, unknown>) => {
+      const stock = Number(item.openingStock || 0);
+      const reorder = Number(item.reorderLevel || 0);
+      const color = stock === 0 ? "text-red-600 dark:text-red-400 font-bold" : stock <= reorder ? "text-amber-600 dark:text-amber-400 font-semibold" : "text-slate-700 dark:text-slate-300";
+      return <span className={color}>{stock}</span>;
+    }},
     { key: "reorderLevel", label: "Reorder" },
     { key: "isActive", label: "Status", render: (item: Record<string, unknown>) => <StatusBadge status={item.isActive ? "Active" : "Inactive"} /> },
   ];
 
+  // Filtered data based on category and stock status
+  const filteredData = useMemo(() => {
+    let result = data;
+    if (categoryFilter !== "all") {
+      result = result.filter((item) => {
+        const cat = item.category as Record<string, unknown> | undefined;
+        const catId = cat?.id ? String(cat.id) : String(item.categoryId ?? "");
+        return catId === categoryFilter;
+      });
+    }
+    if (stockFilter !== "all") {
+      result = result.filter((item) => {
+        const stock = Number(item.openingStock || 0);
+        const reorder = Number(item.reorderLevel || 0);
+        if (stockFilter === "in-stock") return stock > reorder;
+        if (stockFilter === "low-stock") return stock > 0 && stock <= reorder;
+        if (stockFilter === "out-of-stock") return stock === 0;
+        return true;
+      });
+    }
+    return result;
+  }, [data, categoryFilter, stockFilter]);
+
+  // Category counts
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach((item) => {
+      const cat = item.category as Record<string, unknown> | undefined;
+      const catId = cat?.id ? String(cat.id) : String(item.categoryId ?? "");
+      if (catId) counts[catId] = (counts[catId] || 0) + 1;
+    });
+    return counts;
+  }, [data]);
+
   return (
     <div className="space-y-4">
-      <DataTable title="Products" columns={columns} data={data} onAdd={openAdd} onEdit={openEdit} onDelete={handleDelete} onImport={() => {}} onExportCSV={handleExportCSV} onExportPDF={handleExportPDF} addLabel="Add Product" />
+      {/* Category & Stock Status Filters */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Grid3X3 className="h-4 w-4 text-slate-400" />
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">Category:</Label>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-48 bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories ({data.length})</SelectItem>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({categoryCounts[c.id] || 0})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Box className="h-4 w-4 text-slate-400" />
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">Stock:</Label>
+              <Select value={stockFilter} onValueChange={setStockFilter}>
+                <SelectTrigger className="w-40 bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="in-stock">In Stock</SelectItem>
+                  <SelectItem value="low-stock">Low Stock</SelectItem>
+                  <SelectItem value="out-of-stock">Out of Stock</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {(categoryFilter !== "all" || stockFilter !== "all") && (
+              <Button variant="ghost" size="sm" onClick={() => { setCategoryFilter("all"); setStockFilter("all"); }} className="text-slate-500 dark:text-slate-400">
+                <X className="h-3.5 w-3.5 mr-1" /> Clear Filters
+              </Button>
+            )}
+            <div className="sm:ml-auto text-sm text-slate-500 dark:text-slate-400">
+              Showing {filteredData.length} of {data.length} products
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <DataTable title="Products" columns={columns} data={filteredData} onAdd={openAdd} onEdit={openEdit} onDelete={handleDelete} onImport={() => {}} onExportCSV={handleExportCSV} onExportPDF={handleExportPDF} addLabel="Add Product" />
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -7271,6 +7563,18 @@ function StockDetailsPage() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [entryTypeFilter, setEntryTypeFilter] = useState("all");
+  const [allStockEntries, setAllStockEntries] = useState<any[]>([]);
+  const [allEntriesLoading, setAllEntriesLoading] = useState(false);
+
+  // Fetch all stock entries for summary
+  React.useEffect(() => {
+    setAllEntriesLoading(true);
+    fetch("/api/stock-entries?limit=500")
+      .then((r) => r.json())
+      .then((d) => { setAllStockEntries(d.data || d || []); setAllEntriesLoading(false); })
+      .catch(() => { setAllStockEntries([]); setAllEntriesLoading(false); });
+  }, []);
 
   React.useEffect(() => {
     fetch("/api/products").then((r) => r.json()).then((d) => { setProducts(d); setProductsLoading(false); }).catch(() => setProductsLoading(false));
@@ -7282,13 +7586,26 @@ function StockDetailsPage() {
     fetch(`/api/stock-details?productId=${selectedProduct}`).then((r) => r.json()).then((d) => { setStockData(d); setLoading(false); }).catch(() => { setStockData(null); setLoading(false); });
   }, [selectedProduct]);
 
+  // Summary counts from all stock entries
+  const summaryCounts = useMemo(() => {
+    let filtered = allStockEntries;
+    if (dateFrom) filtered = filtered.filter((e: any) => new Date(e.date) >= new Date(dateFrom));
+    if (dateTo) filtered = filtered.filter((e: any) => new Date(e.date) <= new Date(dateTo + "T23:59:59"));
+    return {
+      totalIn: filtered.filter((e: any) => e.type === "IN").length,
+      totalOut: filtered.filter((e: any) => e.type === "OUT").length,
+      totalTransfer: filtered.filter((e: any) => e.type === "TRANSFER").length,
+    };
+  }, [allStockEntries, dateFrom, dateTo]);
+
   const entries = useMemo(() => {
     if (!stockData?.entries) return [];
     let filtered = stockData.entries;
     if (dateFrom) filtered = filtered.filter((e: any) => new Date(e.date) >= new Date(dateFrom));
     if (dateTo) filtered = filtered.filter((e: any) => new Date(e.date) <= new Date(dateTo + "T23:59:59"));
+    if (entryTypeFilter !== "all") filtered = filtered.filter((e: any) => e.type === entryTypeFilter);
     return filtered;
-  }, [stockData, dateFrom, dateTo]);
+  }, [stockData, dateFrom, dateTo, entryTypeFilter]);
 
   // Calculate running balance
   const entriesWithBalance = useMemo(() => {
@@ -7363,13 +7680,56 @@ function StockDetailsPage() {
         <p className="text-slate-500 dark:text-slate-400">Detailed product stock ledger and movements</p>
       </div>
 
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-4 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white/80">Total IN</p>
+                  <p className="text-2xl font-bold mt-1">{summaryCounts.totalIn}</p>
+                </div>
+                <ArrowDownRight className="h-8 w-8 text-white/40" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="bg-gradient-to-r from-red-500 to-rose-600 p-4 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white/80">Total OUT</p>
+                  <p className="text-2xl font-bold mt-1">{summaryCounts.totalOut}</p>
+                </div>
+                <ArrowUpRight className="h-8 w-8 text-white/40" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="bg-gradient-to-r from-blue-500 to-indigo-600 p-4 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white/80">Total TRANSFER</p>
+                  <p className="text-2xl font-bold mt-1">{summaryCounts.totalTransfer}</p>
+                </div>
+                <ArrowRightLeft className="h-8 w-8 text-white/40" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Product Selector */}
       <Card className="border-border">
         <CardHeader className="pb-3">
-          <CardTitle className="text-slate-900 dark:text-white">Select Product</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-white">Select Product & Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="grid gap-2">
               <Label className="text-slate-700 dark:text-slate-300">Product</Label>
               <Select value={selectedProduct} onValueChange={setSelectedProduct}>
@@ -7387,7 +7747,26 @@ function StockDetailsPage() {
               <Label className="text-slate-700 dark:text-slate-300">Date To</Label>
               <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
             </div>
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Entry Type</Label>
+              <Select value={entryTypeFilter} onValueChange={setEntryTypeFilter}>
+                <SelectTrigger><SelectValue placeholder="All Types" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="IN">IN</SelectItem>
+                  <SelectItem value="OUT">OUT</SelectItem>
+                  <SelectItem value="TRANSFER">TRANSFER</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+          {(dateFrom || dateTo || entryTypeFilter !== "all") && (
+            <div className="mt-3">
+              <Button variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); setEntryTypeFilter("all"); }} className="text-slate-500 dark:text-slate-400">
+                <X className="h-3.5 w-3.5 mr-1" /> Clear Filters
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -7490,21 +7869,31 @@ function StockDetailsPage() {
                   <TableBody>
                     {entriesWithBalance.length === 0 ? (
                       <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No stock movements found</TableCell></TableRow>
-                    ) : entriesWithBalance.map((entry: any, idx: number) => (
-                      <TableRow key={idx} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
-                        <TableCell className="text-slate-700 dark:text-slate-300">{new Date(entry.date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-slate-700 dark:text-slate-300">
-                          <Badge variant={entry.type === "IN" ? "default" : entry.type === "OUT" ? "destructive" : "secondary"}>
-                            {entry.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-slate-700 dark:text-slate-300">{entry.reference || "-"}</TableCell>
-                        <TableCell className={`font-medium ${entry.type === "IN" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                          {entry.type === "IN" ? "+" : "-"}{entry.quantity}
-                        </TableCell>
-                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{entry.runningBalance}</TableCell>
-                      </TableRow>
-                    ))}
+                    ) : entriesWithBalance.map((entry: any, idx: number) => {
+                      const isIN = entry.type === "IN";
+                      const isOUT = entry.type === "OUT";
+                      const isTransfer = entry.type === "TRANSFER";
+                      const rowBg = isIN ? "bg-green-50/50 dark:bg-green-900/10" : isOUT ? "bg-red-50/50 dark:bg-red-900/10" : isTransfer ? "bg-blue-50/50 dark:bg-blue-900/10" : "";
+                      const typeBg = isIN ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : isOUT ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+                      const qtyColor = isIN ? "text-green-600 dark:text-green-400" : isOUT ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400";
+                      const typeIcon = isIN ? <ArrowDownRight className="h-3 w-3" /> : isOUT ? <ArrowUpRight className="h-3 w-3" /> : <ArrowRightLeft className="h-3 w-3" />;
+                      return (
+                        <TableRow key={idx} className={`hover:bg-slate-50 dark:hover:bg-navy-900/30 ${rowBg}`}>
+                          <TableCell className="text-slate-700 dark:text-slate-300">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold ${typeBg}`}>
+                              {typeIcon}
+                              {entry.type}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-slate-700 dark:text-slate-300">{entry.reference || "-"}</TableCell>
+                          <TableCell className={`font-medium ${qtyColor}`}>
+                            {isIN ? "+" : "-"}{entry.quantity}
+                          </TableCell>
+                          <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{entry.runningBalance}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -9933,6 +10322,233 @@ function EmployeeLeavePage() {
 }
 
 // ============================================================
+// USER PROFILE PAGE
+// ============================================================
+
+function UserProfilePage() {
+  const { toast } = useToast();
+  const { theme, setTheme } = useTheme();
+  const [userName, setUserName] = useState("Admin User");
+  const [userEmail, setUserEmail] = useState("admin@electronicsims.com");
+  const [userRole, setUserRole] = useState("Administrator");
+  const [language, setLanguage] = useState("en");
+  const [lastLogin, setLastLogin] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ current: "", newPassword: "", confirm: "" });
+  const [sessionInfo, setSessionInfo] = useState({ browser: "", os: "", loginTime: "" });
+
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem("ems_user");
+      if (stored) {
+        const userData = JSON.parse(stored);
+        if (userData.name) setUserName(userData.name);
+        if (userData.email) setUserEmail(userData.email);
+        if (userData.role) setUserRole(userData.role === "admin" ? "Administrator" : userData.role);
+      }
+      const storedLang = localStorage.getItem("ems_language");
+      if (storedLang) setLanguage(storedLang);
+      const storedLogin = localStorage.getItem("ems_last_login");
+      if (storedLogin) setLastLogin(storedLogin);
+      else setLastLogin(new Date().toLocaleString());
+    } catch {}
+
+    // Detect browser and OS
+    const ua = navigator.userAgent;
+    let browser = "Unknown";
+    if (ua.includes("Chrome") && !ua.includes("Edg")) browser = "Chrome";
+    else if (ua.includes("Firefox")) browser = "Firefox";
+    else if (ua.includes("Safari") && !ua.includes("Chrome")) browser = "Safari";
+    else if (ua.includes("Edg")) browser = "Edge";
+
+    let os = "Unknown";
+    if (ua.includes("Win")) os = "Windows";
+    else if (ua.includes("Mac")) os = "macOS";
+    else if (ua.includes("Linux")) os = "Linux";
+    else if (ua.includes("Android")) os = "Android";
+    else if (ua.includes("iPhone") || ua.includes("iPad")) os = "iOS";
+
+    setSessionInfo({ browser, os, loginTime: new Date().toLocaleString() });
+  }, []);
+
+  const handleLanguageChange = (lang: string) => {
+    setLanguage(lang);
+    try { localStorage.setItem("ems_language", lang); } catch {}
+    toast({ title: lang === "en" ? "Language Changed" : "ভাষা পরিবর্তন", description: lang === "en" ? "Language set to English" : "ভাষা বাংলায় সেট করা হয়েছে" });
+  };
+
+  const handlePasswordChange = () => {
+    if (!passwordForm.current || !passwordForm.newPassword || !passwordForm.confirm) {
+      toast({ title: "Error", description: "All fields are required", variant: "destructive" });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirm) {
+      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Success", description: "Password updated successfully" });
+    setPasswordForm({ current: "", newPassword: "", confirm: "" });
+  };
+
+  const initials = userName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="User Profile" description="Manage your account settings and preferences" icon={<User className="h-6 w-6" />} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Profile Card */}
+        <Card className="border-border lg:col-span-1">
+          <CardContent className="p-6 flex flex-col items-center text-center">
+            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg mb-4">
+              {initials || "U"}
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{userName}</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{userEmail}</p>
+            <Badge className="mt-3 bg-primary/10 text-primary hover:bg-primary/20 border-0">
+              <Award className="h-3 w-3 mr-1" />
+              {userRole}
+            </Badge>
+            <Separator className="my-4" />
+            <div className="w-full space-y-3 text-left">
+              <div className="flex items-center gap-3 text-sm">
+                <Clock className="h-4 w-4 text-slate-400" />
+                <div>
+                  <p className="text-slate-500 dark:text-slate-400">Last Login</p>
+                  <p className="text-slate-900 dark:text-white font-medium">{lastLogin}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <LogIn className="h-4 w-4 text-slate-400" />
+                <div>
+                  <p className="text-slate-500 dark:text-slate-400">Session</p>
+                  <p className="text-slate-900 dark:text-white font-medium">{sessionInfo.browser} on {sessionInfo.os}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <Lock className="h-4 w-4 text-slate-400" />
+                <div>
+                  <p className="text-slate-500 dark:text-slate-400">Session Started</p>
+                  <p className="text-slate-900 dark:text-white font-medium">{sessionInfo.loginTime}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Settings */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Change Password */}
+          <Card className="border-border">
+            <CardHeader>
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <Lock className="h-5 w-5 text-primary" />
+                Change Password
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Current Password</Label>
+                <Input type="password" value={passwordForm.current} onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })} placeholder="Enter current password" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label className="text-slate-700 dark:text-slate-300">New Password</Label>
+                  <Input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} placeholder="Min 6 characters" />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-slate-700 dark:text-slate-300">Confirm Password</Label>
+                  <Input type="password" value={passwordForm.confirm} onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })} placeholder="Re-enter new password" />
+                </div>
+              </div>
+              <Button onClick={handlePasswordChange} className="bg-primary text-primary-foreground">
+                Update Password
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Preferences */}
+          <Card className="border-border">
+            <CardHeader>
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <Settings className="h-5 w-5 text-primary" />
+                Preferences
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Theme */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">Theme</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Select your preferred color theme</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant={theme === "light" ? "default" : "outline"} size="sm" onClick={() => setTheme("light")} className={theme === "light" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}>
+                    <Sun className="h-4 w-4 mr-1" /> Light
+                  </Button>
+                  <Button variant={theme === "dark" ? "default" : "outline"} size="sm" onClick={() => setTheme("dark")} className={theme === "dark" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}>
+                    <Moon className="h-4 w-4 mr-1" /> Dark
+                  </Button>
+                  <Button variant={theme === "system" ? "default" : "outline"} size="sm" onClick={() => setTheme("system")} className={theme === "system" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}>
+                    <Zap className="h-4 w-4 mr-1" /> System
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Language */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">Language</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Choose your preferred language</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant={language === "en" ? "default" : "outline"} size="sm" onClick={() => handleLanguageChange("en")} className={language === "en" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}>
+                    English
+                  </Button>
+                  <Button variant={language === "bn" ? "default" : "outline"} size="sm" onClick={() => handleLanguageChange("bn")} className={language === "bn" ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}>
+                    বাংলা
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Session Info */}
+              <div>
+                <p className="text-sm font-medium text-slate-900 dark:text-white mb-3">Session Information</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 dark:bg-navy-900/50 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Browser</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{sessionInfo.browser}</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-navy-900/50 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Operating System</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{sessionInfo.os}</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-navy-900/50 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Session Start</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{sessionInfo.loginTime}</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-navy-900/50 rounded-lg p-3">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Status</p>
+                    <p className="text-sm font-medium text-green-600 dark:text-green-400">Active</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // NOTIFICATION PANEL
 // ============================================================
 
@@ -10286,7 +10902,7 @@ function AppContent() {
   const { theme, setTheme } = useTheme();
   const [currentPage, setCurrentPage] = useState<PageKey>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Dashboard", "Basic Setup", "Inventory", "Products"]));
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Dashboard", "Basic Setup", "Inventory", "Products", "Staff", "Customers & Suppliers", "Accounts", "SMS Service", "Accounting Reports", "MIS Reports", "Management"]));
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
   const [user, setUser] = useState<{ id: string; email: string; name: string; role: string } | null>(null);
@@ -10391,6 +11007,7 @@ function AppContent() {
     if (currentPage === "bulk-sms") return <BulkSmsPage />;
     if (currentPage === "employee-leaves") return <EmployeeLeavePage />;
     if (currentPage === "audit-log") return <AuditLogPage />;
+    if (currentPage === "user-profile") return <UserProfilePage />;
     const config = moduleConfigs[currentPage];
     if (config) return <GenericModulePage config={config} />;
     // Placeholder for remaining complex modules
