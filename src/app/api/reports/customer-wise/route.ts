@@ -6,13 +6,65 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
 
+    // If no customerId provided, return summary for all customers
     if (!customerId) {
-      return NextResponse.json(
-        { error: 'customerId query parameter is required' },
-        { status: 400 }
-      );
+      const customers = await db.customer.findMany({
+        where: { isActive: true },
+        include: {
+          salesOrders: { where: { isActive: true } },
+          salesReturns: { where: { isActive: true } },
+          cashCollections: { where: { isActive: true } },
+          hireSales: { where: { isActive: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const customerSummaries = customers.map((c) => {
+        const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
+        const totalReturns = c.salesReturns.reduce((s, sr) => s + sr.grandTotal, 0);
+        const totalCollections = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
+        const totalHire = c.hireSales.reduce((s, hs) => s + hs.grandTotal, 0);
+        const totalRevenue = totalSales + totalHire;
+        const balance = c.openingBalance + totalRevenue - totalReturns - totalCollections;
+        const lastOrderDate = c.salesOrders.length > 0
+          ? c.salesOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
+          : null;
+
+        return {
+          id: c.id,
+          customerCode: c.customerCode,
+          name: c.name,
+          phone: c.phone,
+          address: c.address,
+          openingBalance: c.openingBalance,
+          totalOrders: c.salesOrders.length + c.hireSales.length,
+          totalRevenue,
+          totalReturns,
+          totalCollections,
+          lastOrderDate,
+          balance,
+        };
+      });
+
+      const totalCustomers = customers.length;
+      const totalRevenue = customerSummaries.reduce((s, c) => s + c.totalRevenue, 0);
+      const totalOutstanding = customerSummaries.reduce((s, c) => s + Math.max(c.balance, 0), 0);
+      const avgOrderValue = customerSummaries.reduce((s, c) => s + c.totalOrders, 0) > 0
+        ? Math.round(totalRevenue / customerSummaries.reduce((s, c) => s + c.totalOrders, 0))
+        : 0;
+
+      return NextResponse.json({
+        customers: customerSummaries,
+        summary: {
+          totalCustomers,
+          totalRevenue,
+          avgOrderValue,
+          totalOutstanding,
+        },
+      });
     }
 
+    // Single customer detailed ledger
     const customer = await db.customer.findUnique({
       where: { id: customerId },
     });
@@ -24,7 +76,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch all related data for the customer ledger
     const [salesOrders, salesReturns, cashCollections] = await Promise.all([
       db.salesOrder.findMany({
         where: { customerId, isActive: true },
@@ -48,10 +99,8 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    // Build a combined ledger with all transactions
     const ledger: { date: Date; type: string; reference: string; debit: number; credit: number; balance: number; details?: Record<string, unknown> }[] = [];
 
-    // Opening balance entry
     if (customer.openingBalance > 0) {
       ledger.push({
         date: customer.createdAt,
@@ -65,7 +114,6 @@ export async function GET(request: NextRequest) {
 
     let runningBalance = customer.openingBalance;
 
-    // Sales (debits - increase customer balance)
     for (const so of salesOrders) {
       runningBalance += so.grandTotal;
       ledger.push({
@@ -84,7 +132,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Sales returns (credits - decrease customer balance)
     for (const sr of salesReturns) {
       runningBalance -= sr.grandTotal;
       ledger.push({
@@ -102,7 +149,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Cash collections (credits - decrease customer balance)
     for (const cc of cashCollections) {
       runningBalance -= cc.amount;
       ledger.push({
@@ -121,10 +167,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Sort ledger by date
     ledger.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Recalculate running balance after sorting
     let balance = customer.openingBalance;
     for (const entry of ledger) {
       if (entry.type === 'Opening Balance') {
@@ -135,7 +179,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Summary
     const totalSales = salesOrders.reduce((sum, so) => sum + so.grandTotal, 0);
     const totalReturns = salesReturns.reduce((sum, sr) => sum + sr.grandTotal, 0);
     const totalCollections = cashCollections.reduce((sum, cc) => sum + cc.amount, 0);

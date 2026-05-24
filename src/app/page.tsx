@@ -14,7 +14,7 @@ import {
   ArrowUpRight, ArrowDownRight, Activity, ShoppingCart as CartIcon,
   FileSpreadsheet, FileText as FileTextIcon, Bell, LogOut, User,
   Calendar, Clock, Zap, Target, BarChart, PieChart as PieChartIcon,
-  CircleDollarSign, Wallet, ShoppingBag, Tag, Hash
+  CircleDollarSign, Wallet, ShoppingBag, Tag, Hash, Award
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -267,79 +267,93 @@ function DataTable<T extends Record<string, unknown>>({
   }, [data, search, columns]);
 
   return (
-    <Card className="border-border">
+    <Card className="border-border shadow-sm hover:shadow-md transition-shadow duration-200">
       <CardHeader className="pb-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <CardTitle className="text-slate-900 dark:text-white text-lg">{title}</CardTitle>
-            <CardDescription className="text-slate-500 dark:text-slate-400">
+            <CardTitle className="text-slate-900 dark:text-white text-lg flex items-center gap-2">
+              <Layers className="h-5 w-5 text-primary" />
+              {title}
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400 mt-0.5">
               {filtered.length} record(s) found
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
             {onImport && (
-              <Button variant="outline" size="sm" onClick={onImport} className="text-slate-700 dark:text-slate-300">
-                <Upload className="h-4 w-4 mr-1" /> Import CSV
+              <Button variant="outline" size="sm" onClick={onImport} className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-700 dark:hover:text-emerald-400 hover:border-emerald-300 dark:hover:border-emerald-700">
+                <Upload className="h-4 w-4 mr-1.5" /> Import
               </Button>
             )}
             {onExportCSV && (
-              <Button variant="outline" size="sm" onClick={onExportCSV} className="text-slate-700 dark:text-slate-300">
-                <FileDown className="h-4 w-4 mr-1" /> Export CSV
+              <Button variant="outline" size="sm" onClick={onExportCSV} className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-sky-50 dark:hover:bg-sky-900/20 hover:text-sky-700 dark:hover:text-sky-400 hover:border-sky-300 dark:hover:border-sky-700">
+                <FileDown className="h-4 w-4 mr-1.5" /> CSV
               </Button>
             )}
             {onExportPDF && (
-              <Button variant="outline" size="sm" onClick={onExportPDF} className="text-slate-700 dark:text-slate-300">
-                <FileText className="h-4 w-4 mr-1" /> Export PDF
+              <Button variant="outline" size="sm" onClick={onExportPDF} className="text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-700 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-700">
+                <FileText className="h-4 w-4 mr-1.5" /> PDF
               </Button>
             )}
             {onAdd && (
-              <Button size="sm" onClick={onAdd} className="bg-primary text-primary-foreground">
-                <Plus className="h-4 w-4 mr-1" /> {addLabel}
+              <Button size="sm" onClick={onAdd} className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm btn-hover-scale">
+                <Plus className="h-4 w-4 mr-1.5" /> {addLabel}
               </Button>
             )}
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-4">
-          <Input
-            placeholder={searchPlaceholder}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-sm"
-          />
+        <div className="mb-4 flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
+            <Input
+              placeholder={searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 bg-white dark:bg-navy-900/50 border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          {search && (
+            <Button variant="ghost" size="sm" onClick={() => setSearch("")} className="text-slate-500 dark:text-slate-400">
+              <X className="h-3.5 w-3.5 mr-1" /> Clear
+            </Button>
+          )}
         </div>
-        <div className="table-container rounded-md border border-border">
+        <div className="table-container rounded-lg border border-border overflow-hidden">
           <Table>
             <TableHeader>
-              <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+              <TableRow className="bg-gradient-to-r from-slate-50 to-slate-100 dark:from-navy-900/70 dark:to-navy-900/50 border-b border-border">
                 {columns.map((col) => (
-                  <TableHead key={col.key} className="text-slate-700 dark:text-slate-300 font-semibold">
+                  <TableHead key={col.key} className="text-slate-600 dark:text-slate-300 font-semibold text-xs uppercase tracking-wider">
                     {col.label}
                   </TableHead>
                 ))}
                 {(onEdit || onDelete) && (
-                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Actions</TableHead>
+                  <TableHead className="text-slate-600 dark:text-slate-300 font-semibold text-xs uppercase tracking-wider text-right w-24">Actions</TableHead>
                 )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + (onEdit || onDelete ? 1 : 0)} className="text-center py-8 text-slate-500 dark:text-slate-400">
-                    No records found
+                  <TableCell colSpan={columns.length + (onEdit || onDelete ? 1 : 0)} className="text-center py-12">
+                    <div className="flex flex-col items-center gap-2">
+                      <Package className="h-10 w-10 text-slate-300 dark:text-slate-600" />
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">No records found</p>
+                      {search && <p className="text-slate-400 dark:text-slate-500 text-xs">Try adjusting your search query</p>}
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((item, idx) => (
-                  <TableRow key={idx} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                  <TableRow key={idx} className="data-table-row hover:bg-slate-50/80 dark:hover:bg-navy-800/40 border-b border-border/50 even:bg-slate-50/30 dark:even:bg-navy-900/20">
                     {columns.map((col) => (
-                      <TableCell key={col.key} className="text-slate-700 dark:text-slate-300">
+                      <TableCell key={col.key} className="text-slate-700 dark:text-slate-300 text-sm">
                         {col.render ? col.render(item) : (() => {
                           const val = item[col.key];
-                          if (val === null || val === undefined) return "";
+                          if (val === null || val === undefined) return <span className="text-slate-400 dark:text-slate-600">—</span>;
                           if (typeof val === "object") {
-                            // Try to resolve nested relation: show .name if available
                             const obj = val as Record<string, unknown>;
                             return String(obj.name ?? obj.title ?? JSON.stringify(val));
                           }
@@ -351,13 +365,13 @@ function DataTable<T extends Record<string, unknown>>({
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           {onEdit && (
-                            <Button variant="ghost" size="sm" onClick={() => onEdit(item)} className="text-blue-600 dark:text-blue-400">
-                              <Pencil className="h-4 w-4" />
+                            <Button variant="ghost" size="sm" onClick={() => onEdit(item)} className="h-8 w-8 p-0 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md" title="Edit">
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           {onDelete && (
-                            <Button variant="ghost" size="sm" onClick={() => onDelete(item)} className="text-red-600 dark:text-red-400">
-                              <Trash2 className="h-4 w-4" />
+                            <Button variant="ghost" size="sm" onClick={() => onDelete(item)} className="h-8 w-8 p-0 text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md" title="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
                         </div>
@@ -379,12 +393,29 @@ function DataTable<T extends Record<string, unknown>>({
 // ============================================================
 
 function StatusBadge({ status }: { status: string }) {
-  const variant = status === "Active" || status === "Approved" || status === "Confirmed"
-    ? "default" as const
-    : status === "Pending" || status === "Draft"
-    ? "secondary" as const
-    : "destructive" as const;
-  return <Badge variant={variant}>{status}</Badge>;
+  const config: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; className: string; dot: string }> = {
+    "Active": { variant: "default", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800", dot: "bg-emerald-500" },
+    "Approved": { variant: "default", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800", dot: "bg-emerald-500" },
+    "Confirmed": { variant: "default", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-800", dot: "bg-blue-500" },
+    "Completed": { variant: "default", className: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-800", dot: "bg-green-500" },
+    "Delivered": { variant: "default", className: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-800", dot: "bg-green-500" },
+    "Sent": { variant: "default", className: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300 border-sky-200 dark:border-sky-800", dot: "bg-sky-500" },
+    "Pending": { variant: "secondary", className: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-200 dark:border-amber-800", dot: "bg-amber-500" },
+    "Draft": { variant: "secondary", className: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300 border-slate-200 dark:border-slate-700", dot: "bg-slate-500" },
+    "Partial": { variant: "secondary", className: "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-orange-200 dark:border-orange-800", dot: "bg-orange-500" },
+    "Unpaid": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
+    "Failed": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
+    "Cancelled": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
+    "Returned": { variant: "outline", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-200 dark:border-purple-800", dot: "bg-purple-500" },
+    "Processing": { variant: "secondary", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800", dot: "bg-indigo-500" },
+  };
+  const c = config[status] || { variant: "outline" as const, className: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300 border-slate-200 dark:border-slate-700", dot: "bg-slate-400" };
+  return (
+    <Badge variant={c.variant} className={`${c.className} text-xs font-medium border inline-flex items-center gap-1.5 px-2 py-0.5`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {status}
+    </Badge>
+  );
 }
 
 // ============================================================
@@ -489,27 +520,28 @@ function DashboardPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((card, i) => (
-          <Card key={i} className="border-border hover:shadow-xl transition-all duration-300 overflow-hidden group">
+          <Card key={i} className="kpi-card border-border overflow-hidden group">
             <CardContent className="p-0">
-              <div className={`bg-gradient-to-br ${card.gradient} p-4 text-white`}>
-                <div className="flex items-center justify-between">
+              <div className={`bg-gradient-to-br ${card.gradient} p-4 text-white relative overflow-hidden`}>
+                <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors duration-300" />
+                <div className="relative flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-white/80">{card.title}</p>
                     <p className="text-2xl font-bold mt-1">
                       {loading ? (
-                        <span className="inline-block w-20 h-7 bg-white/20 rounded animate-pulse" />
+                        <span className="inline-block w-20 h-7 bg-white/20 rounded shimmer" />
                       ) : card.value}
                     </p>
                   </div>
-                  <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm group-hover:scale-110 transition-transform">
+                  <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
                     {card.icon}
                   </div>
                 </div>
               </div>
-              <div className="px-4 py-3 bg-card">
+              <div className="px-4 py-3 bg-card border-t border-white/10">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{card.description}</span>
-                  <span className={`text-xs font-semibold flex items-center gap-0.5 ${card.trend.startsWith("+") ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">{card.description}</span>
+                  <span className={`text-xs font-semibold flex items-center gap-0.5 px-1.5 py-0.5 rounded ${card.trend.startsWith("+") ? "text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30" : "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30"}`}>
                     {card.trend.startsWith("+") ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
                     {card.trend}
                   </span>
@@ -4388,6 +4420,4011 @@ function TransferPage() {
 }
 
 // ============================================================
+// SEND SMS PAGE
+// ============================================================
+
+function SendSmsPage() {
+  const { toast } = useToast();
+  const [form, setForm] = useState({ recipient: "", message: "", template: "" });
+  const [sending, setSending] = useState(false);
+  const [recentLogs, setRecentLogs] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [recipientType, setRecipientType] = useState<"manual" | "customer">("manual");
+
+  const templates: Record<string, string> = {
+    "Payment Reminder": "Dear {name}, your payment of ৳{amount} is due. Please clear your dues at your earliest convenience. Thank you.",
+    "Order Confirmation": "Dear {name}, your order has been confirmed. Invoice #{invoiceNo}. Total: ৳{amount}. Thank you for your purchase!",
+    "Delivery Update": "Dear {name}, your order #{invoiceNo} has been dispatched and will be delivered soon. Track your order for live updates.",
+    "Promotional": "Dear {name}, exciting offers await you at Electronics Mart! Visit us today for exclusive deals on electronics and gadgets.",
+  };
+
+  const loadData = useCallback(() => {
+    fetch("/api/sms-logs").then((r) => r.json()).then((d) => { setRecentLogs(Array.isArray(d) ? d.slice(0, 10) : []); }).catch(() => {});
+    fetch("/api/customers").then((r) => r.json()).then((d) => { setCustomers(Array.isArray(d) ? d : []); }).catch(() => {});
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  const handleTemplateSelect = (tpl: string) => {
+    setForm((prev) => ({ ...prev, template: tpl, message: templates[tpl] || "" }));
+  };
+
+  const handleCustomerSelect = (customerId: string) => {
+    const customer = customers.find((c: any) => c.id === customerId);
+    if (customer) {
+      setForm((prev) => ({ ...prev, recipient: customer.phone || "" }));
+    }
+  };
+
+  const handleSend = async () => {
+    if (!form.recipient || !form.message) {
+      toast({ title: "Error", description: "Recipient and message are required", variant: "destructive" });
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch("/api/sms-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: form.recipient,
+          message: form.message,
+          status: "Sent",
+          cost: 0.5,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "SMS Sent", description: `Message sent to ${form.recipient}` });
+      setForm({ recipient: "", message: "", template: "" });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to send SMS", variant: "destructive" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <PhoneCall className="h-6 w-6 text-primary" />
+          Send SMS
+        </h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">Compose and send SMS to contacts</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Compose Form */}
+        <Card className="border-border lg:col-span-2">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Mail className="h-5 w-5 text-primary" />
+              Compose Message
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Recipient Type */}
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Recipient Type</Label>
+              <Select value={recipientType} onValueChange={(v: "manual" | "customer") => setRecipientType(v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual Entry</SelectItem>
+                  <SelectItem value="customer">Select Customer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {recipientType === "customer" ? (
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Select Customer</Label>
+                <Select onValueChange={handleCustomerSelect}>
+                  <SelectTrigger><SelectValue placeholder="Choose a customer" /></SelectTrigger>
+                  <SelectContent>
+                    {customers.map((c: any) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Recipient Phone</Label>
+              <Input
+                placeholder="e.g. +8801712345678"
+                value={form.recipient}
+                onChange={(e) => setForm({ ...form, recipient: e.target.value })}
+              />
+            </div>
+
+            {/* Template Selector */}
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Quick Template</Label>
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(templates).map((tpl) => (
+                  <Button
+                    key={tpl}
+                    variant={form.template === tpl ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleTemplateSelect(tpl)}
+                    className={form.template === tpl ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}
+                  >
+                    {tpl}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Message */}
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-700 dark:text-slate-300">Message</Label>
+                <span className={`text-xs ${form.message.length > 160 ? "text-red-500" : "text-slate-500 dark:text-slate-400"}`}>
+                  {form.message.length}/160
+                </span>
+              </div>
+              <Textarea
+                placeholder="Type your message here..."
+                value={form.message}
+                onChange={(e) => setForm({ ...form, message: e.target.value, template: "" })}
+                rows={5}
+                className="resize-none"
+              />
+              {form.message.length > 160 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  ⚠ Message exceeds 160 characters — may be split into multiple SMS
+                </p>
+              )}
+            </div>
+
+            <Button onClick={handleSend} disabled={sending} className="bg-primary text-primary-foreground w-full sm:w-auto">
+              {sending ? <><RefreshCcw className="h-4 w-4 mr-2 animate-spin" /> Sending...</> : <><PhoneCall className="h-4 w-4 mr-2" /> Send SMS</>}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Recent Sent */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <Clock className="h-5 w-5 text-amber-500" />
+              Recent Sent
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Last 10 messages</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {recentLogs.length === 0 ? (
+                <p className="text-center text-slate-500 dark:text-slate-400 py-4 text-sm">No messages sent yet</p>
+              ) : recentLogs.map((log: any) => (
+                <div key={log.id} className="p-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white">{log.recipient}</span>
+                    <Badge variant={log.status === "Sent" || log.status === "Delivered" ? "default" as const : log.status === "Failed" ? "destructive" as const : "secondary" as const} className="text-xs">
+                      {log.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{log.message}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    {log.sentAt ? new Date(log.sentAt).toLocaleString() : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SMS INBOX PAGE
+// ============================================================
+
+function SmsInboxPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("All");
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/sms-logs").then((r) => r.json()).then((d) => { setData(Array.isArray(d) ? d : []); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === "All") return data;
+    return data.filter((item) => item.status === statusFilter);
+  }, [data, statusFilter]);
+
+  const handleExportCSV = () => {
+    const headers = "Recipient,Message,Status,Sent At,Cost";
+    const rows = filtered.map((i) => `"${i.recipient}","${(i.message || "").replace(/"/g, '""')}","${i.status}","${i.sentAt ? new Date(i.sentAt).toLocaleString() : ""}","${i.cost || 0}"`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sms-inbox.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("SMS Inbox Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Recipient", "Message", "Status", "Sent At", "Cost"]],
+      body: filtered.map((i) => [i.recipient, (i.message || "").substring(0, 60), i.status, i.sentAt ? new Date(i.sentAt).toLocaleString() : "", `৳${Number(i.cost || 0).toFixed(2)}`]),
+    });
+    doc.save("sms-inbox.pdf");
+  };
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: data.length, Sent: 0, Delivered: 0, Failed: 0, Pending: 0 };
+    data.forEach((item) => { if (counts[item.status] !== undefined) counts[item.status]++; });
+    return counts;
+  }, [data]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Mail className="h-6 w-6 text-primary" />
+            SMS Inbox
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">View sent and received SMS logs</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Status filter tabs */}
+      <div className="flex flex-wrap gap-2">
+        {["All", "Sent", "Delivered", "Failed", "Pending"].map((status) => (
+          <Button
+            key={status}
+            variant={statusFilter === status ? "default" : "outline"}
+            size="sm"
+            onClick={() => setStatusFilter(status)}
+            className={statusFilter === status ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}
+          >
+            {status} ({statusCounts[status] || 0})
+          </Button>
+        ))}
+      </div>
+
+      <Card className="border-border">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="text-center py-8 text-slate-500">Loading...</div>
+          ) : (
+            <div className="table-container rounded-md border border-border max-h-[500px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Recipient</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Message</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Sent At</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.length === 0 ? (
+                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No SMS logs found</TableCell></TableRow>
+                  ) : filtered.map((item) => (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.recipient}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 max-w-xs truncate">{item.message || "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={item.status === "Sent" || item.status === "Delivered" ? "default" as const : item.status === "Failed" ? "destructive" as const : "secondary" as const}>
+                          {item.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 text-sm">
+                        {item.sentAt ? new Date(item.sentAt).toLocaleString() : "-"}
+                      </TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(item.cost || 0).toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// SMS BILLS PAGE
+// ============================================================
+
+function SmsBillsPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState({ period: "", totalSms: 0, totalCost: 0, paidAmount: 0, status: "Unpaid" });
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/sms-bills").then((r) => r.json()).then((d) => { setData(Array.isArray(d) ? d : []); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  const handleSave = async () => {
+    if (!form.period) {
+      toast({ title: "Error", description: "Period is required", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/sms-bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "SMS bill created successfully" });
+      setDialogOpen(false);
+      setForm({ period: "", totalSms: 0, totalCost: 0, paidAmount: 0, status: "Unpaid" });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to create SMS bill", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Period,Total SMS,Total Cost,Paid Amount,Status";
+    const rows = data.map((i) => `${i.period},${i.totalSms},${i.totalCost},${i.paidAmount},${i.status}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sms-bills.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("SMS Bills Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Period", "Total SMS", "Total Cost", "Paid Amount", "Status"]],
+      body: data.map((i) => [i.period, i.totalSms, `৳${Number(i.totalCost).toLocaleString()}`, `৳${Number(i.paidAmount).toLocaleString()}`, i.status]),
+    });
+    doc.save("sms-bills.pdf");
+  };
+
+  const billStatusBadge = (status: string) => {
+    if (status === "Paid") return <Badge variant="default" className="bg-green-600">Paid</Badge>;
+    if (status === "Partial") return <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">Partial</Badge>;
+    return <Badge variant="destructive">Unpaid</Badge>;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Receipt className="h-6 w-6 text-primary" />
+            SMS Bills
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Track SMS usage and billing</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+          <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground">
+            <Plus className="h-4 w-4 mr-1" /> Add Bill
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="border-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Total Bills</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">{data.length}</p>
+              </div>
+              <div className="bg-primary/10 p-3 rounded-xl"><Receipt className="h-5 w-5 text-primary" /></div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Total Cost</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">৳{data.reduce((s: number, i: any) => s + Number(i.totalCost), 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-red-500/10 p-3 rounded-xl"><TrendingDown className="h-5 w-5 text-red-500" /></div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Total Paid</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">৳{data.reduce((s: number, i: any) => s + Number(i.paidAmount), 0).toLocaleString()}</p>
+              </div>
+              <div className="bg-green-500/10 p-3 rounded-xl"><CheckCircle className="h-5 w-5 text-green-500" /></div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-border">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="text-center py-8 text-slate-500">Loading...</div>
+          ) : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Period</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total SMS</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total Cost</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Paid Amount</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Payments</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No SMS bills</TableCell></TableRow>
+                  ) : data.map((item) => (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.period}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.totalSms}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(item.totalCost).toLocaleString()}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(item.paidAmount).toLocaleString()}</TableCell>
+                      <TableCell>{billStatusBadge(item.status)}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 text-sm">{(item.payments || []).length} payment(s)</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add SMS Bill</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Period</Label>
+              <Input placeholder="e.g. January 2025" value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Total SMS</Label>
+                <Input type="number" value={form.totalSms} onChange={(e) => setForm({ ...form, totalSms: Number(e.target.value) })} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Total Cost (৳)</Label>
+                <Input type="number" value={form.totalCost} onChange={(e) => setForm({ ...form, totalCost: Number(e.target.value) })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Paid Amount (৳)</Label>
+                <Input type="number" value={form.paidAmount} onChange={(e) => setForm({ ...form, paidAmount: Number(e.target.value) })} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Status</Label>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Unpaid">Unpaid</SelectItem>
+                    <SelectItem value="Partial">Partial</SelectItem>
+                    <SelectItem value="Paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// SMS BILL PAYMENTS PAGE
+// ============================================================
+
+function SmsBillPaymentsPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [bills, setBills] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState({ smsBillId: "", amount: 0, date: "", method: "Cash", notes: "" });
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/sms-bill-payments").then((r) => r.json()).then((d) => { setData(Array.isArray(d) ? d : []); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/sms-bills").then((r) => r.json()).then((d) => { setBills(Array.isArray(d) ? d : []); }).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const handleSave = async () => {
+    if (!form.smsBillId || !form.amount || !form.date) {
+      toast({ title: "Error", description: "Bill, amount, and date are required", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/sms-bill-payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "Payment recorded successfully" });
+      setDialogOpen(false);
+      setForm({ smsBillId: "", amount: 0, date: "", method: "Cash", notes: "" });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to record payment", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Bill Period,Amount,Payment Date,Method,Notes";
+    const rows = data.map((i) => `${i.smsBill?.period || ""},${i.amount},${i.date ? new Date(i.date).toLocaleDateString() : ""},${i.method || ""},${i.notes || ""}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sms-bill-payments.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("SMS Bill Payments Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Bill Period", "Amount", "Payment Date", "Method", "Notes"]],
+      body: data.map((i) => [i.smsBill?.period || "", `৳${Number(i.amount).toLocaleString()}`, i.date ? new Date(i.date).toLocaleDateString() : "", i.method || "-", i.notes || "-"]),
+    });
+    doc.save("sms-bill-payments.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <DollarSign className="h-6 w-6 text-primary" />
+            SMS Bill Payments
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Record payments to SMS provider</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+          <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground">
+            <Plus className="h-4 w-4 mr-1" /> Add Payment
+          </Button>
+        </div>
+      </div>
+
+      <Card className="border-border">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="text-center py-8 text-slate-500">Loading...</div>
+          ) : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Bill Period</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Amount</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Payment Date</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Method</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Notes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No payments recorded</TableCell></TableRow>
+                  ) : data.map((item) => (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.smsBill?.period || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(item.amount).toLocaleString()}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.date ? new Date(item.date).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.method || "-"}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 text-sm">{item.notes || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add Payment</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Select Bill</Label>
+              <Select value={form.smsBillId} onValueChange={(v) => setForm({ ...form, smsBillId: v })}>
+                <SelectTrigger><SelectValue placeholder="Choose a bill" /></SelectTrigger>
+                <SelectContent>
+                  {bills.map((b: any) => (
+                    <SelectItem key={b.id} value={b.id}>{b.period} — ৳{Number(b.totalCost).toLocaleString()} ({b.status})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Amount (৳)</Label>
+                <Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Payment Date</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Payment Method</Label>
+              <Select value={form.method} onValueChange={(v) => setForm({ ...form, method: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Cash">Cash</SelectItem>
+                  <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="Mobile Payment">Mobile Payment</SelectItem>
+                  <SelectItem value="Cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Notes</Label>
+              <Input placeholder="Optional reference or notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save Payment</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// SMS REPORTS PAGE
+// ============================================================
+
+function SmsReportsPage() {
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/sms-logs").then((r) => r.json()).then((d) => { setData(Array.isArray(d) ? d : []); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  const filtered = useMemo(() => {
+    if (!dateFrom && !dateTo) return data;
+    return data.filter((item) => {
+      const sentAt = item.sentAt ? new Date(item.sentAt) : null;
+      if (!sentAt) return false;
+      if (dateFrom && sentAt < new Date(dateFrom)) return false;
+      if (dateTo && sentAt > new Date(dateTo + "T23:59:59")) return false;
+      return true;
+    });
+  }, [data, dateFrom, dateTo]);
+
+  const summary = useMemo(() => {
+    const totalSms = filtered.length;
+    const delivered = filtered.filter((i) => i.status === "Delivered" || i.status === "Sent").length;
+    const failed = filtered.filter((i) => i.status === "Failed").length;
+    const totalCost = filtered.reduce((s: number, i: any) => s + Number(i.cost || 0), 0);
+    return { totalSms, delivered, failed, totalCost };
+  }, [filtered]);
+
+  const dailyVolume = useMemo(() => {
+    const map: Record<string, number> = {};
+    filtered.forEach((item) => {
+      const day = item.sentAt ? new Date(item.sentAt).toLocaleDateString("en-CA") : "Unknown";
+      map[day] = (map[day] || 0) + 1;
+    });
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-14)
+      .map(([date, count]) => ({ date, count }));
+  }, [filtered]);
+
+  const statusDistribution = useMemo(() => {
+    const map: Record<string, number> = {};
+    filtered.forEach((item) => { map[item.status] = (map[item.status] || 0) + 1; });
+    const colors: Record<string, string> = { Sent: "#2563eb", Delivered: "#16a34a", Failed: "#dc2626", Pending: "#f59e0b" };
+    return Object.entries(map).map(([name, value]) => ({ name, value, color: colors[name] || "#6b7280" }));
+  }, [filtered]);
+
+  const handleExportCSV = () => {
+    const headers = "Recipient,Message,Status,Sent At,Cost";
+    const rows = filtered.map((i) => `"${i.recipient}","${(i.message || "").replace(/"/g, '""')}","${i.status}","${i.sentAt ? new Date(i.sentAt).toLocaleString() : ""}","${i.cost || 0}"`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sms-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("SMS Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Recipient", "Message", "Status", "Sent At", "Cost"]],
+      body: filtered.map((i) => [i.recipient, (i.message || "").substring(0, 60), i.status, i.sentAt ? new Date(i.sentAt).toLocaleString() : "", `৳${Number(i.cost || 0).toFixed(2)}`]),
+    });
+    doc.save("sms-report.pdf");
+  };
+
+  const summaryCards = [
+    { title: "Total SMS", value: summary.totalSms, icon: <Phone className="h-6 w-6" />, gradient: "from-blue-500 to-blue-700" },
+    { title: "Delivered", value: summary.delivered, icon: <CheckCircle className="h-6 w-6" />, gradient: "from-green-500 to-emerald-700" },
+    { title: "Failed", value: summary.failed, icon: <AlertTriangle className="h-6 w-6" />, gradient: "from-red-500 to-rose-700" },
+    { title: "Total Cost", value: `৳${summary.totalCost.toFixed(2)}`, icon: <Banknote className="h-6 w-6" />, gradient: "from-amber-500 to-orange-700" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <BarChart3 className="h-6 w-6 text-primary" />
+            SMS Reports
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Filterable SMS reports and analytics</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Date Range Filter */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1">
+              <Label className="text-sm text-slate-700 dark:text-slate-300">From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-sm text-slate-700 dark:text-slate-300">To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }} className="text-slate-700 dark:text-slate-300">
+              Clear
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {summaryCards.map((card, i) => (
+          <Card key={i} className="border-border overflow-hidden">
+            <CardContent className="p-0">
+              <div className={`bg-gradient-to-br ${card.gradient} p-4 text-white`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white/80">{card.title}</p>
+                    <p className="text-2xl font-bold mt-1">{loading ? "—" : card.value}</p>
+                  </div>
+                  <div className="bg-white/20 p-2.5 rounded-xl backdrop-blur-sm">{card.icon}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="border-border lg:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <BarChart className="h-5 w-5 text-primary" />
+              Daily SMS Volume
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              {dailyVolume.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-slate-500 dark:text-slate-400">No data available</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart data={dailyVolume}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
+                    <YAxis tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                    <Bar dataKey="count" fill="#2563eb" radius={[4, 4, 0, 0]} name="SMS Count" />
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <PieChartIcon className="h-5 w-5 text-primary" />
+              Status Distribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-56">
+              {statusDistribution.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-slate-500 dark:text-slate-400">No data available</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={statusDistribution} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={4} dataKey="value">
+                      {statusDistribution.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {statusDistribution.map((s, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
+                  <span className="text-xs text-slate-600 dark:text-slate-400">{s.name} ({s.value})</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Detailed Table */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white">Detailed SMS Logs</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Recipient</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Message</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Sent At</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Cost</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No SMS logs found</TableCell></TableRow>
+                ) : filtered.map((item) => (
+                  <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                    <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.recipient}</TableCell>
+                    <TableCell className="text-slate-700 dark:text-slate-300 max-w-xs truncate">{item.message || "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant={item.status === "Sent" || item.status === "Delivered" ? "default" as const : item.status === "Failed" ? "destructive" as const : "secondary" as const}>
+                        {item.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-slate-700 dark:text-slate-300 text-sm">{item.sentAt ? new Date(item.sentAt).toLocaleString() : "-"}</TableCell>
+                    <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(item.cost || 0).toFixed(2)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// BULK SMS PAGE
+// ============================================================
+
+function BulkSmsPage() {
+  const { toast } = useToast();
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [recipientType, setRecipientType] = useState<"all-customers" | "all-suppliers" | "custom">("all-customers");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [message, setMessage] = useState("");
+  const [template, setTemplate] = useState("");
+  const [sending, setSending] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const templates: Record<string, string> = {
+    "Payment Reminder": "Dear valued customer, your payment is overdue. Please clear your dues at the earliest. Thank you for your continued business.",
+    "Order Confirmation": "Thank you for your order! We are processing it and will notify you once it's ready for delivery. — Electronics Mart",
+    "Delivery Update": "Great news! Your order has been dispatched and is on its way. Expect delivery within 2-3 business days. — Electronics Mart",
+    "Promotional": "🎉 Special Offer at Electronics Mart! Get up to 30% off on electronics this week. Visit us today! Limited time only.",
+  };
+
+  React.useEffect(() => {
+    fetch("/api/customers").then((r) => r.json()).then((d) => { setCustomers(Array.isArray(d) ? d : []); }).catch(() => {});
+    fetch("/api/suppliers").then((r) => r.json()).then((d) => { setSuppliers(Array.isArray(d) ? d : []); }).catch(() => {});
+  }, []);
+
+  const recipients = useMemo(() => {
+    if (recipientType === "all-customers") return customers.filter((c) => c.phone);
+    if (recipientType === "all-suppliers") return suppliers.filter((s) => s.phone);
+    return [...customers, ...suppliers].filter((item) => selectedIds.has(item.id) && item.phone);
+  }, [recipientType, customers, suppliers, selectedIds]);
+
+  const toggleRecipient = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleTemplateSelect = (tpl: string) => {
+    setTemplate(tpl);
+    setMessage(templates[tpl] || "");
+  };
+
+  const handleBulkSend = async () => {
+    if (recipients.length === 0) {
+      toast({ title: "Error", description: "No recipients with phone numbers found", variant: "destructive" });
+      return;
+    }
+    if (!message) {
+      toast({ title: "Error", description: "Message cannot be empty", variant: "destructive" });
+      return;
+    }
+    setSending(true);
+    setPreviewOpen(false);
+    let successCount = 0;
+    let failCount = 0;
+    try {
+      for (const r of recipients) {
+        try {
+          const res = await fetch("/api/sms-logs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recipient: r.phone, message, status: "Sent", cost: 0.5 }),
+          });
+          if (res.ok) successCount++; else failCount++;
+        } catch { failCount++; }
+      }
+      toast({
+        title: "Bulk SMS Complete",
+        description: `Sent: ${successCount}, Failed: ${failCount}`,
+        variant: failCount > 0 ? "destructive" : "default",
+      });
+      setMessage("");
+      setTemplate("");
+    } catch {
+      toast({ title: "Error", description: "Bulk SMS sending failed", variant: "destructive" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const allItems = useMemo(() => [...customers, ...suppliers], [customers, suppliers]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Phone className="h-6 w-6 text-primary" />
+          Bulk SMS
+        </h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">Send promotional messages in bulk</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Recipient selection */}
+        <Card className="border-border lg:col-span-2">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white">Select Recipients</CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">
+              {recipients.length} recipient(s) with phone numbers
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Recipient Group</Label>
+              <Select value={recipientType} onValueChange={(v: "all-customers" | "all-suppliers" | "custom") => { setRecipientType(v); setSelectedIds(new Set()); }}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-customers">All Customers ({customers.filter((c) => c.phone).length})</SelectItem>
+                  <SelectItem value="all-suppliers">All Suppliers ({suppliers.filter((s) => s.phone).length})</SelectItem>
+                  <SelectItem value="custom">Custom Selection</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {recipientType === "custom" && (
+              <div className="border border-border rounded-lg max-h-64 overflow-y-auto p-3 space-y-2">
+                <div className="flex items-center gap-2 pb-2 border-b border-border mb-2">
+                  <Checkbox
+                    checked={selectedIds.size === allItems.filter((i) => i.phone).length && allItems.filter((i) => i.phone).length > 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) setSelectedIds(new Set(allItems.filter((i) => i.phone).map((i) => i.id)));
+                      else setSelectedIds(new Set());
+                    }}
+                  />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Select All</span>
+                </div>
+                {allItems.filter((i) => i.phone).map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 py-1">
+                    <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={() => toggleRecipient(item.id)} />
+                    <span className="text-sm text-slate-700 dark:text-slate-300">{item.name}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 ml-auto">{item.phone}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Right: Message compose */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Mail className="h-5 w-5 text-primary" />
+              Compose Message
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Quick Template</Label>
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(templates).map((tpl) => (
+                  <Button
+                    key={tpl}
+                    variant={template === tpl ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleTemplateSelect(tpl)}
+                    className={template === tpl ? "bg-primary text-primary-foreground" : "text-slate-700 dark:text-slate-300"}
+                  >
+                    {tpl}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-700 dark:text-slate-300">Message</Label>
+                <span className={`text-xs ${message.length > 160 ? "text-red-500" : "text-slate-500 dark:text-slate-400"}`}>
+                  {message.length}/160
+                </span>
+              </div>
+              <Textarea
+                placeholder="Type your bulk message..."
+                value={message}
+                onChange={(e) => { setMessage(e.target.value); setTemplate(""); }}
+                rows={6}
+                className="resize-none"
+              />
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-400">Recipients:</span>
+                <span className="font-medium text-slate-900 dark:text-white">{recipients.length}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm mt-1">
+                <span className="text-slate-600 dark:text-slate-400">Est. Cost:</span>
+                <span className="font-medium text-slate-900 dark:text-white">৳{(recipients.length * 0.5).toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setPreviewOpen(true)}
+                disabled={!message || recipients.length === 0}
+                className="flex-1 text-slate-700 dark:text-slate-300"
+              >
+                <Eye className="h-4 w-4 mr-1" /> Preview
+              </Button>
+              <Button
+                onClick={() => setPreviewOpen(true)}
+                disabled={!message || recipients.length === 0 || sending}
+                className="flex-1 bg-primary text-primary-foreground"
+              >
+                {sending ? <><RefreshCcw className="h-4 w-4 mr-1 animate-spin" /> Sending...</> : <><PhoneCall className="h-4 w-4 mr-1" /> Send Bulk</>}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Bulk SMS</DialogTitle>
+            <DialogDescription className="text-slate-500 dark:text-slate-400">
+              Review before sending
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-4 rounded-lg bg-slate-50 dark:bg-navy-900/30 border border-border">
+              <p className="text-sm font-medium text-slate-900 dark:text-white mb-2">Message Preview:</p>
+              <p className="text-sm text-slate-700 dark:text-slate-300">{message}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/30">
+                <p className="text-blue-600 dark:text-blue-400 font-medium">Recipients</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">{recipients.length}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30">
+                <p className="text-amber-600 dark:text-amber-400 font-medium">Total Cost</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">৳{(recipients.length * 0.5).toFixed(2)}</p>
+              </div>
+            </div>
+            <div className="max-h-32 overflow-y-auto border border-border rounded-lg p-2">
+              <p className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Recipients List:</p>
+              {recipients.slice(0, 20).map((r) => (
+                <p key={r.id} className="text-xs text-slate-500 dark:text-slate-400">{r.name} — {r.phone}</p>
+              ))}
+              {recipients.length > 20 && (
+                <p className="text-xs text-slate-400 mt-1">... and {recipients.length - 20} more</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleBulkSend} disabled={sending} className="bg-primary text-primary-foreground">
+              {sending ? <><RefreshCcw className="h-4 w-4 mr-1 animate-spin" /> Sending...</> : <><PhoneCall className="h-4 w-4 mr-1" /> Confirm & Send</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// ORDER SHEET PAGE
+// ============================================================
+
+function OrderSheetPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [viewItem, setViewItem] = useState<any>(null);
+  const [products, setProducts] = useState<any[]>([]);
+  const [form, setForm] = useState({ date: "", notes: "" });
+  const [lines, setLines] = useState<{ productId: string; quantity: number; rate: number; total: number }[]>([{ productId: "", quantity: 1, rate: 0, total: 0 }]);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/order-sheets").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/products").then((r) => r.json()).then(setProducts).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const grandTotal = lines.reduce((s, l) => s + l.total, 0);
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    setLines((prev) => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+      if (field === "productId") {
+        const prod = products.find((p: any) => p.id === value);
+        if (prod) { updated.rate = prod.costPrice; }
+      }
+      if (field === "quantity" || field === "rate" || field === "productId") {
+        updated.total = Number(updated.quantity) * Number(updated.rate);
+      }
+      return updated;
+    }));
+  };
+
+  const addLine = () => setLines((prev) => [...prev, { productId: "", quantity: 1, rate: 0, total: 0 }]);
+  const removeLine = (idx: number) => setLines((prev) => prev.filter((_, i) => i !== idx));
+
+  const handleSave = async () => {
+    try {
+      const res = await fetch("/api/order-sheets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, lines: lines.filter((l) => l.productId) }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "Order sheet created successfully" });
+      setDialogOpen(false);
+      setForm({ date: "", notes: "" });
+      setLines([{ productId: "", quantity: 1, rate: 0, total: 0 }]);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to create order sheet", variant: "destructive" });
+    }
+  };
+
+  const handleStatusChange = async (id: string, status: string) => {
+    try {
+      const res = await fetch(`/api/order-sheets/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Updated", description: `Status changed to ${status}` });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to update status", variant: "destructive" });
+    }
+  };
+
+  const handleView = (item: any) => {
+    setViewItem(item);
+    setViewDialogOpen(true);
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Sheet No,Date,Total Items,Grand Total,Status";
+    const rows = data.map((i) => `${i.sheetNo},${i.date ? new Date(i.date).toLocaleDateString() : ""},${i.lines?.length || 0},${i.lines?.reduce((s: number, l: any) => s + (l.total || 0), 0) || 0},${i.status || "Draft"}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "order-sheets.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Order Sheets Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Sheet No", "Date", "Total Items", "Grand Total", "Status"]],
+      body: data.map((i) => [i.sheetNo, i.date ? new Date(i.date).toLocaleDateString() : "", String(i.lines?.length || 0), `৳${(i.lines?.reduce((s: number, l: any) => s + (l.total || 0), 0) || 0).toLocaleString()}`, i.status || "Draft"]),
+    });
+    doc.save("order-sheets.pdf");
+  };
+
+  const statusFlow = ["Draft", "Confirmed", "Processing", "Completed"];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Order Sheets</h1>
+        <p className="text-slate-500 dark:text-slate-400">Create and manage purchase order worksheets</p>
+      </div>
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-slate-900 dark:text-white">Order Sheets</CardTitle>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
+              <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground"><Plus className="h-4 w-4 mr-1" /> Add Sheet</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Sheet No</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total Items</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No order sheets</TableCell></TableRow>
+                  ) : data.map((item) => {
+                    const itemTotal = item.lines?.reduce((s: number, l: any) => s + (l.total || 0), 0) || 0;
+                    return (
+                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.sheetNo}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{item.date ? new Date(item.date).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{item.lines?.length || 0}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{itemTotal.toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={item.status || "Draft"} /></TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => handleView(item)} className="text-blue-600 dark:text-blue-400"><Eye className="h-4 w-4" /></Button>
+                            {item.status !== "Completed" && (
+                              <Button variant="ghost" size="sm" onClick={() => {
+                                const nextIdx = statusFlow.indexOf(item.status || "Draft") + 1;
+                                if (nextIdx < statusFlow.length) handleStatusChange(item.id, statusFlow[nextIdx]);
+                              }} className="text-green-600 dark:text-green-400">
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Order Sheet Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add Order Sheet</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Date</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Notes</Label>
+                <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" />
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold">Product Lines</Label>
+                <Button variant="outline" size="sm" onClick={addLine} className="text-slate-700 dark:text-slate-300"><Plus className="h-4 w-4 mr-1" /> Add Line</Button>
+              </div>
+              {lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                  <div className="col-span-4">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Product</Label>}
+                    <Select value={line.productId} onValueChange={(v) => updateLine(idx, "productId", v)}>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Select product" /></SelectTrigger>
+                      <SelectContent>
+                        {products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Qty</Label>}
+                    <Input type="number" className="h-9" value={line.quantity} onChange={(e) => updateLine(idx, "quantity", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Rate</Label>}
+                    <Input type="number" className="h-9" value={line.rate} onChange={(e) => updateLine(idx, "rate", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-3">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Total</Label>}
+                    <Input type="number" className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.total} readOnly />
+                  </div>
+                  <div className="col-span-1">
+                    {lines.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeLine(idx)} className="text-red-500 h-9"><Trash2 className="h-4 w-4" /></Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-right mt-3">
+                <span className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total: ৳{grandTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Detail Dialog */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Order Sheet Details</DialogTitle>
+          </DialogHeader>
+          {viewItem && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label className="text-slate-500 dark:text-slate-400 text-xs">Sheet No</Label><p className="text-slate-900 dark:text-white font-medium">{viewItem.sheetNo}</p></div>
+                <div><Label className="text-slate-500 dark:text-slate-400 text-xs">Date</Label><p className="text-slate-900 dark:text-white font-medium">{viewItem.date ? new Date(viewItem.date).toLocaleDateString() : "-"}</p></div>
+                <div><Label className="text-slate-500 dark:text-slate-400 text-xs">Status</Label><p><StatusBadge status={viewItem.status || "Draft"} /></p></div>
+                <div><Label className="text-slate-500 dark:text-slate-400 text-xs">Notes</Label><p className="text-slate-900 dark:text-white font-medium">{viewItem.notes || "-"}</p></div>
+              </div>
+              <Separator />
+              <div>
+                <Label className="text-slate-700 dark:text-slate-300 font-semibold mb-2 block">Line Items</Label>
+                <div className="rounded-md border border-border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                        <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Product</TableHead>
+                        <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Quantity</TableHead>
+                        <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Rate</TableHead>
+                        <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(viewItem.lines || []).map((line: any, idx: number) => (
+                        <TableRow key={idx} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                          <TableCell className="text-slate-700 dark:text-slate-300">{line.product?.name || "-"}</TableCell>
+                          <TableCell className="text-slate-700 dark:text-slate-300">{line.quantity}</TableCell>
+                          <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(line.rate).toLocaleString()}</TableCell>
+                          <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(line.total).toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="text-right mt-3">
+                  <span className="text-slate-700 dark:text-slate-300 font-semibold text-lg">
+                    Grand Total: ৳{(viewItem.lines || []).reduce((s: number, l: any) => s + (l.total || 0), 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// AUTO PO PAGE (Auto Purchase Order Generation)
+// ============================================================
+
+function AutoPoPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [supplierId, setSupplierId] = useState("");
+  const [godowns, setGodowns] = useState<any[]>([]);
+  const [godownId, setGodownId] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/auto-po").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    fetch("/api/suppliers").then((r) => r.json()).then(setSuppliers).catch(() => {});
+    fetch("/api/godowns").then((r) => r.json()).then(setGodowns).catch(() => {});
+  }, []);
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === data.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(data.map((d: any) => d.productId)));
+    }
+  };
+
+  const totalProducts = data.length;
+  const totalShortage = data.reduce((s: number, d: any) => s + Math.max(0, d.reorderLevel - d.currentStock), 0);
+  const estimatedValue = data.filter((d: any) => selected.has(d.productId)).reduce((s: number, d: any) => s + d.estimatedCost, 0);
+
+  const handleGeneratePO = async () => {
+    if (!supplierId) {
+      toast({ title: "Error", description: "Please select a supplier", variant: "destructive" });
+      return;
+    }
+    if (selected.size === 0) {
+      toast({ title: "Error", description: "Please select at least one product", variant: "destructive" });
+      return;
+    }
+    setGenerating(true);
+    try {
+      const selectedItems = data.filter((d: any) => selected.has(d.productId));
+      const lines = selectedItems.map((item: any) => ({
+        productId: item.productId,
+        quantity: item.suggestedQuantity,
+        rate: item.costPrice,
+        total: item.suggestedQuantity * item.costPrice,
+      }));
+      const grandTotal = lines.reduce((s: number, l: any) => s + l.total, 0);
+      const res = await fetch("/api/purchase-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supplierId, godownId: godownId || undefined, date: new Date().toISOString().split("T")[0], lines, grandTotal }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "PO Generated", description: `Purchase order created with ${selectedItems.length} product(s), total ৳${grandTotal.toLocaleString()}` });
+      setSelected(new Set());
+      setSupplierId("");
+      setGodownId("");
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to generate purchase order", variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Product,Category,Current Stock,Reorder Level,Shortage,Suggested Qty,Estimated Cost";
+    const rows = data.map((i: any) => `${i.productName},${i.category},${i.currentStock},${i.reorderLevel},${Math.max(0, i.reorderLevel - i.currentStock)},${i.suggestedQuantity},${i.estimatedCost}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "auto-po-suggestions.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Auto Purchase Orders</h1>
+        <p className="text-slate-500 dark:text-slate-400">Auto-generate purchase orders for products below reorder level</p>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="bg-gradient-to-r from-red-500 to-rose-600 p-4 text-white">
+              <p className="text-sm font-medium text-white/80">Products Below Reorder</p>
+              <p className="text-2xl font-bold mt-1">{loading ? "..." : totalProducts}</p>
+            </div>
+            <div className="px-4 py-3 bg-card">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Items need restocking</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-4 text-white">
+              <p className="text-sm font-medium text-white/80">Total Shortage</p>
+              <p className="text-2xl font-bold mt-1">{loading ? "..." : totalShortage.toLocaleString()} units</p>
+            </div>
+            <div className="px-4 py-3 bg-card">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Units below reorder level</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border overflow-hidden">
+          <CardContent className="p-0">
+            <div className="bg-gradient-to-r from-emerald-500 to-green-600 p-4 text-white">
+              <p className="text-sm font-medium text-white/80">Estimated PO Value</p>
+              <p className="text-2xl font-bold mt-1">৳{estimatedValue.toLocaleString()}</p>
+            </div>
+            <div className="px-4 py-3 bg-card">
+              <span className="text-xs text-slate-500 dark:text-slate-400">For {selected.size} selected product(s)</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* PO Generation Controls */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white">Generate Purchase Order</CardTitle>
+          <CardDescription className="text-slate-500 dark:text-slate-400">Select a supplier and godown, then choose products to include</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Supplier</Label>
+              <Select value={supplierId} onValueChange={setSupplierId}>
+                <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                <SelectContent>
+                  {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Godown</Label>
+              <Select value={godownId} onValueChange={setGodownId}>
+                <SelectTrigger><SelectValue placeholder="Select godown" /></SelectTrigger>
+                <SelectContent>
+                  {godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end gap-2">
+              <Button onClick={handleGeneratePO} disabled={generating || selected.size === 0} className="bg-primary text-primary-foreground flex-1">
+                {generating ? "Generating..." : <><ShoppingCart className="h-4 w-4 mr-1" /> Generate PO ({selected.size} items)</>}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Low Stock Products Table */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-slate-900 dark:text-white">Products Below Reorder Level</CardTitle>
+            <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold w-10">
+                      <Checkbox checked={selected.size === data.length && data.length > 0} onCheckedChange={toggleAll} />
+                    </TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Product</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Category</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Current Stock</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Reorder Level</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Shortage</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Suggested Qty</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Est. Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-500">All products are above reorder level</TableCell></TableRow>
+                  ) : data.map((item: any) => (
+                    <TableRow key={item.productId} className={`hover:bg-slate-50 dark:hover:bg-navy-900/30 ${selected.has(item.productId) ? "bg-primary/5 dark:bg-primary/10" : ""}`}>
+                      <TableCell className="text-slate-700 dark:text-slate-300">
+                        <Checkbox checked={selected.has(item.productId)} onCheckedChange={() => toggleSelect(item.productId)} />
+                      </TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.productName}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.category}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">
+                        <Badge variant={item.currentStock <= 0 ? "destructive" : "secondary"}>{item.currentStock}</Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.reorderLevel}</TableCell>
+                      <TableCell className="text-red-600 dark:text-red-400 font-medium">{Math.max(0, item.reorderLevel - item.currentStock)}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">{item.suggestedQuantity}</TableCell>
+                      <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(item.estimatedCost).toLocaleString()}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// STOCK DETAILS PAGE
+// ============================================================
+
+function StockDetailsPage() {
+  const { toast } = useToast();
+  const [products, setProducts] = useState<any[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState("");
+  const [stockData, setStockData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  React.useEffect(() => {
+    fetch("/api/products").then((r) => r.json()).then((d) => { setProducts(d); setProductsLoading(false); }).catch(() => setProductsLoading(false));
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedProduct) { setStockData(null); return; }
+    setLoading(true);
+    fetch(`/api/stock-details?productId=${selectedProduct}`).then((r) => r.json()).then((d) => { setStockData(d); setLoading(false); }).catch(() => { setStockData(null); setLoading(false); });
+  }, [selectedProduct]);
+
+  const entries = useMemo(() => {
+    if (!stockData?.entries) return [];
+    let filtered = stockData.entries;
+    if (dateFrom) filtered = filtered.filter((e: any) => new Date(e.date) >= new Date(dateFrom));
+    if (dateTo) filtered = filtered.filter((e: any) => new Date(e.date) <= new Date(dateTo + "T23:59:59"));
+    return filtered;
+  }, [stockData, dateFrom, dateTo]);
+
+  // Calculate running balance
+  const entriesWithBalance = useMemo(() => {
+    const opening = stockData?.product?.openingStock || 0;
+    // Entries from API are in desc order, reverse for running balance calculation
+    const sorted = [...entries].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let balance = opening;
+    return sorted.map((entry: any) => {
+      if (entry.type === "IN") balance += entry.quantity;
+      else if (entry.type === "OUT") balance -= entry.quantity;
+      else if (entry.type === "TRANSFER") balance -= entry.quantity;
+      return { ...entry, runningBalance: balance };
+    }).reverse(); // back to desc for display
+  }, [entries, stockData]);
+
+  // Chart data - stock level over time
+  const chartData = useMemo(() => {
+    if (entriesWithBalance.length === 0) return [];
+    const opening = stockData?.product?.openingStock || 0;
+    const sorted = [...entriesWithBalance].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const result: { date: string; stock: number }[] = [{ date: "Start", stock: opening }];
+    sorted.forEach((entry: any) => {
+      result.push({
+        date: new Date(entry.date).toLocaleDateString(),
+        stock: entry.runningBalance,
+      });
+    });
+    return result;
+  }, [entriesWithBalance, stockData]);
+
+  const currentStock = entriesWithBalance.length > 0 ? entriesWithBalance[0].runningBalance : (stockData?.product?.openingStock || 0);
+  const product = stockData?.product;
+
+  const handleExportCSV = () => {
+    if (!product) return;
+    const headers = "Date,Type,Reference,Quantity,Running Balance";
+    const rows = entriesWithBalance.map((e: any) => `${new Date(e.date).toLocaleDateString()},${e.type},${e.reference || ""},${e.type === "IN" ? "+" : "-"}${e.quantity},${e.runningBalance}`);
+    const csv = [`Stock Movements: ${product.name}`, headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `stock-${product.name}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: "CSV file downloaded" });
+  };
+
+  const handleExportPDF = async () => {
+    if (!product) return;
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text(`Stock Details: ${product.name}`, 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Date", "Type", "Reference", "Quantity", "Running Balance"]],
+      body: entriesWithBalance.map((e: any) => [
+        new Date(e.date).toLocaleDateString(),
+        e.type,
+        e.reference || "-",
+        `${e.type === "IN" ? "+" : "-"}${e.quantity}`,
+        String(e.runningBalance),
+      ]),
+    });
+    doc.save(`stock-${product.name}.pdf`);
+    toast({ title: "Exported", description: "PDF file downloaded" });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Details</h1>
+        <p className="text-slate-500 dark:text-slate-400">Detailed product stock ledger and movements</p>
+      </div>
+
+      {/* Product Selector */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white">Select Product</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Product</Label>
+              <Select value={selectedProduct} onValueChange={setSelectedProduct}>
+                <SelectTrigger><SelectValue placeholder={productsLoading ? "Loading..." : "Select a product"} /></SelectTrigger>
+                <SelectContent>
+                  {products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name} ({p.productCode})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Date From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-slate-700 dark:text-slate-300">Date To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading && <div className="text-center py-8 text-slate-500">Loading stock details...</div>}
+
+      {stockData && !loading && (
+        <>
+          {/* Product Info Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Current Stock</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">{currentStock}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Cost Price</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">৳{Number(product?.costPrice || 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Sale Price</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">৳{Number(product?.salePrice || 0).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Stock Value</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(currentStock * Number(product?.costPrice || 0)).toLocaleString()}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Reorder Level</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">{product?.reorderLevel || 0}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Stock Level Chart */}
+          {chartData.length > 0 && (
+            <Card className="border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-primary" />
+                  Stock Level Over Time
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="stockGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#16a34a" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }}
+                        formatter={(value: number) => [`${value} units`, "Stock Level"]}
+                        labelStyle={{ color: "var(--foreground)" }}
+                      />
+                      <Area type="monotone" dataKey="stock" stroke="#16a34a" fill="url(#stockGrad)" strokeWidth={2} name="Stock Level" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Movement Timeline */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-slate-900 dark:text-white">Stock Movement Timeline</CardTitle>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+                  <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Type</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Reference</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Quantity Change</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Running Balance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {entriesWithBalance.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No stock movements found</TableCell></TableRow>
+                    ) : entriesWithBalance.map((entry: any, idx: number) => (
+                      <TableRow key={idx} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300">{new Date(entry.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">
+                          <Badge variant={entry.type === "IN" ? "default" : entry.type === "OUT" ? "destructive" : "secondary"}>
+                            {entry.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{entry.reference || "-"}</TableCell>
+                        <TableCell className={`font-medium ${entry.type === "IN" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                          {entry.type === "IN" ? "+" : "-"}{entry.quantity}
+                        </TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{entry.runningBalance}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {!selectedProduct && !loading && (
+        <Card className="border-border">
+          <CardContent className="py-12 text-center">
+            <Box className="h-12 w-12 mx-auto text-slate-400 dark:text-slate-500 mb-3" />
+            <p className="text-slate-500 dark:text-slate-400">Select a product to view stock details and movements</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// REPLACEMENTS PAGE
+// ============================================================
+
+function ReplacementsPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [selectedSO, setSelectedSO] = useState("");
+  const [form, setForm] = useState({ date: "", reason: "" });
+  const [lines, setLines] = useState<{ productId: string; productName: string; quantity: number; rate: number; total: number }[]>([]);
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/replacements").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/sales-orders").then((r) => r.json()).then(setSalesOrders).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const handleSelectSO = (soId: string) => {
+    setSelectedSO(soId);
+    const so = salesOrders.find((s: any) => s.id === soId);
+    if (so) {
+      const soLines = (so.lines || []).map((l: any) => ({
+        productId: l.productId,
+        productName: l.product?.name || "Unknown",
+        quantity: 1,
+        rate: l.rate,
+        total: l.rate,
+      }));
+      setLines(soLines.length > 0 ? soLines : [{ productId: "", productName: "", quantity: 1, rate: 0, total: 0 }]);
+      setForm({ ...form, date: so.date ? new Date(so.date).toISOString().split("T")[0] : "" });
+    }
+  };
+
+  const updateLine = (idx: number, field: string, value: any) => {
+    setLines((prev) => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+      if (field === "quantity" || field === "rate") {
+        updated.total = Number(updated.quantity) * Number(updated.rate);
+      }
+      return updated;
+    }));
+  };
+
+  const removeLine = (idx: number) => setLines((prev) => prev.filter((_, i) => i !== idx));
+
+  const grandTotal = lines.reduce((s, l) => s + l.total, 0);
+
+  const handleSave = async () => {
+    if (!form.date || lines.length === 0) {
+      toast({ title: "Error", description: "Please fill all required fields", variant: "destructive" });
+      return;
+    }
+    try {
+      const res = await fetch("/api/replacements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          salesOrderId: selectedSO || undefined,
+          date: form.date,
+          reason: form.reason,
+          lines: lines.filter((l) => l.productId).map((l) => ({
+            productId: l.productId,
+            quantity: l.quantity,
+            rate: l.rate,
+            total: l.total,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      toast({ title: "Created", description: "Replacement order created successfully" });
+      setDialogOpen(false);
+      setSelectedSO("");
+      setForm({ date: "", reason: "" });
+      setLines([]);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to create replacement order", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Replacement No,Sales Order,Date,Reason,Total Items,Grand Total,Status";
+    const rows = data.map((i) => `${i.replacementNo},${i.salesOrder?.invoiceNo || ""},${i.date ? new Date(i.date).toLocaleDateString() : ""},${i.reason || ""},${i.lines?.length || 0},${i.lines?.reduce((s: number, l: any) => s + (l.total || 0), 0) || 0},${i.status || "Pending"}`);
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "replacements.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Replacement Orders Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Replacement No", "Sales Order", "Customer", "Date", "Reason", "Items", "Grand Total", "Status"]],
+      body: data.map((i) => [
+        i.replacementNo,
+        i.salesOrder?.invoiceNo || "-",
+        i.salesOrder?.customer?.name || "-",
+        i.date ? new Date(i.date).toLocaleDateString() : "-",
+        i.reason || "-",
+        String(i.lines?.length || 0),
+        `৳${(i.lines?.reduce((s: number, l: any) => s + (l.total || 0), 0) || 0).toLocaleString()}`,
+        i.status || "Pending",
+      ]),
+    });
+    doc.save("replacements.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Replacement Orders</h1>
+        <p className="text-slate-500 dark:text-slate-400">Manage replacement orders for defective goods</p>
+      </div>
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-slate-900 dark:text-white">Replacement Orders</CardTitle>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300"><FileDown className="h-4 w-4 mr-1" /> Export CSV</Button>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
+              <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground"><Plus className="h-4 w-4 mr-1" /> Add Replacement</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? <div className="text-center py-8 text-slate-500">Loading...</div> : (
+            <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Replacement No</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Sales Order</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Reason</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                    <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No replacement orders</TableCell></TableRow>
+                  ) : data.map((item) => {
+                    const itemTotal = item.lines?.reduce((s: number, l: any) => s + (l.total || 0), 0) || 0;
+                    return (
+                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{item.replacementNo}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{item.salesOrder?.invoiceNo || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{item.date ? new Date(item.date).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{item.reason || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{itemTotal.toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={item.status || "Pending"} /></TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Replacement Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Add Replacement Order</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Original Sales Order</Label>
+                <Select value={selectedSO} onValueChange={handleSelectSO}>
+                  <SelectTrigger><SelectValue placeholder="Select sales order" /></SelectTrigger>
+                  <SelectContent>
+                    {salesOrders.map((so: any) => <SelectItem key={so.id} value={so.id}>{so.invoiceNo} - {so.customer?.name || ""}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-slate-700 dark:text-slate-300">Date</Label>
+                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
+                <Label className="text-slate-700 dark:text-slate-300">Reason</Label>
+                <Textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="Replacement reason" />
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <Label className="text-slate-700 dark:text-slate-300 font-semibold">Replacement Items</Label>
+              {lines.map((line, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 mb-2 items-end">
+                  <div className="col-span-4">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Product</Label>}
+                    <Input className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.productName} readOnly />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Qty</Label>}
+                    <Input type="number" className="h-9" value={line.quantity} onChange={(e) => updateLine(idx, "quantity", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-2">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Rate</Label>}
+                    <Input type="number" className="h-9" value={line.rate} onChange={(e) => updateLine(idx, "rate", Number(e.target.value))} />
+                  </div>
+                  <div className="col-span-3">
+                    {idx === 0 && <Label className="text-xs text-slate-500">Total</Label>}
+                    <Input type="number" className="h-9 bg-slate-50 dark:bg-navy-900/30" value={line.total} readOnly />
+                  </div>
+                  <div className="col-span-1">
+                    {lines.length > 1 && (
+                      <Button variant="ghost" size="sm" onClick={() => removeLine(idx)} className="text-red-500 h-9"><Trash2 className="h-4 w-4" /></Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="text-right mt-3">
+                <span className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total: ৳{grandTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// HIRE SALES REPORT PAGE
+// ============================================================
+
+function HireSalesReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const loadReport = useCallback(() => {
+    setLoading(true);
+    fetch("/api/reports/hire-sales")
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadReport(); }, [loadReport]);
+
+  const filteredHireSales = useMemo(() => {
+    if (!data?.hireSales) return [];
+    return data.hireSales.filter((hs: any) => {
+      if (statusFilter !== "all" && hs.currentStatus !== statusFilter && hs.status !== statusFilter) return false;
+      if (dateFrom && new Date(hs.date) < new Date(dateFrom)) return false;
+      if (dateTo && new Date(hs.date) > new Date(dateTo)) return false;
+      return true;
+    });
+  }, [data, dateFrom, dateTo, statusFilter]);
+
+  const summary = data?.summary || {};
+
+  const monthlyChartData = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredHireSales.forEach((hs: any) => {
+      if (hs.date) {
+        const month = new Date(hs.date).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+        map.set(month, (map.get(month) || 0) + hs.grandTotal);
+      }
+    });
+    return Array.from(map.entries()).map(([month, value]) => ({ month, value }));
+  }, [filteredHireSales]);
+
+  const statusPieData = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredHireSales.forEach((hs: any) => {
+      const s = hs.currentStatus || hs.status || "Unknown";
+      map.set(s, (map.get(s) || 0) + 1);
+    });
+    const colors: Record<string, string> = { Active: "#16a34a", Returned: "#ea580c", Completed: "#0891b2" };
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value, color: colors[name] || "#6b7280" }));
+  }, [filteredHireSales]);
+
+  const handleExportCSV = () => {
+    const headers = "Invoice No,Customer,Date,Hire Rate,Duration,Grand Total,Status";
+    const rows = filteredHireSales.map((hs: any) =>
+      `${hs.invoiceNo},${hs.customer?.name || ""},${hs.date ? new Date(hs.date).toLocaleDateString() : ""},${hs.hireRate},${hs.duration || ""},${hs.grandTotal},${hs.currentStatus || hs.status}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "hire-sales-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Hire Sales Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Invoice No", "Customer", "Date", "Hire Rate", "Duration", "Grand Total", "Status"]],
+      body: filteredHireSales.map((hs: any) => [
+        hs.invoiceNo, hs.customer?.name || "",
+        hs.date ? new Date(hs.date).toLocaleDateString() : "",
+        `৳${Number(hs.hireRate).toLocaleString()}`,
+        hs.duration || "-",
+        `৳${Number(hs.grandTotal).toLocaleString()}`,
+        hs.currentStatus || hs.status,
+      ]),
+    });
+    doc.save("hire-sales-report.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <ArrowUpRight className="h-6 w-6 text-primary" />
+            Hire Sales Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Hire sales analysis and outstanding tracking</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Status</Label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-40"><SelectValue placeholder="All Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Returned">Returned</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={loadReport} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Refresh
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
+                    <CircleDollarSign className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Hire Value</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalHireValue || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Active Hires</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{summary.activeCount || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-cyan-100 dark:bg-cyan-900/30">
+                    <CheckCircle className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Returned</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{summary.returnedCount || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-red-100 dark:bg-red-900/30">
+                    <Wallet className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Outstanding</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalOutstanding || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="border-border lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                  <BarChart className="h-5 w-5 text-primary" />
+                  Hire Sales by Month
+                </CardTitle>
+                <CardDescription className="text-slate-500 dark:text-slate-400">Monthly hire sales value</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {monthlyChartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsBarChart data={monthlyChartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                        <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`, "Hire Value"]} />
+                        <Bar dataKey="value" fill="#16a34a" radius={[4, 4, 0, 0]} name="Hire Value" />
+                      </RechartsBarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400">No chart data available</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                  <PieChartIcon className="h-5 w-5 text-amber-500" />
+                  Status Distribution
+                </CardTitle>
+                <CardDescription className="text-slate-500 dark:text-slate-400">Hire status breakdown</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {statusPieData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={statusPieData} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={4} dataKey="value">
+                          {statusPieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400">No data available</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Hire Sales Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Hire Sales Detail</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{filteredHireSales.length} record(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Invoice No</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Customer</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Hire Rate</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Duration</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Grand Total</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredHireSales.length === 0 ? (
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-500">No hire sales found</TableCell></TableRow>
+                    ) : filteredHireSales.map((hs: any) => (
+                      <TableRow key={hs.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{hs.invoiceNo}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{hs.customer?.name || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{hs.date ? new Date(hs.date).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(hs.hireRate).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{hs.duration || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(hs.grandTotal).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={hs.currentStatus || hs.status || "Draft"} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// SR REPORT PAGE (Sales Rep Performance)
+// ============================================================
+
+function SrReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [employeeFilter, setEmployeeFilter] = useState("all");
+
+  const loadReport = useCallback(() => {
+    setLoading(true);
+    fetch("/api/reports/sr")
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadReport(); }, [loadReport]);
+
+  const filteredPerformance = useMemo(() => {
+    if (!data?.srPerformance) return [];
+    if (employeeFilter === "all") return data.srPerformance;
+    return data.srPerformance.filter((p: any) => p.employeeId === employeeFilter);
+  }, [data, employeeFilter]);
+
+  const summary = data?.summary || {};
+  const topRep = filteredPerformance.length > 0
+    ? filteredPerformance.reduce((best: any, p: any) => p.achievementPercent > best.achievementPercent ? p : best, filteredPerformance[0])
+    : null;
+
+  const performanceChartData = filteredPerformance.map((p: any) => ({
+    name: p.employeeName?.split(" ").slice(0, 2).join(" ") || "N/A",
+    target: p.targetAmount,
+    achieved: p.achievedAmount,
+  }));
+
+  const handleExportCSV = () => {
+    const headers = "Employee,Target,Achieved,Achievement %,Status";
+    const rows = filteredPerformance.map((p: any) =>
+      `${p.employeeName},${p.targetAmount},${p.achievedAmount},${p.achievementPercent}%,${p.status}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sr-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("SR Performance Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Employee", "Target", "Achieved", "Achievement %", "Variance", "Status"]],
+      body: filteredPerformance.map((p: any) => [
+        p.employeeName,
+        `৳${Number(p.targetAmount).toLocaleString()}`,
+        `৳${Number(p.achievedAmount).toLocaleString()}`,
+        `${p.achievementPercent}%`,
+        `৳${Number(p.achievedAmount - p.targetAmount).toLocaleString()}`,
+        p.status,
+      ]),
+    });
+    doc.save("sr-report.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <UserCheck className="h-6 w-6 text-primary" />
+            SR Performance Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Sales representative achievement tracking</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Employee</Label>
+              <Select value={employeeFilter} onValueChange={setEmployeeFilter}>
+                <SelectTrigger className="w-56"><SelectValue placeholder="All Employees" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Employees</SelectItem>
+                  {data?.srPerformance?.map((p: any) => (
+                    <SelectItem key={p.employeeId} value={p.employeeId}>{p.employeeName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={loadReport} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Refresh
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
+                    <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Sales</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalConfirmedSales || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-orange-100 dark:bg-orange-900/30">
+                    <Target className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Targets Set</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalTarget || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <Activity className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Achievement %</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{summary.overallAchievement || 0}%</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/30">
+                    <Award className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Top Rep</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white truncate max-w-[140px]">{topRep?.employeeName || "N/A"}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Performance Chart */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart className="h-5 w-5 text-primary" />
+                Target vs Achievement
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Employee sales performance comparison</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {performanceChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={performanceChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                      <Legend />
+                      <Bar dataKey="target" fill="#ea580c" radius={[4, 4, 0, 0]} name="Target" />
+                      <Bar dataKey="achieved" fill="#16a34a" radius={[4, 4, 0, 0]} name="Achieved" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400">No performance data available</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Performance Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Employee Performance</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{filteredPerformance.length} record(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Employee</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Target</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Actual Sales</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Achievement %</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Variance</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPerformance.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No performance data found</TableCell></TableRow>
+                    ) : filteredPerformance.map((p: any) => (
+                      <TableRow key={p.employeeId + p.month + p.year} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{p.employeeName}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(p.targetAmount).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(p.achievedAmount).toLocaleString()}</TableCell>
+                        <TableCell className={`font-medium ${p.achievementPercent >= 100 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>{p.achievementPercent}%</TableCell>
+                        <TableCell className={`font-medium ${p.achievedAmount >= p.targetAmount ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>৳{Number(p.achievedAmount - p.targetAmount).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={p.status} /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// CUSTOMER WISE REPORT PAGE
+// ============================================================
+
+function CustomerWiseReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [customerFilter, setCustomerFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const loadReport = useCallback(() => {
+    setLoading(true);
+    fetch("/api/reports/customer-wise")
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadReport(); }, [loadReport]);
+
+  const filteredCustomers = useMemo(() => {
+    if (!data?.customers) return [];
+    return data.customers.filter((c: any) => {
+      if (customerFilter !== "all" && c.id !== customerFilter) return false;
+      if (dateFrom && c.lastOrderDate && new Date(c.lastOrderDate) < new Date(dateFrom)) return false;
+      if (dateTo && c.lastOrderDate && new Date(c.lastOrderDate) > new Date(dateTo)) return false;
+      return true;
+    });
+  }, [data, customerFilter, dateFrom, dateTo]);
+
+  const summary = data?.summary || {};
+
+  const top10Data = useMemo(() => {
+    return [...filteredCustomers]
+      .sort((a: any, b: any) => b.totalRevenue - a.totalRevenue)
+      .slice(0, 10)
+      .map((c: any) => ({ name: c.name, revenue: c.totalRevenue }));
+  }, [filteredCustomers]);
+
+  const handleExportCSV = () => {
+    const headers = "Customer,Total Orders,Total Revenue,Last Order Date,Balance";
+    const rows = filteredCustomers.map((c: any) =>
+      `${c.name},${c.totalOrders},${c.totalRevenue},${c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : "-"},${c.balance}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "customer-wise-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Customer Wise Report", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Customer", "Total Orders", "Total Revenue", "Last Order Date", "Balance"]],
+      body: filteredCustomers.map((c: any) => [
+        c.name, c.totalOrders,
+        `৳${Number(c.totalRevenue).toLocaleString()}`,
+        c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : "-",
+        `৳${Number(c.balance).toLocaleString()}`,
+      ]),
+    });
+    doc.save("customer-wise-report.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Users className="h-6 w-6 text-primary" />
+            Customer Wise Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Per-customer sales and outstanding analysis</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Customer</Label>
+              <Select value={customerFilter} onValueChange={setCustomerFilter}>
+                <SelectTrigger className="w-56"><SelectValue placeholder="All Customers" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Customers</SelectItem>
+                  {data?.customers?.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+            </div>
+            <Button size="sm" onClick={loadReport} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Refresh
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
+                    <Users className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Customers</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{summary.totalCustomers || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <CircleDollarSign className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Revenue</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalRevenue || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-orange-100 dark:bg-orange-900/30">
+                    <ShoppingBag className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Avg Order Value</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.avgOrderValue || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-red-100 dark:bg-red-900/30">
+                    <Wallet className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Outstanding</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.totalOutstanding || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Top 10 Customers Chart */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart className="h-5 w-5 text-primary" />
+                Top 10 Customers by Revenue
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Highest revenue generating customers</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {top10Data.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={top10Data} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={110} />
+                      <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`, "Revenue"]} />
+                      <Bar dataKey="revenue" fill="#16a34a" radius={[0, 4, 4, 0]} name="Revenue" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400">No data available</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Customer Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Customer Summary</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{filteredCustomers.length} customer(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Customer</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total Orders</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total Revenue</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Last Order Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Balance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCustomers.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No customers found</TableCell></TableRow>
+                    ) : filteredCustomers.map((c: any) => (
+                      <TableRow key={c.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{c.name}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{c.totalOrders}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">৳{Number(c.totalRevenue).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className={`font-medium ${c.balance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>৳{Number(c.balance).toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// BANK REPORT PAGE
+// ============================================================
+
+function BankReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [banks, setBanks] = useState<any[]>([]);
+  const [selectedBank, setSelectedBank] = useState("");
+
+  React.useEffect(() => {
+    fetch("/api/banks").then((r) => r.json()).then(setBanks).catch(() => {});
+  }, []);
+
+  const loadReport = useCallback(() => {
+    if (!selectedBank || selectedBank === "all") return;
+    setLoading(true);
+    fetch(`/api/reports/bank?bankId=${selectedBank}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [selectedBank]);
+
+  React.useEffect(() => { if (selectedBank && selectedBank !== "all") loadReport(); }, [loadReport]);
+
+  const summary = data?.summary || {};
+
+  const handleExportCSV = () => {
+    if (!data?.transactions) return;
+    const headers = "Date,Description,Type,Credit,Debit,Balance";
+    const rows = data.transactions.map((t: any) =>
+      `${new Date(t.date).toLocaleDateString()},${(t.description || t.type || "").replace(/,/g, ";")},${t.type},${t.credit},${t.debit},${t.balance || 0}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "bank-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    if (!data?.transactions) return;
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text(`Bank Report - ${data.bank?.bankName || ""}`, 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Date", "Description", "Type", "Credit", "Debit", "Balance"]],
+      body: data.transactions.map((t: any) => [
+        new Date(t.date).toLocaleDateString(),
+        t.description || t.type || "-",
+        t.type,
+        t.credit > 0 ? `৳${Number(t.credit).toLocaleString()}` : "-",
+        t.debit > 0 ? `৳${Number(t.debit).toLocaleString()}` : "-",
+        `৳${Number(t.balance || 0).toLocaleString()}`,
+      ]),
+    });
+    doc.save("bank-report.pdf");
+  };
+
+  // Build chart data from transactions (by type)
+  const chartData = useMemo(() => {
+    if (!data?.transactions) return [];
+    const typeMap = new Map<string, { credits: number; debits: number }>();
+    data.transactions.forEach((t: any) => {
+      const cat = t.category || t.type || "Other";
+      const existing = typeMap.get(cat) || { credits: 0, debits: 0 };
+      existing.credits += t.credit || 0;
+      existing.debits += t.debit || 0;
+      typeMap.set(cat, existing);
+    });
+    return Array.from(typeMap.entries()).map(([name, { credits, debits }]) => ({ name, credits, debits }));
+  }, [data]);
+
+  const netFlow = (summary.totalDeposits || 0) + (summary.totalIncome || 0) + (summary.totalCollections || 0)
+    - (summary.totalWithdrawals || 0) - (summary.totalExpense || 0) - (summary.totalDeliveries || 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Banknote className="h-6 w-6 text-primary" />
+            Bank Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Bank book with credits and debits</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={!data} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={!data} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Bank Selector */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Select Bank</Label>
+              <Select value={selectedBank} onValueChange={setSelectedBank}>
+                <SelectTrigger className="w-56"><SelectValue placeholder="Choose a bank" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">-- Select Bank --</SelectItem>
+                  {banks.map((b: any) => (
+                    <SelectItem key={b.id} value={b.id}>{b.bankName} - {b.accountNo}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={loadReport} disabled={!selectedBank || selectedBank === "all"} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Load Report
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Bank Info */}
+          {data.bank && (
+            <Card className="border-border bg-gradient-to-r from-slate-50 to-slate-100 dark:from-navy-900/30 dark:to-navy-900/50">
+              <CardContent className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">{data.bank.bankName}</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">A/C: {data.bank.accountNo} | Branch: {data.bank.branch || "N/A"} | Holder: {data.bank.accountHolder}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Current Balance</p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-white">৳{(summary.currentBalance || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
+                    <Banknote className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Balance</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{(summary.currentBalance || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/30">
+                    <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Credits</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{((summary.totalDeposits || 0) + (summary.totalIncome || 0) + (summary.totalCollections || 0)).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-red-100 dark:bg-red-900/30">
+                    <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Debits</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">৳{((summary.totalWithdrawals || 0) + (summary.totalExpense || 0) + (summary.totalDeliveries || 0)).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`p-3 rounded-xl ${netFlow >= 0 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
+                    <Activity className={`h-5 w-5 ${netFlow >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Net Flow</p>
+                    <p className={`text-xl font-bold ${netFlow >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>৳{Math.abs(netFlow).toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Chart */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart className="h-5 w-5 text-primary" />
+                Credits vs Debits by Category
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Transaction breakdown by type</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {chartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                      <Legend />
+                      <Bar dataKey="credits" fill="#16a34a" radius={[4, 4, 0, 0]} name="Credits" />
+                      <Bar dataKey="debits" fill="#dc2626" radius={[4, 4, 0, 0]} name="Debits" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400">No transaction data available</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Transaction Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Transaction Details</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{data.transactions?.length || 0} transaction(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Description</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Credit</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Debit</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Balance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {!data.transactions || data.transactions.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No transactions found</TableCell></TableRow>
+                    ) : data.transactions.map((t: any, idx: number) => (
+                      <TableRow key={idx} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300">{new Date(t.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{t.description || t.type || "-"}</TableCell>
+                        <TableCell className="text-green-600 dark:text-green-400">{t.credit > 0 ? `৳${Number(t.credit).toLocaleString()}` : "-"}</TableCell>
+                        <TableCell className="text-red-600 dark:text-red-400">{t.debit > 0 ? `৳${Number(t.debit).toLocaleString()}` : "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(t.balance || 0).toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : !selectedBank || selectedBank === "all" ? (
+        <Card className="border-border">
+          <CardContent className="p-12 text-center">
+            <Banknote className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300">Select a Bank</h3>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">Choose a bank account to view its report</p>
+          </CardContent>
+        </Card>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// TRANSFER REPORT PAGE
+// ============================================================
+
+function TransferReportPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [godownFilter, setGodownFilter] = useState("all");
+  const [godowns, setGodowns] = useState<any[]>([]);
+
+  React.useEffect(() => {
+    fetch("/api/godowns").then((r) => r.json()).then(setGodowns).catch(() => {});
+  }, []);
+
+  const loadReport = useCallback(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    fetch(`/api/reports/transfer?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [dateFrom, dateTo]);
+
+  React.useEffect(() => { loadReport(); }, [loadReport]);
+
+  const filteredTransfers = useMemo(() => {
+    if (!data?.transfers) return [];
+    if (godownFilter === "all") return data.transfers;
+    return data.transfers.filter((t: any) =>
+      t.fromGodownId === godownFilter || t.toGodownId === godownFilter ||
+      t.fromGodown?.id === godownFilter || t.toGodown?.id === godownFilter
+    );
+  }, [data, godownFilter]);
+
+  const summary = data?.summary || {};
+
+  const godownChartData = useMemo(() => {
+    const fromData = summary.fromGodownSummary || [];
+    const toData = summary.toGodownSummary || [];
+    const allNames = [...new Set([...fromData.map((g: any) => g.godown), ...toData.map((g: any) => g.godown)])];
+    return allNames.map((name) => {
+      const from = fromData.find((g: any) => g.godown === name);
+      const to = toData.find((g: any) => g.godown === name);
+      return { name, sent: from?.totalItems || 0, received: to?.totalItems || 0 };
+    });
+  }, [summary]);
+
+  const handleExportCSV = () => {
+    const headers = "Date,Product,From Godown,To Godown,Quantity,Notes";
+    const rows: string[] = [];
+    filteredTransfers.forEach((t: any) => {
+      t.lines?.forEach((l: any) => {
+        rows.push(`${new Date(t.date).toLocaleDateString()},${l.product?.name || ""},${t.fromGodown?.name || ""},${t.toGodown?.name || ""},${l.quantity},${(t.notes || "").replace(/,/g, ";")}`);
+      });
+      if (!t.lines || t.lines.length === 0) {
+        rows.push(`${new Date(t.date).toLocaleDateString()},-,${t.fromGodown?.name || ""},${t.toGodown?.name || ""},${t.totalQuantity || 0},${(t.notes || "").replace(/,/g, ";")}`);
+      }
+    });
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "transfer-report.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Transfer Report", 14, 20);
+    const body: string[][] = [];
+    filteredTransfers.forEach((t: any) => {
+      t.lines?.forEach((l: any) => {
+        body.push([
+          new Date(t.date).toLocaleDateString(),
+          l.product?.name || "-",
+          t.fromGodown?.name || "-",
+          t.toGodown?.name || "-",
+          String(l.quantity),
+          t.notes || "-",
+        ]);
+      });
+      if (!t.lines || t.lines.length === 0) {
+        body.push([
+          new Date(t.date).toLocaleDateString(),
+          "-",
+          t.fromGodown?.name || "-",
+          t.toGodown?.name || "-",
+          String(t.totalQuantity || 0),
+          t.notes || "-",
+        ]);
+      }
+    });
+    autoTable(doc, {
+      startY: 30,
+      head: [["Date", "Product", "From Godown", "To Godown", "Quantity", "Notes"]],
+      body,
+    });
+    doc.save("transfer-report.pdf");
+  };
+
+  const uniqueSourceGodowns = new Set(filteredTransfers.map((t: any) => t.fromGodown?.name).filter(Boolean)).size;
+  const uniqueDestGodowns = new Set(filteredTransfers.map((t: any) => t.toGodown?.name).filter(Boolean)).size;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <ArrowRightLeft className="h-6 w-6 text-primary" />
+            Transfer Report
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Stock transfer log and analysis</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportCSV} className="text-slate-700 dark:text-slate-300">
+            <FileDown className="h-4 w-4 mr-1" /> Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300">
+            <FileText className="h-4 w-4 mr-1" /> Export PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <Card className="border-border">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-end gap-3">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date From</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Date To</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-44" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm">Godown</Label>
+              <Select value={godownFilter} onValueChange={setGodownFilter}>
+                <SelectTrigger className="w-48"><SelectValue placeholder="All Godowns" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Godowns</SelectItem>
+                  {godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={loadReport} className="bg-primary text-primary-foreground">
+              <Search className="h-4 w-4 mr-1" /> Filter
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-500">Loading report...</div>
+      ) : data ? (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-green-100 dark:bg-green-900/30">
+                    <ArrowRightLeft className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Total Transfers</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{summary.totalTransfers || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-orange-100 dark:bg-orange-900/30">
+                    <Package className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Products Transferred</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{summary.totalItemsTransferred || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-cyan-100 dark:bg-cyan-900/30">
+                    <Warehouse className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Source Godowns</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{uniqueSourceGodowns}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/30">
+                    <Warehouse className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Destination Godowns</p>
+                    <p className="text-xl font-bold text-slate-900 dark:text-white">{uniqueDestGodowns}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Chart */}
+          <Card className="border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart className="h-5 w-5 text-primary" />
+                Transfers by Godown
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Items sent vs received per godown</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {godownChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsBarChart data={godownChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+                      <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                      <Legend />
+                      <Bar dataKey="sent" fill="#ea580c" radius={[4, 4, 0, 0]} name="Sent" />
+                      <Bar dataKey="received" fill="#16a34a" radius={[4, 4, 0, 0]} name="Received" />
+                    </RechartsBarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400">No transfer data available</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Transfer Table */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white">Transfer Details</CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">{filteredTransfers.length} transfer(s) found</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Transfer No</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">From Godown</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">To Godown</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Items</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Total Qty</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Status</TableHead>
+                      <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredTransfers.length === 0 ? (
+                      <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-500">No transfers found</TableCell></TableRow>
+                    ) : filteredTransfers.map((t: any) => (
+                      <TableRow key={t.id} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                        <TableCell className="text-slate-700 dark:text-slate-300">{new Date(t.date).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{t.transferNo}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{t.fromGodown?.name || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{t.toGodown?.name || "-"}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{t.lineCount || t.lines?.length || 0}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300">{t.totalQuantity || 0}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300"><StatusBadge status={t.status || "Pending"} /></TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 max-w-[200px] truncate">{t.notes || "-"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// ============================================================
+// CARD TYPE SETUP PAGE
+// ============================================================
+
+function CardTypeSetupPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
+  const [cardTypes, setCardTypes] = useState<any[]>([]);
+  const [form, setForm] = useState({ paymentOptionId: "", cardTypeId: "", chargePercentage: 0, isActive: true });
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/card-type-setup").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/payment-options").then((r) => r.json()).then(setPaymentOptions).catch(() => {});
+      fetch("/api/card-types").then((r) => r.json()).then(setCardTypes).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({ paymentOptionId: "", cardTypeId: "", chargePercentage: 0, isActive: true });
+    setDialogOpen(true);
+  };
+
+  const openEdit = (item: any) => {
+    setEditItem(item);
+    setForm({
+      paymentOptionId: item.paymentOptionId || item.paymentOption?.id || "",
+      cardTypeId: item.cardTypeId || item.cardType?.id || "",
+      chargePercentage: item.chargePercentage || 0,
+      isActive: item.isActive !== false,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.paymentOptionId || !form.cardTypeId) {
+      toast({ title: "Error", description: "Payment Option and Card Type are required", variant: "destructive" });
+      return;
+    }
+    try {
+      const url = editItem ? `/api/card-type-setup/${editItem.id}` : "/api/card-type-setup";
+      const method = editItem ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      toast({ title: "Success", description: editItem ? "Card type setup updated" : "Card type setup created" });
+      setDialogOpen(false);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to save card type setup", variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (item: any) => {
+    if (!confirm("Delete this card type setup?")) return;
+    try {
+      await fetch(`/api/card-type-setup/${item.id}`, { method: "DELETE" });
+      toast({ title: "Deleted", description: "Card type setup deleted" });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to delete", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = "Payment Option,Card Type,Charge %,Status";
+    const rows = data.map((d: any) =>
+      `${d.paymentOption?.name || ""},${d.cardType?.name || ""},${d.chargePercentage}%,${d.isActive ? "Active" : "Inactive"}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "card-type-setup.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("Card Type Setup", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Payment Option", "Card Type", "Charge %", "Status"]],
+      body: data.map((d: any) => [
+        d.paymentOption?.name || "-",
+        d.cardType?.name || "-",
+        `${d.chargePercentage}%`,
+        d.isActive ? "Active" : "Inactive",
+      ]),
+    });
+    doc.save("card-type-setup.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <DataTable
+        title="Card Type Setup"
+        columns={[
+          { key: "paymentOption", label: "Payment Option", render: (item: any) => item.paymentOption?.name || "-" },
+          { key: "cardType", label: "Card Type", render: (item: any) => item.cardType?.name || "-" },
+          { key: "chargePercentage", label: "Charge %", render: (item: any) => `${item.chargePercentage}%` },
+          { key: "isActive", label: "Status", render: (item: any) => <StatusBadge status={item.isActive ? "Active" : "Inactive"} /> },
+        ]}
+        data={data as any[]}
+        onAdd={openAdd}
+        onEdit={openEdit}
+        onDelete={handleDelete}
+        onExportCSV={handleExportCSV}
+        onExportPDF={handleExportPDF}
+        addLabel="Add Setup"
+        searchPlaceholder="Search card type setups..."
+      />
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editItem ? "Edit Card Type Setup" : "Add Card Type Setup"}</DialogTitle>
+            <DialogDescription>Configure card type with payment option and charge percentage</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300">Payment Option</Label>
+              <Select value={form.paymentOptionId} onValueChange={(v) => setForm({ ...form, paymentOptionId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select payment option" /></SelectTrigger>
+                <SelectContent>
+                  {paymentOptions.map((po: any) => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300">Card Type</Label>
+              <Select value={form.cardTypeId} onValueChange={(v) => setForm({ ...form, cardTypeId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select card type" /></SelectTrigger>
+                <SelectContent>
+                  {cardTypes.map((ct: any) => <SelectItem key={ct.id} value={ct.id}>{ct.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300">Charge %</Label>
+              <Input type="number" step="0.01" value={form.chargePercentage} onChange={(e) => setForm({ ...form, chargePercentage: Number(e.target.value) })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />
+              <Label className="text-slate-700 dark:text-slate-300">Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// SR TARGET SETUP PAGE
+// ============================================================
+
+function SrTargetSetupPage() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [form, setForm] = useState({ employeeId: "", month: 1, year: new Date().getFullYear(), targetAmount: 0, isActive: true });
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/sr-targets").then((r) => r.json()).then((d) => { setData(d); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/employees").then((r) => r.json()).then(setEmployees).catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({ employeeId: "", month: 1, year: new Date().getFullYear(), targetAmount: 0, isActive: true });
+    setDialogOpen(true);
+  };
+
+  const openEdit = (item: any) => {
+    setEditItem(item);
+    setForm({
+      employeeId: item.employeeId || item.employee?.id || "",
+      month: item.month || 1,
+      year: item.year || new Date().getFullYear(),
+      targetAmount: item.targetAmount || 0,
+      isActive: item.isActive !== false,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.employeeId || form.targetAmount <= 0) {
+      toast({ title: "Error", description: "Employee and target amount are required", variant: "destructive" });
+      return;
+    }
+    try {
+      const url = editItem ? `/api/sr-targets/${editItem.id}` : "/api/sr-targets";
+      const method = editItem ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      toast({ title: "Success", description: editItem ? "SR target updated" : "SR target created" });
+      setDialogOpen(false);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to save SR target", variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (item: any) => {
+    if (!confirm("Delete this SR target?")) return;
+    try {
+      await fetch(`/api/sr-targets/${item.id}`, { method: "DELETE" });
+      toast({ title: "Deleted", description: "SR target deleted" });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to delete", variant: "destructive" });
+    }
+  };
+
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  const handleExportCSV = () => {
+    const headers = "Employee,Month,Year,Target Amount,Status";
+    const rows = data.map((d: any) =>
+      `${d.employee?.name || ""},${monthNames[(d.month || 1) - 1]},${d.year},${d.targetAmount},${d.isActive ? "Active" : "Inactive"}`
+    );
+    const csv = [headers, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "sr-targets.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("SR Target Setup", 14, 20);
+    autoTable(doc, {
+      startY: 30,
+      head: [["Employee", "Month", "Year", "Target Amount", "Status"]],
+      body: data.map((d: any) => [
+        d.employee?.name || "-",
+        monthNames[(d.month || 1) - 1],
+        d.year,
+        `৳${Number(d.targetAmount).toLocaleString()}`,
+        d.isActive ? "Active" : "Inactive",
+      ]),
+    });
+    doc.save("sr-targets.pdf");
+  };
+
+  return (
+    <div className="space-y-6">
+      <DataTable
+        title="SR Target Setup"
+        columns={[
+          { key: "employee", label: "Employee", render: (item: any) => item.employee?.name || "-" },
+          { key: "month", label: "Month", render: (item: any) => monthNames[(item.month || 1) - 1] },
+          { key: "year", label: "Year" },
+          { key: "targetAmount", label: "Target Amount", render: (item: any) => `৳${Number(item.targetAmount).toLocaleString()}` },
+          { key: "isActive", label: "Status", render: (item: any) => <StatusBadge status={item.isActive ? "Active" : "Inactive"} /> },
+        ]}
+        data={data as any[]}
+        onAdd={openAdd}
+        onEdit={openEdit}
+        onDelete={handleDelete}
+        onExportCSV={handleExportCSV}
+        onExportPDF={handleExportPDF}
+        addLabel="Add Target"
+        searchPlaceholder="Search SR targets..."
+      />
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editItem ? "Edit SR Target" : "Add SR Target"}</DialogTitle>
+            <DialogDescription>Set sales target for a representative</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300">Employee</Label>
+              <Select value={form.employeeId} onValueChange={(v) => setForm({ ...form, employeeId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                <SelectContent>
+                  {employees.map((emp: any) => <SelectItem key={emp.id} value={emp.id}>{emp.name} ({emp.employeeCode})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label className="text-slate-700 dark:text-slate-300">Month</Label>
+                <Select value={String(form.month)} onValueChange={(v) => setForm({ ...form, month: Number(v) })}>
+                  <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                  <SelectContent>
+                    {monthNames.map((m, i) => <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-slate-700 dark:text-slate-300">Year</Label>
+                <Input type="number" value={form.year} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-slate-700 dark:text-slate-300">Target Amount (৳)</Label>
+              <Input type="number" value={form.targetAmount} onChange={(e) => setForm({ ...form, targetAmount: Number(e.target.value) })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} />
+              <Label className="text-slate-700 dark:text-slate-300">Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="text-slate-700 dark:text-slate-300">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground">Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN APP COMPONENT
 // ============================================================
 
@@ -4433,27 +8470,34 @@ function AppContent() {
     if (currentPage === "purchase-returns") return <PurchaseReturnPage />;
     // Hire sales page
     if (currentPage === "hire-sales") return <HireSalesPage />;
+    // Order sheet page
+    if (currentPage === "order-sheets") return <OrderSheetPage />;
+    // Auto PO page
+    if (currentPage === "auto-po") return <AutoPoPage />;
+    // Stock details page
+    if (currentPage === "stock-details") return <StockDetailsPage />;
+    // Replacements page
+    if (currentPage === "replacements") return <ReplacementsPage />;
+    // New report pages
+    if (currentPage === "hire-sales-report") return <HireSalesReportPage />;
+    if (currentPage === "sr-report") return <SrReportPage />;
+    if (currentPage === "customer-wise-report") return <CustomerWiseReportPage />;
+    if (currentPage === "bank-report") return <BankReportPage />;
+    if (currentPage === "transfer-report") return <TransferReportPage />;
+    // Setup pages
+    if (currentPage === "card-type-setup") return <CardTypeSetupPage />;
+    if (currentPage === "sr-targets") return <SrTargetSetupPage />;
+    // SMS module pages
+    if (currentPage === "send-sms") return <SendSmsPage />;
+    if (currentPage === "sms-inbox") return <SmsInboxPage />;
+    if (currentPage === "sms-bills") return <SmsBillsPage />;
+    if (currentPage === "sms-bill-payments") return <SmsBillPaymentsPage />;
+    if (currentPage === "sms-reports") return <SmsReportsPage />;
+    if (currentPage === "bulk-sms") return <BulkSmsPage />;
     const config = moduleConfigs[currentPage];
     if (config) return <GenericModulePage config={config} />;
     // Placeholder for remaining complex modules
     const pageLabels: Record<string, { title: string; description: string }> = {
-      "order-sheets": { title: "Order Sheets", description: "Create and manage purchase order worksheets" },
-      "auto-po": { title: "Auto Purchase Orders", description: "Auto-generate POs for low stock products" },
-      "replacements": { title: "Replacement Orders", description: "Manage replacement orders for defective goods" },
-      "stock-details": { title: "Stock Details", description: "Detailed product stock ledger and movements" },
-      "card-type-setup": { title: "Card Type Setup", description: "Configure card types with payment options" },
-      "sr-targets": { title: "SR Target Setup", description: "Set sales targets for representatives" },
-      "send-sms": { title: "Send SMS", description: "Compose and send SMS to contacts" },
-      "sms-inbox": { title: "SMS Inbox", description: "View sent and received SMS logs" },
-      "sms-bills": { title: "SMS Bills", description: "Track SMS usage and billing" },
-      "sms-bill-payments": { title: "SMS Bill Payments", description: "Record payments to SMS provider" },
-      "sms-reports": { title: "SMS Reports", description: "Filterable SMS reports" },
-      "bulk-sms": { title: "Bulk SMS", description: "Send promotional messages in bulk" },
-      "hire-sales-report": { title: "Hire Sales Report", description: "Hire sales and outstanding report" },
-      "sr-report": { title: "SR Report", description: "Sales rep performance against targets" },
-      "customer-wise-report": { title: "Customer Wise Report", description: "Per-customer sales and ledger" },
-      "bank-report": { title: "Bank Report", description: "Bank book with credits/debits" },
-      "transfer-report": { title: "Transfer Report", description: "Stock transfer log" },
     };
     const info = pageLabels[currentPage] || { title: currentPage, description: "" };
     return <PlaceholderPage title={info.title} description={info.description} />;
@@ -4502,7 +8546,7 @@ function AppContent() {
             </Button>
             <Button variant="ghost" size="sm" className="text-white hover:bg-navy-800 relative">
               <Bell className="h-5 w-5" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center">3</span>
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center pulse-dot font-medium">3</span>
             </Button>
             <Separator orientation="vertical" className="h-6 bg-navy-700" />
             <div className="flex items-center gap-2">
@@ -4538,44 +8582,44 @@ function AppContent() {
                 {group.items.length === 1 ? (
                   <button
                     onClick={() => handleNav(group.items[0].key)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-all duration-200 rounded-r-lg ${
                       currentPage === group.items[0].key
-                        ? "bg-primary text-white"
-                        : "text-navy-300 hover:bg-navy-900 hover:text-white"
+                        ? "bg-primary/90 text-white shadow-md shadow-primary/20 sidebar-item-active"
+                        : "text-navy-300 hover:bg-navy-900/80 hover:text-white"
                     }`}
                   >
                     {group.items[0].icon}
-                    {sidebarOpen && <span>{group.items[0].label}</span>}
+                    {sidebarOpen && <span className="font-medium">{group.items[0].label}</span>}
                   </button>
                 ) : (
                   <>
                     <button
                       onClick={() => toggleGroup(group.label)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-navy-400 hover:text-navy-200"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-navy-500 hover:text-navy-200 transition-colors"
                     >
                       {sidebarOpen ? (
                         <>
-                          {group.icon}
+                          <span className="opacity-70">{group.icon}</span>
                           <span className="flex-1 text-left">{group.label}</span>
-                          {expandedGroups.has(group.label) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                          {expandedGroups.has(group.label) ? <ChevronDown className="h-3 w-3 text-navy-500" /> : <ChevronRight className="h-3 w-3 text-navy-600" />}
                         </>
                       ) : (
-                        group.icon
+                        <span className="opacity-70">{group.icon}</span>
                       )}
                     </button>
                     {expandedGroups.has(group.label) && sidebarOpen && (
-                      <div className="ml-2">
+                      <div className="ml-3 mt-0.5 space-y-0.5">
                         {group.items.map((item) => (
                           <button
                             key={item.key}
                             onClick={() => handleNav(item.key)}
-                            className={`w-full flex items-center gap-3 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                            className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm rounded-md transition-all duration-200 ${
                               currentPage === item.key
-                                ? "bg-primary text-white"
-                                : "text-navy-300 hover:bg-navy-900 hover:text-white"
+                                ? "bg-primary/90 text-white shadow-sm shadow-primary/20 font-medium"
+                                : "text-navy-400 hover:bg-navy-800/80 hover:text-white"
                             }`}
                           >
-                            {item.icon}
+                            <span className={`${currentPage === item.key ? "text-white" : "opacity-70"}`}>{item.icon}</span>
                             <span>{item.label}</span>
                           </button>
                         ))}
@@ -4590,12 +8634,16 @@ function AppContent() {
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8 min-h-[calc(100vh-3.5rem-3rem)]">
+          <div className="p-4 sm:p-6 lg:p-8 min-h-[calc(100vh-3.5rem-3rem)] page-enter">
             {renderPage()}
           </div>
           {/* Footer */}
-          <footer className="bg-navy-950 dark:bg-navy-950 text-white py-3 px-4 text-center text-sm">
-            <p>Developed & Copyright by NextGen Digital Studio</p>
+          <footer className="bg-gradient-to-r from-navy-950 via-navy-900 to-navy-950 dark:from-navy-950 dark:via-navy-900 dark:to-navy-950 text-white py-3 px-4 text-center text-sm border-t border-navy-800/50">
+            <div className="flex items-center justify-center gap-2">
+              <Zap className="h-3.5 w-3.5 text-amber-400" />
+              <p className="text-navy-300">Developed & Copyright by <span className="text-white font-medium">NextGen Digital Studio</span></p>
+              <Zap className="h-3.5 w-3.5 text-amber-400" />
+            </div>
           </footer>
         </main>
       </div>
