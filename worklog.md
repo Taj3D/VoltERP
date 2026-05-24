@@ -1,200 +1,105 @@
 # Electronics Mart IMS - Worklog
 
-## Phase 3: Bug Fixes, Feature Pages & Polish
+## Phase 5: Advanced Features, Styling Refinement & Polish
 
 ### Current Project Status
-The Electronics Mart IMS is a comprehensive single-page Next.js application with 50+ API routes, 40+ UI pages, recharts visualizations, and a rich seeded database. All core modules are functional.
+The Electronics Mart IMS is now a comprehensive 10,000+ line single-page application with 60+ API routes, 40+ custom page components, rich visualizations, and professional-grade styling. VLM assessment: **8/10** professional quality.
 
-### QA Findings & Fixes Applied
-
-#### Critical Bug Fix: Nested Object Display
-1. **Products table showed raw category IDs** instead of category names (e.g., "cmpk2xr650003..." instead of "Accessories")
-   - Root cause: The DataTable default render used `String(item[col.key])` which renders `[object Object]` for nested relations
-   - Fix 1: Updated the DataTable component to intelligently resolve nested objects — if the value is an object, it tries `.name` then `.title` before falling back to JSON.stringify
-   - Fix 2: Updated ProductsPage's Category column to use a custom render function that resolves `item.category?.name`
-   - Fix 3: Updated CSV export to resolve nested object names
-   - Fix 4: Updated PDF export (autoTable) to resolve nested object names
-
-This fix applies universally to ALL modules — Designations (departmentId→department.name), Employees (designationId→designation.name), Assets (investmentHeadId→investmentHead.name), etc.
-
-#### New Feature Pages (6 new components)
-
-1. **BasicReportPage** — MIS Basic Report with:
-   - 6 KPI gradient cards (Revenue, Cost, Inventory, Cash Balance, Receivables, Payables)
-   - Monthly Sales Trend AreaChart (12-month data)
-   - Top 5 Products by Sales horizontal BarChart
-   - Recent Activities timeline
-   - Export CSV/PDF
-
-2. **SalesReportPage** — Filterable Sales Report with:
-   - Date range filter inputs
-   - 3 summary cards (Total Sales, Total Cost, Total Profit)
-   - Daily Sales BarChart
-   - Sales Orders table with profit margin per order
-   - Export CSV/PDF
-
-3. **PurchaseReportPage** — Filterable Purchase Report with:
-   - Date range + supplier dropdown filter
-   - 3 summary cards (Total Purchase, Total Items, Avg Order Value)
-   - Purchases by Supplier BarChart
-   - Purchase Orders table
-   - Export CSV/PDF
-
-4. **SalesReturnPage** — Sales Returns with full CRUD:
-   - List table: Return No, Invoice No, Customer, Date, Grand Total, Status
-   - Add dialog: select original Sales Order, auto-populate return items, editable quantities, reason
-   - POST to /api/sales-returns
-   - Export CSV/PDF
-
-5. **PurchaseReturnPage** — Purchase Returns with full CRUD:
-   - List table: Return No, PO Number, Supplier, Date, Grand Total, Status
-   - Add dialog: select original Purchase Order, auto-populate return items, reason
-   - POST to /api/purchase-returns
-   - Export CSV/PDF
-
-6. **HireSalesPage** — Hire Sales with full CRUD:
-   - List table: Invoice No, Customer, Date, Hire Rate, Duration, Grand Total, Status
-   - Add dialog: Customer, Godown, product lines, hire rate, duration, return date
-   - POST to /api/hire-sales
-   - Export CSV/PDF
-
-### Verified Working
-- ✅ Products page now shows "Accessories", "Computer", "Electronics" instead of IDs
-- ✅ All 6 new pages render correctly
-- ✅ Basic Report with charts working
-- ✅ Sales Return page with Add dialog
-- ✅ Hire Sales page with Add dialog
-- ✅ Dark mode working
-- ✅ Lint passes with 0 errors
-- ✅ No console errors
-
----
-
-## Phase 4: Comprehensive Styling Overhaul & Feature Expansion
-
-### QA Testing Results (via agent-browser + VLM)
+### QA Testing Results
+- ✅ All API endpoints returning 200 (50+ tested)
 - ✅ No browser errors, no console errors
-- ✅ All API endpoints returning 200
-- ⚠️ 17 pages were using PlaceholderPage (all now replaced with real pages)
-- ⚠️ VLM identified: dark mode contrast issues, inconsistent spacing, button differentiation needed, hover states lacking
+- ✅ Lint passes with 0 errors
+- ✅ Dark mode working with excellent contrast
+- ✅ All pages render correctly with proper data
 
 ### Styling Improvements Applied
 
-1. **Enhanced globals.css**:
-   - Improved dark mode contrast (foreground oklch 0.94→0.95, muted-foreground 0.65→0.68, border 0.28→0.30)
-   - Added `.kpi-card` hover lift effect with shadow
-   - Added `.sidebar-item-active` with left border accent
-   - Added `.data-table-row` smooth row transitions
-   - Added `.btn-hover-scale` button micro-animation
-   - Added `.page-enter` fade-in-up animation for page transitions
-   - Added `.shimmer` loading effect for skeleton states
-   - Added `.pulse-dot` animation for notification badge
-   - Enhanced focus-visible ring for accessibility
-   - Improved scrollbar styling for table containers
-   - Added `.badge-glow` effect
-   - Better print styles (hiding header/sidebar/footer)
-   - Removed overly broad transition that caused animation issues
-
-2. **DataTable Component Overhaul**:
-   - Title now includes icon (Layers) for visual identity
-   - Search input has search icon, custom styling, and clear button
-   - Export buttons have distinct hover colors (Import=emerald, CSV=sky, PDF=rose)
-   - Add button has hover scale micro-animation
-   - Table header uses gradient background with uppercase tracking
-   - Even rows have subtle striping
-   - Empty state shows Package icon with helpful text
-   - Null/undefined values show em-dash instead of empty string
-   - Action buttons are icon-only with colored hover backgrounds and tooltips
-   - Card has hover shadow transition
-
-3. **StatusBadge Enhancement**:
-   - 14 distinct status configurations with semantic colors
-   - Each status has colored dot indicator
-   - Active/Approved=emerald, Confirmed=blue, Completed/Delivered=green
-   - Pending=amber, Draft=slate, Partial=orange
-   - Unpaid/Failed/Cancelled=red, Returned=purple, Processing=indigo
-   - Dark mode aware with proper contrast
-
-4. **Dashboard KPI Cards**:
-   - Added `kpi-card` class for hover lift effect
-   - Hover reveals white overlay on gradient
-   - Icon container has hover rotate animation
-   - Shimmer loading skeleton instead of pulse
-   - Trend badges have colored background pills
-   - Better border separation
-
-5. **Sidebar Navigation**:
-   - Active items have shadow glow effect
-   - Group headers have slightly dimmed icons
-   - Sub-items have proper spacing with `space-y-0.5`
-   - Chevron icons colored to match hierarchy
-   - Smooth `transition-all duration-200`
-
-6. **Footer Enhancement**:
+1. **Header Enhancement**:
    - Gradient background (navy-950 → navy-900 → navy-950)
-   - Zap icons as decorative elements
-   - "NextGen Digital Studio" in bold white
-   - Border top for visual separation
+   - Logo has gradient background with shadow glow
+   - Brand text with tracking-wide and uppercase subtitle
+   - Global search shortcut button with ⌘K keyboard hint
+   - Ctrl+K / Cmd+K keyboard shortcut opens Advance Search
+   - Theme toggle with tooltip
+   - Reduced gap between header items for cleaner layout
 
-7. **Header Notification**:
-   - Pulse animation on notification badge
-   - Font weight on badge count
+2. **Breadcrumb Navigation**:
+   - Shows Home > Section > Page hierarchy
+   - Clickable Home button to return to Dashboard
+   - ChevronRight separators with muted colors
+   - Active page in bold with proper contrast
+   - Responsive with proper truncation
 
-### New Feature Pages (17 pages — ALL placeholder pages replaced!)
+3. **Enhanced globals.css**:
+   - Smoother cubic-bezier easing for KPI card hover
+   - Notification panel slide animation (slideInRight)
+   - Card hover glow effect with radial gradient
+   - Gradient text helper class
+   - Stat value count-up animation
+   - Dialog backdrop blur
+   - Better antialiased font rendering
+   - Improved shimmer and pulse-dot animations
+   - Print styles exclude breadcrumb bar
 
-#### SMS Module (6 pages)
-1. **SendSmsPage** — Compose SMS with customer selector, 4 quick templates, character counter
-2. **SmsInboxPage** — SMS logs with status filter tabs, color-coded badges
-3. **SmsBillsPage** — Billing with summary cards, add bill dialog
-4. **SmsBillPaymentsPage** — Payment recording with bill selector
-5. **SmsReportsPage** — Analytics dashboard with KPI cards, charts
-6. **BulkSmsPage** — Bulk messaging with recipient groups, preview
+4. **Accounting Report Pages Overhaul** (5 pages enhanced):
+   - **ProfitLossPage**: Revenue vs Expenses BarChart, Profit Margin AreaChart, monthly breakdown, gradient KPI cards
+   - **BalanceSheetPage**: Assets vs Liabilities BarChart, Asset Composition PieChart, detail cards with border accents
+   - **TrialBalancePage**: Debit vs Credit BarChart, Account Distribution PieChart, color-coded table columns
+   - **CashInHandPage**: Cash Flow Trend AreaChart, Income vs Expense BarChart, 4 gradient KPI cards, recent transactions
+   - **BankReportPage**: Empty state with bank selection cards, summary cards for all banks
 
-#### Report Pages (5 pages)
-7. **HireSalesReportPage** — Monthly BarChart, Status PieChart, filters
-8. **SrReportPage** — Target vs Achievement grouped BarChart
-9. **CustomerWiseReportPage** — Top 10 revenue BarChart, customer table
-10. **BankReportPage** — Credits vs Debits BarChart, transaction table
-11. **TransferReportPage** — Sent vs Received BarChart, transfer table
+5. **API Routes Enhanced**:
+   - `/api/reports/profit-loss` → Added monthlyData
+   - `/api/reports/balance-sheet` → Added assetComposition, liabilityComposition, comparisonData
+   - `/api/reports/trial-balance` → Added chartData, pieData
+   - `/api/reports/cash-in-hand` → Added dailyFlow, incomeVsExpense, recentTransactions
+   - `/api/reports/advance-search` → Added employee search, fixed SQLite-incompatible mode
 
-#### Setup Pages (2 pages)
-12. **CardTypeSetupPage** — Full CRUD with payment option/card type dropdowns
-13. **SrTargetSetupPage** — Full CRUD with employee selector, target amounts
+### New Feature Pages (3 components)
 
-#### Transaction Pages (4 pages)
-14. **OrderSheetPage** — Full CRUD with product lines, status management
-15. **AutoPoPage** — Dashboard with low stock products, auto-generate PO
-16. **StockDetailsPage** — Stock ledger with AreaChart, movement timeline
-17. **ReplacementsPage** — Full CRUD with sales order selector
+1. **EmployeeLeavePage** — Custom page with:
+   - 4 gradient KPI summary cards (Total, Approved, Pending, Rejected)
+   - Full DataTable with color-coded leave type badges
+   - Add/Edit dialog with auto-calculated days
+   - Export CSV/PDF
 
-### API Routes Created
-- `/api/sms-logs/route.ts` — GET/POST
-- `/api/sms-bills/route.ts` — GET/POST
-- `/api/sms-bill-payments/route.ts` — GET/POST
-- `/api/reports/hire-sales/route.ts` — GET
-- `/api/reports/sr/route.ts` — GET
-- `/api/reports/customer-wise/route.ts` — GET (updated)
-- `/api/reports/bank/route.ts` — GET
-- `/api/reports/transfer/route.ts` — GET
-- `/api/order-sheets/route.ts` — GET/POST
-- `/api/replacements/route.ts` — GET/POST
+2. **Enhanced AdvanceSearchPage** — Major upgrade:
+   - 6 entity types with icon tabs (Products, Customers, Suppliers, Employees, POs, SOs)
+   - Real-time search with 500ms debounce
+   - Search history stored in localStorage (last 5 searches)
+   - Click-through navigation to entity pages
+   - Count badges on entity tabs
+
+3. **NotificationPanel** — Slide-out drawer:
+   - Real data notifications (low stock, pending POs/SOs, overdue payments)
+   - Read/unread status with dot indicators
+   - Mark as read / Mark all as read
+   - Relative timestamps
+   - Slide-in animation from right
+   - Responsive design (full width mobile, 384px desktop)
+
+### Additional Improvements
+- Added "Rejected" status to StatusBadge with red styling
+- Fixed BankReportPage empty state (bank selection cards)
+- page.tsx grew from ~8,660 → ~10,121 lines
 
 ### Verification
-- ✅ Lint passes with 0 errors
-- ✅ No browser errors
-- ✅ No console errors
-- ✅ Dev server all 200s
-- ✅ All 17 new pages load and render correctly
-- ✅ Dark mode working with improved contrast
-- ✅ VLM rates styling as "near-professional grade"
-- ✅ page.tsx grew from 4612 → ~8650+ lines
+- ✅ Lint: 0 errors
+- ✅ All 50+ API endpoints returning 200
+- ✅ No browser/console errors
+- ✅ Dark mode with excellent contrast
+- ✅ VLM rates **8/10** professional quality
+- ✅ Breadcrumb navigation functional
+- ✅ ⌘K search shortcut working
+- ✅ Notification panel with real data
+- ✅ All accounting reports have charts
 
 ### Unresolved Issues / Next Phase Priorities
-1. Employee Leaves page needs custom UI (currently GenericModulePage)
-2. Product image upload not yet implemented
-3. Page transition animations could be smoother with framer-motion
-4. Some report API routes return mock/aggregated data — could be more precise
-5. Mobile responsiveness could be further refined
-6. Authentication/login system not yet implemented
-7. Advance Search page could have more search fields and real-time filtering
-8. Cash in Hand, Trial Balance, Profit/Loss, Balance Sheet could have more visual charts
+1. Product image upload not yet implemented (needs file upload API + storage)
+2. Authentication/login system not yet implemented
+3. Some chart data is generated from mock aggregations — could use more precise SQL
+4. Mobile responsiveness could be further refined (sidebar overlay behavior)
+5. Data validation on API routes could be more granular
+6. Could add data export scheduling (automated reports)
+7. Could add multi-currency support
+8. Could add audit log for tracking data changes

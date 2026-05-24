@@ -111,6 +111,26 @@ export async function GET() {
 
     const totalLiabilities = payables + equity;
 
+    // Asset composition for PieChart
+    const assetComposition = [
+      { name: 'Stock Value', value: stockValue, color: '#3b82f6' },
+      { name: 'Bank Balance', value: bankBalance, color: '#10b981' },
+      { name: 'Receivables', value: receivables, color: '#f59e0b' },
+    ].filter(a => a.value > 0);
+
+    // Liability composition for PieChart
+    const liabilityComposition = [
+      { name: 'Payables', value: payables, color: '#ef4444' },
+      { name: 'Equity', value: Math.max(equity, 0), color: '#8b5cf6' },
+    ].filter(l => l.value > 0);
+
+    // Comparison data for BarChart
+    const comparisonData = [
+      { category: 'Assets', value: totalAssets },
+      { category: 'Liabilities', value: totalLiabilities },
+      { category: 'Equity', value: Math.max(equity, 0) },
+    ];
+
     return NextResponse.json({
       assets: {
         stock: stockValue,
@@ -124,6 +144,9 @@ export async function GET() {
         totalLiabilities,
       },
       balanced: Math.abs(totalAssets - totalLiabilities) < 0.01,
+      assetComposition,
+      liabilityComposition,
+      comparisonData,
     });
   } catch (error) {
     console.error('Error calculating balance sheet:', error);

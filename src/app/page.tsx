@@ -406,6 +406,7 @@ function StatusBadge({ status }: { status: string }) {
     "Unpaid": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
     "Failed": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
     "Cancelled": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
+    "Rejected": { variant: "destructive", className: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800", dot: "bg-red-500" },
     "Returned": { variant: "outline", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-200 dark:border-purple-800", dot: "bg-purple-500" },
     "Processing": { variant: "secondary", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800", dot: "bg-indigo-500" },
   };
@@ -3784,58 +3785,233 @@ function ProfitLossPage() {
     doc.save("profit-loss.pdf");
   };
 
-  if (loading) return <div className="text-center py-8 text-slate-500">Loading report...</div>;
-  if (!data) return <div className="text-center py-8 text-slate-500">Failed to load report</div>;
+  if (loading) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Loading report...</div>;
+  if (!data) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Failed to load report</div>;
+
+  const monthlyData = data.monthlyData || [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Profit & Loss</h1>
-          <p className="text-slate-500 dark:text-slate-400">Income vs expense statement</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <BarChart3 className="h-6 w-6 text-primary" />
+            Profit & Loss
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Income vs expense statement</p>
         </div>
         <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
       </div>
+
+      {/* Gradient KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-emerald-100">Total Revenue</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.revenue).toLocaleString()}</p>
+              <p className="text-xs text-emerald-200 mt-1">Sales: ৳{Number(data.salesRevenue).toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><TrendingUp className="h-7 w-7" /></div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-gradient-to-br from-red-500 to-rose-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-red-100">Total Expenses</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.operatingExpenses + data.costOfGoods).toLocaleString()}</p>
+              <p className="text-xs text-red-200 mt-1">COGS: ৳{Number(data.costOfGoods).toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><TrendingDown className="h-7 w-7" /></div>
+          </div>
+        </div>
+        <div className={`rounded-xl bg-gradient-to-br ${Number(data.netProfit) >= 0 ? "from-blue-500 to-indigo-600" : "from-red-600 to-rose-700"} p-5 text-white shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-100">Net Profit</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.netProfit).toLocaleString()}</p>
+              <p className="text-xs text-blue-200 mt-1">Margin: {data.netProfitMargin}%</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">{Number(data.netProfit) >= 0 ? <ArrowUpRight className="h-7 w-7" /> : <ArrowDownRight className="h-7 w-7" />}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Revenue vs Expenses BarChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-primary" /> Revenue vs Expenses (Monthly)
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">12-month comparison</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {monthlyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart data={monthlyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} angle={-45} textAnchor="end" height={50} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Legend />
+                    <Bar dataKey="revenue" fill="#10b981" radius={[4, 4, 0, 0]} name="Revenue" />
+                    <Bar dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} name="Expenses" />
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No monthly data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Profit Margin Trend AreaChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <TrendingUp className="h-4 w-4 text-emerald-500" /> Profit Margin Trend
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Monthly profit margin %</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {monthlyData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} angle={-45} textAnchor="end" height={50} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `${v}%`} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`${value}%`]} />
+                    <Area type="monotone" dataKey="profitMargin" stroke="#3b82f6" fill="url(#profitGradient)" strokeWidth={2} name="Profit Margin" />
+                    <defs>
+                      <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No monthly data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Monthly Breakdown Table */}
       <Card className="border-border">
-        <CardContent className="p-6">
-          <div className="space-y-4">
-            <div className="text-lg font-semibold text-slate-900 dark:text-white border-b border-border pb-2">Revenue</div>
-            <div className="grid grid-cols-2 gap-2 pl-4">
-              <span className="text-slate-700 dark:text-slate-300">Sales Revenue</span>
-              <span className="text-slate-700 dark:text-slate-300 text-right">৳{Number(data.salesRevenue).toLocaleString()}</span>
-              <span className="text-slate-700 dark:text-slate-300">Other Income</span>
-              <span className="text-slate-700 dark:text-slate-300 text-right">৳{Number(data.otherIncome).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between bg-slate-50 dark:bg-navy-900/50 p-3 rounded-lg font-semibold">
-              <span className="text-slate-900 dark:text-white">Total Revenue</span>
-              <span className="text-slate-900 dark:text-white">৳{Number(data.revenue).toLocaleString()}</span>
-            </div>
-            <Separator />
-            <div className="text-lg font-semibold text-slate-900 dark:text-white border-b border-border pb-2">Cost of Goods Sold</div>
-            <div className="grid grid-cols-2 gap-2 pl-4">
-              <span className="text-slate-700 dark:text-slate-300">COGS</span>
-              <span className="text-slate-700 dark:text-slate-300 text-right">৳{Number(data.costOfGoods).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between bg-green-50 dark:bg-green-900/20 p-3 rounded-lg font-semibold">
-              <span className="text-green-700 dark:text-green-400">Gross Profit</span>
-              <span className="text-green-700 dark:text-green-400">৳{Number(data.grossProfit).toLocaleString()}</span>
-            </div>
-            <p className="text-sm text-slate-500 pl-4">Gross Profit Margin: {data.grossProfitMargin}%</p>
-            <Separator />
-            <div className="text-lg font-semibold text-slate-900 dark:text-white border-b border-border pb-2">Operating Expenses</div>
-            <div className="grid grid-cols-2 gap-2 pl-4">
-              <span className="text-slate-700 dark:text-slate-300">Total Expenses</span>
-              <span className="text-slate-700 dark:text-slate-300 text-right">৳{Number(data.operatingExpenses).toLocaleString()}</span>
-            </div>
-            <Separator />
-            <div className={`flex justify-between p-4 rounded-lg font-bold text-lg ${Number(data.netProfit) >= 0 ? "bg-green-50 dark:bg-green-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
-              <span className={Number(data.netProfit) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>Net Profit</span>
-              <span className={Number(data.netProfit) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>৳{Number(data.netProfit).toLocaleString()}</span>
-            </div>
-            <p className="text-sm text-slate-500 pl-4">Net Profit Margin: {data.netProfitMargin}%</p>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+            <Layers className="h-4 w-4 text-primary" /> Monthly Breakdown
+          </CardTitle>
+          <CardDescription className="text-slate-500 dark:text-slate-400">Detailed monthly P&L figures</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="table-container rounded-md border border-border max-h-80 overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Month</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Revenue</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Expenses</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Profit</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Margin</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {monthlyData.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-500">No monthly data</TableCell></TableRow>
+                ) : monthlyData.map((row: any, i: number) => (
+                  <TableRow key={i} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                    <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{row.month}</TableCell>
+                    <TableCell className="text-green-600 dark:text-green-400 text-right">৳{Number(row.revenue).toLocaleString()}</TableCell>
+                    <TableCell className="text-red-600 dark:text-red-400 text-right">৳{Number(row.expenses).toLocaleString()}</TableCell>
+                    <TableCell className={`text-right font-medium ${Number(row.profit) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>৳{Number(row.profit).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant={Number(row.profitMargin) >= 0 ? "default" : "destructive"} className="text-xs">{row.profitMargin}%</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Detailed P&L Sections */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Income Details */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <TrendingUp className="h-4 w-4 text-emerald-500" /> Income Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between py-2 border-b border-border">
+                <span className="text-slate-700 dark:text-slate-300">Sales Revenue</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">৳{Number(data.salesRevenue).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-border">
+                <span className="text-slate-700 dark:text-slate-300">Other Income</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">৳{Number(data.otherIncome).toLocaleString()}</span>
+              </div>
+              {(data.incomeDetails || []).map((d: any, i: number) => (
+                <div key={i} className="flex justify-between py-1.5 pl-4 text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">{d.head}</span>
+                  <span className="text-slate-700 dark:text-slate-300">৳{Number(d.amount).toLocaleString()} ({d.count}x)</span>
+                </div>
+              ))}
+              <div className="flex justify-between bg-emerald-50 dark:bg-emerald-900/20 p-3 rounded-lg font-bold">
+                <span className="text-emerald-700 dark:text-emerald-400">Total Revenue</span>
+                <span className="text-emerald-700 dark:text-emerald-400">৳{Number(data.revenue).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between bg-emerald-50/50 dark:bg-emerald-900/10 p-3 rounded-lg">
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">Gross Profit</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">৳{Number(data.grossProfit).toLocaleString()}</span>
+              </div>
+              <p className="text-sm text-slate-500 pl-2">Gross Profit Margin: {data.grossProfitMargin}%</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Expense Details */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <TrendingDown className="h-4 w-4 text-red-500" /> Expense Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between py-2 border-b border-border">
+                <span className="text-slate-700 dark:text-slate-300">Cost of Goods Sold</span>
+                <span className="text-red-600 dark:text-red-400 font-medium">৳{Number(data.costOfGoods).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-border">
+                <span className="text-slate-700 dark:text-slate-300">Operating Expenses</span>
+                <span className="text-red-600 dark:text-red-400 font-medium">৳{Number(data.operatingExpenses).toLocaleString()}</span>
+              </div>
+              {(data.expenseDetails || []).map((d: any, i: number) => (
+                <div key={i} className="flex justify-between py-1.5 pl-4 text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">{d.head}</span>
+                  <span className="text-slate-700 dark:text-slate-300">৳{Number(d.amount).toLocaleString()} ({d.count}x)</span>
+                </div>
+              ))}
+              <div className={`flex justify-between p-4 rounded-lg font-bold text-lg ${Number(data.netProfit) >= 0 ? "bg-blue-50 dark:bg-blue-900/20" : "bg-red-50 dark:bg-red-900/20"}`}>
+                <span className={Number(data.netProfit) >= 0 ? "text-blue-700 dark:text-blue-400" : "text-red-700 dark:text-red-400"}>Net Profit</span>
+                <span className={Number(data.netProfit) >= 0 ? "text-blue-700 dark:text-blue-400" : "text-red-700 dark:text-red-400"}>৳{Number(data.netProfit).toLocaleString()}</span>
+              </div>
+              <p className="text-sm text-slate-500 pl-2">Net Profit Margin: {data.netProfitMargin}%</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -3875,70 +4051,193 @@ function BalanceSheetPage() {
     doc.save("balance-sheet.pdf");
   };
 
-  if (loading) return <div className="text-center py-8 text-slate-500">Loading report...</div>;
-  if (!data) return <div className="text-center py-8 text-slate-500">Failed to load report</div>;
+  if (loading) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Loading report...</div>;
+  if (!data) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Failed to load report</div>;
+
+  const assetComposition = data.assetComposition || [];
+  const comparisonData = data.comparisonData || [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Balance Sheet</h1>
-          <p className="text-slate-500 dark:text-slate-400">Assets = Liabilities + Equity</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Layers className="h-6 w-6 text-primary" />
+            Balance Sheet
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Assets = Liabilities + Equity</p>
         </div>
         <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
       </div>
+
+      {/* Gradient KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-100">Total Assets</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.assets?.totalAssets || 0).toLocaleString()}</p>
+              <p className="text-xs text-blue-200 mt-1">Stock + Bank + Receivables</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><TrendingUp className="h-7 w-7" /></div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-gradient-to-br from-red-500 to-orange-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-red-100">Total Liabilities</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.liabilities?.totalLiabilities || 0).toLocaleString()}</p>
+              <p className="text-xs text-red-200 mt-1">Payables + Equity</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><TrendingDown className="h-7 w-7" /></div>
+          </div>
+        </div>
+        <div className={`rounded-xl bg-gradient-to-br ${data.balanced ? "from-emerald-500 to-green-600" : "from-amber-500 to-yellow-600"} p-5 text-white shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-emerald-100">Balance Check</p>
+              <p className="text-2xl font-bold mt-1">{data.balanced ? "Balanced" : "Not Balanced"}</p>
+              <p className="text-xs text-emerald-200 mt-1">A - L = ৳{Number((data.assets?.totalAssets || 0) - (data.liabilities?.totalLiabilities || 0)).toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">{data.balanced ? <CheckCircle className="h-7 w-7" /> : <AlertTriangle className="h-7 w-7" />}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Assets vs Liabilities BarChart */}
         <Card className="border-border">
-          <CardHeader><CardTitle className="text-slate-900 dark:text-white">Assets</CardTitle></CardHeader>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-primary" /> Assets vs Liabilities
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Comparison overview</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {comparisonData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart data={comparisonData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="category" tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Bar dataKey="value" radius={[8, 8, 0, 0]} name="Amount">
+                      {comparisonData.map((entry: any, index: number) => (
+                        <Cell key={index} fill={entry.category === "Assets" ? "#3b82f6" : entry.category === "Liabilities" ? "#ef4444" : "#8b5cf6"} />
+                      ))}
+                    </Bar>
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No comparison data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Asset Composition PieChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <PieChartIcon className="h-4 w-4 text-primary" /> Asset Composition
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Breakdown of total assets</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {assetComposition.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={assetComposition} cx="50%" cy="50%" outerRadius={90} innerRadius={50} paddingAngle={3} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={{ stroke: "var(--muted-foreground)" }}>
+                      {assetComposition.map((entry: any, index: number) => (
+                        <Cell key={index} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No asset data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Detailed Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Assets Card */}
+        <Card className="border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <TrendingUp className="h-4 w-4 text-blue-500" /> Assets
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-slate-700 dark:text-slate-300">Stock Value</span>
-                <span className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(data.assets?.stock || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2.5 px-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-slate-700 dark:text-slate-300">Stock Value</span>
+                </div>
+                <span className="text-blue-700 dark:text-blue-400 font-semibold">৳{Number(data.assets?.stock || 0).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-slate-700 dark:text-slate-300">Bank Balance</span>
-                <span className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(data.assets?.bankBalance || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2.5 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-500">
+                <div className="flex items-center gap-2">
+                  <Banknote className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-slate-700 dark:text-slate-300">Bank Balance</span>
+                </div>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">৳{Number(data.assets?.bankBalance || 0).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-slate-700 dark:text-slate-300">Receivables</span>
-                <span className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(data.assets?.receivables || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2.5 px-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500">
+                <div className="flex items-center gap-2">
+                  <CircleDollarSign className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <span className="text-slate-700 dark:text-slate-300">Receivables</span>
+                </div>
+                <span className="text-amber-700 dark:text-amber-400 font-semibold">৳{Number(data.assets?.receivables || 0).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between bg-slate-50 dark:bg-navy-900/50 p-3 rounded-lg font-bold">
-                <span className="text-slate-900 dark:text-white">Total Assets</span>
-                <span className="text-slate-900 dark:text-white">৳{Number(data.assets?.totalAssets || 0).toLocaleString()}</span>
+              <div className="flex justify-between bg-blue-100 dark:bg-blue-900/30 p-3 rounded-lg font-bold text-lg border-t-2 border-blue-400">
+                <span className="text-blue-800 dark:text-blue-300">Total Assets</span>
+                <span className="text-blue-800 dark:text-blue-300">৳{Number(data.assets?.totalAssets || 0).toLocaleString()}</span>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Liabilities & Equity Card */}
         <Card className="border-border">
-          <CardHeader><CardTitle className="text-slate-900 dark:text-white">Liabilities & Equity</CardTitle></CardHeader>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <TrendingDown className="h-4 w-4 text-red-500" /> Liabilities & Equity
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-slate-700 dark:text-slate-300">Payables</span>
-                <span className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(data.liabilities?.payables || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2.5 px-3 rounded-lg bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500">
+                <div className="flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-red-600 dark:text-red-400" />
+                  <span className="text-slate-700 dark:text-slate-300">Payables</span>
+                </div>
+                <span className="text-red-700 dark:text-red-400 font-semibold">৳{Number(data.liabilities?.payables || 0).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between py-2 border-b border-border">
-                <span className="text-slate-700 dark:text-slate-300">Equity (Retained Earnings)</span>
-                <span className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(data.liabilities?.equity || 0).toLocaleString()}</span>
+              <div className="flex justify-between items-center py-2.5 px-3 rounded-lg bg-violet-50 dark:bg-violet-900/20 border-l-4 border-violet-500">
+                <div className="flex items-center gap-2">
+                  <Award className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                  <span className="text-slate-700 dark:text-slate-300">Equity (Retained Earnings)</span>
+                </div>
+                <span className="text-violet-700 dark:text-violet-400 font-semibold">৳{Number(data.liabilities?.equity || 0).toLocaleString()}</span>
               </div>
-              <div className="flex justify-between bg-slate-50 dark:bg-navy-900/50 p-3 rounded-lg font-bold">
-                <span className="text-slate-900 dark:text-white">Total Liabilities & Equity</span>
-                <span className="text-slate-900 dark:text-white">৳{Number(data.liabilities?.totalLiabilities || 0).toLocaleString()}</span>
+              <div className="flex justify-between bg-red-100 dark:bg-red-900/30 p-3 rounded-lg font-bold text-lg border-t-2 border-red-400">
+                <span className="text-red-800 dark:text-red-300">Total Liabilities & Equity</span>
+                <span className="text-red-800 dark:text-red-300">৳{Number(data.liabilities?.totalLiabilities || 0).toLocaleString()}</span>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
-      <Card className="border-border">
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-slate-700 dark:text-slate-300 font-semibold">Balance Check:</span>
-            <Badge variant={data.balanced ? "default" : "destructive"}>{data.balanced ? "Balanced" : "Not Balanced"}</Badge>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -3973,45 +4272,165 @@ function TrialBalancePage() {
     doc.save("trial-balance.pdf");
   };
 
-  if (loading) return <div className="text-center py-8 text-slate-500">Loading report...</div>;
-  if (!data) return <div className="text-center py-8 text-slate-500">Failed to load report</div>;
+  if (loading) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Loading report...</div>;
+  if (!data) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Failed to load report</div>;
+
+  const chartData = data.chartData || [];
+  const pieData = data.pieData || [];
+  const difference = Math.abs(Number(data.grandTotalDebit) - Number(data.grandTotalCredit));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Trial Balance</h1>
-          <p className="text-slate-500 dark:text-slate-400">Standard trial balance report</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Gauge className="h-6 w-6 text-primary" />
+            Trial Balance
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Standard trial balance report</p>
         </div>
         <Button variant="outline" size="sm" onClick={handleExportPDF} className="text-slate-700 dark:text-slate-300"><FileText className="h-4 w-4 mr-1" /> Export PDF</Button>
       </div>
+
+      {/* Gradient KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-100">Total Debits</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.grandTotalDebit).toLocaleString()}</p>
+              <p className="text-xs text-blue-200 mt-1">{data.entries?.length || 0} accounts</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><ArrowUpRight className="h-7 w-7" /></div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-emerald-100">Total Credits</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.grandTotalCredit).toLocaleString()}</p>
+              <p className="text-xs text-emerald-200 mt-1">{data.entries?.length || 0} accounts</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><ArrowDownRight className="h-7 w-7" /></div>
+          </div>
+        </div>
+        <div className={`rounded-xl bg-gradient-to-br ${difference === 0 ? "from-emerald-500 to-green-600" : "from-amber-500 to-yellow-600"} p-5 text-white shadow-lg`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-emerald-100">Difference</p>
+              <p className="text-2xl font-bold mt-1">৳{difference.toLocaleString()}</p>
+              <p className="text-xs text-emerald-200 mt-1">{data.balanced ? "Balanced ✓" : "Not Balanced"}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl">{data.balanced ? <CheckCircle className="h-7 w-7" /> : <AlertTriangle className="h-7 w-7" />}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Debit vs Credit BarChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-primary" /> Debit vs Credit by Account
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Top accounts comparison</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart data={chartData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                    <YAxis type="category" dataKey="account" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} width={100} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Legend />
+                    <Bar dataKey="debit" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Debit" />
+                    <Bar dataKey="credit" fill="#10b981" radius={[0, 4, 4, 0]} name="Credit" />
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No chart data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Account Balance Distribution PieChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <PieChartIcon className="h-4 w-4 text-primary" /> Account Balance Distribution
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Balance magnitude by account</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {pieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} paddingAngle={2} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={{ stroke: "var(--muted-foreground)" }}>
+                      {pieData.map((entry: any, index: number) => (
+                        <Cell key={index} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No distribution data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Trial Balance Table with Color-Coded Columns */}
       <Card className="border-border">
-        <CardContent className="p-0">
-          <div className="table-container rounded-md border border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+            <Layers className="h-4 w-4 text-primary" /> Account Details
+          </CardTitle>
+          <CardDescription className="text-slate-500 dark:text-slate-400">{data.entries?.length || 0} account(s) listed</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="table-container rounded-md border border-border max-h-96 overflow-y-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">#</TableHead>
                   <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Account</TableHead>
-                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Debit (৳)</TableHead>
-                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Credit (৳)</TableHead>
+                  <TableHead className="text-blue-700 dark:text-blue-400 font-semibold text-right bg-blue-50/50 dark:bg-blue-900/10">Debit (৳)</TableHead>
+                  <TableHead className="text-emerald-700 dark:text-emerald-400 font-semibold text-right bg-emerald-50/50 dark:bg-emerald-900/10">Credit (৳)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(!data.entries || data.entries.length === 0) ? (
-                  <TableRow><TableCell colSpan={3} className="text-center py-8 text-slate-500">No entries</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={4} className="text-center py-8 text-slate-500">No entries</TableCell></TableRow>
                 ) : (
                   <>
                     {data.entries.map((entry: any, i: number) => (
                       <TableRow key={i} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
-                        <TableCell className="text-slate-700 dark:text-slate-300">{entry.account}</TableCell>
-                        <TableCell className="text-slate-700 dark:text-slate-300 text-right">{Number(entry.totalDebit).toLocaleString()}</TableCell>
-                        <TableCell className="text-slate-700 dark:text-slate-300 text-right">{Number(entry.totalCredit).toLocaleString()}</TableCell>
+                        <TableCell className="text-slate-500 dark:text-slate-400 text-sm">{i + 1}</TableCell>
+                        <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{entry.account}</TableCell>
+                        <TableCell className="text-right bg-blue-50/30 dark:bg-blue-900/5">
+                          {Number(entry.totalDebit) > 0 ? (
+                            <span className="text-blue-700 dark:text-blue-400 font-medium">৳{Number(entry.totalDebit).toLocaleString()}</span>
+                          ) : <span className="text-slate-400">-</span>}
+                        </TableCell>
+                        <TableCell className="text-right bg-emerald-50/30 dark:bg-emerald-900/5">
+                          {Number(entry.totalCredit) > 0 ? (
+                            <span className="text-emerald-700 dark:text-emerald-400 font-medium">৳{Number(entry.totalCredit).toLocaleString()}</span>
+                          ) : <span className="text-slate-400">-</span>}
+                        </TableCell>
                       </TableRow>
                     ))}
-                    <TableRow className="bg-slate-50 dark:bg-navy-900/50 font-bold">
-                      <TableCell className="text-slate-900 dark:text-white">Grand Total</TableCell>
-                      <TableCell className="text-slate-900 dark:text-white text-right">৳{Number(data.grandTotalDebit).toLocaleString()}</TableCell>
-                      <TableCell className="text-slate-900 dark:text-white text-right">৳{Number(data.grandTotalCredit).toLocaleString()}</TableCell>
+                    <TableRow className="bg-slate-100 dark:bg-navy-900/50 font-bold border-t-2 border-slate-300 dark:border-navy-700">
+                      <TableCell className="text-slate-900 dark:text-white" colSpan={2}>Grand Total</TableCell>
+                      <TableCell className="text-blue-800 dark:text-blue-300 text-right bg-blue-100/50 dark:bg-blue-900/20">৳{Number(data.grandTotalDebit).toLocaleString()}</TableCell>
+                      <TableCell className="text-emerald-800 dark:text-emerald-300 text-right bg-emerald-100/50 dark:bg-emerald-900/20">৳{Number(data.grandTotalCredit).toLocaleString()}</TableCell>
                     </TableRow>
                   </>
                 )}
@@ -4020,11 +4439,13 @@ function TrialBalancePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Balance Check */}
       <Card className="border-border">
         <CardContent className="p-4">
           <div className="flex items-center justify-between">
             <span className="text-slate-700 dark:text-slate-300 font-semibold">Balance Check:</span>
-            <Badge variant={data.balanced ? "default" : "destructive"}>{data.balanced ? "Balanced" : "Not Balanced"}</Badge>
+            <Badge variant={data.balanced ? "default" : "destructive"} className="px-4 py-1 text-sm">{data.balanced ? "✓ Balanced" : "✗ Not Balanced"}</Badge>
           </div>
         </CardContent>
       </Card>
@@ -4044,67 +4465,223 @@ function CashInHandPage() {
     fetch("/api/reports/cash-in-hand").then(r => r.json()).then(d => { setData(d); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="text-center py-8 text-slate-500">Loading report...</div>;
-  if (!data) return <div className="text-center py-8 text-slate-500">Failed to load report</div>;
+  if (loading) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Loading report...</div>;
+  if (!data) return <div className="text-center py-8 text-slate-500 dark:text-slate-400">Failed to load report</div>;
+
+  const dailyFlow = data.dailyFlow || [];
+  const recentTransactions = data.recentTransactions || [];
+
+  const totalIn = Number(data.totals?.deposits || 0) + Number(data.totals?.cashIncome || 0) + Number(data.totals?.cashCollections || 0);
+  const totalOut = Number(data.totals?.withdrawals || 0) + Number(data.totals?.cashExpense || 0) + Number(data.totals?.cashDeliveries || 0);
+
+  const incomeExpenseBarData = [
+    { name: "Deposits", amount: Number(data.totals?.deposits || 0), fill: "#10b981" },
+    { name: "Income", amount: Number(data.totals?.cashIncome || 0), fill: "#34d399" },
+    { name: "Collections", amount: Number(data.totals?.cashCollections || 0), fill: "#6ee7b7" },
+    { name: "Withdrawals", amount: Number(data.totals?.withdrawals || 0), fill: "#ef4444" },
+    { name: "Expenses", amount: Number(data.totals?.cashExpense || 0), fill: "#f87171" },
+    { name: "Deliveries", amount: Number(data.totals?.cashDeliveries || 0), fill: "#fca5a5" },
+  ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Cash in Hand</h1>
-        <p className="text-slate-500 dark:text-slate-400">Current cash balance across all methods</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Wallet className="h-6 w-6 text-primary" />
+          Cash in Hand
+        </h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">Current cash balance across all methods</p>
       </div>
+
+      {/* Gradient KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-xl bg-gradient-to-br from-slate-600 to-slate-700 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-200">Opening Balance</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.totals?.openingBalance || 0).toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><Banknote className="h-6 w-6" /></div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-emerald-100">Total In</p>
+              <p className="text-2xl font-bold mt-1">৳{totalIn.toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><TrendingUp className="h-6 w-6" /></div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-gradient-to-br from-red-500 to-rose-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-red-100">Total Out</p>
+              <p className="text-2xl font-bold mt-1">৳{totalOut.toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><TrendingDown className="h-6 w-6" /></div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-100">Closing Balance</p>
+              <p className="text-2xl font-bold mt-1">৳{Number(data.totals?.totalCashInHand || 0).toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-white/20 rounded-xl"><Wallet className="h-6 w-6" /></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Cash Flow Trend AreaChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4 text-primary" /> Cash Flow Trend (30 Days)
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Daily inflow vs outflow</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {dailyFlow.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dailyFlow}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} angle={-45} textAnchor="end" height={50} interval={4} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Legend />
+                    <Area type="monotone" dataKey="inflow" stroke="#10b981" fill="url(#inflowGrad)" strokeWidth={2} name="Inflow" />
+                    <Area type="monotone" dataKey="outflow" stroke="#ef4444" fill="url(#outflowGrad)" strokeWidth={2} name="Outflow" />
+                    <defs>
+                      <linearGradient id="inflowGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.05} />
+                      </linearGradient>
+                      <linearGradient id="outflowGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No daily flow data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Income vs Expense BarChart */}
+        <Card className="border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-primary" /> Income vs Expense Breakdown
+            </CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">Transaction categories</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              {incomeExpenseBarData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsBarChart data={incomeExpenseBarData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} tickFormatter={(v) => `৳${(v / 1000).toFixed(0)}k`} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={90} />
+                    <Tooltip contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => [`৳${value.toLocaleString()}`]} />
+                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} name="Amount">
+                      {incomeExpenseBarData.map((entry: any, index: number) => (
+                        <Cell key={index} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </RechartsBarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full text-slate-400">No data available</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Summary Details */}
       <Card className="border-border">
-        <CardHeader><CardTitle className="text-slate-900 dark:text-white">Summary</CardTitle></CardHeader>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+            <Banknote className="h-4 w-4 text-primary" /> Cash Summary
+          </CardTitle>
+        </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">Opening Balance</span>
-              <span className="text-slate-700 dark:text-slate-300 font-medium">৳{Number(data.totals?.openingBalance || 0).toLocaleString()}</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Inflows */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Inflows (+)</h4>
+              <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-500">
+                <span className="text-slate-700 dark:text-slate-300">Deposits</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">৳{Number(data.totals?.deposits || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-400">
+                <span className="text-slate-700 dark:text-slate-300">Cash Income</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">৳{Number(data.totals?.cashIncome || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border-l-4 border-emerald-300">
+                <span className="text-slate-700 dark:text-slate-300">Cash Collections</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-semibold">৳{Number(data.totals?.cashCollections || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between bg-emerald-100 dark:bg-emerald-900/30 p-3 rounded-lg font-bold border-t-2 border-emerald-400">
+                <span className="text-emerald-800 dark:text-emerald-300">Total In</span>
+                <span className="text-emerald-800 dark:text-emerald-300">৳{totalIn.toLocaleString()}</span>
+              </div>
             </div>
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">+ Deposits</span>
-              <span className="text-green-600 dark:text-green-400 font-medium">৳{Number(data.totals?.deposits || 0).toLocaleString()}</span>
+            {/* Outflows */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-red-700 dark:text-red-400 uppercase tracking-wider">Outflows (-)</h4>
+              <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500">
+                <span className="text-slate-700 dark:text-slate-300">Withdrawals</span>
+                <span className="text-red-700 dark:text-red-400 font-semibold">৳{Number(data.totals?.withdrawals || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400">
+                <span className="text-slate-700 dark:text-slate-300">Cash Expense</span>
+                <span className="text-red-700 dark:text-red-400 font-semibold">৳{Number(data.totals?.cashExpense || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 px-3 rounded-lg bg-red-50 dark:bg-red-900/20 border-l-4 border-red-300">
+                <span className="text-slate-700 dark:text-slate-300">Cash Deliveries</span>
+                <span className="text-red-700 dark:text-red-400 font-semibold">৳{Number(data.totals?.cashDeliveries || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between bg-red-100 dark:bg-red-900/30 p-3 rounded-lg font-bold border-t-2 border-red-400">
+                <span className="text-red-800 dark:text-red-300">Total Out</span>
+                <span className="text-red-800 dark:text-red-300">৳{totalOut.toLocaleString()}</span>
+              </div>
             </div>
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">- Withdrawals</span>
-              <span className="text-red-600 dark:text-red-400 font-medium">৳{Number(data.totals?.withdrawals || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">+ Cash Income</span>
-              <span className="text-green-600 dark:text-green-400 font-medium">৳{Number(data.totals?.cashIncome || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">- Cash Expense</span>
-              <span className="text-red-600 dark:text-red-400 font-medium">৳{Number(data.totals?.cashExpense || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">+ Cash Collections</span>
-              <span className="text-green-600 dark:text-green-400 font-medium">৳{Number(data.totals?.cashCollections || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-border">
-              <span className="text-slate-700 dark:text-slate-300">- Cash Deliveries</span>
-              <span className="text-red-600 dark:text-red-400 font-medium">৳{Number(data.totals?.cashDeliveries || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between bg-slate-50 dark:bg-navy-900/50 p-4 rounded-lg font-bold text-lg">
-              <span className="text-slate-900 dark:text-white">Total Cash in Hand</span>
-              <span className="text-slate-900 dark:text-white">৳{Number(data.totals?.totalCashInHand || 0).toLocaleString()}</span>
-            </div>
+          </div>
+          <div className="flex justify-between bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg font-bold text-lg mt-4 border-2 border-blue-300 dark:border-blue-700">
+            <span className="text-blue-800 dark:text-blue-300">Total Cash in Hand</span>
+            <span className="text-blue-800 dark:text-blue-300">৳{Number(data.totals?.totalCashInHand || 0).toLocaleString()}</span>
           </div>
         </CardContent>
       </Card>
+
+      {/* Bank-wise Breakdown */}
       <Card className="border-border">
-        <CardHeader><CardTitle className="text-slate-900 dark:text-white">Bank-wise Breakdown</CardTitle></CardHeader>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+            <Building2 className="h-4 w-4 text-primary" /> Bank-wise Breakdown
+          </CardTitle>
+          <CardDescription className="text-slate-500 dark:text-slate-400">{data.bankBreakdown?.length || 0} bank(s) found</CardDescription>
+        </CardHeader>
         <CardContent>
-          <div className="table-container rounded-md border border-border">
+          <div className="table-container rounded-md border border-border max-h-80 overflow-y-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-navy-900/50">
                   <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Bank</TableHead>
                   <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Account No</TableHead>
                   <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Opening</TableHead>
-                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Deposits</TableHead>
-                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Withdrawals</TableHead>
-                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Current Balance</TableHead>
+                  <TableHead className="text-emerald-700 dark:text-emerald-400 font-semibold text-right bg-emerald-50/30 dark:bg-emerald-900/10">Deposits</TableHead>
+                  <TableHead className="text-red-700 dark:text-red-400 font-semibold text-right bg-red-50/30 dark:bg-red-900/10">Withdrawals</TableHead>
+                  <TableHead className="text-blue-700 dark:text-blue-400 font-semibold text-right bg-blue-50/30 dark:bg-blue-900/10">Current Balance</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -4113,11 +4690,53 @@ function CashInHandPage() {
                 ) : data.bankBreakdown.map((bank: any) => (
                   <TableRow key={bank.bankId} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
                     <TableCell className="text-slate-700 dark:text-slate-300 font-medium">{bank.bankName}</TableCell>
-                    <TableCell className="text-slate-700 dark:text-slate-300">{bank.accountNo}</TableCell>
+                    <TableCell className="text-slate-500 dark:text-slate-400">{bank.accountNo}</TableCell>
                     <TableCell className="text-slate-700 dark:text-slate-300 text-right">৳{Number(bank.openingBalance).toLocaleString()}</TableCell>
-                    <TableCell className="text-green-600 dark:text-green-400 text-right">৳{Number(bank.deposits).toLocaleString()}</TableCell>
-                    <TableCell className="text-red-600 dark:text-red-400 text-right">৳{Number(bank.withdrawals).toLocaleString()}</TableCell>
-                    <TableCell className="text-slate-700 dark:text-slate-300 text-right font-medium">৳{Number(bank.currentBalance).toLocaleString()}</TableCell>
+                    <TableCell className="text-emerald-700 dark:text-emerald-400 text-right font-medium">৳{Number(bank.deposits).toLocaleString()}</TableCell>
+                    <TableCell className="text-red-700 dark:text-red-400 text-right font-medium">৳{Number(bank.withdrawals).toLocaleString()}</TableCell>
+                    <TableCell className="text-blue-700 dark:text-blue-400 text-right font-bold">৳{Number(bank.currentBalance).toLocaleString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent Transactions */}
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4 text-primary" /> Recent Transactions
+          </CardTitle>
+          <CardDescription className="text-slate-500 dark:text-slate-400">Latest cash movements</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="table-container rounded-md border border-border max-h-64 overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 dark:bg-navy-900/50">
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Date</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Description</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold">Type</TableHead>
+                  <TableHead className="text-slate-700 dark:text-slate-300 font-semibold text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentTransactions.length === 0 ? (
+                  <TableRow><TableCell colSpan={4} className="text-center py-8 text-slate-500">No recent transactions</TableCell></TableRow>
+                ) : recentTransactions.map((t: any, i: number) => (
+                  <TableRow key={i} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+                    <TableCell className="text-slate-700 dark:text-slate-300 text-sm">{new Date(t.date).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-slate-700 dark:text-slate-300">{t.description}</TableCell>
+                    <TableCell>
+                      <Badge variant={t.type === "Inflow" ? "default" : "destructive"} className="text-xs">
+                        {t.type === "Inflow" ? "↑ In" : "↓ Out"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className={`text-right font-medium ${t.type === "Inflow" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                      {t.type === "Inflow" ? "+" : "-"}৳{Number(t.amount).toLocaleString()}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -4130,21 +4749,40 @@ function CashInHandPage() {
 }
 
 // ============================================================
-// ADVANCE SEARCH PAGE
+// ADVANCE SEARCH PAGE (Enhanced)
 // ============================================================
 
-function AdvanceSearchPage() {
+function AdvanceSearchPage({ onNavigate }: { onNavigate?: (page: PageKey) => void }) {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("products");
-  const [results, setResults] = useState<any>({ products: [], customers: [], suppliers: [], purchaseOrders: [], salesOrders: [] });
+  const [results, setResults] = useState<any>({ products: [], customers: [], suppliers: [], employees: [], purchaseOrders: [], salesOrders: [] });
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSearch = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
+  // Load search history from localStorage
+  React.useEffect(() => {
     try {
-      const res = await fetch(`/api/reports/advance-search?q=${encodeURIComponent(query)}`);
+      const saved = localStorage.getItem("ems-search-history");
+      if (saved) setSearchHistory(JSON.parse(saved));
+    } catch { /* ignore */ }
+  }, []);
+
+  const saveToHistory = (term: string) => {
+    if (!term.trim()) return;
+    const updated = [term, ...searchHistory.filter(h => h !== term)].slice(0, 5);
+    setSearchHistory(updated);
+    try { localStorage.setItem("ems-search-history", JSON.stringify(updated)); } catch { /* ignore */ }
+  };
+
+  const handleSearch = async (searchTerm?: string) => {
+    const q = searchTerm || query;
+    if (!q.trim()) return;
+    setLoading(true);
+    saveToHistory(q);
+    try {
+      const res = await fetch(`/api/reports/advance-search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       setResults(data);
       setSearched(true);
@@ -4152,22 +4790,44 @@ function AdvanceSearchPage() {
     setLoading(false);
   };
 
-  const renderTable = (items: any[], columns: { key: string; label: string; render?: (item: any) => React.ReactNode }[]) => {
-    if (items.length === 0) return <div className="text-center py-8 text-slate-500">No results found</div>;
+  const handleQueryChange = (val: string) => {
+    setQuery(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (val.trim().length >= 2) {
+      debounceRef.current = setTimeout(() => handleSearch(val), 500);
+    }
+  };
+
+  const entityTabs = [
+    { key: "products", label: "Products", icon: <Package className="h-3.5 w-3.5" />, page: "products" as PageKey },
+    { key: "customers", label: "Customers", icon: <Users className="h-3.5 w-3.5" />, page: "customers" as PageKey },
+    { key: "suppliers", label: "Suppliers", icon: <Truck className="h-3.5 w-3.5" />, page: "suppliers" as PageKey },
+    { key: "employees", label: "Employees", icon: <UserCheck className="h-3.5 w-3.5" />, page: "employees" as PageKey },
+    { key: "purchaseOrders", label: "Purchase Orders", icon: <ShoppingCart className="h-3.5 w-3.5" />, page: "purchase-orders" as PageKey },
+    { key: "salesOrders", label: "Sales Orders", icon: <CartIcon className="h-3.5 w-3.5" />, page: "sales-orders" as PageKey },
+  ];
+
+  const renderTable = (items: any[], columns: { key: string; label: string; render?: (item: any) => React.ReactNode }[], onRowClick?: (item: any) => void) => {
+    if (items.length === 0) return (
+      <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+        <Search className="h-8 w-8 mx-auto mb-2 opacity-30" />
+        <p className="text-sm">No results found</p>
+      </div>
+    );
     return (
-      <div className="table-container rounded-md border border-border">
+      <div className="table-container rounded-md border border-border overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-slate-50 dark:bg-navy-900/50">
-              {columns.map(col => <TableHead key={col.key} className="text-slate-700 dark:text-slate-300 font-semibold">{col.label}</TableHead>)}
+            <TableRow className="bg-gradient-to-r from-slate-50 to-slate-100 dark:from-navy-900/70 dark:to-navy-900/50">
+              {columns.map(col => <TableHead key={col.key} className="text-slate-600 dark:text-slate-300 font-semibold text-xs uppercase tracking-wider">{col.label}</TableHead>)}
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((item, i) => (
-              <TableRow key={i} className="hover:bg-slate-50 dark:hover:bg-navy-900/30">
+              <TableRow key={i} className={`hover:bg-slate-50 dark:hover:bg-navy-900/30 cursor-pointer ${onRowClick ? "hover:bg-primary/5 dark:hover:bg-primary/10" : ""}`} onClick={() => onRowClick?.(item)}>
                 {columns.map(col => (
-                  <TableCell key={col.key} className="text-slate-700 dark:text-slate-300">
-                    {col.render ? col.render(item) : String(item[col.key] ?? "-")}
+                  <TableCell key={col.key} className="text-slate-700 dark:text-slate-300 text-sm">
+                    {col.render ? col.render(item) : String(item[col.key] ?? "—")}
                   </TableCell>
                 ))}
               </TableRow>
@@ -4180,69 +4840,156 @@ function AdvanceSearchPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Advance Search</h1>
-        <p className="text-slate-500 dark:text-slate-400">Search across all modules</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Search className="h-6 w-6 text-primary" />
+          Advance Search
+        </h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">Search across all modules — products, customers, suppliers, employees, orders</p>
       </div>
+
+      {/* Search Input */}
       <Card className="border-border">
         <CardContent className="p-4">
           <div className="flex gap-2">
-            <Input placeholder="Search products, customers, suppliers, orders..." value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} className="flex-1" />
-            <Button onClick={handleSearch} className="bg-primary text-primary-foreground"><Search className="h-4 w-4 mr-1" /> Search</Button>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
+              <Input
+                placeholder="Search by name, code, phone, status..."
+                value={query}
+                onChange={(e) => handleQueryChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { if (debounceRef.current) clearTimeout(debounceRef.current); handleSearch(); } }}
+                className="pl-9 bg-white dark:bg-navy-900/50 border-slate-200 dark:border-slate-700"
+                autoFocus
+              />
+              {query && (
+                <Button variant="ghost" size="sm" onClick={() => { setQuery(""); setSearched(false); }} className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0">
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            <Button onClick={() => { if (debounceRef.current) clearTimeout(debounceRef.current); handleSearch(); }} className="bg-primary text-primary-foreground shadow-sm" disabled={loading}>
+              {loading ? <RefreshCcw className="h-4 w-4 mr-1.5 animate-spin" /> : <Search className="h-4 w-4 mr-1.5" />}
+              Search
+            </Button>
           </div>
+
+          {/* Search History */}
+          {searchHistory.length > 0 && !searched && (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Recent:</span>
+              {searchHistory.map((h, i) => (
+                <Button key={i} variant="outline" size="sm" className="h-6 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400" onClick={() => { setQuery(h); handleSearch(h); }}>
+                  <Clock className="h-3 w-3 mr-1" />{h}
+                </Button>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
-      {loading && <div className="text-center py-8 text-slate-500">Searching...</div>}
+
+      {/* Results */}
+      {loading && (
+        <div className="text-center py-12">
+          <RefreshCcw className="h-8 w-8 mx-auto text-primary animate-spin mb-2" />
+          <p className="text-slate-500 dark:text-slate-400 text-sm">Searching across all modules...</p>
+        </div>
+      )}
+
       {searched && !loading && (
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
-            <TabsTrigger value="products">Products ({results.products?.length || 0})</TabsTrigger>
-            <TabsTrigger value="customers">Customers ({results.customers?.length || 0})</TabsTrigger>
-            <TabsTrigger value="suppliers">Suppliers ({results.suppliers?.length || 0})</TabsTrigger>
-            <TabsTrigger value="purchaseOrders">POs ({results.purchaseOrders?.length || 0})</TabsTrigger>
-            <TabsTrigger value="salesOrders">SOs ({results.salesOrders?.length || 0})</TabsTrigger>
-          </TabsList>
-          <TabsContent value="products">
-            {renderTable(results.products || [], [
-              { key: "name", label: "Name" },
-              { key: "productCode", label: "Code" },
-              { key: "category", label: "Category", render: (i: any) => i.category?.name || "-" },
-              { key: "salePrice", label: "Sale Price", render: (i: any) => `৳${Number(i.salePrice).toLocaleString()}` },
-            ])}
-          </TabsContent>
-          <TabsContent value="customers">
-            {renderTable(results.customers || [], [
-              { key: "name", label: "Name" },
-              { key: "customerCode", label: "Code" },
-              { key: "phone", label: "Phone" },
-              { key: "address", label: "Address" },
-            ])}
-          </TabsContent>
-          <TabsContent value="suppliers">
-            {renderTable(results.suppliers || [], [
-              { key: "name", label: "Name" },
-              { key: "supplierCode", label: "Code" },
-              { key: "phone", label: "Phone" },
-              { key: "address", label: "Address" },
-            ])}
-          </TabsContent>
-          <TabsContent value="purchaseOrders">
-            {renderTable(results.purchaseOrders || [], [
-              { key: "poNumber", label: "PO Number" },
-              { key: "supplier", label: "Supplier", render: (i: any) => i.supplier?.name || "-" },
-              { key: "grandTotal", label: "Total", render: (i: any) => `৳${Number(i.grandTotal).toLocaleString()}` },
-              { key: "status", label: "Status", render: (i: any) => <StatusBadge status={i.status || "Pending"} /> },
-            ])}
-          </TabsContent>
-          <TabsContent value="salesOrders">
-            {renderTable(results.salesOrders || [], [
-              { key: "invoiceNo", label: "Invoice No" },
-              { key: "customer", label: "Customer", render: (i: any) => i.customer?.name || "-" },
-              { key: "grandTotal", label: "Total", render: (i: any) => `৳${Number(i.grandTotal).toLocaleString()}` },
-              { key: "status", label: "Status", render: (i: any) => <StatusBadge status={i.status || "Pending"} /> },
-            ])}
-          </TabsContent>
-        </Tabs>
+        <>
+          {/* Entity type selector tabs */}
+          <div className="flex flex-wrap gap-2">
+            {entityTabs.map(tab => {
+              const count = (results as any)[tab.key]?.length || 0;
+              return (
+                <Button
+                  key={tab.key}
+                  variant={activeTab === tab.key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={activeTab === tab.key
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-navy-900/50"
+                  }
+                >
+                  {tab.icon}
+                  <span className="ml-1.5">{tab.label}</span>
+                  <Badge variant="secondary" className="ml-1.5 h-5 min-w-[20px] flex items-center justify-center text-[10px] px-1.5">
+                    {count}
+                  </Badge>
+                </Button>
+              );
+            })}
+          </div>
+
+          {/* Total results summary */}
+          <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+            <span>Total results: {Object.values(results).reduce((sum: number, arr: any) => sum + (Array.isArray(arr) ? arr.length : 0), 0) as number}</span>
+          </div>
+
+          {/* Tab content */}
+          {activeTab === "products" && renderTable(results.products || [], [
+            { key: "name", label: "Name", render: (i: any) => <span className="font-medium text-slate-900 dark:text-white">{i.name}</span> },
+            { key: "productCode", label: "Code" },
+            { key: "category", label: "Category", render: (i: any) => i.category?.name || "—" },
+            { key: "salePrice", label: "Sale Price", render: (i: any) => `৳${Number(i.salePrice).toLocaleString()}` },
+            { key: "isActive", label: "Status", render: (i: any) => <StatusBadge status={i.isActive ? "Active" : "Inactive"} /> },
+          ], onNavigate ? () => onNavigate("products") : undefined)}
+
+          {activeTab === "customers" && renderTable(results.customers || [], [
+            { key: "name", label: "Name", render: (i: any) => <span className="font-medium text-slate-900 dark:text-white">{i.name}</span> },
+            { key: "customerCode", label: "Code" },
+            { key: "phone", label: "Phone" },
+            { key: "address", label: "Address" },
+            { key: "isActive", label: "Status", render: (i: any) => <StatusBadge status={i.isActive ? "Active" : "Inactive"} /> },
+          ], onNavigate ? () => onNavigate("customers") : undefined)}
+
+          {activeTab === "suppliers" && renderTable(results.suppliers || [], [
+            { key: "name", label: "Name", render: (i: any) => <span className="font-medium text-slate-900 dark:text-white">{i.name}</span> },
+            { key: "supplierCode", label: "Code" },
+            { key: "phone", label: "Phone" },
+            { key: "address", label: "Address" },
+            { key: "isActive", label: "Status", render: (i: any) => <StatusBadge status={i.isActive ? "Active" : "Inactive"} /> },
+          ], onNavigate ? () => onNavigate("suppliers") : undefined)}
+
+          {activeTab === "employees" && renderTable(results.employees || [], [
+            { key: "name", label: "Name", render: (i: any) => <span className="font-medium text-slate-900 dark:text-white">{i.name}</span> },
+            { key: "employeeCode", label: "Code" },
+            { key: "designation", label: "Designation", render: (i: any) => i.designation?.name || "—" },
+            { key: "department", label: "Department", render: (i: any) => i.department?.name || "—" },
+            { key: "phone", label: "Phone" },
+            { key: "isActive", label: "Status", render: (i: any) => <StatusBadge status={i.isActive ? "Active" : "Inactive"} /> },
+          ], onNavigate ? () => onNavigate("employees") : undefined)}
+
+          {activeTab === "purchaseOrders" && renderTable(results.purchaseOrders || [], [
+            { key: "poNumber", label: "PO Number", render: (i: any) => <span className="font-medium text-slate-900 dark:text-white">{i.poNumber}</span> },
+            { key: "supplier", label: "Supplier", render: (i: any) => i.supplier?.name || "—" },
+            { key: "grandTotal", label: "Total", render: (i: any) => `৳${Number(i.grandTotal).toLocaleString()}` },
+            { key: "status", label: "Status", render: (i: any) => <StatusBadge status={i.status || "Pending"} /> },
+          ], onNavigate ? () => onNavigate("purchase-orders") : undefined)}
+
+          {activeTab === "salesOrders" && renderTable(results.salesOrders || [], [
+            { key: "invoiceNo", label: "Invoice No", render: (i: any) => <span className="font-medium text-slate-900 dark:text-white">{i.invoiceNo}</span> },
+            { key: "customer", label: "Customer", render: (i: any) => i.customer?.name || "—" },
+            { key: "grandTotal", label: "Total", render: (i: any) => `৳${Number(i.grandTotal).toLocaleString()}` },
+            { key: "status", label: "Status", render: (i: any) => <StatusBadge status={i.status || "Pending"} /> },
+          ], onNavigate ? () => onNavigate("sales-orders") : undefined)}
+        </>
+      )}
+
+      {/* Empty state */}
+      {!searched && !loading && (
+        <Card className="border-border">
+          <CardContent className="py-16 text-center">
+            <Search className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white">Search Across Your Data</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+              Search products, customers, suppliers, employees, purchase orders, and sales orders by name, code, or phone number.
+            </p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -7504,9 +8251,15 @@ function BankReportPage() {
   const [loading, setLoading] = useState(false);
   const [banks, setBanks] = useState<any[]>([]);
   const [selectedBank, setSelectedBank] = useState("");
+  const [allBankSummary, setAllBankSummary] = useState<any>(null);
 
   React.useEffect(() => {
-    fetch("/api/banks").then((r) => r.json()).then(setBanks).catch(() => {});
+    fetch("/api/banks").then((r) => r.json()).then((b: any[]) => {
+      setBanks(b);
+      // Calculate summary across all banks
+      const totalOpening = b.reduce((s: number, bank: any) => s + (bank.openingBalance || 0), 0);
+      setAllBankSummary({ totalBanks: b.length, totalOpeningBalance: totalOpening });
+    }).catch(() => {});
   }, []);
 
   const loadReport = useCallback(() => {
@@ -7575,7 +8328,7 @@ function BankReportPage() {
     - (summary.totalWithdrawals || 0) - (summary.totalExpense || 0) - (summary.totalDeliveries || 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 page-enter">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -7618,7 +8371,7 @@ function BankReportPage() {
       </Card>
 
       {loading ? (
-        <div className="text-center py-8 text-slate-500">Loading report...</div>
+        <div className="text-center py-8 text-slate-500 dark:text-slate-400">Loading report...</div>
       ) : data ? (
         <>
           {/* Bank Info */}
@@ -7699,7 +8452,7 @@ function BankReportPage() {
           <Card className="border-border">
             <CardHeader className="pb-2">
               <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
-                <BarChart className="h-5 w-5 text-primary" />
+                <BarChart3 className="h-5 w-5 text-primary" />
                 Credits vs Debits by Category
               </CardTitle>
               <CardDescription className="text-slate-500 dark:text-slate-400">Transaction breakdown by type</CardDescription>
@@ -7762,13 +8515,87 @@ function BankReportPage() {
           </Card>
         </>
       ) : !selectedBank || selectedBank === "all" ? (
-        <Card className="border-border">
-          <CardContent className="p-12 text-center">
-            <Banknote className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300">Select a Bank</h3>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Choose a bank account to view its report</p>
-          </CardContent>
-        </Card>
+        /* Enhanced empty state with bank selection cards and summary */
+        <div className="space-y-6">
+          {/* Summary across all banks */}
+          {allBankSummary && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="rounded-xl bg-gradient-to-br from-blue-500 to-cyan-600 p-5 text-white shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-blue-100">Total Banks</p>
+                    <p className="text-2xl font-bold mt-1">{allBankSummary.totalBanks}</p>
+                  </div>
+                  <div className="p-3 bg-white/20 rounded-xl"><Building2 className="h-6 w-6" /></div>
+                </div>
+              </div>
+              <div className="rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 p-5 text-white shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-emerald-100">Total Opening Balance</p>
+                    <p className="text-2xl font-bold mt-1">৳{allBankSummary.totalOpeningBalance.toLocaleString()}</p>
+                  </div>
+                  <div className="p-3 bg-white/20 rounded-xl"><Banknote className="h-6 w-6" /></div>
+                </div>
+              </div>
+              <div className="rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 p-5 text-white shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-violet-100">Avg Balance per Bank</p>
+                    <p className="text-2xl font-bold mt-1">৳{allBankSummary.totalBanks > 0 ? Math.round(allBankSummary.totalOpeningBalance / allBankSummary.totalBanks).toLocaleString() : "0"}</p>
+                  </div>
+                  <div className="p-3 bg-white/20 rounded-xl"><Activity className="h-6 w-6" /></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bank selection cards */}
+          <Card className="border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-primary" />
+                Select a Bank to View Its Report
+              </CardTitle>
+              <CardDescription className="text-slate-500 dark:text-slate-400">Click a bank card to load its detailed report</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {banks.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                  <Building2 className="h-12 w-12 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                  <p className="text-lg font-medium">No banks configured</p>
+                  <p className="text-sm mt-1">Add banks from the Banks setup page first</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {banks.map((bank: any) => (
+                    <button
+                      key={bank.id}
+                      onClick={() => { setSelectedBank(bank.id); }}
+                      className="group text-left p-4 rounded-xl border-2 border-slate-200 dark:border-navy-700 hover:border-primary dark:hover:border-primary bg-white dark:bg-navy-900/30 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                          <Banknote className="h-5 w-5 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-slate-900 dark:text-white truncate">{bank.bankName}</h4>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 truncate">A/C: {bank.accountNo}</p>
+                          {bank.branch && <p className="text-xs text-slate-400 dark:text-slate-500">Branch: {bank.branch}</p>}
+                          <div className="mt-2 pt-2 border-t border-slate-100 dark:border-navy-700">
+                            <p className="text-xs text-slate-400 dark:text-slate-500">Opening Balance</p>
+                            <p className="text-lg font-bold text-primary">৳{Number(bank.openingBalance || 0).toLocaleString()}</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="h-5 w-5 text-slate-300 dark:text-slate-600 group-hover:text-primary transition-colors mt-1" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
     </div>
   );
@@ -8425,6 +9252,580 @@ function SrTargetSetupPage() {
 }
 
 // ============================================================
+// EMPLOYEE LEAVE PAGE (Custom)
+// ============================================================
+
+function EmployeeLeavePage() {
+  const { toast } = useToast();
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [form, setForm] = useState({
+    employeeId: "",
+    leaveType: "Casual",
+    fromDate: "",
+    toDate: "",
+    reason: "",
+    status: "Pending",
+  });
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    fetch("/api/employee-leaves")
+      .then((r) => r.json())
+      .then((d) => { setLeaves(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => { loadData(); }, [loadData]);
+
+  React.useEffect(() => {
+    if (dialogOpen) {
+      fetch("/api/employees?isActive=true")
+        .then((r) => r.json())
+        .then((d) => { setEmployees(Array.isArray(d) ? d : []); })
+        .catch(() => {});
+    }
+  }, [dialogOpen]);
+
+  // Auto-calculate days
+  const calculatedDays = useMemo(() => {
+    if (!form.fromDate || !form.toDate) return 0;
+    const start = new Date(form.fromDate);
+    const end = new Date(form.toDate);
+    const diff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return diff > 0 ? diff : 0;
+  }, [form.fromDate, form.toDate]);
+
+  const openAdd = () => {
+    setEditingItem(null);
+    setForm({ employeeId: "", leaveType: "Casual", fromDate: "", toDate: "", reason: "", status: "Pending" });
+    setDialogOpen(true);
+  };
+
+  const openEdit = (item: any) => {
+    setEditingItem(item);
+    setForm({
+      employeeId: item.employeeId || "",
+      leaveType: item.leaveType || "Casual",
+      fromDate: item.fromDate ? new Date(item.fromDate).toISOString().split("T")[0] : "",
+      toDate: item.toDate ? new Date(item.toDate).toISOString().split("T")[0] : "",
+      reason: item.reason || "",
+      status: item.status || "Pending",
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.employeeId || !form.fromDate || !form.toDate) {
+      toast({ title: "Validation Error", description: "Employee, start date, and end date are required.", variant: "destructive" });
+      return;
+    }
+    try {
+      const url = editingItem ? `/api/employee-leaves/${editingItem.id}` : "/api/employee-leaves";
+      const method = editingItem ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error();
+      toast({ title: editingItem ? "Updated" : "Created", description: `Leave ${editingItem ? "updated" : "created"} successfully.` });
+      setDialogOpen(false);
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to save leave.", variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (item: any) => {
+    if (!confirm("Are you sure you want to delete this leave record?")) return;
+    try {
+      const res = await fetch(`/api/employee-leaves/${item.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast({ title: "Deleted", description: "Leave record deleted." });
+      loadData();
+    } catch {
+      toast({ title: "Error", description: "Failed to delete leave.", variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    const headers = ["Employee Name", "Leave Type", "Start Date", "End Date", "Days", "Reason", "Status"];
+    const rows = leaves.map((l: any) => [
+      l.employee?.name || "",
+      l.leaveType,
+      l.fromDate ? new Date(l.fromDate).toLocaleDateString() : "",
+      l.toDate ? new Date(l.toDate).toLocaleDateString() : "",
+      l.fromDate && l.toDate ? Math.ceil((new Date(l.toDate).getTime() - new Date(l.fromDate).getTime()) / (1000 * 60 * 60 * 24)) + 1 : 0,
+      l.reason || "",
+      l.status,
+    ]);
+    const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "employee-leaves.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = () => {
+    import("jspdf").then(({ default: jsPDF }) => {
+      import("jspdf-autotable").then(() => {
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.text("Employee Leaves Report", 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 28);
+        const rows = leaves.map((l: any) => [
+          l.employee?.name || "",
+          l.leaveType,
+          l.fromDate ? new Date(l.fromDate).toLocaleDateString() : "",
+          l.toDate ? new Date(l.toDate).toLocaleDateString() : "",
+          String(l.fromDate && l.toDate ? Math.ceil((new Date(l.toDate).getTime() - new Date(l.fromDate).getTime()) / (1000 * 60 * 60 * 24)) + 1 : "0"),
+          l.reason || "",
+          l.status,
+        ]);
+        (doc as any).autoTable({
+          head: [["Employee", "Leave Type", "Start", "End", "Days", "Reason", "Status"]],
+          body: rows,
+          startY: 34,
+          styles: { fontSize: 8 },
+        });
+        doc.save("employee-leaves.pdf");
+      });
+    });
+  };
+
+  // Summary stats
+  const now = new Date();
+  const thisMonthLeaves = leaves.filter((l: any) => {
+    const d = new Date(l.fromDate);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const summary = {
+    total: thisMonthLeaves.length,
+    approved: thisMonthLeaves.filter((l: any) => l.status === "Approved").length,
+    pending: thisMonthLeaves.filter((l: any) => l.status === "Pending").length,
+    rejected: thisMonthLeaves.filter((l: any) => l.status === "Rejected").length,
+  };
+
+  const leaveTypes = ["Sick", "Casual", "Annual", "Maternity", "Paternity"];
+  const statusOptions = ["Approved", "Pending", "Rejected"];
+
+  const columns = [
+    { key: "employeeId", label: "Employee", render: (item: any) => (
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+          <Users className="h-3.5 w-3.5 text-primary" />
+        </div>
+        <span className="font-medium text-slate-900 dark:text-white">{item.employee?.name || "—"}</span>
+      </div>
+    )},
+    { key: "leaveType", label: "Leave Type", render: (item: any) => {
+      const typeColors: Record<string, string> = {
+        Sick: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
+        Casual: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+        Annual: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",
+        Maternity: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300",
+        Paternity: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
+      };
+      return <Badge variant="outline" className={`${typeColors[item.leaveType] || "bg-slate-100 text-slate-700"} text-xs border`}>{item.leaveType}</Badge>;
+    }},
+    { key: "fromDate", label: "Start Date", render: (item: any) => item.fromDate ? new Date(item.fromDate).toLocaleDateString() : "—" },
+    { key: "toDate", label: "End Date", render: (item: any) => item.toDate ? new Date(item.toDate).toLocaleDateString() : "—" },
+    { key: "days", label: "Days", render: (item: any) => {
+      if (!item.fromDate || !item.toDate) return "—";
+      const days = Math.ceil((new Date(item.toDate).getTime() - new Date(item.fromDate).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      return <Badge variant="secondary" className="text-xs">{days} day{days > 1 ? "s" : ""}</Badge>;
+    }},
+    { key: "reason", label: "Reason", render: (item: any) => item.reason ? <span className="max-w-[200px] truncate inline-block">{item.reason}</span> : <span className="text-slate-400">—</span> },
+    { key: "status", label: "Status", render: (item: any) => <StatusBadge status={String(item.status ?? "Pending")} /> },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <FileText className="h-6 w-6 text-primary" />
+            Employee Leaves
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Manage employee leave records and approvals</p>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { title: "Total This Month", value: summary.total, icon: <Calendar className="h-5 w-5" />, gradient: "from-blue-500 to-blue-700" },
+          { title: "Approved", value: summary.approved, icon: <CheckCircle className="h-5 w-5" />, gradient: "from-emerald-500 to-green-700" },
+          { title: "Pending", value: summary.pending, icon: <Clock className="h-5 w-5" />, gradient: "from-amber-500 to-yellow-700" },
+          { title: "Rejected", value: summary.rejected, icon: <X className="h-5 w-5" />, gradient: "from-red-500 to-rose-700" },
+        ].map((card, i) => (
+          <Card key={i} className="kpi-card border-border overflow-hidden group">
+            <CardContent className="p-0">
+              <div className={`bg-gradient-to-br ${card.gradient} p-4 text-white relative overflow-hidden`}>
+                <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors duration-300" />
+                <div className="relative flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white/80">{card.title}</p>
+                    <p className="text-2xl font-bold mt-1">{loading ? <span className="inline-block w-8 h-7 bg-white/20 rounded shimmer" /> : card.value}</p>
+                  </div>
+                  <div className="bg-white/20 p-2.5 rounded-xl backdrop-blur-sm group-hover:scale-110 transition-all duration-300">
+                    {card.icon}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Data Table */}
+      <DataTable
+        title="Leave Records"
+        columns={columns}
+        data={leaves as any[]}
+        onAdd={openAdd}
+        onEdit={openEdit}
+        onDelete={handleDelete}
+        onExportCSV={handleExportCSV}
+        onExportPDF={handleExportPDF}
+        addLabel="Add Leave"
+        searchPlaceholder="Search leaves..."
+      />
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-lg bg-white dark:bg-navy-900 border-border">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              {editingItem ? <Pencil className="h-5 w-5 text-primary" /> : <Plus className="h-5 w-5 text-primary" />}
+              {editingItem ? "Edit Leave" : "Add Leave"}
+            </DialogTitle>
+            <DialogDescription className="text-slate-500 dark:text-slate-400">
+              {editingItem ? "Update leave record details" : "Create a new leave record for an employee"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Employee selector */}
+            <div className="space-y-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm font-medium">Employee *</Label>
+              <Select value={form.employeeId} onValueChange={(v) => setForm({ ...form, employeeId: v })}>
+                <SelectTrigger className="bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700">
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((emp: any) => (
+                    <SelectItem key={emp.id} value={emp.id}>{emp.name} ({emp.employeeCode})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Leave Type */}
+            <div className="space-y-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm font-medium">Leave Type *</Label>
+              <Select value={form.leaveType} onValueChange={(v) => setForm({ ...form, leaveType: v })}>
+                <SelectTrigger className="bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700">
+                  <SelectValue placeholder="Select leave type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {leaveTypes.map((t) => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date Range */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-slate-700 dark:text-slate-300 text-sm font-medium">Start Date *</Label>
+                <Input type="date" value={form.fromDate} onChange={(e) => setForm({ ...form, fromDate: e.target.value })} className="bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-700 dark:text-slate-300 text-sm font-medium">End Date *</Label>
+                <Input type="date" value={form.toDate} onChange={(e) => setForm({ ...form, toDate: e.target.value })} className="bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700" />
+              </div>
+            </div>
+
+            {/* Auto-calculated days */}
+            {calculatedDays > 0 && (
+              <div className="bg-primary/5 dark:bg-primary/10 rounded-lg px-3 py-2 flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" />
+                <span className="text-sm text-slate-700 dark:text-slate-300">
+                  Duration: <strong className="text-primary">{calculatedDays} day{calculatedDays > 1 ? "s" : ""}</strong>
+                </span>
+              </div>
+            )}
+
+            {/* Reason */}
+            <div className="space-y-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-sm font-medium">Reason</Label>
+              <Textarea
+                placeholder="Enter reason for leave..."
+                value={form.reason}
+                onChange={(e) => setForm({ ...form, reason: e.target.value })}
+                className="bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700 min-h-[80px]"
+              />
+            </div>
+
+            {/* Status (only for edit) */}
+            {editingItem && (
+              <div className="space-y-1.5">
+                <Label className="text-slate-700 dark:text-slate-300 text-sm font-medium">Status</Label>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                  <SelectTrigger className="bg-white dark:bg-navy-800 border-slate-200 dark:border-slate-700">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} className="border-slate-200 dark:border-slate-700">Cancel</Button>
+            <Button onClick={handleSave} className="bg-primary text-primary-foreground shadow-sm">
+              {editingItem ? "Update Leave" : "Create Leave"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// NOTIFICATION PANEL
+// ============================================================
+
+interface NotificationItem {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  timestamp: string;
+  read: boolean;
+  type: "low_stock" | "pending_po" | "pending_so" | "overdue" | "return";
+}
+
+function NotificationPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    // Generate notifications from real data
+    const fetchNotifications = async () => {
+      const items: NotificationItem[] = [];
+      try {
+        // Low stock alerts
+        const stockRes = await fetch("/api/stock");
+        const stockData = await stockRes.json();
+        const lowStock = Array.isArray(stockData) ? stockData.filter((p: any) => Number(p.currentStock) < 10) : [];
+        lowStock.slice(0, 3).forEach((p: any, i: number) => {
+          items.push({
+            id: `low-${i}`,
+            icon: <AlertTriangle className="h-4 w-4 text-amber-500" />,
+            title: "Low Stock Alert",
+            description: `${p.productName} — only ${p.currentStock} units remaining`,
+            timestamp: new Date().toISOString(),
+            read: false,
+            type: "low_stock",
+          });
+        });
+
+        // Pending purchase orders
+        const poRes = await fetch("/api/purchase-orders");
+        const poData = await poRes.json();
+        const pendingPOs = Array.isArray(poData) ? poData.filter((po: any) => po.status === "Pending") : [];
+        pendingPOs.slice(0, 2).forEach((po: any, i: number) => {
+          items.push({
+            id: `po-${i}`,
+            icon: <ShoppingCart className="h-4 w-4 text-blue-500" />,
+            title: "Pending Purchase Order",
+            description: `PO ${po.poNumber} from ${po.supplier?.name || "Supplier"} — ৳${Number(po.grandTotal).toLocaleString()}`,
+            timestamp: po.createdAt || new Date().toISOString(),
+            read: false,
+            type: "pending_po",
+          });
+        });
+
+        // Pending sales orders
+        const soRes = await fetch("/api/sales-orders");
+        const soData = await soRes.json();
+        const pendingSOs = Array.isArray(soData) ? soData.filter((so: any) => so.status === "Pending") : [];
+        pendingSOs.slice(0, 2).forEach((so: any, i: number) => {
+          items.push({
+            id: `so-${i}`,
+            icon: <CartIcon className="h-4 w-4 text-green-500" />,
+            title: "Pending Sales Order",
+            description: `${so.invoiceNo} for ${so.customer?.name || "Customer"} — ৳${Number(so.grandTotal).toLocaleString()}`,
+            timestamp: so.createdAt || new Date().toISOString(),
+            read: false,
+            type: "pending_so",
+          });
+        });
+
+        // Overdue payments (unpaid sales)
+        const unpaidSOs = Array.isArray(soData) ? soData.filter((so: any) => so.status === "Unpaid" || so.status === "Partial") : [];
+        unpaidSOs.slice(0, 2).forEach((so: any, i: number) => {
+          items.push({
+            id: `overdue-${i}`,
+            icon: <DollarSign className="h-4 w-4 text-red-500" />,
+            title: "Overdue Payment",
+            description: `${so.invoiceNo} — ৳${Number(so.grandTotal).toLocaleString()} unpaid`,
+            timestamp: so.createdAt || new Date().toISOString(),
+            read: false,
+            type: "overdue",
+          });
+        });
+
+        // New returns
+        try {
+          const srRes = await fetch("/api/sales-returns");
+          const srData = await srRes.json();
+          const recentReturns = Array.isArray(srData) ? srData.slice(0, 2) : [];
+          recentReturns.forEach((sr: any, i: number) => {
+            items.push({
+              id: `return-${i}`,
+              icon: <RefreshCcw className="h-4 w-4 text-purple-500" />,
+              title: "New Sales Return",
+              description: `${sr.returnNo || "Return"} for ${sr.salesOrder?.invoiceNo || "SO"}`,
+              timestamp: sr.createdAt || new Date().toISOString(),
+              read: false,
+              type: "return",
+            });
+          });
+        } catch { /* ignore */ }
+
+      } catch { /* ignore */ }
+
+      // Fallback if no notifications
+      if (items.length === 0) {
+        items.push(
+          { id: "welcome", icon: <Zap className="h-4 w-4 text-primary" />, title: "Welcome to Electronics Mart IMS", description: "No pending notifications at this time. All systems operational.", timestamp: new Date().toISOString(), read: true, type: "low_stock" as const },
+        );
+      }
+
+      setNotifications(items);
+      setLoading(false);
+    };
+    fetchNotifications();
+  }, [open]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const markAsRead = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const formatTime = (ts: string) => {
+    const date = new Date(ts);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      {open && <div className="fixed inset-0 z-50 bg-black/30" onClick={onClose} />}
+
+      {/* Slide-out panel */}
+      <div className={`fixed top-0 right-0 z-50 h-full w-full sm:w-96 bg-white dark:bg-navy-900 shadow-2xl border-l border-border transform transition-transform duration-300 ease-in-out ${open ? "translate-x-0" : "translate-x-full"}`}>
+        <div className="flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-border bg-slate-50 dark:bg-navy-800">
+            <div className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Notifications</h2>
+              {unreadCount > 0 && (
+                <Badge className="bg-red-500 text-white text-xs px-1.5 py-0.5">{unreadCount}</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <Button variant="ghost" size="sm" onClick={markAllAsRead} className="text-xs text-primary hover:text-primary/80 h-7">
+                  <CheckCircle className="h-3.5 w-3.5 mr-1" />Mark all read
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900 dark:hover:text-white">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            {loading ? (
+              <div className="p-8 text-center">
+                <RefreshCcw className="h-8 w-8 mx-auto text-primary animate-spin mb-2" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">Loading notifications...</p>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="p-8 text-center">
+                <Bell className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+                <p className="text-slate-500 dark:text-slate-400 text-sm">No notifications</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {notifications.map((notif) => (
+                  <div
+                    key={notif.id}
+                    className={`p-4 hover:bg-slate-50 dark:hover:bg-navy-800/50 transition-colors cursor-pointer ${!notif.read ? "bg-primary/5 dark:bg-primary/10" : ""}`}
+                    onClick={() => markAsRead(notif.id)}
+                  >
+                    <div className="flex gap-3">
+                      <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${!notif.read ? "bg-primary/10 dark:bg-primary/20" : "bg-slate-100 dark:bg-navy-800"}`}>
+                        {notif.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={`text-sm font-medium ${!notif.read ? "text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"}`}>{notif.title}</p>
+                          {!notif.read && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{notif.description}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">{formatTime(notif.timestamp)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="p-3 border-t border-border bg-slate-50 dark:bg-navy-800 text-center">
+            <p className="text-xs text-slate-500 dark:text-slate-400">{notifications.length} notification{notifications.length !== 1 ? "s" : ""} • {unreadCount} unread</p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ============================================================
 // MAIN APP COMPONENT
 // ============================================================
 
@@ -8434,6 +9835,7 @@ function AppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Dashboard", "Basic Setup", "Inventory", "Products"]));
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => {
@@ -8448,6 +9850,19 @@ function AppContent() {
     setMobileSidebarOpen(false);
   };
 
+  // Keyboard shortcut: Ctrl+K / Cmd+K to open search
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCurrentPage("advance-search");
+        setMobileSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const renderPage = () => {
     if (currentPage === "dashboard") return <DashboardPage />;
     if (currentPage === "products") return <ProductsPage />;
@@ -8459,7 +9874,7 @@ function AppContent() {
     if (currentPage === "balance-sheet") return <BalanceSheetPage />;
     if (currentPage === "trial-balance") return <TrialBalancePage />;
     if (currentPage === "cash-in-hand") return <CashInHandPage />;
-    if (currentPage === "advance-search") return <AdvanceSearchPage />;
+    if (currentPage === "advance-search") return <AdvanceSearchPage onNavigate={handleNav} />;
     if (currentPage === "transfers") return <TransferPage />;
     // MIS Report pages
     if (currentPage === "basic-report") return <BasicReportPage />;
@@ -8494,6 +9909,7 @@ function AppContent() {
     if (currentPage === "sms-bill-payments") return <SmsBillPaymentsPage />;
     if (currentPage === "sms-reports") return <SmsReportsPage />;
     if (currentPage === "bulk-sms") return <BulkSmsPage />;
+    if (currentPage === "employee-leaves") return <EmployeeLeavePage />;
     const config = moduleConfigs[currentPage];
     if (config) return <GenericModulePage config={config} />;
     // Placeholder for remaining complex modules
@@ -8506,7 +9922,7 @@ function AppContent() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-50 w-full border-b border-border bg-navy-950 dark:bg-navy-950 text-white shadow-lg">
+      <header className="sticky top-0 z-50 w-full border-b border-navy-800 bg-gradient-to-r from-navy-950 via-navy-900 to-navy-950 text-white shadow-lg">
         <div className="flex items-center justify-between h-14 px-4">
           <div className="flex items-center gap-3">
             <Button
@@ -8525,26 +9941,38 @@ function AppContent() {
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-gradient-to-br from-primary to-blue-600 rounded-lg flex items-center justify-center shadow-md shadow-primary/30">
                 <Package className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-base font-bold leading-tight">Electronics Mart</h1>
-                <p className="text-[10px] text-navy-300 leading-tight">Inventory Management System</p>
+                <h1 className="text-sm font-bold leading-tight tracking-wide">Electronics Mart</h1>
+                <p className="text-[10px] text-navy-400 leading-tight tracking-wider uppercase">Inventory Management System</p>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Global Search Shortcut */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:flex items-center gap-2 text-navy-300 border-navy-700 hover:bg-navy-800 hover:text-white h-8 px-3"
+              onClick={() => handleNav("advance-search")}
+            >
+              <Search className="h-3.5 w-3.5" />
+              <span className="text-xs">Search...</span>
+              <kbd className="ml-2 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-navy-700 bg-navy-800 px-1.5 font-mono text-[10px] font-medium text-navy-400">⌘K</kbd>
+            </Button>
             <Button
               variant="ghost"
               size="sm"
               className="text-white hover:bg-navy-800"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             >
               {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
-            <Button variant="ghost" size="sm" className="text-white hover:bg-navy-800 relative">
+            <Button variant="ghost" size="sm" className="text-white hover:bg-navy-800 relative" onClick={() => setNotifPanelOpen(true)}>
               <Bell className="h-5 w-5" />
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] flex items-center justify-center pulse-dot font-medium">3</span>
             </Button>
@@ -8633,8 +10061,42 @@ function AppContent() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8 min-h-[calc(100vh-3.5rem-3rem)] page-enter">
+        <main className="flex-1 overflow-y-auto flex flex-col">
+          {/* Breadcrumb Bar */}
+          <div className="bg-slate-50 dark:bg-navy-900/40 border-b border-border px-4 sm:px-6 lg:px-8 py-2 flex items-center gap-2 text-sm">
+            <button onClick={() => handleNav("dashboard")} className="text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary flex items-center gap-1 transition-colors">
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              Home
+            </button>
+            {(() => {
+              const groupMap: Record<string, string> = {};
+              sidebarGroups.forEach(g => g.items.forEach(item => { groupMap[item.key] = g.label; }));
+              const group = groupMap[currentPage];
+              const pageItem = sidebarGroups.flatMap(g => g.items).find(i => i.key === currentPage);
+              const pageLabel = pageItem?.label || currentPage;
+              if (group && group !== "Dashboard") {
+                return (
+                  <>
+                    <ChevronRight className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                    <span className="text-slate-400 dark:text-slate-500">{group}</span>
+                    <ChevronRight className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                    <span className="text-slate-700 dark:text-slate-200 font-medium">{pageLabel}</span>
+                  </>
+                );
+              }
+              return (
+                <>
+                  {currentPage !== "dashboard" && (
+                    <>
+                      <ChevronRight className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                      <span className="text-slate-700 dark:text-slate-200 font-medium">{pageLabel}</span>
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          <div className="p-4 sm:p-6 lg:p-8 flex-1 page-enter">
             {renderPage()}
           </div>
           {/* Footer */}
@@ -8647,13 +10109,12 @@ function AppContent() {
           </footer>
         </main>
       </div>
+
+      {/* Notification Panel */}
+      <NotificationPanel open={notifPanelOpen} onClose={() => setNotifPanelOpen(false)} />
     </div>
   );
 }
-
-// ============================================================
-// EXPORT
-// ============================================================
 
 export default function HomePage() {
   return <AppContent />;

@@ -129,6 +129,8 @@
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
@@ -142,7 +144,7 @@
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.7 0.01 260);
+  background: oklch(0.75 0.01 260);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -166,7 +168,7 @@
   width: 5px;
 }
 .table-container::-webkit-scrollbar-thumb {
-  background: oklch(0.6 0.02 260);
+  background: oklch(0.65 0.02 260);
   border-radius: 3px;
 }
 .dark .table-container::-webkit-scrollbar-thumb {
@@ -184,14 +186,14 @@ footer {
 
 /* KPI Card hover lift effect */
 .kpi-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .kpi-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.15), 0 4px 10px -4px rgba(0, 0, 0, 0.1);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.15), 0 4px 10px -4px rgba(0, 0, 0, 0.1);
 }
 .dark .kpi-card:hover {
-  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.4), 0 4px 10px -4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.5), 0 4px 10px -4px rgba(0, 0, 0, 0.3);
 }
 
 /* Sidebar active item glow effect */
@@ -206,17 +208,18 @@ footer {
 
 /* Button hover scale */
 .btn-hover-scale {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease;
 }
 .btn-hover-scale:hover {
   transform: scale(1.02);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.1);
 }
 
 /* Fade in animation for page content */
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -224,7 +227,7 @@ footer {
   }
 }
 .page-enter {
-  animation: fadeInUp 0.25s ease-out;
+  animation: fadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Shimmer loading effect */
@@ -245,11 +248,11 @@ footer {
 
 /* Pulse dot for notifications */
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.95); }
 }
 .pulse-dot {
-  animation: pulse-dot 2s infinite;
+  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 /* Enhanced focus ring for accessibility */
@@ -266,10 +269,65 @@ button:focus-visible {
 @media print {
   .no-print { display: none !important; }
   header, aside, footer { display: none !important; }
+  .breadcrumb-bar { display: none !important; }
   main { margin: 0 !important; padding: 0 !important; }
 }
 
 /* Badge enhancement */
 .badge-glow {
   box-shadow: 0 0 6px 0 rgba(37, 99, 235, 0.3);
+}
+
+/* Notification panel slide animation */
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+.notif-panel-enter {
+  animation: slideInRight 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Card subtle inner glow on hover */
+.card-hover-glow {
+  position: relative;
+  overflow: hidden;
+}
+.card-hover-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(circle at 50% 0%, oklch(0.55 0.18 260 / 0.06), transparent 70%);
+  pointer-events: none;
+}
+.card-hover-glow:hover::after {
+  opacity: 1;
+}
+
+/* Gradient text helper */
+.gradient-text {
+  background: linear-gradient(135deg, oklch(0.45 0.15 260), oklch(0.55 0.18 260));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Stat card number animation */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stat-value {
+  animation: countUp 0.4s ease-out;
+}
+
+/* Dialog backdrop blur */
+.dialog-backdrop {
+  backdrop-filter: blur(4px);
 }

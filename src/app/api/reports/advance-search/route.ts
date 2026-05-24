@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
         products: [],
         customers: [],
         suppliers: [],
+        employees: [],
         purchaseOrders: [],
         salesOrders: [],
       });
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     const containsFilter = { contains: searchTerm };
 
     // Search across multiple entities in parallel
-    const [products, customers, suppliers, purchaseOrders, salesOrders] = await Promise.all([
+    const [products, customers, suppliers, employees, purchaseOrders, salesOrders] = await Promise.all([
       db.product.findMany({
         where: {
           isActive: true,
@@ -52,6 +53,18 @@ export async function GET(request: NextRequest) {
             { phone: containsFilter },
           ],
         },
+        take: 20,
+      }),
+      db.employee.findMany({
+        where: {
+          isActive: true,
+          OR: [
+            { name: containsFilter },
+            { employeeCode: containsFilter },
+            { phone: containsFilter },
+          ],
+        },
+        include: { designation: true, department: true },
         take: 20,
       }),
       db.purchaseOrder.findMany({
@@ -91,6 +104,7 @@ export async function GET(request: NextRequest) {
       products,
       customers,
       suppliers,
+      employees,
       purchaseOrders,
       salesOrders,
     });
