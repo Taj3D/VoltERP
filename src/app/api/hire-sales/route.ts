@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 // GET /api/hire-sales - List all hire sales with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+    const customerId = searchParams.get('customerId');
+    const currentStatus = searchParams.get('currentStatus');
+
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (customerId) where.customerId = customerId;
+    if (currentStatus) where.currentStatus = currentStatus;
+
     const hireSales = await db.hireSales.findMany({
+      where,
       include: {
         customer: true,
         godown: true,
@@ -30,8 +41,10 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { customerId, date, godownId, hireRate, duration, returnDate, notes, lines } =
-      body;
+    const {
+      customerId, date, godownId, hireRate, duration, installmentAmount,
+      totalPaid, currentStatus, nextPaymentDate, returnDate, notes, lines,
+    } = body;
 
     if (!customerId || !date || !lines || lines.length === 0) {
       return NextResponse.json(
@@ -70,7 +83,11 @@ export async function POST(request: NextRequest) {
           date: new Date(date),
           godownId: godownId || null,
           hireRate: hireRate || 0,
-          duration: duration || null,
+          duration: duration || 0,
+          installmentAmount: installmentAmount || 0,
+          totalPaid: totalPaid || 0,
+          currentStatus: currentStatus || 'Active',
+          nextPaymentDate: nextPaymentDate ? new Date(nextPaymentDate) : null,
           returnDate: returnDate ? new Date(returnDate) : null,
           grandTotal,
           notes: notes || null,

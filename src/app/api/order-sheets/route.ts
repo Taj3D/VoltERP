@@ -2,10 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 // GET /api/order-sheets - List all order sheets with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const companyId = searchParams.get('companyId');
+    const customerId = searchParams.get('customerId');
+    const status = searchParams.get('status');
+
+    const where: any = {};
+    if (companyId) where.companyId = companyId;
+    if (customerId) where.customerId = customerId;
+    if (status) where.status = status;
+
     const orderSheets = await db.orderSheet.findMany({
+      where,
       include: {
+        company: true,
+        customer: true,
         lines: {
           include: {
             product: true,
@@ -28,7 +41,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { date, notes, lines } = body;
+    const { date, notes, companyId, customerId, lines } = body;
 
     if (!date || !lines || lines.length === 0) {
       return NextResponse.json(
@@ -48,7 +61,7 @@ export async function POST(request: NextRequest) {
       const match = lastSheet.sheetNo.match(/OS-(\d+)/);
       if (match) {
         nextNum = parseInt(match[1], 10) + 1;
-      }
+    }
     }
     const sheetNo = `OS-${String(nextNum).padStart(3, '0')}`;
 
@@ -56,6 +69,8 @@ export async function POST(request: NextRequest) {
       const orderSheet = await tx.orderSheet.create({
         data: {
           sheetNo,
+          companyId: companyId || null,
+          customerId: customerId || null,
           date: new Date(date),
           notes: notes || null,
           lines: {
@@ -77,6 +92,8 @@ export async function POST(request: NextRequest) {
           },
         },
         include: {
+          company: true,
+          customer: true,
           lines: { include: { product: true } },
         },
       });

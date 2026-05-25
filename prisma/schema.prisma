@@ -54,6 +54,8 @@ model Liability {
   investmentHeadId String
   date            DateTime
   amount          Float
+  type            String         @default("received") // "received" or "pay"
+  paymentMethod   String?        // "Cash", "Bank Transfer", "Cheque", etc.
   description     String?
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
@@ -66,16 +68,17 @@ model Liability {
 // ============================================================
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  address   String?
-  phone     String?
-  email     String?
-  logo      String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  products  Product[]
+  id          String        @id @default(cuid())
+  name        String
+  address     String?
+  phone       String?
+  email       String?
+  logo        String?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  products    Product[]
+  orderSheets OrderSheet[]
 }
 
 model Category {
@@ -321,6 +324,7 @@ model Customer {
   hireSales       HireSales[]
   salesReturns    SalesReturn[]
   cashCollections CashCollection[]
+  orderSheets     OrderSheet[]
 }
 
 model Supplier {
@@ -345,12 +349,16 @@ model Supplier {
 model OrderSheet {
   id          String           @id @default(cuid())
   sheetNo     String           @unique
+  companyId   String?
+  customerId  String?
   date        DateTime
   status      String           @default("Draft")
   notes       String?
   isActive    Boolean          @default(true)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+  company     Company?         @relation(fields: [companyId], references: [id])
+  customer    Customer?        @relation(fields: [customerId], references: [id])
   lines       OrderSheetLine[]
 }
 
@@ -437,23 +445,27 @@ model SalesOrderLine {
 // ============================================================
 
 model HireSales {
-  id           String          @id @default(cuid())
-  invoiceNo    String          @unique
-  customerId   String
-  date         DateTime
-  godownId     String?
-  hireRate     Float           @default(0)
-  duration     String?
-  returnDate   DateTime?
-  grandTotal   Float           @default(0)
-  status       String          @default("Active")
-  notes        String?
-  isActive     Boolean         @default(true)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  customer     Customer        @relation(fields: [customerId], references: [id])
-  godown       Godown?         @relation(fields: [godownId], references: [id])
-  lines        HireSalesLine[]
+  id              String          @id @default(cuid())
+  invoiceNo       String          @unique
+  customerId      String
+  date            DateTime
+  godownId        String?
+  hireRate        Float           @default(0)
+  duration        Int             @default(0)
+  installmentAmount Float         @default(0)
+  totalPaid       Float           @default(0)
+  currentStatus   String          @default("Active")
+  nextPaymentDate DateTime?
+  returnDate      DateTime?
+  grandTotal      Float           @default(0)
+  status          String          @default("Active")
+  notes           String?
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  godown          Godown?         @relation(fields: [godownId], references: [id])
+  lines           HireSalesLine[]
 }
 
 model HireSalesLine {

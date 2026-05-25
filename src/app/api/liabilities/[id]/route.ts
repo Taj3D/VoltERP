@@ -26,6 +26,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           investmentHeadId: body.investmentHeadId,
           date: body.date ? new Date(body.date) : new Date(),
           amount: body.amount,
+          type: body.type || undefined,
+          paymentMethod: body.paymentMethod !== undefined ? body.paymentMethod : undefined,
           description: body.description || null,
           isActive: body.isActive ?? true,
         },

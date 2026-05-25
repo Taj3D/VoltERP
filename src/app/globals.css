@@ -134,27 +134,40 @@
   }
 }
 
-/* Custom scrollbar with smooth styling */
+/* ============================================================
+   1. CUSTOM SCROLLBAR — Thin, rounded, navy-themed
+   ============================================================ */
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
-  border-radius: 3px;
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.75 0.01 260);
-  border-radius: 3px;
+  background: oklch(0.7 0.02 260 / 0.5);
+  border-radius: 10px;
+  transition: background 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.6 0.02 260);
+  background: oklch(0.55 0.04 260 / 0.7);
 }
 .dark ::-webkit-scrollbar-thumb {
-  background: oklch(0.4 0.03 260);
+  background: oklch(0.35 0.03 260 / 0.6);
 }
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.5 0.03 260);
+  background: oklch(0.45 0.04 260 / 0.8);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.7 0.02 260 / 0.4) transparent;
+}
+.dark * {
+  scrollbar-color: oklch(0.35 0.03 260 / 0.5) transparent;
 }
 
 /* Table scrollable container */
@@ -163,19 +176,199 @@
   overflow-y: auto;
 }
 
-/* Enhanced table container with custom scrollbar */
+/* Enhanced table container scrollbar */
 .table-container::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 .table-container::-webkit-scrollbar-thumb {
-  background: oklch(0.65 0.02 260);
-  border-radius: 3px;
+  background: oklch(0.6 0.02 260 / 0.4);
+  border-radius: 10px;
 }
 .dark .table-container::-webkit-scrollbar-thumb {
-  background: oklch(0.35 0.03 260);
+  background: oklch(0.3 0.03 260 / 0.5);
 }
 
-/* Smooth transitions for theme - limited to avoid animation issues */
+/* ============================================================
+   2. SIDEBAR STYLING ENHANCEMENTS
+   ============================================================ */
+
+/* Sidebar scrollbar — matches navy theme */
+aside::-webkit-scrollbar {
+  width: 3px;
+}
+aside::-webkit-scrollbar-track {
+  background: transparent;
+}
+aside::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.04 260 / 0.4);
+  border-radius: 10px;
+}
+aside::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0.05 260 / 0.6);
+}
+
+/* Sidebar group header gradient */
+aside nav > div > button:first-child {
+  background: linear-gradient(90deg, oklch(0.14 0.025 260 / 0.6), transparent);
+  border-radius: 0 6px 6px 0;
+  margin-right: 8px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+aside nav > div > button:first-child:hover {
+  background: linear-gradient(90deg, oklch(0.18 0.03 260 / 0.8), transparent);
+}
+
+/* Sidebar item smooth hover transitions */
+aside nav button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+/* Sidebar active page indicator — left border highlight */
+.sidebar-item-active {
+  box-shadow: inset 3px 0 0 0 oklch(0.55 0.18 260);
+  background: linear-gradient(90deg, oklch(0.3 0.08 260 / 0.4), transparent) !important;
+}
+
+/* Sidebar sub-item active indicator */
+aside nav .ml-3 button[class*="bg-primary"] {
+  position: relative;
+}
+aside nav .ml-3 button[class*="bg-primary"]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: oklch(0.6 0.2 260);
+  border-radius: 1px;
+}
+
+/* ============================================================
+   3. CARD HOVER EFFECTS — Subtle lift + gradient border
+   ============================================================ */
+
+/* KPI Card hover lift effect */
+.kpi-card {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.15), 0 4px 12px -4px rgba(0, 0, 0, 0.1);
+}
+.dark .kpi-card:hover {
+  box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.5), 0 4px 12px -4px rgba(0, 0, 0, 0.3);
+}
+
+/* Dashboard KPI card gradient border on hover */
+.dashboard-kpi-card {
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.dashboard-kpi-card:hover {
+  border-color: oklch(0.55 0.18 260 / 0.3);
+}
+
+/* General card hover lift + gradient border */
+[data-slot="card"]:not(.kpi-card):not(.dashboard-kpi-card) {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+}
+[data-slot="card"]:not(.kpi-card):not(.dashboard-kpi-card):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.1);
+  border-color: oklch(0.55 0.18 260 / 0.2);
+}
+.dark [data-slot="card"]:not(.kpi-card):not(.dashboard-kpi-card):hover {
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4);
+  border-color: oklch(0.58 0.19 260 / 0.3);
+}
+
+/* Card subtle inner glow on hover */
+.card-hover-glow {
+  position: relative;
+  overflow: hidden;
+}
+.card-hover-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(circle at 50% 0%, oklch(0.55 0.18 260 / 0.06), transparent 70%);
+  pointer-events: none;
+}
+.card-hover-glow:hover::after {
+  opacity: 1;
+}
+
+/* ============================================================
+   4. TABLE STYLING — Better hover, alternating rows, sticky headers
+   ============================================================ */
+
+/* Table row hover highlight */
+.data-table-row {
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+/* Enhanced alternating row colors */
+.table-container table tbody tr:nth-child(even) {
+  background-color: oklch(0.97 0.003 260 / 0.5);
+}
+.dark .table-container table tbody tr:nth-child(even) {
+  background-color: oklch(0.15 0.02 260 / 0.4);
+}
+
+/* Better row hover */
+.table-container table tbody tr:hover {
+  background-color: oklch(0.94 0.01 260) !important;
+}
+.dark .table-container table tbody tr:hover {
+  background-color: oklch(0.2 0.025 260) !important;
+}
+
+/* Sticky table headers */
+.table-container table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--card);
+}
+.table-container table thead::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Enhanced table row styles */
+.table-row-hover {
+  transition: all 0.15s ease;
+}
+.table-row-hover:hover {
+  background-color: oklch(0.96 0.008 260);
+}
+.dark .table-row-hover:hover {
+  background-color: oklch(0.2 0.025 260);
+}
+.table-row-selected {
+  background-color: oklch(0.94 0.015 260) !important;
+}
+.dark .table-row-selected {
+  background-color: oklch(0.22 0.04 260) !important;
+}
+
+/* ============================================================
+   5. ANIMATION IMPROVEMENTS
+   ============================================================ */
+
+/* Smooth theme transitions */
 body,
 header,
 aside,
@@ -184,42 +377,11 @@ footer {
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
-/* KPI Card hover lift effect */
-.kpi-card {
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.kpi-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.15), 0 4px 10px -4px rgba(0, 0, 0, 0.1);
-}
-.dark .kpi-card:hover {
-  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.5), 0 4px 10px -4px rgba(0, 0, 0, 0.3);
-}
-
-/* Sidebar active item glow effect */
-.sidebar-item-active {
-  box-shadow: inset 3px 0 0 0 oklch(0.55 0.18 260);
-}
-
-/* Table row hover highlight */
-.data-table-row {
-  transition: background-color 0.15s ease;
-}
-
-/* Button hover scale */
-.btn-hover-scale {
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease;
-}
-.btn-hover-scale:hover {
-  transform: scale(1.02);
-  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.1);
-}
-
-/* Fade in animation for page content */
+/* Smoother page transitions */
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -227,8 +389,87 @@ footer {
   }
 }
 .page-enter {
-  animation: fadeInUp 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeInUp 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
+
+/* Page slide-in transition */
+@keyframes pageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.page-slide-in {
+  animation: pageSlideIn 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Fade-in for stat cards */
+@keyframes statFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.stat-value {
+  animation: statFadeIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Slide-in for table rows */
+@keyframes rowSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Stagger children animation */
+@keyframes staggerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.stagger-children > * {
+  animation: staggerFadeIn 0.4s ease-out both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 180ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 360ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 420ms; }
+
+/* ============================================================
+   6. FOOTER STYLING — Sticky bottom, pushed down on overflow
+   ============================================================ */
+
+/* Footer is already in a flex-1 column layout via min-h-screen flex flex-col.
+   The mt-auto on footer handles the sticky behavior when content is short. */
+footer {
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   UTILITY CLASSES & COMPONENT STYLES
+   ============================================================ */
 
 /* Shimmer loading effect */
 @keyframes shimmer {
@@ -291,40 +532,12 @@ button:focus-visible {
   animation: slideInRight 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Card subtle inner glow on hover */
-.card-hover-glow {
-  position: relative;
-  overflow: hidden;
-}
-.card-hover-glow::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  background: radial-gradient(circle at 50% 0%, oklch(0.55 0.18 260 / 0.06), transparent 70%);
-  pointer-events: none;
-}
-.card-hover-glow:hover::after {
-  opacity: 1;
-}
-
 /* Gradient text helper */
 .gradient-text {
   background: linear-gradient(135deg, oklch(0.45 0.15 260), oklch(0.55 0.18 260));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-}
-
-/* Stat card number animation */
-@keyframes countUp {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.stat-value {
-  animation: countUp 0.4s ease-out;
 }
 
 /* Dialog backdrop blur */
@@ -374,48 +587,6 @@ button:focus-visible {
   background-size: 200% 100%;
 }
 
-/* Page transition animations */
-@keyframes pageSlideIn {
-  from {
-    opacity: 0;
-    transform: translateX(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-@keyframes pageFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.page-slide-in {
-  animation: pageSlideIn 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-/* Stagger children animation */
-@keyframes staggerFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.stagger-children > * {
-  animation: staggerFadeIn 0.4s ease-out both;
-}
-.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
-.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
-.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
-.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
-.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
-.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
-.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
-.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
-
 /* Activity timeline dot pulse */
 @keyframes timelinePulse {
   0% { box-shadow: 0 0 0 0 oklch(0.55 0.18 260 / 0.4); }
@@ -462,23 +633,6 @@ button:focus-visible {
 .status-rejected { background: oklch(0.58 0.2 25); }
 .status-draft { background: oklch(0.7 0.015 260); }
 
-/* Enhanced table row styles */
-.table-row-hover {
-  transition: all 0.15s ease;
-}
-.table-row-hover:hover {
-  background-color: oklch(0.96 0.008 260);
-}
-.dark .table-row-hover:hover {
-  background-color: oklch(0.2 0.025 260);
-}
-.table-row-selected {
-  background-color: oklch(0.94 0.015 260) !important;
-}
-.dark .table-row-selected {
-  background-color: oklch(0.22 0.04 260) !important;
-}
-
 /* Login page background pattern */
 .login-bg-pattern {
   background-image: 
@@ -504,6 +658,15 @@ button:focus-visible {
 }
 .btn-press:active {
   transform: scale(0.97);
+}
+
+/* Button hover scale */
+.btn-hover-scale {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease;
+}
+.btn-hover-scale:hover {
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.1);
 }
 
 /* Confetti-like success animation */
@@ -573,7 +736,7 @@ input:focus, select:focus, textarea:focus {
 .stat-mini-card {
   position: relative;
   overflow: hidden;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .stat-mini-card::before {
   content: '';
@@ -588,7 +751,9 @@ input:focus, select:focus, textarea:focus {
 .stat-mini-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+  border-color: oklch(0.55 0.18 260 / 0.2);
 }
 .dark .stat-mini-card:hover {
   box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+  border-color: oklch(0.58 0.19 260 / 0.3);
 }

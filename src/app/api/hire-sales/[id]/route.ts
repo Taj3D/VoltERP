@@ -46,8 +46,11 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { customerId, date, godownId, hireRate, duration, returnDate, notes, status, lines } =
-      body;
+    const {
+      customerId, date, godownId, hireRate, duration, installmentAmount,
+      totalPaid, currentStatus, nextPaymentDate, returnDate, notes, status,
+      lines,
+    } = body;
 
     // Calculate grandTotal from lines if provided
     const grandTotal = lines
@@ -72,7 +75,15 @@ export async function PUT(
           ...(godownId !== undefined && { godownId: godownId || null }),
           ...(hireRate !== undefined && { hireRate }),
           ...(duration !== undefined && { duration }),
-          ...(returnDate !== undefined && { returnDate: returnDate ? new Date(returnDate) : null }),
+          ...(installmentAmount !== undefined && { installmentAmount }),
+          ...(totalPaid !== undefined && { totalPaid }),
+          ...(currentStatus !== undefined && { currentStatus }),
+          ...(nextPaymentDate !== undefined && {
+            nextPaymentDate: nextPaymentDate ? new Date(nextPaymentDate) : null,
+          }),
+          ...(returnDate !== undefined && {
+            returnDate: returnDate ? new Date(returnDate) : null,
+          }),
           ...(notes !== undefined && { notes }),
           ...(status && { status }),
           ...(grandTotal !== undefined && { grandTotal }),

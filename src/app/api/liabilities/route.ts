@@ -1,9 +1,18 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+
+    const where: any = {};
+    if (type) {
+      where.type = type;
+    }
+
     const items = await db.liability.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       include: { investmentHead: true },
     });
@@ -22,6 +31,8 @@ export async function POST(request: Request) {
           investmentHeadId: body.investmentHeadId,
           date: body.date ? new Date(body.date) : new Date(),
           amount: body.amount,
+          type: body.type || 'received',
+          paymentMethod: body.paymentMethod || null,
           description: body.description || null,
           isActive: body.isActive ?? true,
         },

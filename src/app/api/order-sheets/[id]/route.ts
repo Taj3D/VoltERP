@@ -44,7 +44,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { date, notes, status, lines } = body;
+    const { date, notes, status, companyId, customerId, lines } = body;
 
     const result = await db.$transaction(async (tx) => {
       if (lines) {
@@ -59,6 +59,8 @@ export async function PUT(
           ...(date && { date: new Date(date) }),
           ...(notes !== undefined && { notes }),
           ...(status && { status }),
+          ...(companyId !== undefined && { companyId: companyId || null }),
+          ...(customerId !== undefined && { customerId: customerId || null }),
           ...(lines && {
             lines: {
               create: lines.map(
@@ -80,6 +82,8 @@ export async function PUT(
           }),
         },
         include: {
+          company: true,
+          customer: true,
           lines: { include: { product: true } },
         },
       });
