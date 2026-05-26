@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
           const match = lastCategory.code.match(/CAT-(\d+)/);
           if (match) nextNum = parseInt(match[1]) + 1;
         }
-        code = `CAT-${String(nextNum).padStart(3, '0')}`;
+        code = `CAT-${String(nextNum).padStart(5, '0')}`;
       }
 
       const record = await tx.category.create({

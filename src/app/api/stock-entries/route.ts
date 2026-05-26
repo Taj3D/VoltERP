@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
 
 // GET /api/stock-entries - List all stock entries with filters
 export async function GET(request: NextRequest) {
@@ -65,6 +65,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Period close check
+    const periodLock = await checkPeriodClose(new Date(date));
+    if (periodLock) return periodLock;
 
     const entry = await db.stockEntry.create({
       data: {

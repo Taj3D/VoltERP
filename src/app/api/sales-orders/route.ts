@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 // GET /api/sales-orders - List all sales orders with relations
 export async function GET(request: NextRequest) {
@@ -30,7 +30,16 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(salesOrders);
+    // VAT Auditor masking
+    const maskedOrders = security.user.role === 'vat_auditor'
+      ? salesOrders.map(order => ({
+          ...maskForVatAuditor(order, security.user.role as any, ['subTotal', 'discount', 'vatAmount', 'grandTotal']),
+          lines: order.lines?.map((line: any) =>
+            maskForVatAuditor(line, security.user.role as any, ['rate', 'discountPercent', 'discountAmount', 'vatAmount', 'total'])
+          ),
+        }))
+      : salesOrders;
+    return NextResponse.json(maskedOrders);
   } catch (error) {
     console.error('Error fetching sales orders:', error);
     return NextResponse.json(

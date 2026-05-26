@@ -52,6 +52,8 @@ model Asset {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+
+  @@index([investmentHeadId])
 }
 
 model Liability {
@@ -66,6 +68,8 @@ model Liability {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+
+  @@index([investmentHeadId])
 }
 
 // ============================================================
@@ -218,6 +222,8 @@ model SRTargetSetup {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
 }
 
 model PaymentOption {
@@ -253,6 +259,9 @@ model CardTypeSetup {
   updatedAt       DateTime      @updatedAt
   paymentOption   PaymentOption @relation(fields: [paymentOptionId], references: [id])
   cardType        CardType      @relation(fields: [cardTypeId], references: [id])
+
+  @@index([paymentOptionId])
+  @@index([cardTypeId])
 }
 
 // ============================================================
@@ -297,6 +306,12 @@ model Product {
   replacementLines   ReplacementOrderLine[]
   salesReturnLines   SalesReturnLine[]
   purchaseReturnLines PurchaseReturnLine[]
+
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([godownId])
+  @@index([companyId])
+  @@index([isActive])
 }
 
 // ============================================================
@@ -317,6 +332,8 @@ model Designation {
   updatedAt     DateTime   @updatedAt
   department    Department @relation(fields: [departmentId], references: [id])
   employees     Employee[]
+
+  @@index([departmentId])
 }
 
 model Employee {
@@ -361,6 +378,10 @@ model Employee {
   department         Department      @relation(fields: [departmentId], references: [id])
   leaves             EmployeeLeave[]
   srTargets          SRTargetSetup[]
+
+  @@index([designationId])
+  @@index([departmentId])
+  @@index([isActive])
 }
 
 model EmployeeLeave {
@@ -378,6 +399,9 @@ model EmployeeLeave {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   employee    Employee  @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([status])
 }
 
 // ============================================================
@@ -446,6 +470,11 @@ model OrderSheet {
   company     Company?         @relation(fields: [companyId], references: [id])
   customer    Customer?        @relation(fields: [customerId], references: [id])
   lines       OrderSheetLine[]
+
+  @@index([companyId])
+  @@index([customerId])
+  @@index([date])
+  @@index([status])
 }
 
 model OrderSheetLine {
@@ -480,6 +509,11 @@ model PurchaseOrder {
   godown          Godown?             @relation(fields: [godownId], references: [id])
   lines           PurchaseOrderLine[]
   purchaseReturn  PurchaseReturn[]
+
+  @@index([supplierId])
+  @@index([godownId])
+  @@index([date])
+  @@index([status])
 }
 
 model PurchaseOrderLine {
@@ -523,6 +557,11 @@ model SalesOrder {
   lines           SalesOrderLine[]
   salesReturns    SalesReturn[]
   replacements    ReplacementOrder[]
+
+  @@index([customerId])
+  @@index([godownId])
+  @@index([date])
+  @@index([status])
 }
 
 model SalesOrderLine {
@@ -571,6 +610,10 @@ model HireSales {
   godown            Godown?         @relation(fields: [godownId], references: [id])
   lines             HireSalesLine[]
   installments      HireInstallment[]
+
+  @@index([customerId])
+  @@index([date])
+  @@index([status])
 }
 
 model HireSalesLine {
@@ -631,6 +674,10 @@ model SalesReturn {
   customer        Customer         @relation(fields: [customerId], references: [id])
   godown          Godown?          @relation(fields: [godownId], references: [id])
   lines           SalesReturnLine[]
+
+  @@index([salesOrderId])
+  @@index([customerId])
+  @@index([date])
 }
 
 model SalesReturnLine {
@@ -668,6 +715,10 @@ model PurchaseReturn {
   purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
   supplier        Supplier           @relation(fields: [supplierId], references: [id])
   lines           PurchaseReturnLine[]
+
+  @@index([purchaseOrderId])
+  @@index([supplierId])
+  @@index([date])
 }
 
 model PurchaseReturnLine {
@@ -700,6 +751,10 @@ model ReplacementOrder {
   updatedAt     DateTime              @updatedAt
   salesOrder    SalesOrder?           @relation(fields: [salesOrderId], references: [id])
   lines         ReplacementOrderLine[]
+
+  @@index([salesOrderId])
+  @@index([date])
+  @@index([status])
 }
 
 model ReplacementOrderLine {
@@ -755,6 +810,11 @@ model StockTransfer {
   fromGodown      Godown              @relation("TransferFrom", fields: [fromGodownId], references: [id])
   toGodown        Godown              @relation("TransferTo", fields: [toGodownId], references: [id])
   lines           StockTransferLine[]
+
+  @@index([fromGodownId])
+  @@index([toGodownId])
+  @@index([date])
+  @@index([shippingStatus])
 }
 
 model StockTransferLine {
@@ -797,6 +857,10 @@ model Expense {
   head             ExpenseIncomeHead @relation(fields: [headId], references: [id])
   paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
   bank             Bank?             @relation(fields: [bankId], references: [id])
+
+  @@index([headId])
+  @@index([bankId])
+  @@index([date])
 }
 
 model Income {
@@ -815,6 +879,10 @@ model Income {
   head             ExpenseIncomeHead @relation(fields: [headId], references: [id])
   paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
   bank             Bank?             @relation(fields: [bankId], references: [id])
+
+  @@index([headId])
+  @@index([bankId])
+  @@index([date])
 }
 
 model CashCollection {
@@ -833,6 +901,10 @@ model CashCollection {
   customer        Customer       @relation(fields: [customerId], references: [id])
   paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
   bank            Bank?          @relation(fields: [bankId], references: [id])
+
+  @@index([customerId])
+  @@index([bankId])
+  @@index([date])
 }
 
 model CashDelivery {
@@ -851,6 +923,10 @@ model CashDelivery {
   supplier        Supplier       @relation(fields: [supplierId], references: [id])
   paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
   bank            Bank?          @relation(fields: [bankId], references: [id])
+
+  @@index([supplierId])
+  @@index([bankId])
+  @@index([date])
 }
 
 model BankTransaction {
@@ -869,6 +945,10 @@ model BankTransaction {
   updatedAt       DateTime @updatedAt
   bank            Bank     @relation(fields: [bankId], references: [id])
   toBank          Bank?    @relation("TransferToBank", fields: [toBankId], references: [id])
+
+  @@index([bankId])
+  @@index([date])
+  @@index([type])
 }
 
 // ============================================================

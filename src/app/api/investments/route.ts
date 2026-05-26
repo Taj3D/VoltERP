@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
       const count = await tx.investmentHead.count();
-      const code = String(count + 1).padStart(5, '0');
+      const code = `INV-${String(count + 1).padStart(5, '0')}`;
 
       return tx.investmentHead.create({
         data: {

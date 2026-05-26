@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
         nextNum = parseInt(match[1], 10) + 1;
     }
     }
-    const sheetNo = `OS-${String(nextNum).padStart(3, '0')}`;
+    const sheetNo = `OS-${String(nextNum).padStart(5, '0')}`;
 
     const result = await db.$transaction(async (tx) => {
       const orderSheet = await tx.orderSheet.create({

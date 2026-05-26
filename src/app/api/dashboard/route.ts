@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Dashboard', 'GET');
@@ -231,24 +231,32 @@ export async function GET(request: NextRequest) {
       })),
     }));
 
-    return NextResponse.json({
+    // VAT Auditor masking for dashboard
+    const isVatAuditor = security.user.role === 'vat_auditor';
+    const responseData = {
       totalProducts,
       activeProducts,
       totalCustomers,
       activeCustomers,
       totalSuppliers,
       activeSuppliers,
-      totalRevenue,
-      totalExpenses,
-      totalIncome,
-      totalPurchases,
-      netProfit,
-      stockValue,
-      cashBalance: bankBalance._sum.currentBalance || 0,
+      totalRevenue: isVatAuditor ? 'N/A (Audit Mode)' : totalRevenue,
+      totalExpenses: isVatAuditor ? 'N/A (Audit Mode)' : totalExpenses,
+      totalIncome: isVatAuditor ? 'N/A (Audit Mode)' : totalIncome,
+      totalPurchases: isVatAuditor ? 'N/A (Audit Mode)' : totalPurchases,
+      netProfit: isVatAuditor ? 'N/A (Audit Mode)' : netProfit,
+      stockValue: isVatAuditor ? 'N/A (Audit Mode)' : stockValue,
+      cashBalance: isVatAuditor ? 'N/A (Audit Mode)' : (bankBalance._sum.currentBalance || 0),
       recentActivities,
-      topSellingProducts,
-      monthlySalesData,
-      monthlyPurchaseData: monthlySalesData.map(m => ({ month: m.month, purchase: m.purchase })),
+      topSellingProducts: isVatAuditor
+        ? topSellingProducts.map(p => ({ ...p, totalRevenue: 'N/A (Audit Mode)' }))
+        : topSellingProducts,
+      monthlySalesData: isVatAuditor
+        ? monthlySalesData.map(m => ({ ...m, sales: 'N/A (Audit Mode)', purchase: 'N/A (Audit Mode)' }))
+        : monthlySalesData,
+      monthlyPurchaseData: isVatAuditor
+        ? monthlySalesData.map(m => ({ month: m.month, purchase: 'N/A (Audit Mode)' }))
+        : monthlySalesData.map(m => ({ month: m.month, purchase: m.purchase })),
       lowStockProducts,
       pendingOrders: { pendingPOCount, pendingSOCount },
       categoryDistribution: categoryDistribution.filter(c => c._count.products > 0).map(c => ({
@@ -256,8 +264,19 @@ export async function GET(request: NextRequest) {
         name: c.name,
         count: c._count.products,
       })),
-      hireInstallments,
-    });
+      hireInstallments: isVatAuditor
+        ? hireInstallments.map(hi => ({
+            ...hi,
+            hireRate: 'N/A (Audit Mode)',
+            installmentAmount: 'N/A (Audit Mode)',
+            totalPaid: 'N/A (Audit Mode)',
+            grandTotal: 'N/A (Audit Mode)',
+            balanceAmount: 'N/A (Audit Mode)',
+            products: hi.products?.map((p: any) => ({ ...p, rate: 'N/A (Audit Mode)', total: 'N/A (Audit Mode)' })),
+          }))
+        : hireInstallments,
+    };
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Dashboard API error:', error);
     return NextResponse.json({ error: 'Failed to load dashboard' }, { status: 500 });

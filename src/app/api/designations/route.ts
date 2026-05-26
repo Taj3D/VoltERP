@@ -32,6 +32,12 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    if (body.salaryBandMax !== undefined && body.salaryBandMin !== undefined && Number(body.salaryBandMax) < Number(body.salaryBandMin)) {
+      return NextResponse.json(
+        { error: 'salaryBandMax must be greater than or equal to salaryBandMin' },
+        { status: 400 }
+      );
+    }
     const item = await db.$transaction(async (tx) => {
       // Auto-generate DSG-XXXXX code
       let code = body.code;

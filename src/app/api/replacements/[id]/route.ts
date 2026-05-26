@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
 
 // GET /api/replacements/[id]
 export async function GET(
@@ -51,6 +51,14 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
     const { salesOrderId, date, reason, status, lines } = body;
+
+    // Period close check
+    const existing = await db.replacementOrder.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Replacement order not found' }, { status: 404 });
+    }
+    const periodLock = await checkPeriodClose(date ? new Date(date) : existing.date);
+    if (periodLock) return periodLock;
 
     const result = await db.$transaction(async (tx) => {
       if (lines) {
@@ -124,6 +132,13 @@ export async function DELETE(
   if (!security.authorized) return security.response;
   try {
     const { id } = await params;
+
+    const existing = await db.replacementOrder.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Replacement order not found' }, { status: 404 });
+    }
+    const periodLock = await checkPeriodClose(existing.date);
+    if (periodLock) return periodLock;
 
     await db.$transaction(async (tx) => {
       const record = await tx.replacementOrder.findUnique({ where: { id } });

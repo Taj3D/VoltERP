@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     const item = await db.$transaction(async (tx) => {
       // Auto-generate code
       const count = await tx.investmentHead.count();
-      const code = String(count + 1).padStart(5, '0');
+      const code = `INVH-${String(count + 1).padStart(5, '0')}`;
 
       const record = await tx.investmentHead.create({
         data: {

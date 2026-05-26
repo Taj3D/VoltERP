@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
       const count = await tx.brand.count();
-      const code = String(count + 1).padStart(5, '0');
+      const code = `BRN-${String(count + 1).padStart(5, '0')}`;
 
       const record = await tx.brand.create({
         data: {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 // GET /api/hire-sales - List all hire sales with relations
 export async function GET(request: NextRequest) {
@@ -34,7 +34,16 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(hireSales);
+    // VAT Auditor masking
+    const maskedHireSales = security.user.role === 'vat_auditor'
+      ? hireSales.map(order => ({
+          ...maskForVatAuditor(order, security.user.role as any, ['subTotal', 'downPayment', 'hireRate', 'installmentAmount', 'balanceAmount', 'totalPaid', 'grandTotal', 'vatAmount']),
+          lines: order.lines?.map((line: any) =>
+            maskForVatAuditor(line, security.user.role as any, ['rate', 'discountPercent', 'discountAmount', 'total'])
+          ),
+        }))
+      : hireSales;
+    return NextResponse.json(maskedHireSales);
   } catch (error) {
     console.error('Error fetching hire sales:', error);
     return NextResponse.json(

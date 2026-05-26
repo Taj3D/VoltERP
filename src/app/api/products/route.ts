@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Products', 'GET');
@@ -17,7 +17,11 @@ export async function GET(request: NextRequest) {
         company: true,
       },
     });
-    return NextResponse.json(items);
+    // VAT Auditor masking
+    const maskedItems = security.user.role === 'vat_auditor'
+      ? items.map(item => maskForVatAuditor(item, security.user.role as any, ['costPrice', 'wholesalePrice', 'dealerPrice']))
+      : items;
+    return NextResponse.json(maskedItems);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
   }
@@ -40,7 +44,7 @@ export async function POST(request: NextRequest) {
           const match = lastProduct.productCode.match(/PROD-(\d+)/);
           if (match) nextNum = parseInt(match[1]) + 1;
         }
-        productCode = `PROD-${String(nextNum).padStart(3, '0')}`;
+        productCode = `PROD-${String(nextNum).padStart(5, '0')}`;
       }
 
       const record = await tx.product.create({

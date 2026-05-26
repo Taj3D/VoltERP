@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
       const count = await tx.unit.count();
-      const code = String(count + 1).padStart(5, '0');
+      const code = `UNT-${String(count + 1).padStart(5, '0')}`;
 
       const record = await tx.unit.create({
         data: {

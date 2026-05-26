@@ -30,6 +30,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
+    if (body.salaryBandMax !== undefined && body.salaryBandMin !== undefined && Number(body.salaryBandMax) < Number(body.salaryBandMin)) {
+      return NextResponse.json(
+        { error: 'salaryBandMax must be greater than or equal to salaryBandMin' },
+        { status: 400 }
+      );
+    }
     const item = await db.$transaction(async (tx) => {
       const record = await tx.designation.update({
         where: { id },
