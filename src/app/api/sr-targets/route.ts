@@ -59,8 +59,8 @@ export async function POST(request: NextRequest) {
           module: 'SRTargets',
           recordId: target.id,
           recordLabel: `${target.employee?.name || target.id} - ${target.month}/${target.year}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeId, month, year, targetAmount }),
         },
       });

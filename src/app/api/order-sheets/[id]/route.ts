@@ -99,8 +99,8 @@ export async function PUT(
           module: 'OrderSheets',
           recordId: orderSheet.id,
           recordLabel: orderSheet.sheetNo || orderSheet.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ sheetNo: orderSheet.sheetNo, status: orderSheet.status }),
         },
       });
@@ -145,8 +145,8 @@ export async function DELETE(
           module: 'OrderSheets',
           recordId: record.id,
           recordLabel: record.sheetNo || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ sheetNo: record.sheetNo, softDelete: true }),
         },
       });

@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
           module: 'CardTypeSetup',
           recordId: setup.id,
           recordLabel: `${setup.paymentOption?.name || setup.id} - ${setup.cardType?.name || setup.id}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ paymentOptionId, cardTypeId, chargePercentage: chargePercentage || 0 }),
         },
       });

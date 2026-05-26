@@ -109,8 +109,8 @@ export async function POST(request: NextRequest) {
           module: 'OrderSheets',
           recordId: orderSheet.id,
           recordLabel: orderSheet.sheetNo || orderSheet.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ sheetNo, companyId, customerId, lineCount: lines.length }),
         },
       });

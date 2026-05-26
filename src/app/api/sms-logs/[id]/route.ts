@@ -40,8 +40,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           module: 'SmsLogs',
           recordId: record.id,
           recordLabel: record.recipient || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ recipient: record.recipient, status: record.status }),
         },
       });
@@ -75,8 +75,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           module: 'SmsLogs',
           recordId: record.id,
           recordLabel: record.recipient || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ recipient: record.recipient, softDelete: true }),
         },
       });

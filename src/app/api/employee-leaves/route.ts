@@ -40,8 +40,8 @@ export async function POST(request: NextRequest) {
           module: 'EmployeeLeaves',
           recordId: record.id,
           recordLabel: `${record.employee?.name || record.id} - ${record.leaveType}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeId: record.employeeId, leaveType: record.leaveType, fromDate: record.fromDate, toDate: record.toDate }),
         },
       });

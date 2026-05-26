@@ -68,8 +68,8 @@ export async function PUT(
           module: 'SRTargets',
           recordId: target.id,
           recordLabel: `${target.employee?.name || target.id} - ${target.month}/${target.year}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeId, month, year, targetAmount, isActive }),
         },
       });
@@ -116,8 +116,8 @@ export async function DELETE(
           module: 'SRTargets',
           recordId: record.id,
           recordLabel: `${record.employee?.name || record.id} - ${record.month}/${record.year}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeId: record.employeeId, month: record.month, year: record.year, softDelete: true }),
         },
       });

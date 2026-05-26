@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
           module: 'InterestPercentages',
           recordId: record.id,
           recordLabel: `${record.percentage}%` || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ percentage: record.percentage, effectiveDate: record.effectiveDate }),
         },
       });

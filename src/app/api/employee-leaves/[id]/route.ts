@@ -44,8 +44,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           module: 'EmployeeLeaves',
           recordId: record.id,
           recordLabel: `${record.employee?.name || record.id} - ${record.leaveType}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeId: record.employeeId, leaveType: record.leaveType, status: record.status }),
         },
       });
@@ -79,8 +79,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           module: 'EmployeeLeaves',
           recordId: record.id,
           recordLabel: `${record.employee?.name || record.id} - ${record.leaveType}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeId: record.employeeId, leaveType: record.leaveType, hardDelete: true }),
         },
       });

@@ -3,30 +3,34 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Godowns', 'GET');
+  const security = await withApiSecurity(request, 'Units', 'GET');
   if (!security.authorized) return security.response;
   try {
-    const items = await db.godown.findMany({
+    const items = await db.unit.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
     });
     return NextResponse.json(items);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch godowns' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch units' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Godowns', 'POST');
+  const security = await withApiSecurity(request, 'Units', 'POST');
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      const record = await tx.godown.create({
+      const count = await tx.unit.count();
+      const code = String(count + 1).padStart(5, '0');
+
+      const record = await tx.unit.create({
         data: {
+          code,
           name: body.name,
-          address: body.address || null,
-          inCharge: body.inCharge || null,
+          symbol: body.symbol || null,
+          description: body.description || null,
           isActive: body.isActive ?? true,
         },
       });
@@ -34,12 +38,12 @@ export async function POST(request: NextRequest) {
       await tx.auditLog.create({
         data: {
           action: 'CREATE',
-          module: 'Godowns',
+          module: 'Units',
           recordId: record.id,
-          recordLabel: record.name || record.id,
+          recordLabel: record.name || record.code,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ name: record.name, address: record.address }),
+          details: JSON.stringify({ code: record.code, name: record.name, symbol: record.symbol }),
         },
       });
 
@@ -47,6 +51,6 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to create godown' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create unit' }, { status: 500 });
   }
 }

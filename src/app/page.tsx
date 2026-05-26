@@ -10,6 +10,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   LayoutDashboard, TrendingUp, Building2, Tag, Palette, Package, Banknote,
   Building, Warehouse, Percent, Layers, Box, Target, CreditCard, Settings,
+  Hash, Ruler,
   Users, UserCircle, ClipboardList, ShoppingCart, Truck, Receipt, RotateCcw,
   ArrowLeftRight, BarChart3, MessageSquare, FileText, Search, Bell, Moon,
   Sun, Menu, X, ChevronDown, ChevronRight, Plus, Edit, Trash2, Download,
@@ -49,6 +50,7 @@ import MISReportEngine from "@/components/MISReportEngine";
 import CustomerSupplierLedgerPage from "@/components/CustomerSupplierLedgerPage";
 import SMSAnalyticsPage from "@/components/SMSAnalyticsPage";
 import InvestmentGroupPage from "@/components/InvestmentGroupPage";
+import BasicModulesGroupPage from "@/components/BasicModulesGroupPage";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -302,20 +304,22 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     label: "Basic Modules",
     icon: Building2,
     items: [
-      { key: "companies", label: "Companies", icon: Building2, apiPath: "/api/companies", columns: [{ key: "code", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }], formFields: [{ key: "code", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Name", type: "text", required: true }, { key: "address", label: "Address", type: "textarea", required: false }, { key: "phone", label: "Phone", type: "text", required: false }, { key: "email", label: "Email", type: "email", required: false }] },
-      { key: "categories", label: "Categories", icon: Tag, apiPath: "/api/categories", columns: [{ key: "code", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "parentCategoryId", label: "Parent Category", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "code", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Category Name", type: "text", required: true }, { key: "parentCategoryId", label: "Parent Category", type: "select", required: false, options: [] }, { key: "description", label: "Description", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "colors", label: "Color", icon: Palette, apiPath: "/api/colors", columns: [{ key: "name", label: "Name", type: "text" }, { key: "colorCode", label: "Color Code", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "colorCode", label: "Color Code", type: "text", required: true, placeholder: "#000000" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "companies", label: "Companies", icon: Building2, parent: "Core Config" },
+      { key: "categories", label: "Categories", icon: Tag, parent: "Core Config" },
+      { key: "colors", label: "Colors", icon: Palette, parent: "Core Config" },
+      { key: "brands", label: "Brands", icon: Box, parent: "Core Config" },
+      { key: "units", label: "Units", icon: Hash, parent: "Core Config" },
       { key: "products", label: "Products", icon: Package },
       { key: "banks", label: "Bank", icon: Banknote, apiPath: "/api/banks", columns: [{ key: "bankName", label: "Bank Name", type: "text" }, { key: "branch", label: "Branch", type: "text" }, { key: "accountNo", label: "Account No", type: "text" }, { key: "accountHolder", label: "Account Holder", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "currentBalance", label: "Current Balance", type: "currency" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "bankName", label: "Bank Name", type: "text", required: true }, { key: "branch", label: "Branch", type: "text" }, { key: "accountNo", label: "Account No", type: "text", required: true }, { key: "accountHolder", label: "Account Holder", type: "text", required: true }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "departments", label: "Department", icon: Building, apiPath: "/api/departments", columns: [{ key: "name", label: "Name", type: "text" }, { key: "description", label: "Description", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "description", label: "Description", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "godowns", label: "Godowns", icon: Warehouse, apiPath: "/api/godowns", columns: [{ key: "name", label: "Name", type: "text" }, { key: "address", label: "Address", type: "text" }, { key: "inCharge", label: "In Charge", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "address", label: "Address", type: "textarea" }, { key: "inCharge", label: "In Charge", type: "text" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "departments", label: "Department", icon: Building, parent: "Structure" },
+      { key: "godowns", label: "Godowns", icon: Warehouse, parent: "Structure" },
       { key: "interest-percentages", label: "Interest Percentage", icon: Percent, apiPath: "/api/interest-percentages", columns: [{ key: "percentage", label: "Percentage", type: "number" }, { key: "effectiveDate", label: "Effective Date", type: "date" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "percentage", label: "Percentage", type: "number", required: true }, { key: "effectiveDate", label: "Effective Date", type: "date", required: true }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "segments", label: "Segment", icon: Layers, apiPath: "/api/segments", columns: [{ key: "name", label: "Name", type: "text" }, { key: "description", label: "Description", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "description", label: "Description", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "capacities", label: "Capacity", icon: Box, apiPath: "/api/capacities", columns: [{ key: "name", label: "Name", type: "text" }, { key: "description", label: "Description", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "description", label: "Description", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "sr-targets", label: "SR Target Setup", icon: Target, apiPath: "/api/sr-targets", columns: [{ key: "employeeId", label: "Employee", type: "text" }, { key: "month", label: "Month", type: "number" }, { key: "year", label: "Year", type: "number" }, { key: "targetAmount", label: "Target Amount", type: "currency" }], formFields: [{ key: "employeeId", label: "Employee", type: "select", required: true, options: [] }, { key: "month", label: "Month", type: "number", required: true }, { key: "year", label: "Year", type: "number", required: true }, { key: "targetAmount", label: "Target Amount", type: "number", required: true }] },
-      { key: "payment-options", label: "Payment Option", icon: CreditCard, apiPath: "/api/payment-options", columns: [{ key: "name", label: "Name", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "card-types", label: "CardType", icon: CreditCard, apiPath: "/api/card-types", columns: [{ key: "name", label: "Name", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "card-type-setup", label: "CardType Setup", icon: Settings, apiPath: "/api/card-type-setup", columns: [{ key: "paymentOptionId", label: "Payment Option", type: "text" }, { key: "cardTypeId", label: "Card Type", type: "text" }, { key: "chargePercentage", label: "Charge %", type: "number" }], formFields: [{ key: "paymentOptionId", label: "Payment Option", type: "select", required: true, options: [] }, { key: "cardTypeId", label: "Card Type", type: "select", required: true, options: [] }, { key: "chargePercentage", label: "Charge %", type: "number", defaultValue: 0 }] },
+      { key: "segments", label: "Segment", icon: Layers, parent: "Structure" },
+      { key: "capacities", label: "Capacity", icon: Hash, parent: "Structure" },
+      { key: "sr-targets", label: "SR Target Setup", icon: Target, parent: "Operations" },
+      { key: "payment-options", label: "Payment Option", icon: CreditCard, parent: "Operations" },
+      { key: "card-types", label: "CardType", icon: CreditCard, parent: "Operations" },
+      { key: "card-type-setup", label: "CardType Setup", icon: Settings, parent: "Operations" },
     ],
   },
   {
@@ -471,6 +475,7 @@ const DYNAMIC_OPTIONS_MAP: Record<string, { apiPath: string; labelKey: string; v
   godownId: { apiPath: "/api/godowns", labelKey: "name", valueKey: "id" },
   companyId: { apiPath: "/api/companies", labelKey: "name", valueKey: "id" },
   colorId: { apiPath: "/api/colors", labelKey: "name", valueKey: "id" },
+  brandId: { apiPath: "/api/brands", labelKey: "name", valueKey: "id" },
   segmentId: { apiPath: "/api/segments", labelKey: "name", valueKey: "id" },
   designationId: { apiPath: "/api/designations", labelKey: "name", valueKey: "id" },
   salesOrderId: { apiPath: "/api/sales-orders", labelKey: "invoiceNo", valueKey: "id" },
@@ -5618,6 +5623,10 @@ function AppLayout() {
     // GROUP 1: Investment & Asset Balances — dedicated InvestmentGroupPage component
     const investmentGroupKeys = new Set(["investment-heads", "investment", "fixed-asset", "current-asset", "liability-receive", "liability-pay", "liability-report"]);
     if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage initialTab={currentPage} />;
+
+    // GROUP 2: Basic Foundation Modules — dedicated BasicModulesGroupPage component
+    const basicModuleKeys = new Set(["companies", "categories", "colors", "brands", "units", "departments", "godowns", "segments", "capacities", "sr-targets", "payment-options", "card-types", "card-type-setup"]);
+    if (basicModuleKeys.has(currentPage)) return <BasicModulesGroupPage activeModule={currentPage} />;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 

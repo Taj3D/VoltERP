@@ -41,8 +41,8 @@ export async function POST(request: NextRequest) {
           module: 'Banks',
           recordId: record.id,
           recordLabel: record.bankName || record.accountNo || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ bankName: record.bankName, accountNo: record.accountNo, openingBalance, currentBalance: openingBalance }),
         },
       });

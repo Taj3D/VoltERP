@@ -68,8 +68,8 @@ export async function PUT(
           module: 'SmsBills',
           recordId: smsBill.id,
           recordLabel: smsBill.period || smsBill.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ period: smsBill.period, status: smsBill.status, totalCost: smsBill.totalCost }),
         },
       });
@@ -116,8 +116,8 @@ export async function DELETE(
           module: 'SmsBills',
           recordId: record.id,
           recordLabel: record.period || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ period: record.period, totalCost: record.totalCost, hardDelete: true }),
         },
       });

@@ -44,8 +44,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           module: 'Companies',
           recordId: record.id,
           recordLabel: record.name || record.code || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ code: record.code, name: record.name }),
         },
       });
@@ -90,8 +90,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           module: 'Companies',
           recordId: record.id,
           recordLabel: record.name || record.code || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ code: record.code, name: record.name, softDelete: true }),
         },
       });

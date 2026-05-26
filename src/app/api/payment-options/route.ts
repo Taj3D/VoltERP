@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
           module: 'PaymentOptions',
           recordId: record.id,
           recordLabel: record.name || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ name: record.name }),
         },
       });

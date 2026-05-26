@@ -904,3 +904,144 @@ The component is a `"use client"` React component with 7 tabs, one per module:
 | 401 auto-logout | ✅ Clears localStorage and reloads on 401 |
 | RBAC | ✅ SR/Dealer blocked with 403 page |
 | Deep Navy Blue theme | ✅ Card headers, buttons, consistent styling |
+
+---
+
+## Phase 14: GOD MODE — GROUP 2: Basic Foundation Modules
+
+**Date**: 2026-05-26
+**Mode**: God Mode — GROUP 2 Complete Build & Forensic Audit
+**Status**: ✅ COMPLETE — ALL 12 MODULES VALIDATED
+
+---
+
+### Blueprint Structure
+
+```
+[Group 2: Basic Foundation Modules Blueprint]
+ ├── Core Configurations: Companies, Categories, Colors, Brands, Units
+ ├── Structural Infrastructure: Departments, Godowns (Warehouses), Segments, Capacities
+ └── Operational Framework: SR Target Setup, Payment Options, CardTypes, CardType Setups
+```
+
+### Modules Implemented
+
+| # | Module | Description | API Endpoint | Status |
+|---|--------|-------------|--------------|--------|
+| 1 | Companies | Managing company master records with auto 5-digit codes | `/api/companies` | ✅ CRUD + Export |
+| 2 | Categories | Hierarchical product categories with parent-child relations | `/api/categories` | ✅ CRUD + Export |
+| 3 | Colors | Color master with hex codes and product counts | `/api/colors` | ✅ CRUD + Export |
+| 4 | Brands | **NEW** — Brand master with auto codes and product counts | `/api/brands` | ✅ CRUD + Export |
+| 5 | Units | **NEW** — Unit of measurement with symbols (pcs, kg, m, l) | `/api/units` | ✅ CRUD + Export |
+| 6 | Departments | Organizational departments with employee/designation counts | `/api/departments` | ✅ CRUD + Export |
+| 7 | Godowns | Warehouse management with address and in-charge | `/api/godowns` | ✅ CRUD + Export |
+| 8 | Segments | Business segments (Retail, Wholesale, Corporate) | `/api/segments` | ✅ CRUD + Export |
+| 9 | Capacities | Size/capacity definitions | `/api/capacities` | ✅ CRUD + Export |
+| 10 | SR Target Setup | Monthly sales targets per employee | `/api/sr-targets` | ✅ CRUD + Export + VAT Mask |
+| 11 | Payment Options | Payment method definitions (Cash, Card, Bank Transfer) | `/api/payment-options` | ✅ CRUD + Export |
+| 12 | Card Types | Card type definitions (Visa, Mastercard, Amex) | `/api/card-types` | ✅ CRUD + Export |
+| 13 | CardType Setup | Payment option ↔ Card type mapping with charge % | `/api/card-type-setup` | ✅ CRUD + Export |
+
+### Schema Changes
+
+| Model | Field | Type | Default | Purpose |
+|-------|-------|------|---------|---------|
+| Brand | (NEW model) | — | — | Brand master with code, name, description |
+| Unit | (NEW model) | — | — | Unit of measurement with code, name, symbol |
+| Product | `brandId` | String? | null | Foreign key to Brand model |
+
+### Backend API Changes
+
+| File | Change |
+|------|--------|
+| `prisma/schema.prisma` | Added `Brand` and `Unit` models; added `brandId` and `brand` relation to Product |
+| `src/app/api/brands/route.ts` | **NEW** — Full CRUD with `withApiSecurity` RBAC, auto 5-digit code, `security.user.id` audit logs |
+| `src/app/api/brands/[id]/route.ts` | **NEW** — PUT/DELETE with RBAC and audit logging |
+| `src/app/api/units/route.ts` | **NEW** — Full CRUD with `withApiSecurity` RBAC, auto 5-digit code, `security.user.id` audit logs |
+| `src/app/api/units/[id]/route.ts` | **NEW** — PUT/DELETE with RBAC and audit logging |
+| 11 existing API routes | Fixed `userId: 'system'` → `security.user?.id \|\| 'system'` across all Group 2 + other API routes (35 files total) |
+
+### Frontend Changes
+
+| File | Change |
+|------|--------|
+| `src/components/BasicModulesGroupPage.tsx` | **NEW** — ~870 lines. Comprehensive 12-tab component with 3 category sections (Core Config, Structure, Operations), per-module CRUD, Import/Export CSV/PDF, VAT masking for SR Target Amount |
+| `src/app/page.tsx` | Added BasicModulesGroupPage import and routing; added Brands/Units to sidebar with Core Config/Structure/Operations parent groups; added Hash/Ruler icons; added brandId to DYNAMIC_OPTIONS_MAP |
+
+### Triple Utility Bundle Validation
+
+| Module | Import CSV | Export CSV | Export PDF |
+|--------|-----------|-----------|-----------|
+| Companies | ✅ PapaParse + schema validation | ✅ UTF-8 BOM + RFC 4180 | ✅ Landscape A4 + corporate header |
+| Categories | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Colors | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 + color preview |
+| Brands | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Units | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Departments | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Godowns | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Segments | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Capacities | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| SR Target Setup | ✅ PapaParse + schema validation | ✅ UTF-8 BOM + VAT masking | ✅ Landscape A4 + VAT masking |
+| Payment Options | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| Card Types | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+| CardType Setup | ✅ PapaParse + schema validation | ✅ UTF-8 BOM | ✅ Landscape A4 |
+
+### Security & Compliance
+
+| Check | Status |
+|-------|--------|
+| Server-side RBAC (`withApiSecurity`) | ✅ All 13 API routes enforced |
+| 5-digit zero-padded immutable code identifiers | ✅ Auto-generated for Companies, Categories, Brands, Units |
+| VAT Auditor masking | ✅ SR Target Amount masked for VAT Auditor role |
+| Audit log with real user identity | ✅ All routes now use `security.user?.id`/`security.user?.name` (was `userId: 'system'`) |
+
+### API Test Results
+
+| Endpoint | Method | Status | Response |
+|----------|--------|--------|----------|
+| `/api/companies` | GET | 200 | Returns 8 companies with product counts |
+| `/api/categories` | GET | 200 | Returns categories with parent/child hierarchy |
+| `/api/colors` | GET | 200 | Returns color records |
+| `/api/brands` | GET | 200 | Returns empty (new model) |
+| `/api/units` | GET | 200 | Returns empty (new model) |
+| `/api/departments` | GET | 200 | Returns departments |
+| `/api/godowns` | GET | 200 | Returns godowns with addresses |
+| `/api/segments` | GET | 200 | Returns segments (Retail, Wholesale, Corporate) |
+| `/api/capacities` | GET | 200 | Returns empty (no seed data) |
+| `/api/sr-targets` | GET | 200 | Returns SR targets with employee relations |
+| `/api/payment-options` | GET | 200 | Returns payment options |
+| `/api/card-types` | GET | 200 | Returns card types (Visa, Mastercard, etc.) |
+| `/api/card-type-setup` | GET | 200 | Returns card type setups with charge percentages |
+
+### Bug Fixes Applied
+
+| # | Bug | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | **userId: 'system' in 35+ API route files** | 🟡 MEDIUM | Changed to `security.user?.id \|\| 'system'` and `security.user?.name \|\| 'System'` across all Group 2 + other API routes |
+| 2 | **Missing Brand and Unit models** | 🔴 HIGH | Added Brand and Unit models to Prisma schema with proper relations to Product |
+| 3 | **Missing Brand/Unit API routes** | 🔴 HIGH | Created full CRUD API routes with RBAC, auto-code generation, and audit logging |
+| 4 | **Missing Brand/Unit sidebar entries** | 🟡 MEDIUM | Added Brands and Units to Basic Modules sidebar under "Core Config" parent group |
+
+### Quality Metrics
+
+| Metric | Value |
+|--------|-------|
+| ESLint Errors | 0 |
+| TypeScript Compilation | Clean |
+| Dev Server | Running on port 3000 |
+| 401 Auth Errors | 0 |
+| API Endpoints Tested | 13/13 passing (HTTP 200) |
+| New Models Added | 2 (Brand, Unit) |
+| New API Routes | 4 (brands CRUD, units CRUD) |
+| API Routes Fixed | 35 (userId: 'system' → security.user) |
+| New Component | 1 (BasicModulesGroupPage.tsx, ~870 lines) |
+
+### Feature Highlights
+
+1. **3-Category Tab Layout**: Core Config, Structural Infrastructure, and Operational Framework organized into visual tab groups with icons and descriptions
+2. **Color Preview**: Colors tab shows inline color swatch next to hex codes
+3. **Month Name Rendering**: SR Target month numbers display as full month names (January, February, etc.)
+4. **KPI Cards**: Each tab shows Total/Active/Inactive counts
+5. **Dynamic Select Options**: Parent Category, Employee, Payment Option, Card Type selects auto-populated from API
+6. **Currency Formatting**: SR Target amounts formatted with ৳ symbol
+7. **Status Badges**: Active/Inactive status shown with colored badges

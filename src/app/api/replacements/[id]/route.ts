@@ -96,8 +96,8 @@ export async function PUT(
           module: 'Replacements',
           recordId: replacement.id,
           recordLabel: replacement.replacementNo || replacement.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ replacementNo: replacement.replacementNo, status: replacement.status }),
         },
       });
@@ -142,8 +142,8 @@ export async function DELETE(
           module: 'Replacements',
           recordId: record.id,
           recordLabel: record.replacementNo || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ replacementNo: record.replacementNo, softDelete: true }),
         },
       });

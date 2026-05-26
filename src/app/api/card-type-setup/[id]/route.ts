@@ -69,8 +69,8 @@ export async function PUT(
           module: 'CardTypeSetup',
           recordId: setup.id,
           recordLabel: `${setup.paymentOption?.name || setup.id} - ${setup.cardType?.name || setup.id}`,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ paymentOptionId, cardTypeId, chargePercentage, isActive }),
         },
       });
@@ -114,8 +114,8 @@ export async function DELETE(
           module: 'CardTypeSetup',
           recordId: record.id,
           recordLabel: record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ paymentOptionId: record.paymentOptionId, cardTypeId: record.cardTypeId, softDelete: true }),
         },
       });

@@ -79,8 +79,8 @@ export async function POST(request: NextRequest) {
           module: 'Products',
           recordId: record.id,
           recordLabel: record.name || record.productCode || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ productCode: record.productCode, name: record.name, categoryId: record.categoryId }),
         },
       });

@@ -37,8 +37,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           module: 'Colors',
           recordId: record.id,
           recordLabel: record.name || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ name: record.name, colorCode: record.colorCode }),
         },
       });
@@ -77,8 +77,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           module: 'Colors',
           recordId: record.id,
           recordLabel: record.name || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ name: record.name, colorCode: record.colorCode, softDelete: true }),
         },
       });

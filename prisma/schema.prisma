@@ -186,6 +186,28 @@ model Capacity {
   updatedAt   DateTime @updatedAt
 }
 
+model Brand {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  products    Product[]
+}
+
+model Unit {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  symbol      String?  // e.g., "pcs", "kg", "m", "l"
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model SRTargetSetup {
   id          String   @id @default(cuid())
   employeeId  String
@@ -243,6 +265,7 @@ model Product {
   name          String
   categoryId    String
   colorId       String?
+  brandId       String?
   unit          String?
   sizeCapacity  String?
   costPrice     Float    @default(0)
@@ -261,6 +284,7 @@ model Product {
   updatedAt     DateTime @updatedAt
   category      Category @relation(fields: [categoryId], references: [id])
   color         Color?   @relation(fields: [colorId], references: [id])
+  brand         Brand?   @relation(fields: [brandId], references: [id])
   godown        Godown?  @relation(fields: [godownId], references: [id])
   segment       Segment? @relation(fields: [segmentId], references: [id])
   company       Company? @relation(fields: [companyId], references: [id])

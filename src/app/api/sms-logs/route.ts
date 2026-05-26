@@ -39,8 +39,8 @@ export async function POST(request: NextRequest) {
           module: 'SmsLogs',
           recordId: record.id,
           recordLabel: record.recipient || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ recipient: record.recipient, status: record.status, cost: record.cost }),
         },
       });
