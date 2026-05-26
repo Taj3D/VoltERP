@@ -18,7 +18,7 @@ import {
   DollarSign, ArrowUpCircle, ArrowDownCircle, Send, Inbox, Phone,
   Calendar, CheckCircle, AlertTriangle, XCircle, Info, ChevronLeft,
   MoreVertical, Copy, FileSpreadsheet, FileDown, ArrowUpDown, Activity,
-  KeyRound, ShieldCheck
+  KeyRound, ShieldCheck, Pencil
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -160,14 +160,6 @@ function hasItemAccess(role: UserRole, itemKey: string): boolean {
   const denied = ITEM_ACCESS_DENIED[role] || [];
   return !denied.includes(itemKey);
 }
-
-const ROLE_OPTIONS = [
-  { value: "admin", label: "Admin", username: "emart.amit" },
-  { value: "manager", label: "Manager", username: "emart.manager" },
-  { value: "sr", label: "SR", username: "emart.sr" },
-  { value: "dealer", label: "Dealer", username: "emart.dealer" },
-  { value: "vat_auditor", label: "VAT Auditor", username: "emart.vat" },
-];
 
 let authState = {
   isAuthenticated: false,
@@ -541,17 +533,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<string>("");
   const { login } = useAuth();
-
-  const handleRoleChange = (roleValue: string) => {
-    setSelectedRole(roleValue);
-    const opt = ROLE_OPTIONS.find(r => r.value === roleValue);
-    if (opt) {
-      setUsername(opt.username);
-      setPassword("");
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -583,7 +565,7 @@ function LoginPage() {
           <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-400" />
           <CardHeader className="pb-4 pt-5">
             <CardTitle className="text-xl text-center text-slate-900 dark:text-white">Sign In</CardTitle>
-            <CardDescription className="text-center">Select your role and enter credentials</CardDescription>
+            <CardDescription className="text-center">Enter your credentials to continue</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -593,20 +575,6 @@ function LoginPage() {
                   <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
                 </div>
               )}
-              <div className="space-y-2">
-                <Label htmlFor="role">Login As</Label>
-                <Select value={selectedRole} onValueChange={handleRoleChange}>
-                  <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-blue-500/20"><SelectValue placeholder="Select Role" /></SelectTrigger>
-                  <SelectContent>
-                    {ROLE_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value} className="flex items-center gap-2">
-                        <span className={`inline-block w-2 h-2 rounded-full ${ROLE_COLORS[opt.value as UserRole]}`} />
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="username">User Name</Label>
                 <div className="relative">
@@ -788,7 +756,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
     }
   };
 
-  const exportCSV = () => { try { exportToCSV({ title, columns: visibleColumns, data: filteredData, isVatAuditor }); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
+  const exportCSV = () => { try { exportToCSV({ title, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
 
   const exportPDF = () => { try { exportToPDF({ title: `Existing ${title}`, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to PDF` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
 
@@ -802,13 +770,13 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
           <span className="text-sm font-medium text-amber-700 dark:text-amber-400">VAT AUDIT MODE — Internal margins hidden</span>
         </div>
       )}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Existing {title}</h2>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Existing {title}</h2>
         <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
-          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create new {title.endsWith("ies") ? title.slice(0, -3) + "y" : title.slice(0, -1)}</Button>
+          <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Import CSV</span></Button>
+          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export CSV</span></Button>
+          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export PDF</span></Button>
+          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Create new {title.endsWith("ies") ? title.slice(0, -3) + "y" : title.slice(0, -1)}</span></Button>
         </div>
       </div>
 
@@ -829,14 +797,15 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
 
       <Card>
         <CardContent className="p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="relative flex-1 max-w-sm">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4">
+            <div className="relative flex-1 max-w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
             </div>
             <Button variant="outline" size="sm" onClick={loadData}><RefreshCw className="w-4 h-4" /></Button>
           </div>
-          <div className="table-container overflow-auto max-h-[65vh] rounded-md border">
+          <div className="w-full overflow-x-auto">
+          <div className="table-container overflow-auto max-h-[65vh] rounded-md border min-w-[600px]">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
@@ -881,9 +850,9 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
                       ))}
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-800">Edit</Button>
-                          <span className="text-muted-foreground">|</span>
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => setDeleteItem(item)}>Delete</Button>
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-800 h-8 w-8 sm:w-auto sm:h-auto p-0 sm:px-2"><Pencil className="w-3.5 h-3.5 sm:hidden" /><span className="hidden sm:inline">Edit</span></Button>
+                          <span className="text-muted-foreground hidden sm:inline">|</span>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 h-8 w-8 sm:w-auto sm:h-auto p-0 sm:px-2" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5 sm:hidden" /><span className="hidden sm:inline">Delete</span></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -912,13 +881,14 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
               </TableBody>
             </Table>
           </div>
+          </div>
           <div className="mt-2 text-xs text-muted-foreground">Showing {filteredData.length} of {data.length} records</div>
         </CardContent>
       </Card>
 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editItem ? "Edit" : "Create"} {title.endsWith("ies") ? title.slice(0, -3) + "y" : title.slice(0, -1)}</DialogTitle>
             <DialogDescription>{editItem ? "Update the details below" : "Fill in the details below"}</DialogDescription>
@@ -5746,7 +5716,7 @@ function AppLayout() {
       {/* Mobile sidebar overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-40 bg-black/50 sidebar-overlay md:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div onClick={e => e.stopPropagation()}>
+          <div className="sidebar-slide-in" onClick={e => e.stopPropagation()}>
             <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} />
           </div>
         </div>
@@ -5759,20 +5729,20 @@ function AppLayout() {
 
       {/* VAT Auditor Banner */}
       {isVatAuditor && (
-        <div className="fixed top-14 right-0 z-20 bg-amber-500 text-white text-center py-1.5 text-sm font-medium shadow-md transition-all duration-300" style={{ left: sidebarCollapsed ? '4rem' : '16rem' }}>
+        <div className={`fixed top-14 right-0 z-20 bg-amber-500 text-white text-center py-1.5 text-sm font-medium shadow-md transition-all duration-300 left-0 ${sidebarCollapsed ? 'md:left-16' : 'md:left-64'}`}>
           🔒 VAT Auditor Mode — Internal margins and adjustments are hidden
         </div>
       )}
 
       {/* Main content */}
       <main className={`flex-1 min-h-0 overflow-y-auto pt-14 transition-all duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
-        <div className="p-4 md:p-6 max-w-[1600px] pb-8">
+        <div className="px-2 sm:px-4 md:p-6 max-w-[1600px] pb-8">
           {renderPage()}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className={`bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-all duration-300 border-t border-white/5 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
+      <footer className={`bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-all duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
         <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<span className="text-slate-300 font-medium">NextGen Digital Studio</span>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>

@@ -28,7 +28,7 @@ export interface ColumnDef {
 export interface FieldDef {
   key: string;
   label: string;
-  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date";
+  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image";
   required?: boolean;
   options?: { value: string; label: string }[];
   placeholder?: string;
@@ -415,6 +415,7 @@ export function exportToPDF(options: PDFOptions): void {
         drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
       }
 
+      let currentSummaryY = summaryStartY;
       summaryRows.forEach((summaryRow) => {
         const rowStyle = summaryRow.style || {
           fillColor: [10, 22, 40],
@@ -423,9 +424,17 @@ export function exportToPDF(options: PDFOptions): void {
           fontSize: 8,
         };
 
+        // Check if summary row fits on current page
+        if (currentSummaryY > pageHeight - 25) {
+          doc.addPage();
+          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
+          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+          currentSummaryY = 36; // Below corporate header
+        }
+
         (doc as any).autoTable({
           body: [summaryRow.cells],
-          startY: summaryStartY,
+          startY: currentSummaryY,
           margin: { left: margin, right: margin, bottom: 18 },
           styles: {
             fontSize: rowStyle.fontSize || 8,
@@ -443,6 +452,12 @@ export function exportToPDF(options: PDFOptions): void {
             drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
           },
         });
+
+        // Advance Y position for next summary row
+        const lastTable = (doc as any).lastAutoTable;
+        if (lastTable) {
+          currentSummaryY = lastTable.finalY + 2;
+        }
       });
     }
 

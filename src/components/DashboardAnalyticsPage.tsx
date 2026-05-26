@@ -607,7 +607,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       {/* ═══════════════════════════════════════════════════════════
           2. KPI SUMMARY CARDS (FIX 1: 20 KPIs, 4-column grid)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {visibleKpis.map((kpi, i) => (
           <KpiCard
             key={i}
@@ -734,7 +734,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
             </div>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <RatioIndicator
                 label="Current Ratio"
                 value={financialRatios.currentRatio}
@@ -875,7 +875,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
           FIX 5: SR should NOT see top performers
           ═══════════════════════════════════════════════════════════ */}
       {!isSR && !isDealer && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
           {/* Top Products */}
           <Card>
             <CardHeader className="pb-3">
@@ -1076,7 +1076,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                       <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold">N/A</span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-sm bg-gray-300 dark:bg-gray-600" />
                       <div>
@@ -1154,7 +1154,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                   </div>
 
                   {/* Legend */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-sm bg-green-500" />
                       <div>
@@ -1260,7 +1260,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-sm bg-green-500" />
                     <div>

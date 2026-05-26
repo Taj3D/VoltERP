@@ -34,6 +34,9 @@ model InvestmentHead {
   type            String       @default("Liability")
   openingBalance  Float        @default(0)
   openingType     String       @default("")
+  profileImage    String?      // Profile photo (base64 or URL)
+  nidFrontImage   String?      // National ID front card image
+  nidBackImage    String?      // National ID back card image
   isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -84,6 +87,7 @@ model Company {
   phone       String?
   email       String?
   logo        String?
+  brandLogo   String?       // Brand logo image (high-res)
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -369,6 +373,8 @@ model Employee {
   bankAccountNo      String?
   // Other
   photo              String?
+  nidFrontImage      String?         // National ID front card image
+  nidBackImage       String?         // National ID back card image
   referenceBy        String?
   address            String?
   isActive           Boolean         @default(true)
@@ -421,6 +427,9 @@ model Customer {
   openingBalanceType String         @default("Dr")  // "Dr" or "Cr"
   creditLimit       Float           @default(0)
   customerType      String          @default("Regular")  // "Regular" or "Dealer"
+  profileImage      String?         // Profile photo (base64 or URL)
+  nidFrontImage     String?         // National ID front card image
+  nidBackImage      String?         // National ID back card image
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -444,6 +453,9 @@ model Supplier {
   openingBalance     Float            @default(0)
   openingBalanceType String           @default("Cr")  // "Dr" or "Cr"
   creditLimit        Float            @default(0)
+  profileImage       String?          // Profile photo (base64 or URL)
+  nidFrontImage      String?          // National ID front card image
+  nidBackImage       String?          // National ID back card image
   isActive           Boolean          @default(true)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt

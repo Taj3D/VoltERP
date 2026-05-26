@@ -30,6 +30,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -491,7 +492,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   // ============================================================
 
   const openHeadsCreate = () => {
-    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "" });
+    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", profileImage: null, nidFrontImage: null, nidBackImage: null });
     setHeadsEdit(null);
     setHeadsForm(true);
   };
@@ -503,6 +504,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       openingBalance: item.openingBalance || 0,
       openingType: item.openingType || "None",
       description: item.description || "",
+      profileImage: item.profileImage || null,
+      nidFrontImage: item.nidFrontImage || null,
+      nidBackImage: item.nidBackImage || null,
     });
     setHeadsEdit(item);
     setHeadsForm(true);
@@ -521,6 +525,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         openingBalance: Number(headsFormData.openingBalance) || 0,
         openingType: headsFormData.openingType,
         description: headsFormData.description || null,
+        profileImage: headsFormData.profileImage || null,
+        nidFrontImage: headsFormData.nidFrontImage || null,
+        nidBackImage: headsFormData.nidBackImage || null,
       };
       if (headsEdit) {
         await apiFetch(`/api/investment-heads/${headsEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
@@ -1754,6 +1761,36 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <div>
               <Label htmlFor="head-description">Description</Label>
               <Textarea id="head-description" value={headsFormData.description} onChange={(e) => setHeadsFormData({ ...headsFormData, description: e.target.value })} placeholder="Optional description" rows={3} />
+            </div>
+            {/* Document Uploads Section */}
+            <div className="pt-2">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-5 w-5 rounded bg-emerald-500/10 flex items-center justify-center">
+                  <span className="text-[10px] font-bold text-emerald-600">5</span>
+                </div>
+                <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Document Uploads</h4>
+                <Separator className="flex-1" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <ImageUploadField
+                  value={headsFormData.profileImage}
+                  onChange={(base64) => setHeadsFormData({ ...headsFormData, profileImage: base64 })}
+                  label="Profile Photo"
+                  placeholder="Upload profile photo"
+                />
+                <ImageUploadField
+                  value={headsFormData.nidFrontImage}
+                  onChange={(base64) => setHeadsFormData({ ...headsFormData, nidFrontImage: base64 })}
+                  label="NID Front"
+                  placeholder="Upload NID front"
+                />
+                <ImageUploadField
+                  value={headsFormData.nidBackImage}
+                  onChange={(base64) => setHeadsFormData({ ...headsFormData, nidBackImage: base64 })}
+                  label="NID Back"
+                  placeholder="Upload NID back"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

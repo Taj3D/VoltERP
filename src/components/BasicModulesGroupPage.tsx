@@ -29,6 +29,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -133,6 +134,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "address", label: "Address", type: "textarea", required: false },
       { key: "phone", label: "Phone", type: "text", required: false },
       { key: "email", label: "Email", type: "email", required: false },
+      { key: "brandLogo", label: "Brand Logo", type: "image" },
     ],
   },
   {
@@ -544,43 +546,31 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   };
 
   // Import CSV
-  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const result = await importFromCSV(file, config.formFields, async (rows) => {
-        let imported = 0;
-        let failed = 0;
-        const errors: string[] = [];
-        for (const row of rows) {
-          try {
-            await apiFetch(config.apiPath, {
-              method: "POST",
-              body: JSON.stringify(row),
-            });
-            imported++;
-          } catch (e: any) {
-            failed++;
-            errors.push(`Row ${imported + failed}: ${e.message}`);
-          }
-        }
-        return { imported, failed, errors };
-      });
+  const handleImportCSV = () => {
+    importFromCSV({ apiPath: config.apiPath, formFields: config.formFields }).then((result) => {
       toast({
         title: "Import Complete",
-        description: `${result.imported} imported, ${result.failed} failed`,
+        description: `${result.imported} imported, ${result.failed} failed${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`,
         variant: result.failed > 0 ? "destructive" : "default",
       });
       loadData();
-    } catch (e: any) {
-      toast({ title: "Import Error", description: e.message, variant: "destructive" });
-    }
-    e.target.value = "";
+    });
   };
 
   // Render form field
   const renderFormField = (field: ExportFieldDef) => {
     const val = formData[field.key] ?? "";
+
+    if (field.type === "image") {
+      return (
+        <ImageUploadField
+          value={val || null}
+          onChange={(base64) => setFormData(prev => ({ ...prev, [field.key]: base64 || "" }))}
+          label={field.label}
+          placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
+        />
+      );
+    }
 
     if (field.type === "select") {
       const options = field.options?.length ? field.options :
@@ -702,12 +692,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           <FileDown className="h-4 w-4 mr-1" /> PDF
         </Button>
         {canMutate && (
-          <label className="cursor-pointer">
-            <Button variant="outline" size="sm" asChild>
-              <span><Upload className="h-4 w-4 mr-1" /> Import</span>
-            </Button>
-            <input type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
-          </label>
+          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+            <Upload className="h-4 w-4 mr-1" /> Import
+          </Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadData}>
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -824,7 +811,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           <div className="space-y-4 py-2">
             {config.formFields.map(field => (
               <div key={field.key} className="space-y-1.5">
-                {field.type !== "checkbox" && (
+                {field.type !== "checkbox" && field.type !== "image" && (
                   <Label className="text-sm font-medium">
                     {field.label} {field.required && <span className="text-red-500">*</span>}
                   </Label>

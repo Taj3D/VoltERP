@@ -29,6 +29,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -278,12 +279,17 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "emergencyContactName", label: "Emergency Contact Name", type: "text" },
       { key: "bankName", label: "Bank Name", type: "text" },
       { key: "bankAccountNo", label: "Bank Account No", type: "text" },
+      // Section 4: Document Uploads
+      { key: "photo", label: "Profile Photo", type: "image" },
+      { key: "nidFrontImage", label: "NID Front", type: "image" },
+      { key: "nidBackImage", label: "NID Back", type: "image" },
     ],
     vatMaskedColumns: ["baseSalary"],
     formSections: [
       { title: "Employment Details", fields: ["name", "designationId", "departmentId", "joiningDate", "baseSalary", "employeeType", "status", "referenceBy"] },
       { title: "Personal Information", fields: ["gender", "bloodGroup", "religion", "dateOfBirth", "fatherName", "motherName", "spouseName", "maritalStatus", "nidNumber", "tinNumber"] },
       { title: "Contact & Banking", fields: ["phone", "email", "presentAddress", "permanentAddress", "emergencyContact", "emergencyContactName", "bankName", "bankAccountNo"] },
+      { title: "Document Uploads", fields: ["photo", "nidFrontImage", "nidBackImage"] },
     ],
   },
   {
@@ -343,9 +349,16 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_CUSTOMER },
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
+      { key: "profileImage", label: "Profile Photo", type: "image" },
+      { key: "nidFrontImage", label: "NID Front", type: "image" },
+      { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit"],
+    formSections: [
+      { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
+    ],
   },
   // ── Supplier CRM ──
   {
@@ -379,9 +392,16 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_SUPPLIER },
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
+      { key: "profileImage", label: "Profile Photo", type: "image" },
+      { key: "nidFrontImage", label: "NID Front", type: "image" },
+      { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit"],
+    formSections: [
+      { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
+    ],
   },
 ];
 
@@ -705,6 +725,17 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       );
     }
 
+    if (field.type === "image") {
+      return (
+        <ImageUploadField
+          value={val || null}
+          onChange={(base64) => setFormData(prev => ({ ...prev, [field.key]: base64 || "" }))}
+          label={field.label}
+          placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
+        />
+      );
+    }
+
     if (field.type === "select") {
       const options = field.options?.length ? field.options :
         (dynamicOptions[field.key] || []).map((item: any) => {
@@ -780,31 +811,43 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     if (config.formSections && config.formSections.length > 0) {
       return (
         <div className="space-y-6 py-2">
-          {config.formSections.map((section, sIdx) => (
-            <div key={sIdx}>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="h-6 w-6 rounded bg-[#2563eb]/10 flex items-center justify-center">
-                  <span className="text-xs font-bold text-[#2563eb]">{sIdx + 1}</span>
+          {config.formSections.map((section, sIdx) => {
+            const sectionFields = config.formFields.filter(f => section.fields.includes(f.key));
+            const isDocUploadSection = section.title === "Document Uploads";
+            return (
+              <div key={sIdx}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-6 w-6 rounded bg-[#2563eb]/10 flex items-center justify-center">
+                    <span className="text-xs font-bold text-[#2563eb]">{sIdx + 1}</span>
+                  </div>
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{section.title}</h4>
+                  {sIdx < config.formSections!.length - 1 && <Separator className="flex-1" />}
                 </div>
-                <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{section.title}</h4>
-                {sIdx < config.formSections!.length - 1 && <Separator className="flex-1" />}
+                {isDocUploadSection ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-8">
+                    {sectionFields.map(field => (
+                      <div key={field.key}>
+                        {renderFormField(field)}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4 pl-8">
+                    {sectionFields.map(field => (
+                      <div key={field.key} className="space-y-1.5">
+                        {field.type !== "checkbox" && field.type !== "image" && (
+                          <Label className="text-sm font-medium">
+                            {field.label} {field.required && <span className="text-red-500">*</span>}
+                          </Label>
+                        )}
+                        {renderFormField(field)}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="space-y-4 pl-8">
-                {config.formFields
-                  .filter(f => section.fields.includes(f.key))
-                  .map(field => (
-                    <div key={field.key} className="space-y-1.5">
-                      {field.type !== "checkbox" && (
-                        <Label className="text-sm font-medium">
-                          {field.label} {field.required && <span className="text-red-500">*</span>}
-                        </Label>
-                      )}
-                      {renderFormField(field)}
-                    </div>
-                  ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       );
     }
@@ -813,7 +856,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       <div className="space-y-4 py-2">
         {config.formFields.map(field => (
           <div key={field.key} className="space-y-1.5">
-            {field.type !== "checkbox" && (
+            {field.type !== "checkbox" && field.type !== "image" && (
               <Label className="text-sm font-medium">
                 {field.label} {field.required && <span className="text-red-500">*</span>}
               </Label>

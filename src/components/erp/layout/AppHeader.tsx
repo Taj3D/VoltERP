@@ -344,7 +344,7 @@ export default function AppHeader({
   return (
     <header
       className={`fixed top-0 right-0 z-30 h-14 bg-white dark:bg-[#132240] border-b border-border shadow-sm transition-all duration-300 ${
-        sidebarCollapsed ? "left-16" : "left-64"
+        sidebarCollapsed ? "left-0 md:left-16" : "left-0 md:left-64"
       }`}
     >
       <div className="h-full flex items-center justify-between px-4">
@@ -369,19 +369,19 @@ export default function AppHeader({
             {currentGroupLabel && (
               <>
                 <ChevronRight className="w-3 h-3" />
-                <span>{currentGroupLabel}</span>
+                <span className="truncate max-w-[120px] sm:max-w-none">{currentGroupLabel}</span>
               </>
             )}
             {currentPage === "change-password" && (
               <>
                 <ChevronRight className="w-3 h-3" />
-                <span className="text-foreground font-medium">Change Password</span>
+                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">Change Password</span>
               </>
             )}
             {currentPageLabel && currentPage !== "change-password" && (
               <>
                 <ChevronRight className="w-3 h-3" />
-                <span className="text-foreground font-medium">{currentPageLabel}</span>
+                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">{currentPageLabel}</span>
               </>
             )}
           </div>
@@ -431,7 +431,7 @@ export default function AppHeader({
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-96 p-0" align="end">
+            <PopoverContent className="w-[calc(100vw-2rem)] sm:w-96 p-0" align="end">
               {/* Header Bar */}
               <div className="p-3 border-b bg-muted/30">
                 <div className="flex items-center justify-between">

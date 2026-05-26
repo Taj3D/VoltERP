@@ -796,3 +796,74 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.3);
   border-color: oklch(0.58 0.19 260 / 0.3);
 }
+
+/* ============================================================
+   MOBILE RESPONSIVE ENHANCEMENTS
+   ============================================================ */
+
+/* Mobile sidebar slide-in animation */
+@keyframes sidebarSlideIn {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.sidebar-slide-in {
+  animation: sidebarSlideIn 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Mobile sidebar custom scrollbar (touch-friendly) */
+@media (max-width: 767px) {
+  aside {
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidebar-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* Touch-friendly spacing for sidebar buttons */
+  aside nav button {
+    min-height: 44px;
+  }
+}
+
+/* Responsive table horizontal scroll indicator */
+@media (max-width: 767px) {
+  .table-container {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  /* Subtle shadow to indicate horizontal scroll */
+  .w-full.overflow-x-auto {
+    position: relative;
+  }
+}
+
+/* Mobile-friendly dialog */
+@media (max-width: 767px) {
+  [data-slot="dialog-content"] {
+    margin: 0.5rem;
+    max-height: calc(100dvh - 2rem);
+  }
+}
+
+/* Touch-friendly spacing adjustments */
+@media (max-width: 767px) {
+  /* Increase tap targets */
+  button, [role="button"] {
+    min-height: 36px;
+  }
+  /* Prevent text selection on interactive elements */
+  nav button, [role="tab"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Better spacing for cards on mobile */
+  [data-slot="card"] {
+    border-radius: 0.5rem;
+  }
+}
