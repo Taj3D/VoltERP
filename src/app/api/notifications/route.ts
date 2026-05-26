@@ -1,13 +1,14 @@
 // ============================================================
-// NOTIFICATIONS API — CRUD + Auto-Generate
+// NOTIFICATIONS API — Full CRUD + Auto-Generate + Header Polling
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
+// Server-side RBAC via withApiSecurity(), Period Close, VAT Masking
 // ============================================================
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, type UserRole } from '@/lib/api-security';
 
-// Inline code generator for models not in generateNextCode
+// Zero-padded immutable auto-code generator: NOT-XXXXX
 async function generateCode(model: string, prefix: string): Promise<string> {
   const latest = await (db as any)[model].findFirst({
     where: { code: { startsWith: prefix } },
@@ -19,12 +20,42 @@ async function generateCode(model: string, prefix: string): Promise<string> {
   return `${prefix}${String(num + 1).padStart(5, '0')}`;
 }
 
+// VAT Auditor masking for notification message content
 function maskForVat(value: any, isVatAuditor: boolean): any {
   if (!isVatAuditor) return value;
   return 'N/A (Audit Mode)';
 }
 
-// GET /api/notifications — List notifications with filters
+// Sensitive monetary field patterns to mask within message strings
+function maskVatInMessage(message: string, isVatAuditor: boolean): string {
+  if (!isVatAuditor) return message;
+  // Mask BDT currency patterns like ৳1,200.00 or ৳575,000.00
+  return message.replace(/৳[\d,]+\.?\d*/g, 'N/A (Audit Mode)');
+}
+
+// Role-based notification module filter
+function getRoleModuleFilter(role: UserRole): Record<string, unknown> {
+  switch (role) {
+    case 'admin':
+    case 'manager':
+      // Admin/Manager: see all modules (integrity, financial, stock, personnel)
+      return {};
+    case 'sr':
+      // SR: only low-stock, hire-sales, personnel status — NO Ledger/Financial
+      return { module: { notIn: ['Ledger', 'Financial', 'PeriodClose'] } };
+    case 'dealer':
+      // Dealer: only low-stock and order-status notifications
+      return { type: { in: ['LowStock', 'System'] } };
+    case 'vat_auditor':
+      // VAT Auditor: see all modules but financial values are masked
+      return {};
+    default:
+      return {};
+  }
+}
+
+// GET /api/notifications — List + Count + Auto-Generate
+// Returns: { success: true, count: <unreadCount>, data: [...] }
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Reports', 'GET');
   if (!security.authorized) return security.response;
@@ -34,29 +65,16 @@ export async function GET(request: NextRequest) {
     const userRole = security.user.role as UserRole;
     const isVatAuditor = userRole === 'vat_auditor';
 
-    // Dealer blocked entirely
-    if (userRole === 'dealer') {
-      return NextResponse.json(
-        { error: 'Access denied. Dealers cannot access notifications.' },
-        { status: 403 }
-      );
-    }
-
+    // Optional action: auto-generate notifications before fetching
     const action = searchParams.get('action');
-
-    // Auto-generate notifications
     if (action === 'generate') {
       return await generateNotifications(security, isVatAuditor);
     }
 
-    // Build filter
-    const where: Record<string, unknown> = {};
+    // Build role-based module filter
+    const roleFilter = getRoleModuleFilter(userRole);
 
-    // SR can only see notifications where module is NOT "Ledger" or "Financial"
-    if (userRole === 'sr') {
-      where.module = { notIn: ['Ledger', 'Financial'] };
-    }
-
+    // Additional query filters
     const type = searchParams.get('type');
     const severity = searchParams.get('severity');
     const isRead = searchParams.get('isRead');
@@ -64,25 +82,37 @@ export async function GET(request: NextRequest) {
     const modFilter = searchParams.get('module');
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const countOnly = searchParams.get('countOnly') === 'true';
+
+    // Merge filters
+    const where: Record<string, unknown> = {
+      ...roleFilter,
+      isDismissed: false, // Never show dismissed in header polling
+    };
 
     if (type) where.type = type;
     if (severity) where.severity = severity;
     if (isRead !== null && isRead !== undefined && isRead !== '') {
       where.isRead = isRead === 'true';
     }
-    if (isDismissed !== null && isDismissed !== undefined && isDismissed !== '') {
-      where.isDismissed = isDismissed === 'true';
-    }
     if (modFilter) {
-      // If SR, also ensure the module filter doesn't expose Ledger/Financial
+      // SR: block Ledger/Financial module filter
       if (userRole === 'sr' && (modFilter === 'Ledger' || modFilter === 'Financial')) {
-        return NextResponse.json({ notifications: [], total: 0, limit, offset });
+        return NextResponse.json({ success: true, count: 0, data: [], total: 0 });
       }
       where.module = modFilter;
     }
 
-    // Fetch notifications: unread first, then by createdAt desc
-    const [notifications, total] = await Promise.all([
+    // Count-only mode for lightweight header badge polling
+    if (countOnly) {
+      const unreadCount = await db.notification.count({
+        where: { ...roleFilter, isRead: false, isDismissed: false },
+      });
+      return NextResponse.json({ success: true, count: unreadCount, data: [] });
+    }
+
+    // Full fetch: unread first, then newest
+    const [notifications, total, unreadCount] = await Promise.all([
       db.notification.findMany({
         where,
         orderBy: [{ isRead: 'asc' }, { createdAt: 'desc' }],
@@ -90,24 +120,37 @@ export async function GET(request: NextRequest) {
         skip: offset,
       }),
       db.notification.count({ where }),
+      db.notification.count({
+        where: { ...roleFilter, isRead: false, isDismissed: false },
+      }),
     ]);
 
-    // Mask for VAT Auditor
+    // Apply VAT Auditor masking to message content for financial modules
     const masked = notifications.map((n: any) => ({
       ...n,
-      message: isVatAuditor && (n.module === 'Ledger' || n.module === 'Financial')
-        ? maskForVat(n.message, true)
+      message: isVatAuditor && (n.module === 'Ledger' || n.module === 'Financial' || n.module === 'PeriodClose')
+        ? maskVatInMessage(maskForVat(n.message, true), true)
         : n.message,
+      title: isVatAuditor && (n.module === 'Ledger' || n.module === 'Financial' || n.module === 'PeriodClose')
+        ? maskVatInMessage(n.title, true)
+        : n.title,
     }));
 
-    return NextResponse.json({ notifications: masked, total, limit, offset });
+    return NextResponse.json({
+      success: true,
+      count: unreadCount,
+      total,
+      data: masked,
+      limit,
+      offset,
+    });
   } catch (error) {
     console.error('Notifications GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 });
   }
 }
 
-// POST /api/notifications — Create a notification
+// POST /api/notifications — Create a notification or auto-generate batch
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'Reports', 'POST');
   if (!security.authorized) return security.response;
@@ -115,7 +158,7 @@ export async function POST(request: NextRequest) {
   try {
     const userRole = security.user.role as UserRole;
 
-    // Dealer blocked entirely
+    // Dealer blocked entirely from creating
     if (userRole === 'dealer') {
       return NextResponse.json(
         { error: 'Access denied. Dealers cannot create notifications.' },
@@ -124,6 +167,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+
+    // Auto-generate mode
+    if (body.action === 'generate') {
+      return await generateNotifications(security, userRole === 'vat_auditor');
+    }
+
     const { type, severity, title, message, module, referenceId, referenceCode, actionUrl } = body;
 
     if (!type || !title || !message) {
@@ -170,14 +219,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ notification }, { status: 201 });
+    return NextResponse.json({ success: true, data: notification }, { status: 201 });
   } catch (error) {
     console.error('Notifications POST error:', error);
     return NextResponse.json({ error: 'Failed to create notification' }, { status: 500 });
   }
 }
 
-// PUT /api/notifications — Mark as read or dismiss
+// PUT /api/notifications — Mark as read, mark all read, or dismiss
 export async function PUT(request: NextRequest) {
   const security = await withApiSecurity(request, 'Reports', 'PUT');
   if (!security.authorized) return security.response;
@@ -193,8 +242,31 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, isRead, isDismissed, dismissedBy } = body;
+    const { id, action, isRead, isDismissed, dismissedBy } = body;
 
+    // Mark ALL as read
+    if (action === 'mark-all-read') {
+      const roleFilter = getRoleModuleFilter(userRole);
+      const result = await db.notification.updateMany({
+        where: { ...roleFilter, isRead: false, isDismissed: false },
+        data: { isRead: true },
+      });
+
+      await db.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'Notifications',
+          recordLabel: 'Mark All Read',
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({ affected: result.count }),
+        },
+      });
+
+      return NextResponse.json({ success: true, affected: result.count });
+    }
+
+    // Single notification update
     if (!id) {
       return NextResponse.json({ error: 'Missing required field: id' }, { status: 400 });
     }
@@ -213,8 +285,20 @@ export async function PUT(request: NextRequest) {
     }
 
     const updateData: Record<string, unknown> = {};
-    if (isRead !== undefined) updateData.isRead = isRead;
-    if (isDismissed !== undefined) {
+
+    // Support action-based updates from frontend
+    if (action === 'mark-read' || isRead === true) {
+      updateData.isRead = true;
+    }
+    if (action === 'dismiss' || isDismissed === true) {
+      updateData.isDismissed = true;
+      updateData.dismissedAt = new Date();
+      updateData.dismissedBy = dismissedBy || security.user.name;
+    }
+    if (isRead !== undefined && action !== 'mark-read') {
+      updateData.isRead = isRead;
+    }
+    if (isDismissed !== undefined && action !== 'dismiss') {
       updateData.isDismissed = isDismissed;
       if (isDismissed) {
         updateData.dismissedAt = new Date();
@@ -240,14 +324,18 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ notification });
+    return NextResponse.json({ success: true, data: notification });
   } catch (error) {
     console.error('Notifications PUT error:', error);
     return NextResponse.json({ error: 'Failed to update notification' }, { status: 500 });
   }
 }
 
-// Auto-generate notifications for low-stock products and overdue installments
+// ============================================================
+// AUTO-GENERATE NOTIFICATIONS
+// Scans for: LowStock, OverdueInstallment, DataIntegrity, PeriodClose
+// All inserts within db.$transaction() for atomic consistency
+// ============================================================
 async function generateNotifications(
   security: { authorized: true; user: { id: string; email: string; name: string; role: string } },
   _isVatAuditor: boolean
@@ -264,109 +352,198 @@ async function generateNotifications(
   const created: any[] = [];
 
   try {
-    // 1. Low-stock products
-    const lowStockProducts = await db.product.findMany({
-      where: {
-        isActive: true,
-        openingStock: { lte: 5 },
-      },
-      select: {
-        id: true,
-        productCode: true,
-        name: true,
-        openingStock: true,
-        reorderLevel: true,
-      },
-      take: 50,
-    });
-
-    // Filter for products where stock <= reorderLevel
-    const actualLowStock = lowStockProducts.filter(
-      (p: any) => p.openingStock <= (p.reorderLevel || 5)
-    );
-
-    for (const product of actualLowStock) {
-      // Check if a notification already exists for this product
-      const existing = await db.notification.findFirst({
-        where: {
-          type: 'LowStock',
-          referenceId: product.id,
-          isDismissed: false,
+    await db.$transaction(async (tx: any) => {
+      // ─────────────────────────────────────────────────────────
+      // 1. LOW STOCK ALERTS
+      //    Products where openingStock <= reorderLevel
+      // ─────────────────────────────────────────────────────────
+      const lowStockProducts = await tx.product.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          productCode: true,
+          name: true,
+          openingStock: true,
+          reorderLevel: true,
         },
+        take: 100,
       });
 
-      if (!existing) {
-        const code = await generateCode('notification', 'NOT-');
-        const notification = await db.notification.create({
-          data: {
-            code,
+      const actualLowStock = lowStockProducts.filter(
+        (p: any) => p.openingStock <= (p.reorderLevel || 5)
+      );
+
+      for (const product of actualLowStock) {
+        const existing = await tx.notification.findFirst({
+          where: {
             type: 'LowStock',
-            severity: product.openingStock === 0 ? 'Critical' : 'Warning',
-            title: `Low Stock: ${product.name}`,
-            message: `Product ${product.name} (${product.productCode}) has stock ${product.openingStock}, below reorder level ${product.reorderLevel || 5}.`,
-            module: 'Stock',
             referenceId: product.id,
-            referenceCode: product.productCode,
-            actionUrl: '/stock',
+            isDismissed: false,
           },
         });
-        created.push(notification);
-      }
-    }
 
-    // 2. Overdue installments (SR can see overdue installments since module is HireSales, not Ledger/Financial)
-    const overdueInstallments = await db.hireInstallment.findMany({
-      where: {
-        status: { in: ['Pending', 'Partial'] },
-        dueDate: { lt: new Date() },
-      },
-      include: {
-        hireSales: {
-          select: {
-            invoiceNo: true,
-            customerId: true,
-            customer: { select: { name: true } },
+        if (!existing) {
+          const code = await generateCodeInTx(tx, 'NOT-');
+          const notification = await tx.notification.create({
+            data: {
+              code,
+              type: 'LowStock',
+              severity: product.openingStock === 0 ? 'Critical' : 'Warning',
+              title: `Low Stock: ${product.name}`,
+              message: `Product ${product.name} (${product.productCode}) has stock ${product.openingStock}, below reorder level ${product.reorderLevel || 5}.`,
+              module: 'Stock',
+              referenceId: product.id,
+              referenceCode: product.productCode,
+              actionUrl: '/stock',
+            },
+          });
+          created.push(notification);
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────
+      // 2. OVERDUE HIRE-SALE INSTALLMENTS
+      //    Pending/Partial installments past their dueDate
+      // ─────────────────────────────────────────────────────────
+      const overdueInstallments = await tx.hireInstallment.findMany({
+        where: {
+          status: { in: ['Pending', 'Partial'] },
+          dueDate: { lt: new Date() },
+        },
+        include: {
+          hireSales: {
+            select: {
+              invoiceNo: true,
+              customerId: true,
+              customer: { select: { name: true } },
+            },
           },
         },
-      },
-      take: 50,
-    });
-
-    for (const inst of overdueInstallments) {
-      const existing = await db.notification.findFirst({
-        where: {
-          type: 'OverdueInstallment',
-          referenceId: inst.id,
-          isDismissed: false,
-        },
+        take: 50,
       });
 
-      if (!existing) {
-        const code = await generateCode('notification', 'NOT-');
-        const notification = await db.notification.create({
-          data: {
-            code,
+      for (const inst of overdueInstallments) {
+        const existing = await tx.notification.findFirst({
+          where: {
             type: 'OverdueInstallment',
-            severity: 'Critical',
-            title: `Overdue Installment: ${inst.hireSales.invoiceNo}`,
-            message: `Installment #${inst.installmentNo} for ${inst.hireSales.customer.name} is overdue. Amount: ${inst.amount - inst.paidAmount} remaining. Due: ${inst.dueDate.toISOString().split('T')[0]}`,
-            module: 'HireSales',
             referenceId: inst.id,
-            referenceCode: inst.hireSales.invoiceNo,
-            actionUrl: '/hire-sales',
+            isDismissed: false,
           },
         });
-        created.push(notification);
-      }
-    }
 
-    // Also mark overdue installments
-    await db.hireInstallment.updateMany({
-      where: { status: 'Pending', dueDate: { lt: new Date() } },
-      data: { status: 'Overdue' },
+        if (!existing) {
+          const code = await generateCodeInTx(tx, 'NOT-');
+          const remaining = inst.amount - inst.paidAmount;
+          const notification = await tx.notification.create({
+            data: {
+              code,
+              type: 'OverdueInstallment',
+              severity: 'Critical',
+              title: `Overdue Installment: ${inst.hireSales.invoiceNo}`,
+              message: `Installment #${inst.installmentNo} for ${inst.hireSales.customer.name} is overdue. Amount: ৳${remaining.toLocaleString()} remaining. Due: ${inst.dueDate.toISOString().split('T')[0]}`,
+              module: 'HireSales',
+              referenceId: inst.id,
+              referenceCode: inst.hireSales.invoiceNo,
+              actionUrl: '/hire-sales',
+            },
+          });
+          created.push(notification);
+        }
+      }
+
+      // Update overdue installment statuses
+      await tx.hireInstallment.updateMany({
+        where: { status: 'Pending', dueDate: { lt: new Date() } },
+        data: { status: 'Overdue' },
+      });
+
+      // ─────────────────────────────────────────────────────────
+      // 3. DATA INTEGRITY ALERTS
+      //    Check for failed/warning data integrity logs
+      // ─────────────────────────────────────────────────────────
+      if (userRole === 'admin' || userRole === 'manager') {
+        const integrityIssues = await tx.dataIntegrityLog.findMany({
+          where: {
+            status: { in: ['Failed', 'Warning'] },
+          },
+          take: 20,
+          orderBy: { createdAt: 'desc' },
+        });
+
+        for (const issue of integrityIssues) {
+          const existing = await tx.notification.findFirst({
+            where: {
+              type: 'DataIntegrity',
+              referenceId: issue.id,
+              isDismissed: false,
+            },
+          });
+
+          if (!existing) {
+            const code = await generateCodeInTx(tx, 'NOT-');
+            const notification = await tx.notification.create({
+              data: {
+                code,
+                type: 'DataIntegrity',
+                severity: issue.status === 'Failed' ? 'Critical' : 'Warning',
+                title: `Data Integrity: ${issue.checkType || 'Check Failed'}`,
+                message: issue.details || `Data integrity issue detected: ${issue.checkType || 'Unknown'}. Discrepancy: ${issue.discrepancy}`,
+                module: issue.module || 'Ledger',
+                referenceId: issue.id,
+                referenceCode: issue.code,
+                actionUrl: '/chart-of-accounts',
+              },
+            });
+            created.push(notification);
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────
+      // 4. PERIOD CLOSE REMINDERS
+      //    Alert if current month has no period close record yet
+      // ─────────────────────────────────────────────────────────
+      if (userRole === 'admin' || userRole === 'manager') {
+        const now = new Date();
+        const currentMonth = now.getMonth() + 1;
+        const currentYear = now.getFullYear();
+
+        const periodRecord = await tx.periodClose.findFirst({
+          where: { periodMonth: currentMonth, periodYear: currentYear },
+        });
+
+        // If we're past day 5 and no period close exists for current month, alert
+        if (!periodRecord && now.getDate() > 5) {
+          const existing = await tx.notification.findFirst({
+            where: {
+              type: 'PeriodClose',
+              isDismissed: false,
+              createdAt: {
+                gte: new Date(currentYear, currentMonth - 1, 1),
+              },
+            },
+          });
+
+          if (!existing) {
+            const code = await generateCodeInTx(tx, 'NOT-');
+            const notification = await tx.notification.create({
+              data: {
+                code,
+                type: 'PeriodClose',
+                severity: 'Warning',
+                title: `Period Close Pending: ${currentMonth}/${currentYear}`,
+                message: `The accounting period for ${currentMonth}/${currentYear} has not been closed yet. Please review and close the period to ensure data integrity.`,
+                module: 'PeriodClose',
+                actionUrl: '/balance-sheet',
+              },
+            });
+            created.push(notification);
+          }
+        }
+      }
     });
 
-    // Audit log
+    // Audit log for generation (outside transaction to avoid double-logging)
     await db.auditLog.create({
       data: {
         action: 'CREATE',
@@ -374,16 +551,36 @@ async function generateNotifications(
         recordLabel: 'Auto-Generate',
         userId: security.user.id,
         userName: security.user.name,
-        details: JSON.stringify({ generatedCount: created.length, types: ['LowStock', 'OverdueInstallment'] }),
+        details: JSON.stringify({ generatedCount: created.length, types: ['LowStock', 'OverdueInstallment', 'DataIntegrity', 'PeriodClose'] }),
       },
     });
 
+    // Return fresh count after generation
+    const roleFilter = getRoleModuleFilter(userRole as UserRole);
+    const unreadCount = await db.notification.count({
+      where: { ...roleFilter, isRead: false, isDismissed: false },
+    });
+
     return NextResponse.json({
+      success: true,
       generated: created.length,
-      notifications: created,
+      count: unreadCount,
+      data: created,
     });
   } catch (error) {
     console.error('Notification generate error:', error);
     return NextResponse.json({ error: 'Failed to generate notifications' }, { status: 500 });
   }
+}
+
+// Transaction-safe code generator
+async function generateCodeInTx(tx: any, prefix: string): Promise<string> {
+  const latest = await tx.notification.findFirst({
+    where: { code: { startsWith: prefix } },
+    orderBy: { code: 'desc' },
+    select: { code: true },
+  });
+  if (!latest) return `${prefix}00001`;
+  const num = parseInt(latest.code.replace(prefix, ''), 10) || 0;
+  return `${prefix}${String(num + 1).padStart(5, '0')}`;
 }

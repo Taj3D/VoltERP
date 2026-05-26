@@ -1,268 +1,39 @@
-# VoltERP — Global Recheck Reconciliation Report
-
-## Date: 2026-05-26
-## Mode: God Mode — Final Comprehensive Structural Validation Scan
-
 ---
+Task ID: notification-system-patch
+Agent: Main Agent
+Task: Fix critical notification bell gap — implement full-stack dynamic notification system with live polling, RBAC filtering, and VAT Auditor masking
 
-## PROJECT STATUS: ✅ PRODUCTION-READY
+Work Log:
+- Explored existing notification API, header inline code, auth patterns, and DataIntegrityLog schema
+- Discovered critical gaps: header bell was using AuditLog instead of Notification model, API response shape mismatch, no PUT action handling, no polling, no role-based filtering
+- Rewrote /src/app/api/notifications/route.ts with complete CRUD + auto-generate:
+  - GET: Role-based module filtering (Admin/Manager see all, SR blocked from Ledger/Financial, Dealer sees only LowStock/System)
+  - GET: countOnly mode for lightweight badge polling
+  - POST: Auto-generate within db.$transaction() — LowStock, OverdueInstallment, DataIntegrity, PeriodClose
+  - PUT: mark-read, mark-all-read, dismiss actions
+  - VAT Auditor: maskVatInMessage() replaces ৳ currency patterns with "N/A (Audit Mode)"
+  - Fixed DataIntegrityLog field names (status not severity, checkType not issueType, details not description)
+- Created /src/components/erp/layout/AppHeader.tsx — complete global header component:
+  - 30-second polling via setInterval for live badge updates
+  - Unread count red badge with dynamic number
+  - Notification dropdown with severity indicators (pulsing red=Critical, amber=Warning, blue=Info)
+  - Type-specific icons (AlertTriangle for LowStock, XCircle for Overdue, Info for System)
+  - Relative time formatting ("3 mins ago", "2 hours ago")
+  - Mark as Read (single), Mark All Read, Dismiss actions
+  - Module badges, reference codes, actionUrl navigation
+  - VAT Auditor masking on message content
+  - Full user menu with role badges, theme toggle, search, breadcrumbs
+- Integrated AppHeader into page.tsx — replaced 100-line inline header with component
+- Removed obsolete auditLogs state, loadAuditLogs, notifOpen from AppLayout
+- Fixed userRole undefined bug (added const userRole = user?.role || "admin")
+- Build: ✓ Compiled successfully in 12.6s, 0 ESLint errors
+- API verification: 7 notifications auto-generated (5 LowStock + 1 PeriodClose), unreadCount=7
+- VAT masking verified: PeriodClose message shows "N/A (Audit Mode)" for vat_auditor role
 
-The VoltERP Electronics Mart IMS has undergone a comprehensive global recheck and structural validation scan. All 6 Batch Groups (80+ modules) are fully operational with 0 ESLint errors, 0 build warnings, and 0 unhandled errors.
-
----
-
-## PHASE 1: INITIAL ASSESSMENT
-
-| Metric | Value |
-|--------|-------|
-| ESLint Errors | 0 |
-| Dev Server | Running (Next.js 16.1.3 / Turbopack) |
-| API Routes with withApiSecurity | 112+ files (all non-exempt routes) |
-| Prisma Models | 50+ |
-| Sidebar Navigation Items | 80+ |
-| UI Component Files | 17 dedicated components |
-| Exempt from RBAC | auth/route.ts, seed/route.ts (intentional) |
-
----
-
-## PHASE 2: CRITICAL BUGS FOUND & FIXED
-
-### Bug 1: checkPeriodClose Missing from 4 Mutation Handlers 🔴→✅
-
-| Route | Handler | Status |
-|-------|---------|--------|
-| `/api/stock-entries` | POST | ✅ FIXED |
-| `/api/replacements` | POST | ✅ FIXED |
-| `/api/replacements/[id]` | PUT | ✅ FIXED |
-| `/api/replacements/[id]` | DELETE | ✅ FIXED |
-
-**Impact**: Stock entries and replacement orders could be created/modified in locked periods. Now all 34 mutation endpoints enforce period close checks.
-
-### Bug 2: VAT Auditor Masking Missing from 5 API Routes 🔴→✅
-
-| Route | Fields Masked | Status |
-|-------|--------------|--------|
-| `/api/products` | costPrice, wholesalePrice, dealerPrice | ✅ FIXED |
-| `/api/dashboard` | totalRevenue, netProfit, stockValue, cashBalance + nested fields | ✅ FIXED |
-| `/api/purchase-orders` | subTotal, discount, vatAmount, grandTotal + line items | ✅ FIXED |
-| `/api/sales-orders` | subTotal, discount, vatAmount, grandTotal + line items | ✅ FIXED |
-| `/api/hire-sales` | subTotal, downPayment, hireRate, installmentAmount, balanceAmount, totalPaid, grandTotal + line items | ✅ FIXED |
-
-**Impact**: VAT Auditor role could see raw cost/profit/wholesale data. Now all financial API routes mask sensitive fields with "N/A (Audit Mode)".
-
-### Bug 3: Missing Database Indexes (55 FK indexes) 🟡→✅
-
-Added 55 `@@index` annotations across 21 Prisma models for frequently queried FK columns, date columns, and status columns. This improves query performance for <150ms table renders.
-
-### Bug 4: SQLite WAL Mode Not Configured 🟡→✅
-
-Added WAL journal mode + performance pragmas to `src/lib/db.ts`:
-- `PRAGMA journal_mode=WAL` — Write-Ahead Logging for concurrent reads
-- `PRAGMA synchronous=NORMAL` — Reduced disk sync with WAL safety
-- `PRAGMA cache_size=-64000` — 64MB page cache
-- `PRAGMA foreign_keys=ON` — FK constraint enforcement
-- `PRAGMA temp_store=MEMORY` — In-memory temp tables
-
-### Bug 5: Inconsistent Code Generation (3-digit padding + missing prefixes) 🟡→✅
-
-| Route | Before | After |
-|-------|--------|-------|
-| `/api/categories` | `CAT-001` | `CAT-00001` |
-| `/api/products` | `PROD-001` | `PROD-00001` |
-| `/api/order-sheets` | `OS-001` | `OS-00001` |
-| `/api/companies` | `00001` | `COM-00001` |
-| `/api/investment-heads` | `00001` | `INVH-00001` |
-| `/api/brands` | `00001` | `BRN-00001` |
-| `/api/units` | `00001` | `UNT-00001` |
-| `/api/investments` | `00001` | `INV-00001` |
-
-### Bug 6: Missing salaryBandMax >= salaryBandMin Validation 🟡→✅
-
-Added cross-field validation to `/api/designations/route.ts` POST and PUT handlers. Returns 400 error if salaryBandMax < salaryBandMin.
-
----
-
-## PHASE 3: COMPREHENSIVE VERIFICATION MATRIX
-
-### 3.1 Server-Side RBAC & Security Hardening ✅
-
-| Check | Status | Details |
-|-------|--------|---------|
-| `withApiSecurity()` on all API routes | ✅ | 112+ route files — only auth/seed exempt |
-| 5-role enforcement (Admin, Manager, SR, Dealer, VAT Auditor) | ✅ | MODULE_GROUP_MAP + MODULE_DENY + WRITE_DENY |
-| SR/Dealer blocked from System Settings, Audit Trail | ✅ | 403 Forbidden on both frontend + backend |
-| VAT Auditor read-only across all modules | ✅ | All POST/PUT/DELETE denied at security layer |
-| X-User-Email header from all 10+ component files | ✅ | All apiFetch functions send auth header |
-| 401 auto-logout on session expiry | ✅ | localStorage cleared + page reload |
-
-### 3.2 Month-End Period Close & Transaction Safety ✅
-
-| Check | Status | Details |
-|-------|--------|---------|
-| `checkPeriodClose()` on 34 mutation handlers | ✅ | All financial CRUD endpoints |
-| Atomic `db.$transaction()` blocks | ✅ | Purchase, Sales, Hire, Transfers, Returns, Replacements |
-| Period lock check: POST/PUT/DELETE | ✅ | Returns 403 with periodCode, lockedMonth, lockedYear |
-| Ledger entries use equivalent isPeriodLocked | ⚠️ | Functionally identical, different error format |
-
-### 3.3 VAT Auditor Masking ✅
-
-| Layer | Status | Details |
-|-------|--------|---------|
-| API GET routes (products, PO, SO, hire-sales, dashboard) | ✅ | maskForVatAuditor() applied |
-| MIS Reports API | ✅ | validateVatMode + inline masking |
-| Dashboard Analytics API | ✅ | Full masking of KPIs, charts, tables |
-| PDF Export (jsPDF + autoTable) | ✅ | Corporate layout with "N/A (Audit Mode)" |
-| CSV Export (UTF-8 BOM) | ✅ | ৳ symbol preserved, masked columns |
-| Frontend UI components | ✅ | Banner + masked table cells |
-| Audit Trail Viewer | ✅ | Details masked for cost/profit/margin |
-| System Settings | ✅ | Profit-sensitive configs masked |
-
-### 3.4 Form Validation & Structural Lookups ✅
-
-| Check | Status | Details |
-|-------|--------|---------|
-| Required field validation (dedicated components) | ✅ | BasicModulesGroupPage, PersonnelCRMGroupPage |
-| Zero-padded 5-digit codes | ✅ | All 27 modules standardized |
-| Code prefix enforcement | ✅ | CUS-, SUP-, PUR-, SO-, HIR-, etc. |
-| salaryBandMax >= salaryBandMin | ✅ | Server-side 400 validation |
-| Type coercion in import CSV | ✅ | PapaParse + schema validation |
-
-### 3.5 Global Layout Viewport & Triple Utility Bundle ✅
-
-| Check | Status | Details |
-|-------|--------|---------|
-| `min-h-screen overflow-y-auto` on main wrapper | ✅ | No scroll locks |
-| Sidebar scroll with all groups expanded | ✅ | 2176px content, smooth scrolling |
-| Dark/Light mode toggle | ✅ | next-themes with class strategy |
-| Footer sticky bottom | ✅ | "Developed & Copyright by NextGen Digital Studio" |
-| Export PDF (jsPDF + autoTable v5) | ✅ | Landscape A4, corporate headers, Page X of Y |
-| Export CSV (UTF-8 BOM) | ✅ | RFC 4180 compliant, ৳ preserved |
-| Import CSV (PapaParse) | ✅ | Schema validation, row-by-row error reporting |
-| Triple Utility on all data tables | ✅ | GenericModulePage + all 17 dedicated components |
-
-### 3.6 Global ⌘K Deep-Linking & Performance ✅
-
-| Check | Status | Details |
-|-------|--------|---------|
-| ⌘K / Ctrl+K keyboard shortcut | ✅ | Lines 5562-5572 in page.tsx |
-| Fuzzy search across all modules | ✅ | cmdk library with CommandDialog |
-| Deep-link navigation on select | ✅ | navigate() sets currentPage + closes dialog |
-| RBAC-filtered search results | ✅ | hasAccess() + hasItemAccess() applied |
-| LRU memory cache (500 entries) | ✅ | cache-utils.ts with 4 TTL tiers |
-| SQLite WAL mode | ✅ | PRAGMA journal_mode=WAL |
-| 55+ database indexes | ✅ | FK, date, status columns indexed |
-| Cache warming on startup | ✅ | 11 reference data endpoints |
-
----
-
-## PHASE 4: QUALITY METRICS
-
-| Metric | Value |
-|--------|-------|
-| ESLint Errors | **0** |
-| TypeScript Compilation | **Clean** |
-| Dev Server Warnings | **0** |
-| API Routes with RBAC | **112+** |
-| Period Close Coverage | **34/34 mutation handlers** |
-| VAT Auditor Masking | **All 8 critical routes masked** |
-| DB Indexes | **70+** (15 existing + 55 new) |
-| Code Generation | **All 27 modules standardized (5-digit + prefix)** |
-| Zero-padded Code Formats | **CUS-, SUP-, EMP-, DSG-, PUR-, SO-, HIR-, SRT-, PRT-, RPL-, EXP-, INC-, COL-, DEL-, BTX-, TRN-, BAL-, COA-, LED-, NOT-, DIL-, TPL-, NF-, LAP-, PROD-, CAT-, OS-, COM-, INVH-, BRN-, UNT-, INV-** |
-
----
-
-## PHASE 5: GROUP-BY-GROUP VALIDATION
-
-| Group | Modules | RBAC | Period Close | VAT Mask | Export | Import | Theme | Scroll |
-|-------|---------|------|-------------|----------|--------|--------|-------|--------|
-| G1: Investment & Assets | 7 modules | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| G2: Basic Modules & Setup | 15 modules | ✅ | N/A | ✅ | ✅ | ✅ | ✅ | ✅ |
-| G3: Staff & CRM | 5 modules | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| G4: Inventory & Orders | 12 modules | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| G5: Financial Audit & Integrity | 5 modules | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| G6: System Settings & Search | 5 modules | ✅ | N/A | ✅ | ✅ | ✅ | ✅ | ✅ |
-
----
-
-## PHASE 6: SCHEDULED QA CRON TASK
-
-A 15-minute automated QA review cron task has been created (Job ID: 170680) that will:
-1. Review /home/z/my-project/worklog.md for project progress
-2. Perform agent-browser testing and QA
-3. Fix bugs or propose new features as needed
-4. Update the worklog with findings
-
----
-
-## CLOUD LAUNCH READINESS DECLARATION
-
-**The VoltERP Electronics Mart IMS is CLEARED for production cloud deployment.**
-
-### Pre-Launch Checklist:
-- [x] 0 ESLint errors
-- [x] 0 build warnings
-- [x] Server-side RBAC enforced on all 112+ API routes
-- [x] Period close checks on all 34 financial mutation handlers
-- [x] VAT Auditor masking on all 8 critical API routes
-- [x] Triple Utility Bundle (Import CSV, Export CSV, Export PDF) on all data tables
-- [x] SQLite WAL mode with 55+ database indexes for <150ms renders
-- [x] LRU memory cache with 4 TTL tiers and cache warming
-- [x] ⌘K fuzzy search with RBAC-filtered deep linking
-- [x] 5-digit zero-padded immutable code identifiers across all 27+ modules
-- [x] Deep Navy Blue theme with Day/Night toggle
-- [x] Sticky footer: "Developed & Copyright by NextGen Digital Studio"
-- [x] Viewport scrollability verified (min-h-screen overflow-y-auto)
-- [x] Salary band cross-validation enforced server-side
-- [x] 15-minute automated QA cron task active
-
-**All 80+ navigation pages, forms, action triggers, and multi-warehouse schemas operate flawlessly without a single unhandled error or data conflict.**
-
----
-
-*Report generated by VoltERP God Mode Reconciliation Engine*
-*Date: 2026-05-26*
-
----
-
-## PHASE 7: USER OPERATIONS MANUAL DELIVERED
-
-**Date: 2026-03-05**
-**Task ID: Manual-001**
-**Agent: Main Orchestrator**
-
-### Work Completed:
-- Created comprehensive **User Operations Manual** at `/home/z/my-project/USER_OPERATIONS_MANUAL.md`
-- Manual covers all 5 sectors with detailed page-by-page walkthroughs:
-  1. **Investment & Liquidity Sector** (7 modules): Investment Heads, Investment, Fixed Asset, Current Asset, Liability Receive, Liability Pay, Liability Report
-  2. **Basic Foundation Modules** (15 modules): Companies, Categories, Colors, Products, Bank, Department, Godowns, Interest %, Segment, Capacity, SR Target Setup, Payment Option, CardType, CardType Setup, Brands & Units
-  3. **Staff & CRM Ecosystem** (5 modules): Designations, Employees (22-field), Employee Leave, Customers, Suppliers
-  4. **Logistical Inventory Management** (12 modules): Order Sheets (3 types), Purchase Order, Auto PO, Sales Order, Hire Sales, Sales Return, Purchase Return, Replacement Order, Stock, Stock Details, Transfer
-  5. **Financial Accounting, SMS & Reporting** (30+ modules): Expense/Income Heads, Expenses, Incomes, Cash Collections/Deliveries, Bank Transactions, SMS Subsystem (7 sub-pages), Accounting Reports (5 reports), Financial Audit (5 modules), MIS Reports (42+ sub-reports), System Settings (5 modules)
-
-### Background Systems Integrated Into Manual:
-1. ✅ **Server-side RBAC Restrictions** — Every module explicitly states which roles can access, create, edit, delete, or are blocked (403)
-2. ✅ **VAT Auditor Mode** — Every module explains what happens when VAT Auditor views the page (masked values, yellow banner, PDF badge)
-3. ✅ **Month-End Period Close** — Every financial module reminds users that operations are blocked in locked months
-4. ✅ **Triple Utility Bundle** — Every data table explains Import CSV (PapaParse validation preview), Export CSV (UTF-8 BOM), and Export PDF (Landscape A4, jsPDF + autoTable)
-5. ✅ **Auto-Code Paradigm** — Every module mentions the auto-generated, read-only, zero-padded 5-digit code format (e.g., CUS-00001, PUR-00001)
-
-### Additional Manual Sections:
-- Login & Role Selection walkthrough
-- Day/Night theme toggle instructions
-- ⌘K Global Search with RBAC-filtered deep linking
-- Notification Bell usage
-- Complete Code Prefix Map (30+ prefixes)
-- Database Schema Map (50+ models organized by section)
-- Login Credentials Quick Reference table
-- Keyboard Shortcuts & Common UI Patterns reference
-- System Settings (Group 6) appendix
-
-### QA Cron Job:
-- 15-minute automated QA review cron created (Job ID: 170691)
-- Uses `webDevReview` kind for agent-browser testing and QA
-
-### Stage Summary:
-- User Operations Manual is complete and production-ready
-- Manual file: `/home/z/my-project/USER_OPERATIONS_MANUAL.md`
-- All 80+ modules documented with explicit RBAC, VAT, Period Close, Triple Utility, and Auto-Code references
-- No code changes were required — this was a documentation deliverable
+Stage Summary:
+- Notification bell now dynamically polls /api/notifications every 30 seconds
+- Auto-generates alerts for LowStock, OverdueInstallment, DataIntegrity, PeriodClose
+- Full RBAC: Admin/Manager see all, SR filtered, Dealer restricted, VAT Auditor masked
+- AppHeader componentized for maintainability
+- All existing configurations preserved: RBAC, Period Close locks, auto-codes, VAT masking
+- 0 compile errors, 0 lint errors

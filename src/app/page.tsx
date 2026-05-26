@@ -56,6 +56,7 @@ import InventoryGroupPage from "@/components/InventoryGroupPage";
 import FinancialAuditGroupPage from "@/components/FinancialAuditGroupPage";
 import SystemSettingsGroupPage from "@/components/SystemSettingsGroupPage";
 import AuditTrailViewer from "@/components/AuditTrailViewer";
+import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -5555,10 +5556,7 @@ function AppLayout() {
   const { logout, user, isVatAuditor, hasAccess } = useAuth();
   const userRole = user?.role || "admin";
   const { theme, setTheme } = useTheme();
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [notifOpen, setNotifOpen] = useState(false);
 
   // Cmd/Ctrl+K to open search
   useEffect(() => {
@@ -5571,20 +5569,6 @@ function AppLayout() {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, []);
-
-  // Fetch audit logs for notification panel
-  const loadAuditLogs = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/audit-logs?limit=10");
-      const logs = Array.isArray(res) ? res : res.logs || res.data || [];
-      setAuditLogs(logs);
-    } catch { setAuditLogs([]); }
-  }, []);
-
-  useEffect(() => {
-    const fetchLogs = async () => { await loadAuditLogs(); };
-    fetchLogs();
-  }, [loadAuditLogs]);
 
   // Build flat search items from sidebar config (RBAC-filtered)
   const searchItems = useMemo(() => {
@@ -5718,108 +5702,22 @@ function AppLayout() {
 
   return (
     <div className="h-dvh flex flex-col bg-background overflow-hidden">
-      {/* Header */}
-      <header className={`fixed top-0 right-0 z-30 h-14 bg-white dark:bg-[#132240] border-b border-border shadow-sm transition-all duration-300 ${sidebarCollapsed ? "left-16" : "left-64"}`}>
-        <div className="h-full flex items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-              <Menu className="w-5 h-5" />
-            </Button>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Button variant="ghost" size="sm" onClick={() => navigate("dashboard")}><Home className="w-4 h-4" /></Button>
-              {currentGroupLabel && <><ChevronRight className="w-3 h-3" /><span>{currentGroupLabel}</span></>}
-              {currentPage === "change-password" && <><ChevronRight className="w-3 h-3" /><span className="text-foreground font-medium">Change Password</span></>}
-              {currentPageConfig && <><ChevronRight className="w-3 h-3" /><span className="text-foreground font-medium">{currentPageConfig.label}</span></>}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Search Button */}
-            <Button variant="outline" size="sm" className="hidden md:flex items-center gap-2 text-muted-foreground h-8 px-3" onClick={() => setSearchOpen(true)}>
-              <Search className="w-3.5 h-3.5" />
-              <span className="text-xs">Search...</span>
-              <kbd className="ml-1 pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                <span className="text-xs">⌘</span>K
-              </kbd>
-            </Button>
-            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </Button>
-            {/* Notification Bell */}
-            <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="relative text-muted-foreground">
-                  <Bell className="w-4 h-4" />
-                  {auditLogs.length > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 text-[8px] text-white flex items-center justify-center font-bold">{auditLogs.length > 9 ? "9+" : auditLogs.length}</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80 p-0" align="end">
-                <div className="p-3 border-b">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-sm">Notifications</h4>
-                    <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={loadAuditLogs}>
-                      <RefreshCw className="w-3 h-3 mr-1" />Refresh
-                    </Button>
-                  </div>
-                </div>
-                <ScrollArea className="max-h-72">
-                  {auditLogs.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-muted-foreground">No recent notifications</div>
-                  ) : (
-                    <div className="divide-y">
-                      {auditLogs.slice(0, 10).map((log: any, i: number) => (
-                        <div key={i} className="p-3 hover:bg-muted/50 cursor-pointer" onClick={() => { setNotifOpen(false); }}>
-                          <div className="flex items-start gap-2">
-                            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${log.action === "CREATE" ? "bg-green-500" : log.action === "UPDATE" ? "bg-blue-500" : log.action === "DELETE" ? "bg-red-500" : "bg-gray-400"}`} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">{log.action || "Activity"} — {log.module || "System"}</p>
-                              <p className="text-xs text-muted-foreground truncate">{log.recordLabel || log.details || ""}</p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">{log.createdAt ? new Date(log.createdAt).toLocaleString() : ""}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-                <div className="p-2 border-t">
-                  <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => { setNotifOpen(false); navigate("audit-logs"); }}>
-                    View All
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-            {/* User Menu */}
-            <div className="relative">
-              <Button variant="ghost" size="sm" className="flex items-center gap-2" onClick={() => setUserMenuOpen(!userMenuOpen)}>
-                <div className={`w-7 h-7 rounded-full ${user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"} flex items-center justify-center text-white text-xs font-bold`}>
-                  {user?.name?.charAt(0).toUpperCase() || "U"}
-                </div>
-                <span className="hidden md:inline text-sm">{user?.displayName || user?.name || "User"}</span>
-                {user?.role && (
-                  <Badge className={`${ROLE_COLORS[user.role]} text-white text-[10px] px-1.5 py-0 ml-1`}>{ROLE_LABELS[user.role]}</Badge>
-                )}
-                {isVatAuditor && <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 ml-0.5">🔒 VAT AUDIT</Badge>}
-                <ChevronDown className="w-3 h-3" />
-              </Button>
-              {userMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
-                  <div className="px-4 py-2 border-b">
-                    <p className="text-sm font-medium">{user?.displayName || user?.name || "User"}</p>
-                    <p className="text-xs text-muted-foreground">{user?.email}</p>
-                  </div>
-                  <button onClick={() => { setUserMenuOpen(false); }} className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"><User className="w-4 h-4" />Profile</button>
-                  <button onClick={() => { setUserMenuOpen(false); navigate("change-password"); }} className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"><Lock className="w-4 h-4" />Change Password</button>
-                  <Separator />
-                  <button onClick={() => { setUserMenuOpen(false); logout(); }} className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"><KeyRound className="w-4 h-4" />Switch Role</button>
-                  <button onClick={() => { setUserMenuOpen(false); logout(); }} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"><LogOut className="w-4 h-4" />Log off</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Header — Delegated to AppHeader component with live notification polling */}
+      <AppHeader
+        user={user}
+        isVatAuditor={isVatAuditor}
+        currentGroupLabel={currentGroupLabel}
+        currentPage={currentPage}
+        currentPageLabel={currentPageConfig?.label || ""}
+        sidebarCollapsed={sidebarCollapsed}
+        theme={theme || "light"}
+        onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+        onNavigate={navigate}
+        onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
+        onOpenSearch={() => setSearchOpen(true)}
+        onChangePassword={() => navigate("change-password")}
+        onLogout={logout}
+      />
 
       {/* Search Dialog */}
       <CommandDialog open={searchOpen} onOpenChange={setSearchOpen} title="Search Navigation" description="Search across all pages and modules">
