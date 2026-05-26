@@ -2243,7 +2243,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
   };
 
   return (
-    <aside className={`fixed left-0 top-0 z-40 h-full bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} flex flex-col shadow-xl`}>
+    <aside className={`fixed left-0 top-0 z-40 h-full bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} flex flex-col overflow-hidden shadow-xl`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-white/10">
         {!collapsed && (
@@ -2270,7 +2270,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
       </div>
 
       {/* Navigation */}
-      <ScrollArea className="flex-1 py-2">
+      <div className="flex-1 min-h-0 overflow-y-auto py-2 sidebar-scroll" style={{ scrollbarGutter: 'stable' }}>
         <nav className="space-y-0.5 px-2">
           {visibleGroups.map(group => (
             <div key={group.key}>
@@ -2331,7 +2331,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
             </div>
           ))}
         </nav>
-      </ScrollArea>
+      </div>
 
       {/* User section at bottom */}
       {!collapsed && (
@@ -5863,7 +5863,7 @@ function AppLayout() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-dvh flex flex-col bg-background overflow-hidden">
       {/* Header */}
       <header className={`fixed top-0 right-0 z-30 h-14 bg-white dark:bg-[#132240] border-b border-border shadow-sm transition-all duration-300 ${sidebarCollapsed ? "left-16" : "left-64"}`}>
         <div className="h-full flex items-center justify-between px-4">
@@ -6001,7 +6001,7 @@ function AppLayout() {
       )}
 
       {/* Desktop sidebar */}
-      <div className="hidden md:block">
+      <div className="hidden md:contents">
         <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       </div>
 
