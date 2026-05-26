@@ -2445,6 +2445,8 @@ export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'MISReports', 'GET');
   if (!security.authorized) return security.response;
 
+  const { searchParams } = new URL(request.url);
+
   // VAT-001: Validate vatMode — only vat_auditor role can activate masking
   const userRole = security.user.role as UserRole;
   const rawVatMode = searchParams.get('vatMode') === 'true';

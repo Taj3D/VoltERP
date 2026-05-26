@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
         return await getTransactionSummary(searchParams);
       case 'monthly-transaction':
         return await getMonthlyTransaction(searchParams);
+      case 'sms':
+        return await getSmsReport(searchParams);
       default:
         return await getTransactionSummary(searchParams);
     }
@@ -316,5 +318,112 @@ async function getMonthlyTransaction(searchParams: URLSearchParams) {
 
   return NextResponse.json({
     months: Object.values(monthlyMap),
+  });
+}
+
+async function getSmsReport(searchParams: URLSearchParams) {
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+
+  const dateFilter: Record<string, unknown> = {};
+  if (from || to) {
+    dateFilter.sentAt = {};
+    if (from) (dateFilter.sentAt as Record<string, unknown>).gte = new Date(from);
+    if (to) (dateFilter.sentAt as Record<string, unknown>).lte = new Date(to + 'T23:59:59.999Z');
+  }
+
+  // SMS logs with date filter
+  const where: Record<string, unknown> = { isActive: true };
+  if (Object.keys(dateFilter).length > 0) {
+    where.sentAt = dateFilter.sentAt;
+  }
+
+  const [
+    smsLogs,
+    smsBills,
+    smsPayments,
+    totalSentAgg,
+    totalCostAgg,
+    statusBreakdown,
+  ] = await Promise.all([
+    db.smsLog.findMany({
+      where,
+      orderBy: { sentAt: 'desc' },
+      take: 500,
+    }),
+    db.smsBill.findMany({
+      include: { payments: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+    db.smsBillPayment.findMany({
+      include: { smsBill: true },
+      orderBy: { date: 'desc' },
+    }),
+    db.smsLog.aggregate({
+      where,
+      _count: true,
+    }),
+    db.smsLog.aggregate({
+      where,
+      _sum: { cost: true },
+    }),
+    db.smsLog.groupBy({
+      by: ['status'],
+      where,
+      _count: { status: true },
+    }),
+  ]);
+
+  const totalSent = totalSentAgg._count;
+  const totalCost = totalCostAgg._sum.cost || 0;
+  const avgCost = totalSent > 0 ? totalCost / totalSent : 0;
+
+  // Status breakdown map
+  const byStatus: Record<string, number> = {};
+  for (const item of statusBreakdown) {
+    byStatus[item.status] = item._count.status;
+  }
+
+  // Daily grouping
+  const dailyMap = new Map<string, { date: string; count: number; cost: number }>();
+  for (const log of smsLogs) {
+    const d = new Date(log.sentAt);
+    const key = d.toISOString().split('T')[0];
+    const existing = dailyMap.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.cost += log.cost;
+    } else {
+      dailyMap.set(key, { date: key, count: 1, cost: log.cost });
+    }
+  }
+
+  // SMS Bill analytics
+  const totalBills = smsBills.length;
+  const totalBillCost = smsBills.reduce((sum, b) => sum + b.totalCost, 0);
+  const totalBillPaid = smsBills.reduce((sum, b) => sum + b.paidAmount, 0);
+  const outstandingAmount = totalBillCost - totalBillPaid;
+  const unpaidBills = smsBills.filter(b => b.status === 'Unpaid').length;
+  const partialBills = smsBills.filter(b => b.status === 'Partial').length;
+
+  return NextResponse.json({
+    logs: smsLogs,
+    summary: {
+      totalSent,
+      totalCost,
+      avgCost,
+      byStatus,
+      dailyTrend: Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    },
+    billing: {
+      totalBills,
+      totalBillCost,
+      totalBillPaid,
+      outstandingAmount,
+      unpaidBills,
+      partialBills,
+      bills: smsBills,
+      payments: smsPayments,
+    },
   });
 }

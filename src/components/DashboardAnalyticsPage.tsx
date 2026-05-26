@@ -37,8 +37,20 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(path, { headers: { "Content-Type": "application/json", ...opts?.headers }, ...opts });
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const stored = localStorage.getItem("ems_auth");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+    }
+  } catch {}
+  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("ems_auth");
+      window.location.reload();
+    }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "Request failed");
   }

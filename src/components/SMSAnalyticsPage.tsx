@@ -1,0 +1,1377 @@
+"use client";
+
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  Send, DollarSign, Coins, CheckCircle, Clock, XCircle,
+  AlertTriangle, Banknote, Search, RefreshCw, Download,
+  Upload, FileDown, Plus, MessageSquare, Settings,
+  Phone, FileText, CreditCard, Activity, BarChart3
+} from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { useTheme } from "next-themes";
+import {
+  exportToPDF,
+  exportToCSV,
+  exportToPDFSimple,
+  exportToCSVSimple,
+  importFromCSV,
+} from "@/lib/export-utils";
+import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+
+const fmt = (v: any, type?: string) => {
+  if (v === null || v === undefined) return "—";
+  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "boolean") return v ? "Active" : "Inactive";
+  if (type === "number") return Number(v).toLocaleString("en-BD", { maximumFractionDigits: 2 });
+  return String(v);
+};
+
+const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+async function apiFetch(path: string, opts?: RequestInit) {
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const stored = localStorage.getItem("ems_auth");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+    }
+  } catch {}
+  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("ems_auth");
+      window.location.reload();
+    }
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || "Request failed");
+  }
+  return res.json();
+}
+
+// ============================================================
+// AUTH TYPES
+// ============================================================
+
+type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+
+interface AuthUser {
+  name: string;
+  email: string;
+  role: UserRole;
+  displayName: string;
+}
+
+// ============================================================
+// SMS ANALYTICS PAGE COMPONENT
+// ============================================================
+
+export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string } = {}) {
+  const { toast } = useToast();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
+  // Auth state
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const isVatAuditor = authUser?.role === "vat_auditor";
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("ems_auth");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.user) setAuthUser(parsed.user);
+      }
+    } catch {}
+  }, []);
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState(initialTab || "dashboard");
+
+  // Data state
+  const [smsLogs, setSmsLogs] = useState<any[]>([]);
+  const [smsBills, setSmsBills] = useState<any[]>([]);
+  const [smsSettings, setSmsSettings] = useState<any[]>([]);
+  const [smsBillPayments, setSmsBillPayments] = useState<any[]>([]);
+  const [smsReport, setSmsReport] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Search & filter state
+  const [logSearch, setLogSearch] = useState("");
+  const [logStatusFilter, setLogStatusFilter] = useState("all");
+  const [billStatusFilter, setBillStatusFilter] = useState("all");
+
+  // Date range for report
+  const [reportFrom, setReportFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split("T")[0];
+  });
+  const [reportTo, setReportTo] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Send SMS form state
+  const [sendMode, setSendMode] = useState<"single" | "bulk">("single");
+  const [smsRecipient, setSmsRecipient] = useState("");
+  const [smsBulkRecipients, setSmsBulkRecipients] = useState("");
+  const [smsMessage, setSmsMessage] = useState("");
+  const [smsSending, setSmsSending] = useState(false);
+
+  // ============================================================
+  // DATA LOADING
+  // ============================================================
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [logsRes, billsRes, settingsRes, paymentsRes] = await Promise.all([
+        apiFetch("/api/sms-logs").catch(() => []),
+        apiFetch("/api/sms-bills").catch(() => []),
+        apiFetch("/api/sms-settings").catch(() => []),
+        apiFetch("/api/sms-bill-payments").catch(() => []),
+      ]);
+      setSmsLogs(Array.isArray(logsRes) ? logsRes : logsRes?.data || []);
+      setSmsBills(Array.isArray(billsRes) ? billsRes : billsRes?.data || []);
+      setSmsSettings(Array.isArray(settingsRes) ? settingsRes : settingsRes?.data || []);
+      setSmsBillPayments(Array.isArray(paymentsRes) ? paymentsRes : paymentsRes?.data || []);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  const loadReport = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/reports?type=sms&from=${reportFrom}&to=${reportTo}`).catch(() => []);
+      setSmsReport(Array.isArray(res) ? res : res?.data || []);
+    } catch {
+      setSmsReport([]);
+    }
+  }, [reportFrom, reportTo]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadReport(); }, [loadReport]);
+
+  // ============================================================
+  // COMPUTED KPIs
+  // ============================================================
+
+  const totalSent = smsLogs.length;
+  const totalCost = smsLogs.reduce((sum: number, log: any) => sum + (Number(log.cost) || 0), 0);
+  const avgCostPerSms = totalSent > 0 ? totalCost / totalSent : 0;
+  const deliveredCount = smsLogs.filter((l: any) => l.status === "Delivered" || l.status === "delivered").length;
+  const pendingCount = smsLogs.filter((l: any) => l.status === "Pending" || l.status === "pending" || l.status === "Queued").length;
+  const failedCount = smsLogs.filter((l: any) => l.status === "Failed" || l.status === "failed").length;
+  const deliveryRate = totalSent > 0 ? ((deliveredCount / totalSent) * 100) : 0;
+
+  const unpaidBills = smsBills.filter((b: any) => b.status === "Unpaid").length;
+  const outstandingAmount = smsBills
+    .filter((b: any) => b.status !== "Paid")
+    .reduce((sum: number, b: any) => sum + (Number(b.totalCost) || 0) - (Number(b.paidAmount) || 0), 0);
+
+  // ============================================================
+  // FILTERED DATA
+  // ============================================================
+
+  const filteredLogs = useMemo(() => {
+    let result = smsLogs;
+    if (logSearch) {
+      const s = logSearch.toLowerCase();
+      result = result.filter((log: any) =>
+        log.recipient?.toLowerCase().includes(s) ||
+        log.message?.toLowerCase().includes(s) ||
+        log.status?.toLowerCase().includes(s)
+      );
+    }
+    if (logStatusFilter !== "all") {
+      result = result.filter((log: any) => log.status?.toLowerCase() === logStatusFilter.toLowerCase());
+    }
+    return result;
+  }, [smsLogs, logSearch, logStatusFilter]);
+
+  const filteredBills = useMemo(() => {
+    if (billStatusFilter === "all") return smsBills;
+    return smsBills.filter((b: any) => b.status?.toLowerCase() === billStatusFilter.toLowerCase());
+  }, [smsBills, billStatusFilter]);
+
+  // ============================================================
+  // CHART DATA
+  // ============================================================
+
+  const dailySmsTrend = useMemo(() => {
+    const dayMap = new Map<string, { date: string; sent: number; delivered: number; failed: number }>();
+    smsLogs.forEach((log: any) => {
+      const dateStr = log.sentAt ? new Date(log.sentAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "Unknown";
+      const existing = dayMap.get(dateStr) || { date: dateStr, sent: 0, delivered: 0, failed: 0 };
+      existing.sent++;
+      if (log.status === "Delivered" || log.status === "delivered") existing.delivered++;
+      if (log.status === "Failed" || log.status === "failed") existing.failed++;
+      dayMap.set(dateStr, existing);
+    });
+    return Array.from(dayMap.values()).slice(-14);
+  }, [smsLogs]);
+
+  const statusBreakdown = useMemo(() => {
+    const statusMap = new Map<string, number>();
+    smsLogs.forEach((log: any) => {
+      const status = log.status || "Unknown";
+      statusMap.set(status, (statusMap.get(status) || 0) + 1);
+    });
+    return Array.from(statusMap.entries()).map(([name, value]) => ({ name, value }));
+  }, [smsLogs]);
+
+  const PIE_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#6366f1", "#8b5cf6", "#ec4899"];
+
+  // ============================================================
+  // SEND SMS HANDLER
+  // ============================================================
+
+  const handleSendSms = async () => {
+    if (sendMode === "single") {
+      if (!smsRecipient.trim()) {
+        toast({ title: "Error", description: "Recipient phone number is required", variant: "destructive" });
+        return;
+      }
+    } else {
+      if (!smsBulkRecipients.trim()) {
+        toast({ title: "Error", description: "At least one recipient is required", variant: "destructive" });
+        return;
+      }
+    }
+    if (!smsMessage.trim()) {
+      toast({ title: "Error", description: "Message cannot be empty", variant: "destructive" });
+      return;
+    }
+
+    setSmsSending(true);
+    try {
+      if (sendMode === "single") {
+        await apiFetch("/api/sms-logs", {
+          method: "POST",
+          body: JSON.stringify({
+            recipient: smsRecipient.trim(),
+            message: smsMessage.trim(),
+            status: "Pending",
+            cost: 0.5,
+          }),
+        });
+        toast({ title: "SMS Sent", description: `Message queued for ${smsRecipient}` });
+      } else {
+        const recipients = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
+        let successCount = 0;
+        let failCount = 0;
+        for (const recipient of recipients) {
+          try {
+            await apiFetch("/api/sms-logs", {
+              method: "POST",
+              body: JSON.stringify({
+                recipient,
+                message: smsMessage.trim(),
+                status: "Pending",
+                cost: 0.5,
+              }),
+            });
+            successCount++;
+          } catch {
+            failCount++;
+          }
+        }
+        toast({
+          title: "Bulk SMS Complete",
+          description: `Sent: ${successCount}, Failed: ${failCount}`,
+          variant: failCount > 0 ? "destructive" : "default",
+        });
+      }
+      setSmsRecipient("");
+      setSmsBulkRecipients("");
+      setSmsMessage("");
+      loadData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSmsSending(false);
+    }
+  };
+
+  // ============================================================
+  // EXPORT HANDLERS
+  // ============================================================
+
+  const smsLogColumns: ExportColumnDef[] = [
+    { key: "recipient", label: "Recipient", type: "text" },
+    { key: "message", label: "Message", type: "text" },
+    { key: "status", label: "Status", type: "text" },
+    { key: "sentAt", label: "Sent At", type: "date" },
+    { key: "cost", label: "Cost", type: "currency" },
+  ];
+
+  const smsBillColumns: ExportColumnDef[] = [
+    { key: "period", label: "Period", type: "text" },
+    { key: "totalSms", label: "Total SMS", type: "number" },
+    { key: "totalCost", label: "Total Cost", type: "currency" },
+    { key: "paidAmount", label: "Paid", type: "currency" },
+    { key: "status", label: "Status", type: "text" },
+  ];
+
+  const handleExportLogCSV = () => {
+    try {
+      exportToCSV({
+        title: "SMS Logs",
+        columns: smsLogColumns,
+        data: filteredLogs,
+        isVatAuditor,
+        vatMaskedColumns: ["cost"],
+        filename: "sms-logs.csv",
+      });
+      toast({ title: "Exported", description: "SMS Logs exported to CSV" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleExportLogPDF = () => {
+    try {
+      exportToPDF({
+        title: "SMS Logs Report",
+        subtitle: `Generated from Electronics Mart IMS`,
+        orientation: "landscape",
+        columns: smsLogColumns,
+        data: filteredLogs,
+        isVatAuditor,
+        vatMaskedColumns: ["cost"],
+        filename: "sms-logs.pdf",
+      });
+      toast({ title: "Exported", description: "SMS Logs exported to PDF" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleExportBillCSV = () => {
+    try {
+      exportToCSV({
+        title: "SMS Bills",
+        columns: smsBillColumns,
+        data: filteredBills,
+        isVatAuditor,
+        vatMaskedColumns: ["totalCost", "paidAmount"],
+        filename: "sms-bills.csv",
+      });
+      toast({ title: "Exported", description: "SMS Bills exported to CSV" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleExportBillPDF = () => {
+    try {
+      exportToPDF({
+        title: "SMS Bills Report",
+        subtitle: "Billing Summary",
+        orientation: "landscape",
+        columns: smsBillColumns,
+        data: filteredBills,
+        isVatAuditor,
+        vatMaskedColumns: ["totalCost", "paidAmount"],
+        filename: "sms-bills.pdf",
+      });
+      toast({ title: "Exported", description: "SMS Bills exported to PDF" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleImportLogCSV = () => {
+    const formFields: ExportFieldDef[] = [
+      { key: "recipient", label: "Recipient", type: "text", required: true },
+      { key: "message", label: "Message", type: "textarea", required: true },
+      { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Delivered", label: "Delivered" }, { value: "Failed", label: "Failed" }] },
+      { key: "cost", label: "Cost", type: "number" },
+    ];
+    importFromCSV({
+      apiPath: "/api/sms-logs",
+      formFields,
+    }).then(result => {
+      toast({
+        title: "Import Complete",
+        description: `Imported: ${result.imported}, Failed: ${result.failed}`,
+        variant: result.failed > 0 ? "destructive" : "default",
+      });
+      loadData();
+    });
+  };
+
+  // ============================================================
+  // STATUS HELPERS
+  // ============================================================
+
+  const statusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "delivered": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+      case "pending": case "queued": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      case "failed": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      case "sent": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
+  const billStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "paid": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+      case "partial": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      case "unpaid": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
+  // ============================================================
+  // KPI CARDS CONFIG
+  // ============================================================
+
+  const kpiCards = [
+    {
+      label: "Total SMS Sent",
+      value: totalSent,
+      icon: Send,
+      color: "text-cyan-600",
+      bg: "bg-cyan-50 dark:bg-cyan-900/30",
+    },
+    {
+      label: "Total SMS Cost",
+      value: isVatAuditor ? "N/A (Audit Mode)" : fmt(totalCost, "currency"),
+      icon: DollarSign,
+      color: "text-green-600",
+      bg: "bg-green-50 dark:bg-green-900/30",
+    },
+    {
+      label: "Avg Cost/SMS",
+      value: isVatAuditor ? "N/A (Audit Mode)" : fmt(avgCostPerSms, "currency"),
+      icon: Coins,
+      color: "text-amber-600",
+      bg: "bg-amber-50 dark:bg-amber-900/30",
+    },
+    {
+      label: "Delivery Rate",
+      value: `${deliveryRate.toFixed(1)}%`,
+      icon: CheckCircle,
+      color: "text-emerald-600",
+      bg: "bg-emerald-50 dark:bg-emerald-900/30",
+    },
+    {
+      label: "Pending SMS",
+      value: pendingCount,
+      icon: Clock,
+      color: "text-orange-600",
+      bg: "bg-orange-50 dark:bg-orange-900/30",
+    },
+    {
+      label: "Failed SMS",
+      value: failedCount,
+      icon: XCircle,
+      color: "text-red-600",
+      bg: "bg-red-50 dark:bg-red-900/30",
+    },
+    {
+      label: "Unpaid Bills",
+      value: unpaidBills,
+      icon: AlertTriangle,
+      color: "text-yellow-600",
+      bg: "bg-yellow-50 dark:bg-yellow-900/30",
+    },
+    {
+      label: "Outstanding Amount",
+      value: isVatAuditor ? "N/A (Audit Mode)" : fmt(outstandingAmount, "currency"),
+      icon: Banknote,
+      color: "text-purple-600",
+      bg: "bg-purple-50 dark:bg-purple-900/30",
+    },
+  ];
+
+  // ============================================================
+  // CHARACTER COUNTER
+  // ============================================================
+
+  const charCount = smsMessage.length;
+  const maxChars = 160;
+  const smsCount = Math.ceil(charCount / maxChars) || 1;
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+
+  return (
+    <div className="page-enter space-y-4">
+      {/* VAT Auditor Mode Badge */}
+      {isVatAuditor && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Cost/profit fields masked for audit compliance.</span>
+        </div>
+      )}
+
+      {/* Page Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <MessageSquare className="w-6 h-6 text-[#2563eb]" />
+          SMS Analytics & Service
+        </h2>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={loadData}>
+            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="dashboard" className="flex items-center gap-1">
+            <Activity className="w-4 h-4" />
+            Dashboard
+          </TabsTrigger>
+          <TabsTrigger value="logs" className="flex items-center gap-1">
+            <MessageSquare className="w-4 h-4" />
+            SMS Log
+          </TabsTrigger>
+          <TabsTrigger value="billing" className="flex items-center gap-1">
+            <CreditCard className="w-4 h-4" />
+            SMS Billing
+          </TabsTrigger>
+          <TabsTrigger value="send" className="flex items-center gap-1">
+            <Send className="w-4 h-4" />
+            Send SMS
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="flex items-center gap-1">
+            <Settings className="w-4 h-4" />
+            Settings
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ============================================================
+            DASHBOARD TAB
+            ============================================================ */}
+        <TabsContent value="dashboard" className="space-y-4">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {kpiCards.map((kpi, i) => (
+              <Card key={i} className="stat-mini-card">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${kpi.bg} ${kpi.color}`}>
+                    <kpi.icon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">
+                      {typeof kpi.value === "number" ? kpi.value.toLocaleString() : kpi.value}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Daily SMS Trend Bar Chart */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+                <CardTitle className="text-white text-sm">Daily SMS Trend</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                {dailySmsTrend.length === 0 ? (
+                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                    No SMS data available for chart
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={dailySmsTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }} />
+                      <YAxis tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }} />
+                      <RechartsTooltip
+                        contentStyle={{
+                          backgroundColor: isDark ? "#1e293b" : "#fff",
+                          borderColor: isDark ? "#334155" : "#e2e8f0",
+                          borderRadius: 8,
+                          color: isDark ? "#f1f5f9" : "#1e293b",
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="sent" fill="#2563eb" name="Sent" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="delivered" fill="#10b981" name="Delivered" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="failed" fill="#ef4444" name="Failed" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Status Breakdown Pie Chart */}
+            <Card>
+              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+                <CardTitle className="text-white text-sm">Status Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                {statusBreakdown.length === 0 ? (
+                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+                    No data for breakdown
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={statusBreakdown}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={4}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {statusBreakdown.map((_entry: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        contentStyle={{
+                          backgroundColor: isDark ? "#1e293b" : "#fff",
+                          borderColor: isDark ? "#334155" : "#e2e8f0",
+                          borderRadius: 8,
+                          color: isDark ? "#f1f5f9" : "#1e293b",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Report Date Range */}
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                SMS Report
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 space-y-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-900 dark:text-white">From</Label>
+                  <Input
+                    type="date"
+                    value={reportFrom}
+                    onChange={(e) => setReportFrom(e.target.value)}
+                    className="w-44"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-900 dark:text-white">To</Label>
+                  <Input
+                    type="date"
+                    value={reportTo}
+                    onChange={(e) => setReportTo(e.target.value)}
+                    className="w-44"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+                  onClick={loadReport}
+                >
+                  <RefreshCw className="w-4 h-4 mr-1" />
+                  Generate
+                </Button>
+              </div>
+
+              {smsReport.length > 0 ? (
+                <div className="table-container overflow-auto max-h-96 rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead>Date</TableHead>
+                        <TableHead>Total Sent</TableHead>
+                        <TableHead>Delivered</TableHead>
+                        <TableHead>Failed</TableHead>
+                        <TableHead>Cost</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {smsReport.map((row: any, idx: number) => (
+                        <TableRow key={idx} className="data-table-row hover:bg-muted/50">
+                          <TableCell className="text-slate-900 dark:text-white font-medium">
+                            {fmtDate(row.date || row.sentAt)}
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">{row.totalSent ?? row.sent ?? "—"}</TableCell>
+                          <TableCell className="text-emerald-600 dark:text-emerald-400">{row.delivered ?? "—"}</TableCell>
+                          <TableCell className="text-red-600 dark:text-red-400">{row.failed ?? "—"}</TableCell>
+                          <TableCell className="font-mono text-slate-900 dark:text-white">
+                            {isVatAuditor ? "N/A (Audit Mode)" : fmt(row.cost ?? row.totalCost, "currency")}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  No report data for the selected period
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================
+            SMS LOG TAB
+            ============================================================ */}
+        <TabsContent value="logs" className="space-y-4">
+          {/* Toolbar */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by recipient, message, status..."
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Select value={logStatusFilter} onValueChange={setLogStatusFilter}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                    <SelectItem value="sent">Sent</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Separator orientation="vertical" className="h-8" />
+                <Button variant="outline" size="sm" onClick={handleImportLogCSV}>
+                  <Upload className="w-4 h-4 mr-1" />
+                  Import CSV
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportLogCSV}>
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportLogPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
+                </Button>
+                <Button variant="outline" size="sm" onClick={loadData}>
+                  <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* SMS Log Table */}
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                SMS Logs
+                <Badge variant="secondary" className="ml-2">{filteredLogs.length} records</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="table-container overflow-auto max-h-[60vh] rounded-b-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Recipient</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Sent At</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center">
+                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredLogs.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                          No SMS logs found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredLogs.map((log: any, idx: number) => (
+                        <TableRow key={log.id || idx} className="data-table-row hover:bg-muted/50">
+                          <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+                          <TableCell className="font-mono text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-1.5">
+                              <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                              {log.recipient || "—"}
+                            </div>
+                          </TableCell>
+                          <TableCell className="max-w-[300px] truncate text-slate-900 dark:text-white">
+                            {log.message || "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={statusColor(log.status)}>
+                              {log.status || "Unknown"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            {fmtDate(log.sentAt || log.createdAt)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+                            {isVatAuditor ? "N/A (Audit Mode)" : fmt(log.cost, "currency")}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="px-4 py-2 text-xs text-muted-foreground border-t">
+                Showing {filteredLogs.length} of {smsLogs.length} logs
+                {logStatusFilter !== "all" && ` | Filter: ${logStatusFilter}`}
+                {logSearch && ` | Search: "${logSearch}"`}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================
+            SMS BILLING TAB
+            ============================================================ */}
+        <TabsContent value="billing" className="space-y-4">
+          {/* Billing Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card className="stat-mini-card">
+              <CardContent className="p-3 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Bills</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{smsBills.length}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="stat-mini-card">
+              <CardContent className="p-3 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600">
+                  <CheckCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Paid</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+                    {smsBills.filter((b: any) => b.status === "Paid").length}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="stat-mini-card">
+              <CardContent className="p-3 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-red-50 dark:bg-red-900/30 text-red-600">
+                  <XCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Unpaid</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+                    {smsBills.filter((b: any) => b.status === "Unpaid").length}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="stat-mini-card">
+              <CardContent className="p-3 flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/30 text-purple-600">
+                  <Banknote className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Outstanding</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+                    {isVatAuditor ? "N/A" : fmt(outstandingAmount, "currency")}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Bills Toolbar */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Select value={billStatusFilter} onValueChange={setBillStatusFilter}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Bill Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="partial">Partial</SelectItem>
+                    <SelectItem value="unpaid">Unpaid</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Separator orientation="vertical" className="h-8" />
+                <Button variant="outline" size="sm" onClick={handleExportBillCSV}>
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportBillPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bills Table */}
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <CreditCard className="w-4 h-4" />
+                SMS Bills
+                <Badge variant="secondary" className="ml-2">{filteredBills.length} records</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="table-container overflow-auto max-h-[60vh] rounded-b-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Period</TableHead>
+                      <TableHead>Total SMS</TableHead>
+                      <TableHead className="text-right">Total Cost</TableHead>
+                      <TableHead className="text-right">Paid</TableHead>
+                      <TableHead className="text-right">Outstanding</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="h-24 text-center">
+                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredBills.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                          No SMS bills found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredBills.map((bill: any, idx: number) => {
+                        const outstanding = (Number(bill.totalCost) || 0) - (Number(bill.paidAmount) || 0);
+                        return (
+                          <TableRow key={bill.id || idx} className="data-table-row hover:bg-muted/50">
+                            <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+                            <TableCell className="font-medium text-slate-900 dark:text-white">
+                              {bill.period || "—"}
+                            </TableCell>
+                            <TableCell className="text-slate-900 dark:text-white">
+                              {bill.totalSms ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(bill.totalCost, "currency")}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(bill.paidAmount, "currency")}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(outstanding, "currency")}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={billStatusColor(bill.status)}>
+                                {bill.status || "Unknown"}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment History */}
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                Payment History
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="table-container overflow-auto max-h-96 rounded-b-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-12">#</TableHead>
+                      <TableHead>Bill</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Method</TableHead>
+                      <TableHead>Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {smsBillPayments.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                          No payment records found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      smsBillPayments.map((payment: any, idx: number) => (
+                        <TableRow key={payment.id || idx} className="data-table-row hover:bg-muted/50">
+                          <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+                          <TableCell className="font-medium text-slate-900 dark:text-white">
+                            {payment.smsBill?.period || payment.smsBillId || "—"}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+                            {isVatAuditor ? "N/A (Audit Mode)" : fmt(payment.amount, "currency")}
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            {fmtDate(payment.date)}
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            {payment.method || "—"}
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            {payment.notes || "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================
+            SEND SMS TAB
+            ============================================================ */}
+        <TabsContent value="send" className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Send Form */}
+            <Card>
+              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+                <CardTitle className="text-white text-sm flex items-center gap-2">
+                  <Send className="w-4 h-4" />
+                  {sendMode === "single" ? "Send Single SMS" : "Send Bulk SMS"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                {/* Mode Toggle */}
+                <div className="flex gap-2">
+                  <Button
+                    variant={sendMode === "single" ? "default" : "outline"}
+                    size="sm"
+                    className={sendMode === "single" ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : ""}
+                    onClick={() => setSendMode("single")}
+                  >
+                    <Phone className="w-4 h-4 mr-1" />
+                    Single
+                  </Button>
+                  <Button
+                    variant={sendMode === "bulk" ? "default" : "outline"}
+                    size="sm"
+                    className={sendMode === "bulk" ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : ""}
+                    onClick={() => setSendMode("bulk")}
+                  >
+                    <MessageSquare className="w-4 h-4 mr-1" />
+                    Bulk
+                  </Button>
+                </div>
+
+                {/* Recipient Input */}
+                {sendMode === "single" ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-900 dark:text-white">
+                      Recipient Phone <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      placeholder="e.g. +8801XXXXXXXXX"
+                      value={smsRecipient}
+                      onChange={(e) => setSmsRecipient(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-900 dark:text-white">
+                      Recipients (comma-separated) <span className="text-red-500">*</span>
+                    </Label>
+                    <Textarea
+                      placeholder="e.g. +8801XXXXXXXXX, +8801YYYYYYYY, +8801ZZZZZZZZ"
+                      value={smsBulkRecipients}
+                      onChange={(e) => setSmsBulkRecipients(e.target.value)}
+                      className="min-h-[80px]"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {smsBulkRecipients.split(",").filter(r => r.trim()).length} recipient(s) detected
+                    </p>
+                  </div>
+                )}
+
+                {/* Message Input */}
+                <div className="space-y-1.5">
+                  <Label className="text-slate-900 dark:text-white">
+                    Message <span className="text-red-500">*</span>
+                  </Label>
+                  <Textarea
+                    placeholder="Type your message here..."
+                    value={smsMessage}
+                    onChange={(e) => setSmsMessage(e.target.value)}
+                    className="min-h-[120px]"
+                    maxLength={maxChars * 5}
+                  />
+                  <div className="flex items-center justify-between text-xs">
+                    <span className={`${
+                      charCount > maxChars ? "text-red-500" : "text-muted-foreground"
+                    }`}>
+                      {charCount} / {maxChars} characters
+                    </span>
+                    <span className="text-muted-foreground">
+                      {smsCount} SMS part(s)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Send Button */}
+                <Button
+                  className="w-full bg-[#2563eb] hover:bg-[#1d4ed8]"
+                  size="lg"
+                  onClick={handleSendSms}
+                  disabled={smsSending}
+                >
+                  {smsSending ? (
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 mr-2" />
+                  )}
+                  {smsSending
+                    ? "Sending..."
+                    : sendMode === "single"
+                      ? "Send SMS"
+                      : `Send Bulk SMS (${smsBulkRecipients.split(",").filter(r => r.trim()).length} recipients)`
+                  }
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Quick Stats */}
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+                  <CardTitle className="text-white text-sm flex items-center gap-2">
+                    <Activity className="w-4 h-4" />
+                    Quick Stats
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex justify-between items-center py-2 border-b border-border">
+                    <span className="text-sm text-muted-foreground">Total SMS Sent</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{totalSent.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-border">
+                    <span className="text-sm text-muted-foreground">Total Cost</span>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      {isVatAuditor ? "N/A (Audit Mode)" : fmt(totalCost, "currency")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-border">
+                    <span className="text-sm text-muted-foreground">Delivery Rate</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">{deliveryRate.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-border">
+                    <span className="text-sm text-muted-foreground">Pending</span>
+                    <span className="font-bold text-orange-600 dark:text-orange-400">{pendingCount}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-muted-foreground">Failed</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">{failedCount}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Recent SMS */}
+              <Card>
+                <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+                  <CardTitle className="text-white text-sm flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Recent SMS
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="max-h-64 overflow-y-auto">
+                    {smsLogs.length === 0 ? (
+                      <div className="p-4 text-center text-muted-foreground text-sm">
+                        No recent SMS
+                      </div>
+                    ) : (
+                      smsLogs.slice(0, 10).map((log: any, idx: number) => (
+                        <div key={log.id || idx} className="flex items-center gap-3 px-4 py-2.5 border-b last:border-b-0 hover:bg-muted/50">
+                          <div className={`w-2 h-2 rounded-full ${
+                            log.status === "Delivered" || log.status === "delivered"
+                              ? "bg-emerald-500"
+                              : log.status === "Failed" || log.status === "failed"
+                                ? "bg-red-500"
+                                : "bg-yellow-500"
+                          }`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                              {log.recipient || "—"}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {log.message || "—"}
+                            </p>
+                          </div>
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            {fmtDate(log.sentAt || log.createdAt)}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ============================================================
+            SETTINGS TAB
+            ============================================================ */}
+        <TabsContent value="settings" className="space-y-4">
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                SMS API Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              {smsSettings.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Settings className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-lg font-medium text-slate-900 dark:text-white">No SMS Settings Configured</p>
+                  <p className="text-sm mt-1">Configure your SMS API provider settings to start sending messages.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {smsSettings.map((setting: any, idx: number) => (
+                    <div key={setting.id || idx} className="p-4 rounded-lg border bg-muted/30 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium text-slate-900 dark:text-white">
+                          {setting.name || `Configuration #${idx + 1}`}
+                        </h4>
+                        <Badge className={setting.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400"}>
+                          {setting.isActive ? "Active" : "Inactive"}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">API URL</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <code className="text-sm text-slate-900 dark:text-white break-all">
+                              {setting.apiUrl || "—"}
+                            </code>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">API Key</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <code className="text-sm text-slate-900 dark:text-white">
+                              {setting.apiKey ? `${setting.apiKey.substring(0, 8)}${"•".repeat(16)}` : "—"}
+                            </code>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Sender ID</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className="text-sm text-slate-900 dark:text-white">
+                              {setting.senderId || "—"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Status</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className={`text-sm font-medium ${setting.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500"}`}>
+                              {setting.isActive ? "Active" : "Inactive"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Additional Settings Info */}
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Important Notes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="space-y-3 text-sm text-slate-900 dark:text-white">
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                  <p>API configuration changes take effect immediately for new SMS messages.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                  <p>Only one active SMS provider configuration can be used at a time.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                  <p>API keys are partially masked for security. Contact your administrator for full access.</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+                  <p>Failed messages are retried up to 3 times before being marked as permanently failed.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

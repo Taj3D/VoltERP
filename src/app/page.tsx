@@ -47,6 +47,7 @@ import BalanceSheetPeriodClosePage from "@/components/BalanceSheetPeriodClosePag
 import DashboardAnalyticsPage from "@/components/DashboardAnalyticsPage";
 import MISReportEngine from "@/components/MISReportEngine";
 import CustomerSupplierLedgerPage from "@/components/CustomerSupplierLedgerPage";
+import SMSAnalyticsPage from "@/components/SMSAnalyticsPage";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -5588,8 +5589,13 @@ function AppLayout() {
     if (currentPage === "products") return <ProductsPage />;
     if (currentPage === "stock") return <StockPage />;
     if (currentPage === "stock-details") return <StockDetailsPage />;
-    if (currentPage === "send-sms") return <SendSMSPage />;
-    if (currentPage === "send-bulk-sms") return <SendSMSPage bulk />;
+    if (currentPage === "send-sms") return <SMSAnalyticsPage initialTab="send" />;
+    if (currentPage === "send-bulk-sms") return <SMSAnalyticsPage initialTab="send" />;
+    if (currentPage === "sms-inbox") return <SMSAnalyticsPage initialTab="logs" />;
+    if (currentPage === "sms-bills") return <SMSAnalyticsPage initialTab="billing" />;
+    if (currentPage === "sms-report") return <SMSAnalyticsPage initialTab="dashboard" />;
+    if (currentPage === "sms-settings") return <SMSAnalyticsPage initialTab="settings" />;
+    if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage initialTab="billing" />;
     if (currentPage === "change-password") return <ChangePasswordPage />;
     if (currentPage === "purchase-orders") return <PurchaseOrdersPage onNavigate={(page) => setCurrentPage(page)} />;
     if (currentPage === "sales-orders") return <SalesOrdersPage onNavigate={(page) => setCurrentPage(page)} />;

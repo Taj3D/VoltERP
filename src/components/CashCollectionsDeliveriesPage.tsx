@@ -36,8 +36,20 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(path, { headers: { "Content-Type": "application/json", ...opts?.headers }, ...opts });
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const stored = localStorage.getItem("ems_auth");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+    }
+  } catch {}
+  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("ems_auth");
+      window.location.reload();
+    }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "Request failed");
   }
@@ -378,7 +390,7 @@ export default function CashCollectionsDeliveriesPage() {
       if (type === "collection") {
         const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
         const rows = filteredColl.map((item: any) => [
-          item.collectionCode, item.customer?.name || "—", fmtDate(item.date), String(item.amount || 0),
+          item.collectionCode, item.customer?.name || "—", fmtDate(item.date), isVatAuditor ? "N/A (Audit Mode)" : String(item.amount || 0),
           item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
         ]);
         exportToCSVSimple("Cash Collections", headers, rows);
@@ -386,7 +398,7 @@ export default function CashCollectionsDeliveriesPage() {
       } else {
         const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
         const rows = filteredDel.map((item: any) => [
-          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date), String(item.amount || 0),
+          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date), isVatAuditor ? "N/A (Audit Mode)" : String(item.amount || 0),
           item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
         ]);
         exportToCSVSimple("Cash Deliveries", headers, rows);
@@ -404,7 +416,7 @@ export default function CashCollectionsDeliveriesPage() {
         const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
         const body = filteredColl.map((item: any) => [
           item.collectionCode, item.customer?.name || "—", fmtDate(item.date),
-          fmt(item.amount, "currency"), item.paymentOption?.name || "—",
+          isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"), item.paymentOption?.name || "—",
           item.bank?.bankName || "—", item.status
         ]);
         exportToPDFSimple("Cash Collections", headers, body, "landscape");
@@ -413,7 +425,7 @@ export default function CashCollectionsDeliveriesPage() {
         const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
         const body = filteredDel.map((item: any) => [
           item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date),
-          fmt(item.amount, "currency"), item.paymentOption?.name || "—",
+          isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"), item.paymentOption?.name || "—",
           item.bank?.bankName || "—", item.status
         ]);
         exportToPDFSimple("Cash Deliveries", headers, body, "landscape");
@@ -518,7 +530,7 @@ export default function CashCollectionsDeliveriesPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: "Total Collections", value: collStats.total, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-              { label: "Total Amount", value: fmt(collStats.totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+              { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(collStats.totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
               { label: "Pending", value: collStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
               { label: "Approved", value: collStats.approved, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
             ].map((stat, i) => (
@@ -570,7 +582,7 @@ export default function CashCollectionsDeliveriesPage() {
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.collectionCode}</TableCell>
                           <TableCell>{item.customer?.name || "—"}</TableCell>
                           <TableCell>{fmtDate(item.date)}</TableCell>
-                          <TableCell className="font-mono">{fmt(item.amount, "currency")}</TableCell>
+                          <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(item.amount, "currency")}</TableCell>
                           <TableCell>{item.paymentOption?.name || "—"}</TableCell>
                           <TableCell>{item.bank?.bankName || "—"}</TableCell>
                           <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
@@ -610,7 +622,7 @@ export default function CashCollectionsDeliveriesPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: "Total Deliveries", value: delStats.total, icon: ArrowDownCircle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-              { label: "Total Amount", value: fmt(delStats.totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+              { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(delStats.totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
               { label: "Pending", value: delStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
               { label: "Approved", value: delStats.approved, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
             ].map((stat, i) => (
@@ -662,7 +674,7 @@ export default function CashCollectionsDeliveriesPage() {
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.deliveryCode}</TableCell>
                           <TableCell>{item.supplier?.name || "—"}</TableCell>
                           <TableCell>{fmtDate(item.date)}</TableCell>
-                          <TableCell className="font-mono">{fmt(item.amount, "currency")}</TableCell>
+                          <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(item.amount, "currency")}</TableCell>
                           <TableCell>{item.paymentOption?.name || "—"}</TableCell>
                           <TableCell>{item.bank?.bankName || "—"}</TableCell>
                           <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
