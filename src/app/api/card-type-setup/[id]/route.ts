@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/card-type-setup/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'CardTypeSetups', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const setup = await db.cardTypeSetup.findUnique({
@@ -38,6 +41,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'CardTypeSetups', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -58,6 +63,18 @@ export async function PUT(
         },
       });
 
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'CardTypeSetup',
+          recordId: setup.id,
+          recordLabel: `${setup.paymentOption?.name || setup.id} - ${setup.cardType?.name || setup.id}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ paymentOptionId, cardTypeId, chargePercentage, isActive }),
+        },
+      });
+
       return setup;
     });
 
@@ -73,16 +90,37 @@ export async function PUT(
 
 // DELETE /api/card-type-setup/[id]
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'CardTypeSetups', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
 
     await db.$transaction(async (tx) => {
-      await tx.cardTypeSetup.delete({
+      const record = await tx.cardTypeSetup.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
+
+      // CardTypeSetup has no FK references, safe to soft-delete
+      await tx.cardTypeSetup.update({
         where: { id },
+        data: { isActive: false },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'CardTypeSetup',
+          recordId: record.id,
+          recordLabel: record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ paymentOptionId: record.paymentOptionId, cardTypeId: record.cardTypeId, softDelete: true }),
+        },
+      });
+
+      return record;
     });
 
     return NextResponse.json({ message: 'Card type setup deleted successfully' });

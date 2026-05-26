@@ -1,9 +1,13 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SmsSettings', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const items = await db.smsSetting.findMany({
+      where: { isActive: true },
       orderBy: { createdAt: 'desc' },
     });
     return NextResponse.json(items);
@@ -12,11 +16,13 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SmsSettings', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.smsSetting.create({
+      const record = await tx.smsSetting.create({
         data: {
           apiUrl: body.apiUrl,
           apiKey: body.apiKey,
@@ -24,6 +30,20 @@ export async function POST(request: Request) {
           isActive: body.isActive ?? true,
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'SmsSettings',
+          recordId: record.id,
+          recordLabel: record.senderId || record.apiUrl || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ apiUrl: record.apiUrl, senderId: record.senderId }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

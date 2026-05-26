@@ -27,14 +27,18 @@ model User {
 // ============================================================
 
 model InvestmentHead {
-  id          String       @id @default(cuid())
-  name        String
-  description String?
-  isActive    Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  assets      Asset[]
-  liabilities Liability[]
+  id              String       @id @default(cuid())
+  code            String       @unique
+  name            String
+  description     String?
+  type            String       @default("Liability")
+  openingBalance  Float        @default(0)
+  openingType     String       @default("")
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  assets          Asset[]
+  liabilities     Liability[]
 }
 
 model Asset {
@@ -69,6 +73,7 @@ model Liability {
 
 model Company {
   id          String        @id @default(cuid())
+  code        String        @unique
   name        String
   address     String?
   phone       String?
@@ -82,13 +87,17 @@ model Company {
 }
 
 model Category {
-  id        String   @id @default(cuid())
-  name      String
-  description String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  products  Product[]
+  id               String    @id @default(cuid())
+  code             String    @unique
+  name             String
+  description      String?
+  parentCategoryId String?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  parent           Category? @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  children         Category[] @relation("CategoryHierarchy")
+  products         Product[]
 }
 
 model Color {
@@ -108,10 +117,12 @@ model Bank {
   accountNo      String
   accountHolder  String
   openingBalance Float             @default(0)
+  currentBalance Float             @default(0)
   isActive       Boolean           @default(true)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   bankTransactions BankTransaction[]
+  transferToTransactions BankTransaction[] @relation("TransferToBank")
   expenses      Expense[]
   incomes       Income[]
   cashCollections CashCollection[]
@@ -141,6 +152,7 @@ model Godown {
   purchaseOrders PurchaseOrder[]
   salesOrders    SalesOrder[]
   hireSales      HireSales[]
+  salesReturns   SalesReturn[]
   transferFrom   StockTransfer[] @relation("TransferFrom")
   transferTo     StockTransfer[] @relation("TransferTo")
 }
@@ -234,11 +246,14 @@ model Product {
   sizeCapacity  String?
   costPrice     Float    @default(0)
   salePrice     Float    @default(0)
+  wholesalePrice Float   @default(0)
+  dealerPrice   Float    @default(0)
   openingStock  Float    @default(0)
   reorderLevel  Float    @default(0)
   godownId      String?
   segmentId     String?
   companyId     String?
+  imeiNumber    String?
   image         String?
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -311,35 +326,42 @@ model EmployeeLeave {
 // ============================================================
 
 model Customer {
-  id              String          @id @default(cuid())
-  customerCode    String          @unique
-  name            String
-  phone           String?
-  address         String?
-  openingBalance  Float           @default(0)
-  isActive        Boolean         @default(true)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  salesOrders     SalesOrder[]
-  hireSales       HireSales[]
-  salesReturns    SalesReturn[]
-  cashCollections CashCollection[]
-  orderSheets     OrderSheet[]
+  id                String          @id @default(cuid())
+  customerCode      String          @unique
+  name              String
+  phone             String?
+  email             String?
+  address           String?
+  openingBalance    Float           @default(0)
+  openingBalanceType String         @default("Dr")  // "Dr" or "Cr"
+  creditLimit       Float           @default(0)
+  customerType      String          @default("Regular")  // "Regular" or "Dealer"
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  salesOrders       SalesOrder[]
+  hireSales         HireSales[]
+  salesReturns      SalesReturn[]
+  cashCollections   CashCollection[]
+  orderSheets       OrderSheet[]
 }
 
 model Supplier {
-  id              String           @id @default(cuid())
-  supplierCode    String           @unique
-  name            String
-  phone           String?
-  address         String?
-  openingBalance  Float            @default(0)
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  purchaseOrders  PurchaseOrder[]
-  purchaseReturns PurchaseReturn[]
-  cashDeliveries  CashDelivery[]
+  id                 String           @id @default(cuid())
+  supplierCode       String           @unique
+  name               String
+  phone              String?
+  email              String?
+  address            String?
+  openingBalance     Float            @default(0)
+  openingBalanceType String           @default("Cr")  // "Dr" or "Cr"
+  creditLimit        Float            @default(0)
+  isActive           Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  purchaseOrders     PurchaseOrder[]
+  purchaseReturns    PurchaseReturn[]
+  cashDeliveries     CashDelivery[]
 }
 
 // ============================================================
@@ -375,21 +397,25 @@ model OrderSheetLine {
 }
 
 model PurchaseOrder {
-  id           String              @id @default(cuid())
-  poNumber     String              @unique
-  supplierId   String
-  date         DateTime
-  godownId     String?
-  status       String              @default("Draft")
-  notes        String?
-  grandTotal   Float               @default(0)
-  isActive     Boolean             @default(true)
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  supplier     Supplier            @relation(fields: [supplierId], references: [id])
-  godown       Godown?             @relation(fields: [godownId], references: [id])
-  lines        PurchaseOrderLine[]
-  purchaseReturn PurchaseReturn[]
+  id              String              @id @default(cuid())
+  poNumber        String              @unique
+  supplierId      String
+  date            DateTime
+  godownId        String?
+  subTotal        Float               @default(0)
+  discount        Float               @default(0)
+  vatPercentage   Float               @default(0)
+  vatAmount       Float               @default(0)
+  grandTotal      Float               @default(0)
+  status          String              @default("Draft")
+  notes           String?
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  godown          Godown?             @relation(fields: [godownId], references: [id])
+  lines           PurchaseOrderLine[]
+  purchaseReturn  PurchaseReturn[]
 }
 
 model PurchaseOrderLine {
@@ -398,6 +424,9 @@ model PurchaseOrderLine {
   productId       String
   quantity        Float
   rate            Float
+  discountPercent Float         @default(0)
+  discountAmount  Float         @default(0)
+  vatAmount       Float         @default(0)
   total           Float
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   product         Product       @relation(fields: [productId], references: [id])
@@ -413,7 +442,10 @@ model SalesOrder {
   customerId      String
   date            DateTime
   godownId        String?
+  subTotal        Float            @default(0)
   discount        Float            @default(0)
+  vatPercentage   Float            @default(0)
+  vatAmount       Float            @default(0)
   grandTotal      Float            @default(0)
   paymentOptionId String?
   status          String           @default("Draft")
@@ -430,14 +462,17 @@ model SalesOrder {
 }
 
 model SalesOrderLine {
-  id           String      @id @default(cuid())
-  salesOrderId String
-  productId    String
-  quantity     Float
-  rate         Float
-  total        Float
-  salesOrder   SalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
-  product      Product     @relation(fields: [productId], references: [id])
+  id              String      @id @default(cuid())
+  salesOrderId    String
+  productId       String
+  quantity        Float
+  rate            Float
+  discountPercent Float       @default(0)
+  discountAmount  Float       @default(0)
+  vatAmount       Float       @default(0)
+  total           Float
+  salesOrder      SalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product         Product     @relation(fields: [productId], references: [id])
 }
 
 // ============================================================
@@ -445,70 +480,107 @@ model SalesOrderLine {
 // ============================================================
 
 model HireSales {
-  id              String          @id @default(cuid())
-  invoiceNo       String          @unique
-  customerId      String
-  date            DateTime
-  godownId        String?
-  hireRate        Float           @default(0)
-  duration        Int             @default(0)
-  installmentAmount Float         @default(0)
-  totalPaid       Float           @default(0)
-  currentStatus   String          @default("Active")
-  nextPaymentDate DateTime?
-  returnDate      DateTime?
-  grandTotal      Float           @default(0)
-  status          String          @default("Active")
-  notes           String?
-  isActive        Boolean         @default(true)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  customer        Customer        @relation(fields: [customerId], references: [id])
-  godown          Godown?         @relation(fields: [godownId], references: [id])
-  lines           HireSalesLine[]
+  id                String          @id @default(cuid())
+  invoiceNo         String          @unique
+  customerId        String
+  date              DateTime
+  godownId          String?
+  subTotal          Float           @default(0)
+  downPayment       Float           @default(0)
+  hireRate          Float           @default(0)
+  duration          Int             @default(0)
+  installmentAmount Float           @default(0)
+  balanceAmount     Float           @default(0)
+  totalPaid         Float           @default(0)
+  currentStatus     String          @default("Active")
+  nextPaymentDate   DateTime?
+  returnDate        DateTime?
+  grandTotal        Float           @default(0)
+  vatPercentage     Float           @default(0)
+  vatAmount         Float           @default(0)
+  status            String          @default("Active")
+  notes             String?
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  godown            Godown?         @relation(fields: [godownId], references: [id])
+  lines             HireSalesLine[]
+  installments      HireInstallment[]
 }
 
 model HireSalesLine {
-  id           String     @id @default(cuid())
-  hireSalesId  String
-  productId    String
-  quantity     Float
-  rate         Float
-  total        Float
-  hireSales    HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
-  product      Product    @relation(fields: [productId], references: [id])
+  id              String     @id @default(cuid())
+  hireSalesId     String
+  productId       String
+  quantity        Float
+  rate            Float
+  discountPercent Float      @default(0)
+  discountAmount  Float      @default(0)
+  total           Float
+  hireSales       HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
+  product         Product    @relation(fields: [productId], references: [id])
 }
 
 // ============================================================
 // INVENTORY - RETURNS
 // ============================================================
 
+// ============================================================
+// HIRE INSTALLMENT SCHEDULE
+// ============================================================
+
+model HireInstallment {
+  id              String     @id @default(cuid())
+  hireSalesId     String
+  installmentNo   Int
+  dueDate         DateTime
+  amount          Float      @default(0)
+  paidAmount      Float      @default(0)
+  paidDate        DateTime?
+  status          String     @default("Pending") // "Pending", "Paid", "Overdue", "Partial"
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  hireSales       HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
+}
+
 model SalesReturn {
-  id            String           @id @default(cuid())
-  returnNo      String           @unique
-  salesOrderId  String
-  customerId    String
-  date          DateTime
-  reason        String?
-  grandTotal    Float            @default(0)
-  status        String           @default("Pending")
-  isActive      Boolean          @default(true)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  salesOrder    SalesOrder       @relation(fields: [salesOrderId], references: [id])
-  customer      Customer         @relation(fields: [customerId], references: [id])
-  lines         SalesReturnLine[]
+  id              String           @id @default(cuid())
+  returnNo        String           @unique
+  salesOrderId    String
+  customerId      String
+  godownId        String?
+  date            DateTime
+  subTotal        Float            @default(0)
+  discount        Float            @default(0)
+  vatPercentage   Float            @default(0)
+  vatAmount       Float            @default(0)
+  reason          String?
+  grandTotal      Float            @default(0)
+  creditMemoCode  String?
+  status          String           @default("Pending")
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  salesOrder      SalesOrder       @relation(fields: [salesOrderId], references: [id])
+  customer        Customer         @relation(fields: [customerId], references: [id])
+  godown          Godown?          @relation(fields: [godownId], references: [id])
+  lines           SalesReturnLine[]
 }
 
 model SalesReturnLine {
-  id            String      @id @default(cuid())
-  salesReturnId String
-  productId     String
-  quantity      Float
-  rate          Float
-  total         Float
-  salesReturn   SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
-  product       Product     @relation(fields: [productId], references: [id])
+  id              String      @id @default(cuid())
+  salesReturnId   String
+  productId        String
+  quantity         Float
+  rate             Float
+  discountPercent  Float       @default(0)
+  discountAmount   Float       @default(0)
+  vatAmount        Float       @default(0)
+  total            Float
+  salesReturn      SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  product          Product     @relation(fields: [productId], references: [id])
 }
 
 model PurchaseReturn {
@@ -517,8 +589,14 @@ model PurchaseReturn {
   purchaseOrderId String
   supplierId      String
   date            DateTime
+  subTotal        Float              @default(0)
+  discount        Float              @default(0)
+  vatPercentage   Float              @default(0)
+  vatAmount       Float              @default(0)
   reason          String?
   grandTotal      Float              @default(0)
+  debitNoteCode   String?
+  challanRef      String?
   status          String             @default("Pending")
   isActive        Boolean            @default(true)
   createdAt       DateTime           @default(now())
@@ -531,12 +609,15 @@ model PurchaseReturn {
 model PurchaseReturnLine {
   id               String        @id @default(cuid())
   purchaseReturnId String
-  productId        String
-  quantity         Float
-  rate             Float
-  total            Float
-  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
-  product          Product        @relation(fields: [productId], references: [id])
+  productId         String
+  quantity          Float
+  rate              Float
+  discountPercent   Float         @default(0)
+  discountAmount    Float         @default(0)
+  vatAmount         Float         @default(0)
+  total             Float
+  purchaseReturn    PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  product           Product        @relation(fields: [productId], references: [id])
 }
 
 // ============================================================
@@ -588,19 +669,24 @@ model StockEntry {
 }
 
 model StockTransfer {
-  id          String              @id @default(cuid())
-  transferNo  String              @unique
-  fromGodownId String
-  toGodownId   String
-  date        DateTime
-  status      String              @default("Pending")
-  notes       String?
-  isActive    Boolean             @default(true)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  fromGodown  Godown              @relation("TransferFrom", fields: [fromGodownId], references: [id])
-  toGodown    Godown              @relation("TransferTo", fields: [toGodownId], references: [id])
-  lines       StockTransferLine[]
+  id              String              @id @default(cuid())
+  transferNo      String              @unique
+  fromGodownId    String
+  toGodownId      String
+  date            DateTime
+  shippingStatus  String              @default("Pending")  // "Pending", "In-Transit", "Delivered"
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  totalItems      Int                 @default(0)
+  totalQuantity   Float               @default(0)
+  status          String              @default("Pending")
+  notes           String?
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  fromGodown      Godown              @relation("TransferFrom", fields: [fromGodownId], references: [id])
+  toGodown        Godown              @relation("TransferTo", fields: [toGodownId], references: [id])
+  lines           StockTransferLine[]
 }
 
 model StockTransferLine {
@@ -629,12 +715,14 @@ model ExpenseIncomeHead {
 
 model Expense {
   id               String            @id @default(cuid())
+  expenseCode      String            @unique
   date             DateTime
   headId           String
   amount           Float
   paymentOptionId  String?
   bankId           String?
   description      String?
+  status           String            @default("Approved")
   isActive         Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -645,12 +733,14 @@ model Expense {
 
 model Income {
   id               String            @id @default(cuid())
+  incomeCode       String            @unique
   date             DateTime
   headId           String
   amount           Float
   paymentOptionId  String?
   bankId           String?
   description      String?
+  status           String            @default("Approved")
   isActive         Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -661,12 +751,14 @@ model Income {
 
 model CashCollection {
   id              String         @id @default(cuid())
+  collectionCode  String         @unique
   customerId      String
   date            DateTime
   amount          Float
   paymentOptionId String?
   bankId          String?
   description     String?
+  status          String         @default("Approved")
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -677,12 +769,14 @@ model CashCollection {
 
 model CashDelivery {
   id              String         @id @default(cuid())
+  deliveryCode    String         @unique
   supplierId      String
   date            DateTime
   amount          Float
   paymentOptionId String?
   bankId          String?
   description     String?
+  status          String         @default("Approved")
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -692,16 +786,21 @@ model CashDelivery {
 }
 
 model BankTransaction {
-  id          String   @id @default(cuid())
-  bankId      String
-  date        DateTime
-  type        String   // "Deposit", "Withdraw"
-  amount      Float
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  bank        Bank     @relation(fields: [bankId], references: [id])
+  id              String   @id @default(cuid())
+  transactionCode String   @unique
+  bankId          String
+  date            DateTime
+  type            String   // "Deposit", "Withdraw", "Transfer"
+  amount          Float
+  runningBalance  Float    @default(0)
+  toBankId        String?  // For bank-to-bank transfers
+  description     String?
+  status          String   @default("Approved")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  bank            Bank     @relation(fields: [bankId], references: [id])
+  toBank          Bank?    @relation("TransferToBank", fields: [toBankId], references: [id])
 }
 
 // ============================================================
@@ -755,19 +854,59 @@ model SmsBillPayment {
 }
 
 // ============================================================
-// LEDGER (for accounting reports)
+// CHART OF ACCOUNTS & GENERAL LEDGER
 // ============================================================
 
+model ChartOfAccount {
+  id                  String           @id @default(cuid())
+  code                String           @unique  // COA-XXXXX
+  name                String
+  classification      String           @default("Asset")  // "Asset", "Liability", "Income", "Expense", "Equity"
+  parentAccountId     String?
+  openingBalance      Float            @default(0)
+  openingBalanceType  String           @default("Dr")  // "Dr" or "Cr"
+  isActive            Boolean          @default(true)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  parentAccount       ChartOfAccount?  @relation("COAHierarchy", fields: [parentAccountId], references: [id])
+  childAccounts       ChartOfAccount[] @relation("COAHierarchy")
+  ledgerEntries       LedgerEntry[]
+}
+
 model LedgerEntry {
+  id              String        @id @default(cuid())
+  entryCode       String        @unique  // LED-XXXXX
+  date            DateTime
+  accountId       String?
+  account         String
+  particulars     String?
+  debit           Float         @default(0)
+  credit          Float         @default(0)
+  reference       String?
+  referenceType   String?       // "SalesOrder", "PurchaseOrder", "Expense", "Income", "CashCollection", "CashDelivery", "BankTransaction", "Manual"
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  chartOfAccount  ChartOfAccount? @relation(fields: [accountId], references: [id])
+}
+
+// ============================================================
+// PERIOD CLOSE (Month-End Closing Validation Locks)
+// ============================================================
+
+model PeriodClose {
   id          String   @id @default(cuid())
-  date        DateTime
-  account     String
-  particulars String?
-  debit       Float    @default(0)
-  credit      Float    @default(0)
-  reference   String?
+  code        String   @unique  // BAL-XXXXX
+  periodMonth Int
+  periodYear  Int
+  closeDate   DateTime
+  closedBy    String?
+  isLocked    Boolean  @default(false)
+  notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([periodMonth, periodYear])
 }
 
 // ============================================================

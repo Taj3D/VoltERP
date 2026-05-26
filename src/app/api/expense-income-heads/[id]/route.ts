@@ -1,7 +1,10 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'ExpenseIncomeHeads', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const item = await db.expenseIncomeHead.findUnique({ where: { id } });
@@ -12,7 +15,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'ExpenseIncomeHeads', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -32,7 +37,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'ExpenseIncomeHeads', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     await db.$transaction(async (tx) => {

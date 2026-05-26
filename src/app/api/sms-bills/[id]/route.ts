@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/sms-bills/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'SmsBills', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const smsBill = await db.smsBill.findUnique({
@@ -37,6 +40,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'SmsBills', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -57,6 +62,18 @@ export async function PUT(
         },
       });
 
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'SmsBills',
+          recordId: smsBill.id,
+          recordLabel: smsBill.period || smsBill.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ period: smsBill.period, status: smsBill.status, totalCost: smsBill.totalCost }),
+        },
+      });
+
       return smsBill;
     });
 
@@ -72,13 +89,19 @@ export async function PUT(
 
 // DELETE /api/sms-bills/[id]
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'SmsBills', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
 
     await db.$transaction(async (tx) => {
+      const record = await tx.smsBill.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
+
+      // SmsBill has no isActive field - perform hard delete with audit log
       await tx.smsBillPayment.deleteMany({
         where: { smsBillId: id },
       });
@@ -86,6 +109,20 @@ export async function DELETE(
       await tx.smsBill.delete({
         where: { id },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'SmsBills',
+          recordId: record.id,
+          recordLabel: record.period || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ period: record.period, totalCost: record.totalCost, hardDelete: true }),
+        },
+      });
+
+      return record;
     });
 
     return NextResponse.json({ message: 'SMS bill deleted successfully' });

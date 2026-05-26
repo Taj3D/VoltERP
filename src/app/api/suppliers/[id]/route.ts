@@ -1,10 +1,18 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'Suppliers', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
-    const item = await db.supplier.findUnique({ where: { id } });
+    const item = await db.supplier.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { purchaseOrders: true, purchaseReturns: true, cashDeliveries: true } },
+      },
+    });
     if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     return NextResponse.json(item);
   } catch (error) {
@@ -12,7 +20,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'Suppliers', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -23,9 +33,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           supplierCode: body.supplierCode,
           name: body.name,
           phone: body.phone || null,
+          email: body.email || null,
           address: body.address || null,
           openingBalance: body.openingBalance ?? 0,
+          openingBalanceType: body.openingBalanceType || 'Cr',
+          creditLimit: body.creditLimit ?? 0,
           isActive: body.isActive ?? true,
+        },
+        include: {
+          _count: { select: { purchaseOrders: true, purchaseReturns: true, cashDeliveries: true } },
         },
       });
     });
@@ -35,7 +51,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'Suppliers', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     await db.$transaction(async (tx) => {

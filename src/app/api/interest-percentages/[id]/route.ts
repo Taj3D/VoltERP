@@ -1,7 +1,10 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'InterestPercentages', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const item = await db.interestPercentage.findUnique({ where: { id } });
@@ -12,12 +15,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'InterestPercentages', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.interestPercentage.update({
+      const record = await tx.interestPercentage.update({
         where: { id },
         data: {
           percentage: body.percentage,
@@ -25,6 +30,20 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           isActive: body.isActive ?? true,
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'InterestPercentages',
+          recordId: record.id,
+          recordLabel: `${record.percentage}%` || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ percentage: record.percentage }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item);
   } catch (error) {
@@ -32,11 +51,34 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'InterestPercentages', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     await db.$transaction(async (tx) => {
-      await tx.interestPercentage.delete({ where: { id } });
+      const record = await tx.interestPercentage.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
+
+      // InterestPercentage has no FK references, safe to soft-delete
+      await tx.interestPercentage.update({
+        where: { id },
+        data: { isActive: false },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'InterestPercentages',
+          recordId: record.id,
+          recordLabel: `${record.percentage}%` || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ percentage: record.percentage, softDelete: true }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json({ success: true });
   } catch (error) {

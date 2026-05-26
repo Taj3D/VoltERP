@@ -1,29 +1,53 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Banks', 'GET');
+  if (!security.authorized) return security.response;
   try {
-    const items = await db.bank.findMany({ orderBy: { createdAt: 'desc' } });
+    const items = await db.bank.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
     return NextResponse.json(items);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch banks' }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Banks', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.bank.create({
+      const openingBalance = body.openingBalance ?? 0;
+      const record = await tx.bank.create({
         data: {
           bankName: body.bankName,
           branch: body.branch || null,
           accountNo: body.accountNo,
           accountHolder: body.accountHolder,
-          openingBalance: body.openingBalance ?? 0,
+          openingBalance,
+          currentBalance: openingBalance, // FIX 4: Set currentBalance = openingBalance on creation
           isActive: body.isActive ?? true,
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'Banks',
+          recordId: record.id,
+          recordLabel: record.bankName || record.accountNo || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ bankName: record.bankName, accountNo: record.accountNo, openingBalance, currentBalance: openingBalance }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

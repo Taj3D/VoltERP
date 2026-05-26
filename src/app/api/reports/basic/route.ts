@@ -1,8 +1,18 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
+    const { searchParams } = new URL(request.url);
+    // VAT-001: Validate vatMode
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
+
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
@@ -34,6 +44,8 @@ export async function GET() {
       (sum, p) => sum + p.costPrice * p.openingStock,
       0
     );
+
+    // MIS-001 FIX: Mask stock value for VAT auditor
 
     // Cash balance (bank balances)
     const banks = await db.bank.findMany({
@@ -153,8 +165,8 @@ export async function GET() {
     return NextResponse.json({
       salesToday: salesToday._sum.grandTotal || 0,
       purchaseToday: purchaseToday._sum.grandTotal || 0,
-      stockValue,
-      cashBalance,
+      stockValue: vatMode ? 'N/A (Audit Mode)' : stockValue,
+      cashBalance: vatMode ? 'N/A (Audit Mode)' : cashBalance,
       receivables,
       payables,
       topProducts,

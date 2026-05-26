@@ -1,7 +1,10 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'EmployeeLeaves', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const items = await db.employeeLeave.findMany({
       orderBy: { createdAt: 'desc' },
@@ -13,11 +16,13 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'EmployeeLeaves', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.employeeLeave.create({
+      const record = await tx.employeeLeave.create({
         data: {
           employeeId: body.employeeId,
           leaveType: body.leaveType,
@@ -28,6 +33,20 @@ export async function POST(request: Request) {
         },
         include: { employee: true },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'EmployeeLeaves',
+          recordId: record.id,
+          recordLabel: `${record.employee?.name || record.id} - ${record.leaveType}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ employeeId: record.employeeId, leaveType: record.leaveType, fromDate: record.fromDate, toDate: record.toDate }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

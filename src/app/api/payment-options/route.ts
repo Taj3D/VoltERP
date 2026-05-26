@@ -1,25 +1,47 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'PaymentOptions', 'GET');
+  if (!security.authorized) return security.response;
   try {
-    const items = await db.paymentOption.findMany({ orderBy: { createdAt: 'desc' } });
+    const items = await db.paymentOption.findMany({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
     return NextResponse.json(items);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch payment options' }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'PaymentOptions', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.paymentOption.create({
+      const record = await tx.paymentOption.create({
         data: {
           name: body.name,
           isActive: body.isActive ?? true,
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'PaymentOptions',
+          recordId: record.id,
+          recordLabel: record.name || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ name: record.name }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

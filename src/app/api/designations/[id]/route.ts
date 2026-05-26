@@ -1,7 +1,10 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'Designations', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const item = await db.designation.findUnique({
@@ -15,12 +18,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'Designations', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.designation.update({
+      const record = await tx.designation.update({
         where: { id },
         data: {
           name: body.name,
@@ -29,6 +34,20 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         },
         include: { department: true },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'Designations',
+          recordId: record.id,
+          recordLabel: record.name || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ name: record.name, departmentId: record.departmentId }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item);
   } catch (error) {
@@ -36,14 +55,45 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const security = await withApiSecurity(request, 'Designations', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     await db.$transaction(async (tx) => {
-      await tx.designation.delete({ where: { id } });
+      const record = await tx.designation.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
+
+      // FK check: Check if designation is referenced by active employees
+      const activeEmployees = await tx.employee.count({ where: { designationId: id, isActive: true } });
+      if (activeEmployees > 0) {
+        throw new Error(`Cannot delete: Designation is referenced by ${activeEmployees} active employee(s)`);
+      }
+
+      await tx.designation.update({
+        where: { id },
+        data: { isActive: false },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'Designations',
+          recordId: record.id,
+          recordLabel: record.name || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ name: record.name, softDelete: true }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.startsWith('Cannot delete')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: 'Failed to delete designation' }, { status: 500 });
   }
 }

@@ -1,8 +1,11 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/reports - Various report queries based on type parameter
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');

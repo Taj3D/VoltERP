@@ -1,12 +1,15 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Liabilities', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
 
-    const where: any = {};
+    const where: any = { isActive: true };
     if (type) {
       where.type = type;
     }
@@ -22,11 +25,13 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Liabilities', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.liability.create({
+      const record = await tx.liability.create({
         data: {
           investmentHeadId: body.investmentHeadId,
           date: body.date ? new Date(body.date) : new Date(),
@@ -38,6 +43,20 @@ export async function POST(request: Request) {
         },
         include: { investmentHead: true },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'Liabilities',
+          recordId: record.id,
+          recordLabel: `${record.investmentHead?.name || record.id} - ${record.amount}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, type: record.type }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

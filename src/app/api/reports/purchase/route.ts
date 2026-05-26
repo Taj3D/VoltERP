@@ -1,13 +1,21 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const supplierId = searchParams.get('supplierId');
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
     const productId = searchParams.get('productId');
+    // VAT-001: Validate vatMode
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
 
     // Build where clause
     const where: Record<string, unknown> = { isActive: true };
@@ -81,9 +89,9 @@ export async function GET(request: NextRequest) {
         totalOrders: purchaseOrders.length,
         confirmedCount,
         draftCount,
-        totalPOValue,
+        totalPOValue: vatMode ? 'N/A (Audit Mode)' : totalPOValue,
         totalReturns,
-        netPurchaseValue: totalPOValue - totalReturns,
+        netPurchaseValue: vatMode ? 'N/A (Audit Mode)' : (totalPOValue - totalReturns),
       },
       productSummary: Array.from(productSummary.values()),
     });

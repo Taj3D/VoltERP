@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/replacements - List all replacement orders with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Replacements', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const replacements = await db.replacementOrder.findMany({
+      where: { isActive: true },
       include: {
         salesOrder: true,
         lines: {
@@ -27,6 +31,8 @@ export async function GET() {
 
 // POST /api/replacements - Create replacement order with lines
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Replacements', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const { salesOrderId, date, reason, lines } = body;
@@ -79,6 +85,18 @@ export async function POST(request: NextRequest) {
         include: {
           salesOrder: true,
           lines: { include: { product: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'Replacements',
+          recordId: replacement.id,
+          recordLabel: replacement.replacementNo || replacement.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ replacementNo, salesOrderId, lineCount: lines.length }),
         },
       });
 

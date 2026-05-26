@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/card-type-setup - List all card type setups with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'CardTypeSetups', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const setups = await db.cardTypeSetup.findMany({
+      where: { isActive: true },
       include: {
         paymentOption: true,
         cardType: true,
@@ -23,6 +27,8 @@ export async function GET() {
 
 // POST /api/card-type-setup - Create card type setup
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'CardTypeSetups', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const { paymentOptionId, cardTypeId, chargePercentage, isActive } = body;
@@ -45,6 +51,18 @@ export async function POST(request: NextRequest) {
         include: {
           paymentOption: true,
           cardType: true,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'CardTypeSetup',
+          recordId: setup.id,
+          recordLabel: `${setup.paymentOption?.name || setup.id} - ${setup.cardType?.name || setup.id}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ paymentOptionId, cardTypeId, chargePercentage: chargePercentage || 0 }),
         },
       });
 

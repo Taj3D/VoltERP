@@ -127,10 +127,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
   }
 }
 
@@ -172,8 +177,14 @@
 
 /* Table scrollable container */
 .table-container {
-  max-height: 70vh;
+  max-height: 65vh;
   overflow-y: auto;
+}
+
+/* Main content area smooth scroll */
+main {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Enhanced table container scrollbar */
@@ -461,10 +472,12 @@ footer {
    6. FOOTER STYLING — Sticky bottom, pushed down on overflow
    ============================================================ */
 
-/* Footer is already in a flex-1 column layout via min-h-screen flex flex-col.
-   The mt-auto on footer handles the sticky behavior when content is short. */
+/* Footer is inside a h-screen flex flex-col layout.
+   The footer sits at the bottom of the viewport naturally.
+   flex-shrink: 0 prevents it from being compressed. */
 footer {
   flex-shrink: 0;
+  z-index: 10;
 }
 
 /* ============================================================

@@ -1,8 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/stock - Calculate current stock for each product
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Stock', 'GET');
+  if (!security.authorized) return security.response;
   try {
     // Get all products with their category and godown info
     const products = await db.product.findMany({

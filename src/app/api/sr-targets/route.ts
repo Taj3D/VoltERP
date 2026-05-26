@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/sr-targets - List all SR targets with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SRTargets', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const targets = await db.sRTargetSetup.findMany({
+      where: { isActive: true },
       include: {
         employee: true,
       },
@@ -22,6 +26,8 @@ export async function GET() {
 
 // POST /api/sr-targets - Create SR target
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SRTargets', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const { employeeId, month, year, targetAmount, isActive } = body;
@@ -44,6 +50,18 @@ export async function POST(request: NextRequest) {
         },
         include: {
           employee: true,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'SRTargets',
+          recordId: target.id,
+          recordLabel: `${target.employee?.name || target.id} - ${target.month}/${target.year}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ employeeId, month, year, targetAmount }),
         },
       });
 

@@ -1,7 +1,10 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get('dateFrom');

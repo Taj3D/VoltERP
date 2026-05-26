@@ -1,13 +1,21 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
     const productId = searchParams.get('productId');
+    // VAT-001: Validate vatMode
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
 
     // Build where clause
     const where: Record<string, unknown> = { isActive: true };
@@ -57,9 +65,9 @@ export async function GET(request: NextRequest) {
 
       return {
         ...so,
-        costOfGoods,
-        profit,
-        profitMargin: parseFloat(profitMargin),
+        costOfGoods: vatMode ? 'N/A (Audit Mode)' : costOfGoods,
+        profit: vatMode ? 'N/A (Audit Mode)' : profit,
+        profitMargin: vatMode ? 'N/A (Audit Mode)' : parseFloat(profitMargin),
       };
     });
 
@@ -119,13 +127,17 @@ export async function GET(request: NextRequest) {
         confirmedCount,
         draftCount,
         totalRevenue,
-        totalCost,
-        totalProfit,
+        totalCost: vatMode ? 'N/A (Audit Mode)' : totalCost,
+        totalProfit: vatMode ? 'N/A (Audit Mode)' : totalProfit,
         totalReturns,
         netRevenue: totalRevenue - totalReturns,
-        overallMargin: totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(2) : '0.00',
+        overallMargin: vatMode ? 'N/A (Audit Mode)' : (totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(2) : '0.00'),
       },
-      productSummary: Array.from(productSummary.values()),
+      productSummary: Array.from(productSummary.values()).map((ps) => ({
+        ...ps,
+        totalCost: vatMode ? 'N/A (Audit Mode)' : ps.totalCost,
+        profit: vatMode ? 'N/A (Audit Mode)' : ps.profit,
+      })),
     });
   } catch (error) {
     console.error('Error fetching sales report:', error);

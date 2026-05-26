@@ -1,8 +1,14 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Dashboard', 'GET');
+  if (!security.authorized) return security.response;
   try {
+    // FIX 4: Consistent revenue status filter - exclude Draft and Cancelled
+    const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
+
     // Core counts - batch together
     const [
       totalProducts, activeProducts,
@@ -24,10 +30,10 @@ export async function GET() {
       totalIncomeAgg,
       confirmedPurchasesAgg,
     ] = await Promise.all([
-      db.salesOrder.aggregate({ where: { status: { in: ['Confirmed', 'Delivered'] } }, _sum: { grandTotal: true } }),
-      db.expense.aggregate({ _sum: { amount: true } }),
-      db.income.aggregate({ _sum: { amount: true } }),
-      db.purchaseOrder.aggregate({ where: { status: { in: ['Confirmed', 'Received'] } }, _sum: { grandTotal: true } }),
+      db.salesOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true }, _sum: { grandTotal: true } }),
+      db.expense.aggregate({ where: { isActive: true }, _sum: { amount: true } }),
+      db.income.aggregate({ where: { isActive: true }, _sum: { amount: true } }),
+      db.purchaseOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true }, _sum: { grandTotal: true } }),
     ]);
 
     const totalRevenue = confirmedSalesAgg._sum.grandTotal || 0;
@@ -36,14 +42,19 @@ export async function GET() {
     const totalPurchases = confirmedPurchasesAgg._sum.grandTotal || 0;
     const netProfit = totalRevenue + totalIncome - totalPurchases - totalExpenses;
 
-    // Stock value
-    const stockValue = await db.product.aggregate({
+    // FIX 1: Compute stock value as SUM(costPrice * openingStock) per product
+    // If total stock is 0, inventory value should be 0
+    const activeProductsForStock = await db.product.findMany({
       where: { isActive: true },
-      _sum: { costPrice: true, openingStock: true },
+      select: { costPrice: true, openingStock: true },
     });
+    const stockValue = activeProductsForStock.reduce(
+      (sum, p) => sum + Number(p.costPrice) * Number(p.openingStock),
+      0
+    );
 
-    // Bank balance
-    const bankBalance = await db.bank.aggregate({ _sum: { openingBalance: true } });
+    // FIX 3: Bank balance - use currentBalance not openingBalance
+    const bankBalance = await db.bank.aggregate({ _sum: { currentBalance: true } });
 
     // Recent Activities - limit to 8
     const auditLogs = await db.auditLog.findMany({
@@ -63,6 +74,9 @@ export async function GET() {
 
     // Top Selling Products - simple aggregation
     const salesLines = await db.salesOrderLine.findMany({
+      where: {
+        salesOrder: { status: revenueStatusFilter, isActive: true },
+      },
       include: {
         product: { select: { id: true, name: true, productCode: true } },
       },
@@ -95,11 +109,11 @@ export async function GET() {
 
     const [salesOrders, purchaseOrders] = await Promise.all([
       db.salesOrder.findMany({
-        where: { date: { gte: sixMonthsAgo }, status: { in: ['Confirmed', 'Delivered'] } },
+        where: { date: { gte: sixMonthsAgo }, status: revenueStatusFilter, isActive: true },
         select: { date: true, grandTotal: true },
       }),
       db.purchaseOrder.findMany({
-        where: { date: { gte: sixMonthsAgo }, status: { in: ['Confirmed', 'Received'] } },
+        where: { date: { gte: sixMonthsAgo }, status: revenueStatusFilter, isActive: true },
         select: { date: true, grandTotal: true },
       }),
     ]);
@@ -125,12 +139,38 @@ export async function GET() {
 
     const monthlySalesData = Object.values(monthlyMap);
 
-    // Low Stock Products - lightweight query
-    const lowStockProducts = await db.product.findMany({
-      where: { isActive: true, openingStock: { lte: db.product.fields.reorderLevel } },
-      take: 10,
-      select: { id: true, name: true, productCode: true, openingStock: true, reorderLevel: true, category: { select: { name: true } } },
-    }).catch(() => []);
+    // FIX 2: Low Stock Products - filter where openingStock <= reorderLevel
+    // Since Prisma SQLite doesn't support field-to-field comparison in where,
+    // fetch all active products and filter in JS
+    const allActiveProducts = await db.product.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        productCode: true,
+        openingStock: true,
+        reorderLevel: true,
+        category: { select: { name: true } },
+      },
+    });
+
+    const lowStockProducts = allActiveProducts
+      .filter((p) => Number(p.openingStock) <= Number(p.reorderLevel))
+      .sort((a, b) => {
+        // Sort by deficit (highest first)
+        const deficitA = Number(a.reorderLevel) - Number(a.openingStock);
+        const deficitB = Number(b.reorderLevel) - Number(b.openingStock);
+        return deficitB - deficitA;
+      })
+      .slice(0, 10)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        productCode: p.productCode,
+        currentStock: Number(p.openingStock),
+        reorderLevel: Number(p.reorderLevel),
+        category: p.category?.name || 'Unknown',
+      }));
 
     // Category Distribution
     const categoryDistribution = await db.category.findMany({
@@ -145,6 +185,52 @@ export async function GET() {
       db.salesOrder.count({ where: { status: { in: ['Draft', 'Pending'] } } }),
     ]);
 
+    // Hire Sales Installments - recent hire sales with customer info and installment details
+    const hireSalesRecords = await db.hireSales.findMany({
+      where: { isActive: true },
+      take: 10,
+      orderBy: { date: 'desc' },
+      include: {
+        customer: { select: { id: true, name: true, customerCode: true, phone: true } },
+        lines: {
+          include: {
+            product: { select: { id: true, name: true, productCode: true } },
+          },
+        },
+      },
+    });
+
+    const hireInstallments = hireSalesRecords.map((hs) => ({
+      id: hs.id,
+      invoiceNo: hs.invoiceNo,
+      date: hs.date.toISOString(),
+      customer: hs.customer
+        ? {
+            id: hs.customer.id,
+            name: hs.customer.name,
+            customerCode: hs.customer.customerCode,
+            phone: hs.customer.phone,
+          }
+        : null,
+      hireRate: hs.hireRate,
+      duration: hs.duration,
+      installmentAmount: hs.installmentAmount,
+      totalPaid: hs.totalPaid,
+      grandTotal: hs.grandTotal,
+      balanceAmount: hs.grandTotal - hs.totalPaid,
+      currentStatus: hs.currentStatus,
+      nextPaymentDate: hs.nextPaymentDate ? hs.nextPaymentDate.toISOString() : null,
+      returnDate: hs.returnDate ? hs.returnDate.toISOString() : null,
+      products: hs.lines.map((l) => ({
+        id: l.product?.id,
+        name: l.product?.name,
+        productCode: l.product?.productCode,
+        quantity: l.quantity,
+        rate: l.rate,
+        total: l.total,
+      })),
+    }));
+
     return NextResponse.json({
       totalProducts,
       activeProducts,
@@ -157,26 +243,20 @@ export async function GET() {
       totalIncome,
       totalPurchases,
       netProfit,
-      stockValue: (stockValue._sum.costPrice || 0) * (stockValue._sum.openingStock || 1),
-      cashBalance: bankBalance._sum.openingBalance || 0,
+      stockValue,
+      cashBalance: bankBalance._sum.currentBalance || 0,
       recentActivities,
       topSellingProducts,
       monthlySalesData,
       monthlyPurchaseData: monthlySalesData.map(m => ({ month: m.month, purchase: m.purchase })),
-      lowStockProducts: lowStockProducts.map(p => ({
-        id: p.id,
-        name: p.name,
-        productCode: p.productCode,
-        currentStock: Number(p.openingStock),
-        reorderLevel: Number(p.reorderLevel),
-        category: p.category?.name || 'Unknown',
-      })),
+      lowStockProducts,
       pendingOrders: { pendingPOCount, pendingSOCount },
       categoryDistribution: categoryDistribution.filter(c => c._count.products > 0).map(c => ({
         id: c.id,
         name: c.name,
         count: c._count.products,
       })),
+      hireInstallments,
     });
   } catch (error) {
     console.error('Dashboard API error:', error);

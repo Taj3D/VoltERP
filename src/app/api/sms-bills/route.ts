@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/sms-bills - List all SMS bills with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SmsBills', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const smsBills = await db.smsBill.findMany({
       include: {
@@ -22,6 +25,8 @@ export async function GET() {
 
 // POST /api/sms-bills - Create SMS bill
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SmsBills', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const { period, totalSms, totalCost, paidAmount, status } = body;
@@ -44,6 +49,18 @@ export async function POST(request: NextRequest) {
         },
         include: {
           payments: true,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'SmsBills',
+          recordId: smsBill.id,
+          recordLabel: smsBill.period || smsBill.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ period, totalSms, totalCost, status: smsBill.status }),
         },
       });
 

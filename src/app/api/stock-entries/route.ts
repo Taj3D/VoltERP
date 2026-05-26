@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/stock-entries - List all stock entries with filters
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'StockEntries', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
@@ -43,6 +46,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/stock-entries - Create a stock entry
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'StockEntries', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const { productId, godownId, type, quantity, reference, referenceType, date } = body;

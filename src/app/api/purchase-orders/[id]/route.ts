@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
 
 // GET /api/purchase-orders/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'PurchaseOrders', 'GET');
+  if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
     const purchaseOrder = await db.purchaseOrder.findUnique({
@@ -43,18 +47,52 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'PurchaseOrders', 'PUT');
+  if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
     const body = await request.json();
-    const { supplierId, date, godownId, notes, status, lines } = body;
+    const { supplierId, date, godownId, notes, status, discount, vatPercentage, lines } = body;
 
-    // Calculate grandTotal from lines if provided
-    const grandTotal = lines
-      ? lines.reduce(
-          (sum: number, line: { total: number }) => sum + (line.total || 0),
-          0
-        )
-      : undefined;
+    // Period-close lock check: use request date or existing record's date
+    const existing = await db.purchaseOrder.findUnique({ where: { id }, select: { date: true } });
+    const periodLock = await checkPeriodClose(date ? new Date(date) : existing?.date || new Date());
+    if (periodLock) return periodLock;
+
+    // Calculate totals from lines if provided (with server-side hardening)
+    let subTotal: number | undefined;
+    let vatAmount: number | undefined;
+    let grandTotal: number | undefined;
+    let processedLines: any[] | undefined;
+    const totalDiscount = discount ?? 0;
+    const vatPct = vatPercentage ?? 0;
+
+    if (lines) {
+      processedLines = lines.map((line: any) => {
+        const lineQty = Number(line.quantity) || 0;
+        const lineRate = Number(line.rate) || 0;
+        const lineDiscPct = Number(line.discountPercent) || 0;
+        const lineDiscAmt = Number(line.discountAmount) || Math.round(lineQty * lineRate * (lineDiscPct / 100) * 100) / 100;
+        const lineGross = Math.round(lineQty * lineRate * 100) / 100;
+        const afterLineDisc = Math.round((lineGross - lineDiscAmt) * 100) / 100;
+        const lineVatAmt = Number(line.vatAmount) || 0;
+        const lineTotal = Math.round((afterLineDisc + lineVatAmt) * 100) / 100;
+        return {
+          productId: line.productId,
+          quantity: lineQty,
+          rate: lineRate,
+          discountPercent: lineDiscPct,
+          discountAmount: lineDiscAmt,
+          vatAmount: lineVatAmt,
+          total: lineTotal,
+        };
+      });
+      subTotal = Math.round(processedLines.reduce((sum, l) => sum + l.total, 0) * 100) / 100;
+      const afterDiscount = subTotal - totalDiscount;
+      vatAmount = Math.round(afterDiscount * (vatPct / 100) * 100) / 100;
+      grandTotal = Math.round((afterDiscount + vatAmount) * 100) / 100;
+    }
 
     const result = await db.$transaction(async (tx) => {
       // Delete existing lines if lines are provided
@@ -72,22 +110,22 @@ export async function PUT(
           ...(godownId !== undefined && { godownId: godownId || null }),
           ...(notes !== undefined && { notes }),
           ...(status && { status }),
+          ...(discount !== undefined && { discount: totalDiscount }),
+          ...(vatPercentage !== undefined && { vatPercentage: vatPct }),
+          ...(subTotal !== undefined && { subTotal }),
+          ...(vatAmount !== undefined && { vatAmount }),
           ...(grandTotal !== undefined && { grandTotal }),
-          ...(lines && {
+          ...(processedLines && {
             lines: {
-              create: lines.map(
-                (line: {
-                  productId: string;
-                  quantity: number;
-                  rate: number;
-                  total: number;
-                }) => ({
-                  productId: line.productId,
-                  quantity: line.quantity,
-                  rate: line.rate,
-                  total: line.total,
-                })
-              ),
+              create: processedLines.map((line) => ({
+                productId: line.productId,
+                quantity: line.quantity,
+                rate: line.rate,
+                discountPercent: line.discountPercent,
+                discountAmount: line.discountAmount,
+                vatAmount: line.vatAmount,
+                total: line.total,
+              })),
             },
           }),
         },
@@ -95,6 +133,17 @@ export async function PUT(
           supplier: true,
           godown: true,
           lines: { include: { product: true } },
+        },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'PurchaseOrders',
+          recordId: id,
+          recordLabel: purchaseOrder.poNumber,
+          details: JSON.stringify({ status, grandTotal }),
         },
       });
 
@@ -113,13 +162,24 @@ export async function PUT(
 
 // DELETE /api/purchase-orders/[id]
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'PurchaseOrders', 'DELETE');
+  if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
 
+    // Period-close lock check: use existing record's date
+    const existing = await db.purchaseOrder.findUnique({ where: { id }, select: { date: true } });
+    const periodLock = await checkPeriodClose(existing?.date || new Date());
+    if (periodLock) return periodLock;
+
     await db.$transaction(async (tx) => {
+      // Get PO number for audit
+      const po = await tx.purchaseOrder.findUnique({ where: { id }, select: { poNumber: true } });
+
       // Delete lines first (cascade should handle this, but be explicit)
       await tx.purchaseOrderLine.deleteMany({
         where: { purchaseOrderId: id },
@@ -127,6 +187,16 @@ export async function DELETE(
 
       await tx.purchaseOrder.delete({
         where: { id },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'PurchaseOrders',
+          recordId: id,
+          recordLabel: po?.poNumber || id,
+        },
       });
     });
 

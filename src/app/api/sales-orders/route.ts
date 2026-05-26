@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
 
 // GET /api/sales-orders - List all sales orders with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SalesOrders', 'GET');
+  if (!security.authorized) return security.response;
+
   try {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+    const customerId = searchParams.get('customerId');
+
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (customerId) where.customerId = customerId;
+
     const salesOrders = await db.salesOrder.findMany({
+      where,
       include: {
         customer: true,
         godown: true,
@@ -29,9 +42,12 @@ export async function GET() {
 
 // POST /api/sales-orders - Create sales order with lines
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SalesOrders', 'POST');
+  if (!security.authorized) return security.response;
+
   try {
     const body = await request.json();
-    const { customerId, date, godownId, discount, paymentOptionId, notes, lines } =
+    const { customerId, date, godownId, discount, paymentOptionId, notes, vatPercentage, lines } =
       body;
 
     if (!customerId || !date || !lines || lines.length === 0) {
@@ -41,14 +57,71 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate grandTotal from lines minus discount
-    const lineTotal = lines.reduce(
-      (sum: number, line: { total: number }) => sum + (line.total || 0),
-      0
-    );
-    const grandTotal = lineTotal - (discount || 0);
+    // Period-close lock check
+    const periodLock = await checkPeriodClose(new Date(date));
+    if (periodLock) return periodLock;
 
-    // Auto-generate invoiceNo
+    // Calculate line-level totals server-side to prevent floating-point drift
+    const processedLines = lines.map((line: any) => {
+      const lineQty = Number(line.quantity) || 0;
+      const lineRate = Number(line.rate) || 0;
+      const lineDiscPct = Number(line.discountPercent) || 0;
+      const lineDiscAmt = Number(line.discountAmount) || Math.round(lineQty * lineRate * (lineDiscPct / 100) * 100) / 100;
+      const lineGross = Math.round(lineQty * lineRate * 100) / 100;
+      const afterLineDisc = Math.round((lineGross - lineDiscAmt) * 100) / 100;
+      const lineVatAmt = Number(line.vatAmount) || 0;
+      const lineTotal = Math.round((afterLineDisc + lineVatAmt) * 100) / 100;
+      return {
+        productId: line.productId,
+        quantity: lineQty,
+        rate: lineRate,
+        discountPercent: lineDiscPct,
+        discountAmount: lineDiscAmt,
+        vatAmount: lineVatAmt,
+        total: lineTotal,
+      };
+    });
+    const subTotal = Math.round(processedLines.reduce((sum, l) => sum + l.total, 0) * 100) / 100;
+
+    const totalDiscount = discount || 0;
+    const vatPct = vatPercentage || 0;
+
+    // Credit limit validation: outstanding = total orders - total collections
+    const customer = await db.customer.findUnique({ where: { id: customerId } });
+    if (customer && customer.creditLimit > 0) {
+      const subTotalCalc = processedLines.reduce((sum, l) => sum + l.total, 0);
+      const afterDiscountCalc = subTotalCalc - totalDiscount;
+      const vatAmtCalc = Math.round(afterDiscountCalc * (vatPct / 100) * 100) / 100;
+      const grandTotalCalc = Math.round((afterDiscountCalc + vatAmtCalc) * 100) / 100;
+
+      // Outstanding balance = total order value - total cash collections received
+      const existingOrders = await db.salesOrder.findMany({
+        where: { customerId, status: { not: 'Cancelled' } },
+        select: { grandTotal: true },
+      });
+      const totalOrderValue = existingOrders.reduce((sum, o) => sum + o.grandTotal, 0);
+
+      const existingCollections = await db.cashCollection.findMany({
+        where: { customerId, status: 'Approved', isActive: true },
+        select: { amount: true },
+      });
+      const totalCollections = existingCollections.reduce((sum, c) => sum + c.amount, 0);
+
+      const outstandingBalance = totalOrderValue - totalCollections;
+
+      if (outstandingBalance + grandTotalCalc > customer.creditLimit) {
+        return NextResponse.json(
+          { error: `Credit limit exceeded. Outstanding: ৳${outstandingBalance.toLocaleString()}, New Order: ৳${grandTotalCalc.toLocaleString()}, Limit: ৳${customer.creditLimit.toLocaleString()}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    const afterDiscount = subTotal - totalDiscount;
+    const vatAmount = Math.round(afterDiscount * (vatPct / 100) * 100) / 100;
+    const grandTotal = Math.round((afterDiscount + vatAmount) * 100) / 100;
+
+    // Auto-generate invoiceNo with 5-digit padding: SO-XXXXX
     const lastSO = await db.salesOrder.findFirst({
       orderBy: { createdAt: 'desc' },
       select: { invoiceNo: true },
@@ -56,12 +129,12 @@ export async function POST(request: NextRequest) {
 
     let nextNum = 1;
     if (lastSO?.invoiceNo) {
-      const match = lastSO.invoiceNo.match(/INV-(\d+)/);
+      const match = lastSO.invoiceNo.match(/SO-(\d+)/);
       if (match) {
         nextNum = parseInt(match[1], 10) + 1;
       }
     }
-    const invoiceNo = `INV-${String(nextNum).padStart(3, '0')}`;
+    const invoiceNo = `SO-${String(nextNum).padStart(5, '0')}`;
 
     const result = await db.$transaction(async (tx) => {
       // Create sales order with lines
@@ -71,24 +144,23 @@ export async function POST(request: NextRequest) {
           customerId,
           date: new Date(date),
           godownId: godownId || null,
-          discount: discount || 0,
+          subTotal,
+          discount: totalDiscount,
+          vatPercentage: vatPct,
+          vatAmount,
           grandTotal,
           paymentOptionId: paymentOptionId || null,
           notes: notes || null,
           lines: {
-            create: lines.map(
-              (line: {
-                productId: string;
-                quantity: number;
-                rate: number;
-                total: number;
-              }) => ({
-                productId: line.productId,
-                quantity: line.quantity,
-                rate: line.rate,
-                total: line.total,
-              })
-            ),
+            create: processedLines.map((line) => ({
+              productId: line.productId,
+              quantity: line.quantity,
+              rate: line.rate,
+              discountPercent: line.discountPercent,
+              discountAmount: line.discountAmount,
+              vatAmount: line.vatAmount,
+              total: line.total,
+            })),
           },
         },
         include: {
@@ -100,7 +172,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Create StockEntry for each line (type="OUT")
-      for (const line of lines) {
+      for (const line of processedLines) {
         await tx.stockEntry.create({
           data: {
             productId: line.productId,
@@ -113,6 +185,17 @@ export async function POST(request: NextRequest) {
           },
         });
       }
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'SalesOrders',
+          recordId: salesOrder.id,
+          recordLabel: invoiceNo,
+          details: JSON.stringify({ customerId, grandTotal, lineCount: processedLines.length }),
+        },
+      });
 
       return salesOrder;
     });

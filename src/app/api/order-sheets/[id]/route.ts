@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/order-sheets/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'OrderSheets', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const orderSheet = await db.orderSheet.findUnique({
@@ -41,6 +44,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'OrderSheets', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -88,6 +93,18 @@ export async function PUT(
         },
       });
 
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'OrderSheets',
+          recordId: orderSheet.id,
+          recordLabel: orderSheet.sheetNo || orderSheet.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ sheetNo: orderSheet.sheetNo, status: orderSheet.status }),
+        },
+      });
+
       return orderSheet;
     });
 
@@ -103,20 +120,38 @@ export async function PUT(
 
 // DELETE /api/order-sheets/[id]
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'OrderSheets', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
 
     await db.$transaction(async (tx) => {
-      await tx.orderSheetLine.deleteMany({
-        where: { orderSheetId: id },
+      const record = await tx.orderSheet.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
+
+      // OrderSheet has no external FK references (lines are cascade-deleted)
+      // Safe to soft-delete
+      await tx.orderSheet.update({
+        where: { id },
+        data: { isActive: false },
       });
 
-      await tx.orderSheet.delete({
-        where: { id },
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'OrderSheets',
+          recordId: record.id,
+          recordLabel: record.sheetNo || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ sheetNo: record.sheetNo, softDelete: true }),
+        },
       });
+
+      return record;
     });
 
     return NextResponse.json({ message: 'Order sheet deleted successfully' });

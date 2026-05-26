@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/order-sheets - List all order sheets with relations
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'OrderSheets', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
     const customerId = searchParams.get('customerId');
     const status = searchParams.get('status');
 
-    const where: any = {};
+    const where: any = { isActive: true };
     if (companyId) where.companyId = companyId;
     if (customerId) where.customerId = customerId;
     if (status) where.status = status;
@@ -39,6 +42,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/order-sheets - Create order sheet with lines
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'OrderSheets', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await request.json();
     const { date, notes, companyId, customerId, lines } = body;
@@ -95,6 +100,18 @@ export async function POST(request: NextRequest) {
           company: true,
           customer: true,
           lines: { include: { product: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'OrderSheets',
+          recordId: orderSheet.id,
+          recordLabel: orderSheet.sheetNo || orderSheet.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ sheetNo, companyId, customerId, lineCount: lines.length }),
         },
       });
 

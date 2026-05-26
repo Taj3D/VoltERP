@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/stock-details?productId=xxx - Return all StockEntry records for a product
 // GET /api/stock-details - Return all products with stock summaries
 export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Stock', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get('productId');

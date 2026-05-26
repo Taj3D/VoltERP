@@ -1,43 +1,92 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function GET() {
+// GET /api/reports/profit-loss - Enhanced with date range, COGS formula, VAT Auditor mode
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
-    // Revenue: Sum of all confirmed SalesOrder grandTotals + all Incomes
+    const { searchParams } = new URL(request.url);
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+    const hideMargins = searchParams.get('hideMargins'); // VAT Auditor mode
+
+    // Build date filters
+    const dateFilterSO: Record<string, Date> = {};
+    const dateFilterPO: Record<string, Date> = {};
+    const dateFilterIncome: Record<string, unknown> = {};
+    const dateFilterExpense: Record<string, unknown> = {};
+
+    if (from) {
+      dateFilterSO.gte = new Date(from);
+      dateFilterPO.gte = new Date(from);
+      dateFilterIncome.date = { gte: new Date(from) };
+      dateFilterExpense.date = { gte: new Date(from) };
+    }
+    if (to) {
+      dateFilterSO.lte = new Date(to);
+      dateFilterPO.lte = new Date(to);
+      if (dateFilterIncome.date) {
+        (dateFilterIncome.date as Record<string, Date>).lte = new Date(to);
+      } else {
+        dateFilterIncome.date = { lte: new Date(to) };
+      }
+      if (dateFilterExpense.date) {
+        (dateFilterExpense.date as Record<string, Date>).lte = new Date(to);
+      } else {
+        dateFilterExpense.date = { lte: new Date(to) };
+      }
+    }
+
+    // FIX PL-001: Include multiple non-Draft/non-Cancelled statuses instead of only 'Confirmed'
+    const salesWhere: Record<string, unknown> = { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true };
+    if (from || to) salesWhere.date = dateFilterSO;
+
+    const purchaseWhere: Record<string, unknown> = { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true };
+    if (from || to) purchaseWhere.date = dateFilterPO;
+
+    // Income and expenses: include Approved status (already filtered by isActive)
+    const incomeWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...dateFilterIncome };
+    const expenseWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...dateFilterExpense };
+
     const [confirmedSales, allIncomes, confirmedPurchases, allExpenses] = await Promise.all([
       db.salesOrder.findMany({
-        where: { status: 'Confirmed' },
+        where: salesWhere,
         select: { grandTotal: true, date: true },
       }),
       db.income.findMany({
-        where: { isActive: true },
+        where: incomeWhere,
         include: { head: true, paymentOption: true },
       }),
       db.purchaseOrder.findMany({
-        where: { status: 'Confirmed' },
+        where: purchaseWhere,
         select: { grandTotal: true, date: true },
       }),
       db.expense.findMany({
-        where: { isActive: true },
+        where: expenseWhere,
         include: { head: true, paymentOption: true },
       }),
     ]);
 
+    // Net Revenue = Sales Revenue + Other Income
     const salesRevenue = confirmedSales.reduce((sum, s) => sum + s.grandTotal, 0);
     const totalIncome = allIncomes.reduce((sum, i) => sum + i.amount, 0);
     const revenue = salesRevenue + totalIncome;
 
-    // Cost of Goods: Sum of all confirmed PurchaseOrder grandTotals
+    // COGS = Sum of confirmed Purchase Orders
     const costOfGoods = confirmedPurchases.reduce((sum, p) => sum + p.grandTotal, 0);
 
-    // Gross Profit
+    // Gross Profit = Net Revenue - COGS
     const grossProfit = revenue - costOfGoods;
+    const grossProfitMargin = revenue > 0 ? ((grossProfit / revenue) * 100).toFixed(2) : '0.00';
 
-    // Operating Expenses: Sum of all Expenses
+    // Operating Expenses
     const operatingExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-    // Net Profit
+    // Net Margin = Gross Profit - Operating Expenses
     const netProfit = grossProfit - operatingExpenses;
+    const netProfitMargin = revenue > 0 ? ((netProfit / revenue) * 100).toFixed(2) : '0.00';
 
     // Income details grouped by head
     const incomeByHead = new Map<string, { head: string; amount: number; count: number }>();
@@ -65,39 +114,77 @@ export async function GET() {
       }
     }
 
-    // Monthly breakdown for charts (last 12 months)
+    // Monthly breakdown
     const now = new Date();
-    const monthlyData: { month: string; revenue: number; expenses: number; profit: number; profitMargin: number }[] = [];
-    for (let i = 11; i >= 0; i--) {
+    const monthsToGenerate = 12;
+    const monthlyData: {
+      month: string;
+      revenue: number;
+      cogs: number;
+      grossProfit: number;
+      expenses: number;
+      netMargin: number | string;
+      profit: number;
+      profitMargin: number | string;
+    }[] = [];
+
+    for (let i = monthsToGenerate - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const monthStr = d.toLocaleString('en', { month: 'short', year: '2-digit' });
       const year = d.getFullYear();
       const month = d.getMonth();
 
       const monthSales = confirmedSales
-        .filter(s => { const sd = new Date(s.date); return sd.getFullYear() === year && sd.getMonth() === month; })
+        .filter((s) => {
+          const sd = new Date(s.date);
+          return sd.getFullYear() === year && sd.getMonth() === month;
+        })
         .reduce((sum, s) => sum + s.grandTotal, 0);
       const monthIncome = allIncomes
-        .filter(i => { const id = new Date(i.date); return id.getFullYear() === year && id.getMonth() === month; })
-        .reduce((sum, i) => sum + i.amount, 0);
-      const monthPurchases = confirmedPurchases
-        .filter(p => { const pd = new Date(p.date); return pd.getFullYear() === year && pd.getMonth() === month; })
+        .filter((inc) => {
+          const id = new Date(inc.date);
+          return id.getFullYear() === year && id.getMonth() === month;
+        })
+        .reduce((sum, inc) => sum + inc.amount, 0);
+      const monthCOGS = confirmedPurchases
+        .filter((p) => {
+          const pd = new Date(p.date);
+          return pd.getFullYear() === year && pd.getMonth() === month;
+        })
         .reduce((sum, p) => sum + p.grandTotal, 0);
       const monthExpenses = allExpenses
-        .filter(e => { const ed = new Date(e.date); return ed.getFullYear() === year && ed.getMonth() === month; })
+        .filter((e) => {
+          const ed = new Date(e.date);
+          return ed.getFullYear() === year && ed.getMonth() === month;
+        })
         .reduce((sum, e) => sum + e.amount, 0);
 
       const monthRevenue = monthSales + monthIncome;
-      const monthProfit = monthRevenue - monthPurchases - monthExpenses;
+      const monthGrossProfit = monthRevenue - monthCOGS;
+      const monthNet = monthGrossProfit - monthExpenses;
 
       monthlyData.push({
         month: monthStr,
         revenue: monthRevenue,
-        expenses: monthPurchases + monthExpenses,
-        profit: monthProfit,
-        profitMargin: monthRevenue > 0 ? parseFloat(((monthProfit / monthRevenue) * 100).toFixed(1)) : 0,
+        cogs: monthCOGS,
+        grossProfit: monthGrossProfit,
+        expenses: monthExpenses,
+        profit: monthNet,
+        profitMargin: hideMargins
+          ? 'N/A (Audit Mode)'
+          : monthRevenue > 0
+            ? parseFloat(((monthNet / monthRevenue) * 100).toFixed(1))
+            : 0,
+        netMargin: hideMargins
+          ? 'N/A (Audit Mode)'
+          : monthRevenue > 0
+            ? parseFloat(((monthNet / monthRevenue) * 100).toFixed(1))
+            : 0,
       });
     }
+
+    // VAT Auditor mode: replace netProfit/netMargin with "N/A (Audit Mode)"
+    const auditMode = hideMargins === 'true';
 
     return NextResponse.json({
       revenue,
@@ -105,13 +192,16 @@ export async function GET() {
       otherIncome: totalIncome,
       costOfGoods,
       grossProfit,
-      grossProfitMargin: revenue > 0 ? ((grossProfit / revenue) * 100).toFixed(2) : '0.00',
+      grossProfitMargin,
       operatingExpenses,
-      netProfit,
-      netProfitMargin: revenue > 0 ? ((netProfit / revenue) * 100).toFixed(2) : '0.00',
+      netProfit: auditMode ? 'N/A (Audit Mode)' : netProfit,
+      netProfitMargin: auditMode ? 'N/A (Audit Mode)' : netProfitMargin,
       incomeDetails: Array.from(incomeByHead.values()),
       expenseDetails: Array.from(expenseByHead.values()),
       monthlyData,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      auditMode,
     });
   } catch (error) {
     console.error('Error calculating profit & loss:', error);

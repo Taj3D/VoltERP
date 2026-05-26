@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/replacements/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'Replacements', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const replacement = await db.replacementOrder.findUnique({
@@ -42,6 +45,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'Replacements', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -85,6 +90,18 @@ export async function PUT(
         },
       });
 
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'Replacements',
+          recordId: replacement.id,
+          recordLabel: replacement.replacementNo || replacement.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ replacementNo: replacement.replacementNo, status: replacement.status }),
+        },
+      });
+
       return replacement;
     });
 
@@ -100,20 +117,38 @@ export async function PUT(
 
 // DELETE /api/replacements/[id]
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'Replacements', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
 
     await db.$transaction(async (tx) => {
-      await tx.replacementOrderLine.deleteMany({
-        where: { replacementOrderId: id },
+      const record = await tx.replacementOrder.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
+
+      // ReplacementOrder has no external FK references (lines are cascade-deleted)
+      // Safe to soft-delete
+      await tx.replacementOrder.update({
+        where: { id },
+        data: { isActive: false },
       });
 
-      await tx.replacementOrder.delete({
-        where: { id },
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'Replacements',
+          recordId: record.id,
+          recordLabel: record.replacementNo || record.id,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ replacementNo: record.replacementNo, softDelete: true }),
+        },
       });
+
+      return record;
     });
 
     return NextResponse.json({ message: 'Replacement order deleted successfully' });

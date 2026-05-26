@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/sr-targets/[id]
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'SRTargets', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const target = await db.sRTargetSetup.findUnique({
@@ -37,6 +40,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'SRTargets', 'PUT');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
     const body = await request.json();
@@ -57,6 +62,18 @@ export async function PUT(
         },
       });
 
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'SRTargets',
+          recordId: target.id,
+          recordLabel: `${target.employee?.name || target.id} - ${target.month}/${target.year}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ employeeId, month, year, targetAmount, isActive }),
+        },
+      });
+
       return target;
     });
 
@@ -72,16 +89,40 @@ export async function PUT(
 
 // DELETE /api/sr-targets/[id]
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const security = await withApiSecurity(request, 'SRTargets', 'DELETE');
+  if (!security.authorized) return security.response;
   try {
     const { id } = await params;
 
     await db.$transaction(async (tx) => {
-      await tx.sRTargetSetup.delete({
+      const record = await tx.sRTargetSetup.findUnique({
         where: { id },
+        include: { employee: true },
       });
+      if (!record) throw new Error('Not found');
+
+      // SRTargetSetup has no FK references, safe to soft-delete
+      await tx.sRTargetSetup.update({
+        where: { id },
+        data: { isActive: false },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'SRTargets',
+          recordId: record.id,
+          recordLabel: `${record.employee?.name || record.id} - ${record.month}/${record.year}`,
+          userId: 'system',
+          userName: 'System',
+          details: JSON.stringify({ employeeId: record.employeeId, month: record.month, year: record.year, softDelete: true }),
+        },
+      });
+
+      return record;
     });
 
     return NextResponse.json({ message: 'SR target deleted successfully' });

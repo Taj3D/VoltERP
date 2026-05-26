@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
 
 // GET /api/purchase-orders - List all purchase orders with relations
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'PurchaseOrders', 'GET');
+  if (!security.authorized) return security.response;
+
   try {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+    const supplierId = searchParams.get('supplierId');
+
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+    if (supplierId) where.supplierId = supplierId;
+
     const purchaseOrders = await db.purchaseOrder.findMany({
+      where,
       include: {
         supplier: true,
         godown: true,
@@ -28,9 +41,12 @@ export async function GET() {
 
 // POST /api/purchase-orders - Create purchase order with lines
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'PurchaseOrders', 'POST');
+  if (!security.authorized) return security.response;
+
   try {
     const body = await request.json();
-    const { supplierId, date, godownId, notes, lines } = body;
+    const { supplierId, date, godownId, notes, discount, vatPercentage, lines } = body;
 
     if (!supplierId || !date || !lines || lines.length === 0) {
       return NextResponse.json(
@@ -39,13 +55,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate grandTotal from lines
-    const grandTotal = lines.reduce(
-      (sum: number, line: { total: number }) => sum + (line.total || 0),
-      0
-    );
+    // Period-close lock check
+    const periodLock = await checkPeriodClose(new Date(date));
+    if (periodLock) return periodLock;
 
-    // Auto-generate poNumber
+    // Calculate line-level totals server-side to prevent floating-point drift
+    const processedLines = lines.map((line: any) => {
+      const lineQty = Number(line.quantity) || 0;
+      const lineRate = Number(line.rate) || 0;
+      const lineDiscPct = Number(line.discountPercent) || 0;
+      const lineDiscAmt = Number(line.discountAmount) || Math.round(lineQty * lineRate * (lineDiscPct / 100) * 100) / 100;
+      const lineGross = Math.round(lineQty * lineRate * 100) / 100;
+      const afterLineDisc = Math.round((lineGross - lineDiscAmt) * 100) / 100;
+      const lineVatAmt = Number(line.vatAmount) || 0;
+      const lineTotal = Math.round((afterLineDisc + lineVatAmt) * 100) / 100;
+      return {
+        productId: line.productId,
+        quantity: lineQty,
+        rate: lineRate,
+        discountPercent: lineDiscPct,
+        discountAmount: lineDiscAmt,
+        vatAmount: lineVatAmt,
+        total: lineTotal,
+      };
+    });
+    const subTotal = Math.round(processedLines.reduce((sum, l) => sum + l.total, 0) * 100) / 100;
+
+    const totalDiscount = discount || 0;
+    const vatPct = vatPercentage || 0;
+    const afterDiscount = subTotal - totalDiscount;
+    const vatAmount = Math.round(afterDiscount * (vatPct / 100) * 100) / 100;
+    const grandTotal = Math.round((afterDiscount + vatAmount) * 100) / 100;
+
+    // Auto-generate poNumber with 5-digit padding: PO-XXXXX
     const lastPO = await db.purchaseOrder.findFirst({
       orderBy: { createdAt: 'desc' },
       select: { poNumber: true },
@@ -58,7 +100,7 @@ export async function POST(request: NextRequest) {
         nextNum = parseInt(match[1], 10) + 1;
       }
     }
-    const poNumber = `PO-${String(nextNum).padStart(3, '0')}`;
+    const poNumber = `PO-${String(nextNum).padStart(5, '0')}`;
 
     const result = await db.$transaction(async (tx) => {
       // Create purchase order with lines
@@ -68,22 +110,22 @@ export async function POST(request: NextRequest) {
           supplierId,
           date: new Date(date),
           godownId: godownId || null,
-          notes: notes || null,
+          subTotal,
+          discount: totalDiscount,
+          vatPercentage: vatPct,
+          vatAmount,
           grandTotal,
+          notes: notes || null,
           lines: {
-            create: lines.map(
-              (line: {
-                productId: string;
-                quantity: number;
-                rate: number;
-                total: number;
-              }) => ({
-                productId: line.productId,
-                quantity: line.quantity,
-                rate: line.rate,
-                total: line.total,
-              })
-            ),
+            create: processedLines.map((line) => ({
+              productId: line.productId,
+              quantity: line.quantity,
+              rate: line.rate,
+              discountPercent: line.discountPercent,
+              discountAmount: line.discountAmount,
+              vatAmount: line.vatAmount,
+              total: line.total,
+            })),
           },
         },
         include: {
@@ -94,7 +136,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Create StockEntry for each line (type="IN")
-      for (const line of lines) {
+      for (const line of processedLines) {
         await tx.stockEntry.create({
           data: {
             productId: line.productId,
@@ -107,6 +149,17 @@ export async function POST(request: NextRequest) {
           },
         });
       }
+
+      // Create audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'PurchaseOrders',
+          recordId: purchaseOrder.id,
+          recordLabel: poNumber,
+          details: JSON.stringify({ supplierId, grandTotal, lineCount: processedLines.length }),
+        },
+      });
 
       return purchaseOrder;
     });

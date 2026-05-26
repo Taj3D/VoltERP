@@ -1,8 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withApiSecurity } from '@/lib/api-security';
 
 // GET /api/auto-po - Find products below reorder level and suggest PO quantities
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'AutoPO', 'GET');
+  if (!security.authorized) return security.response;
   try {
     // Get all active products
     const products = await db.product.findMany({

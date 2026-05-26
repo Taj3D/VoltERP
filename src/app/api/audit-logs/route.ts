@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { PrismaClient } from "@prisma/client";
+import { withApiSecurity } from '@/lib/api-security';
 
 function getAuditDb() {
   if (typeof (db as any).auditLog !== "undefined") return db;
@@ -9,6 +10,8 @@ function getAuditDb() {
 }
 
 export async function GET(req: NextRequest) {
+  const security = await withApiSecurity(req, 'AuditLogs', 'GET');
+  if (!security.authorized) return security.response;
   try {
     const auditDb = getAuditDb();
     const url = new URL(req.url);
@@ -65,6 +68,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const security = await withApiSecurity(req, 'AuditLogs', 'POST');
+  if (!security.authorized) return security.response;
   try {
     const body = await req.json();
     const log = await auditDb.auditLog.create({

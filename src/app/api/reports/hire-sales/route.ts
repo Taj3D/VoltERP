@@ -1,8 +1,18 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Reports', 'GET');
+  if (!security.authorized) return security.response;
   try {
+    // VAT-001: Validate vatMode
+    const { searchParams } = new URL(request.url);
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
+
     const hireSales = await db.hireSales.findMany({
       where: { isActive: true },
       include: {
@@ -84,8 +94,8 @@ export async function GET() {
         totalHireSales: hireSales.length,
         activeCount,
         returnedCount,
-        totalHireValue,
-        totalOutstanding,
+        totalHireValue: vatMode ? 'N/A (Audit Mode)' : totalHireValue,
+        totalOutstanding: vatMode ? 'N/A (Audit Mode)' : totalOutstanding,
       },
     });
   } catch (error) {
