@@ -138,7 +138,11 @@ function TypeIcon({ type }: { type: string }) {
     case "PeriodClose":
       return <Info className="w-3.5 h-3.5 text-amber-500 shrink-0" />;
     case "BalanceMismatch":
-      return <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />;
+      return <XCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />;
+    case "CreditLimitExceeded":
+      return <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0" />;
+    case "TransferDelay":
+      return <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />;
     case "System":
     default:
       return <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />;
@@ -180,8 +184,10 @@ export default function AppHeader({
   // ── Notification State ──
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [severityBreakdown, setSeverityBreakdown] = useState<{ critical: number; warning: number; info: number }>({ critical: 0, warning: 0, info: 0 });
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<"all" | "critical" | "warning">("all");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── User Menu State ──
@@ -203,13 +209,20 @@ export default function AppHeader({
         }, user.email);
       }
       const res = await notifFetch(
-        `/api/notifications?limit=20&isRead=false`,
+        `/api/notifications?limit=50&isRead=false`,
         undefined,
         user.email
       );
       if (res.success) {
         setNotifications(res.data || []);
         setUnreadCount(res.count || 0);
+        if (res.critical !== undefined) {
+          setSeverityBreakdown({
+            critical: res.critical || 0,
+            warning: res.warning || 0,
+            info: res.info || 0,
+          });
+        }
       }
     } catch (err) {
       console.error("Failed to load notifications:", err);
@@ -299,6 +312,7 @@ export default function AppHeader({
         "/stock-details": "stock-details",
         "/sales-orders": "sales-orders",
         "/purchase-orders": "purchase-orders",
+        "/customers": "customers",
       };
       const pageKey = urlMap[notif.actionUrl] || notif.actionUrl.replace("/", "");
       onNavigate(pageKey);
@@ -409,9 +423,9 @@ export default function AppHeader({
                 size="sm"
                 className="relative text-muted-foreground"
               >
-                <Bell className="w-4 h-4" />
+                <Bell className={`w-4 h-4 ${unreadCount > 0 ? "animate-[swing_0.5s_ease-in-out]" : ""}`} />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-[10px] text-white flex items-center justify-center font-bold px-1 leading-none">
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-red-500 text-[10px] text-white flex items-center justify-center font-bold px-1 leading-none shadow-sm shadow-red-500/30">
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 )}
@@ -453,6 +467,35 @@ export default function AppHeader({
                     )}
                   </div>
                 </div>
+                {/* Severity Breakdown */}
+                {unreadCount > 0 && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${activeFilter === "all" ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"}`}
+                      onClick={() => setActiveFilter("all")}
+                    >
+                      All ({unreadCount})
+                    </button>
+                    {severityBreakdown.critical > 0 && (
+                      <button
+                        className={`text-[10px] px-2 py-0.5 rounded-full transition-colors flex items-center gap-1 ${activeFilter === "critical" ? "bg-red-500 text-white" : "bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40"}`}
+                        onClick={() => setActiveFilter("critical")}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                        Critical ({severityBreakdown.critical})
+                      </button>
+                    )}
+                    {severityBreakdown.warning > 0 && (
+                      <button
+                        className={`text-[10px] px-2 py-0.5 rounded-full transition-colors flex items-center gap-1 ${activeFilter === "warning" ? "bg-amber-500 text-white" : "bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40"}`}
+                        onClick={() => setActiveFilter("warning")}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        Warning ({severityBreakdown.warning})
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Notification List */}
@@ -467,7 +510,13 @@ export default function AppHeader({
                   </div>
                 ) : (
                   <div className="divide-y">
-                    {notifications.map((notif) => (
+                    {notifications
+                      .filter(n => {
+                        if (activeFilter === "critical") return n.severity === "Critical";
+                        if (activeFilter === "warning") return n.severity === "Warning";
+                        return true;
+                      })
+                      .map((notif) => (
                       <div
                         key={notif.id}
                         className={`p-3 hover:bg-muted/50 cursor-pointer transition-colors group ${

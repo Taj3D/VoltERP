@@ -2,6 +2,9 @@
 // NOTIFICATIONS API — Full CRUD + Auto-Generate + Header Polling
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
 // Server-side RBAC via withApiSecurity(), Period Close, VAT Masking
+// Enhanced: BalanceMismatch, CreditLimitExceeded, TransferDelay alerts
+// Enhanced: all=true query param, severity breakdown in countOnly
+// Enhanced: VAT masking extended to HireSales module
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -33,6 +36,9 @@ function maskVatInMessage(message: string, isVatAuditor: boolean): string {
   return message.replace(/৳[\d,]+\.?\d*/g, 'N/A (Audit Mode)');
 }
 
+// Modules where VAT Auditor masking applies to currency values
+const VAT_MASKED_MODULES = ['Ledger', 'Financial', 'PeriodClose', 'HireSales'];
+
 // Role-based notification module filter
 function getRoleModuleFilter(role: UserRole): Record<string, unknown> {
   switch (role) {
@@ -56,6 +62,8 @@ function getRoleModuleFilter(role: UserRole): Record<string, unknown> {
 
 // GET /api/notifications — List + Count + Auto-Generate
 // Returns: { success: true, count: <unreadCount>, data: [...] }
+// Enhanced: all=true returns both read and unread notifications
+// Enhanced: countOnly returns severity breakdown { count, critical, warning, info }
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Reports', 'GET');
   if (!security.authorized) return security.response;
@@ -83,6 +91,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
     const countOnly = searchParams.get('countOnly') === 'true';
+    const all = searchParams.get('all') === 'true';
 
     // Merge filters
     const where: Record<string, unknown> = {
@@ -92,9 +101,14 @@ export async function GET(request: NextRequest) {
 
     if (type) where.type = type;
     if (severity) where.severity = severity;
-    if (isRead !== null && isRead !== undefined && isRead !== '') {
+
+    // When all=true, don't filter by isRead (return both read AND unread)
+    if (all) {
+      // No isRead filter — return all notifications
+    } else if (isRead !== null && isRead !== undefined && isRead !== '') {
       where.isRead = isRead === 'true';
     }
+
     if (modFilter) {
       // SR: block Ledger/Financial module filter
       if (userRole === 'sr' && (modFilter === 'Ledger' || modFilter === 'Financial')) {
@@ -104,11 +118,30 @@ export async function GET(request: NextRequest) {
     }
 
     // Count-only mode for lightweight header badge polling
+    // Enhanced: also return severity breakdown
     if (countOnly) {
-      const unreadCount = await db.notification.count({
-        where: { ...roleFilter, isRead: false, isDismissed: false },
+      const baseWhere = { ...roleFilter, isDismissed: false };
+
+      // If all=true, don't filter by isRead for count either
+      const countWhere = all
+        ? baseWhere
+        : { ...baseWhere, isRead: false };
+
+      const [unreadCount, criticalCount, warningCount, infoCount] = await Promise.all([
+        db.notification.count({ where: countWhere }),
+        db.notification.count({ where: { ...countWhere, severity: 'Critical' } }),
+        db.notification.count({ where: { ...countWhere, severity: 'Warning' } }),
+        db.notification.count({ where: { ...countWhere, severity: 'Info' } }),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        count: unreadCount,
+        critical: criticalCount,
+        warning: warningCount,
+        info: infoCount,
+        data: [],
       });
-      return NextResponse.json({ success: true, count: unreadCount, data: [] });
     }
 
     // Full fetch: unread first, then newest
@@ -125,13 +158,13 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    // Apply VAT Auditor masking to message content for financial modules
+    // Apply VAT Auditor masking to message content for financial + hire-sales modules
     const masked = notifications.map((n: any) => ({
       ...n,
-      message: isVatAuditor && (n.module === 'Ledger' || n.module === 'Financial' || n.module === 'PeriodClose')
+      message: isVatAuditor && VAT_MASKED_MODULES.includes(n.module)
         ? maskVatInMessage(maskForVat(n.message, true), true)
         : n.message,
-      title: isVatAuditor && (n.module === 'Ledger' || n.module === 'Financial' || n.module === 'PeriodClose')
+      title: isVatAuditor && VAT_MASKED_MODULES.includes(n.module)
         ? maskVatInMessage(n.title, true)
         : n.title,
     }));
@@ -333,7 +366,8 @@ export async function PUT(request: NextRequest) {
 
 // ============================================================
 // AUTO-GENERATE NOTIFICATIONS
-// Scans for: LowStock, OverdueInstallment, DataIntegrity, PeriodClose
+// Scans for: LowStock, OverdueInstallment, DataIntegrity, PeriodClose,
+//            BalanceMismatch, CreditLimitExceeded, TransferDelay
 // All inserts within db.$transaction() for atomic consistency
 // ============================================================
 async function generateNotifications(
@@ -541,6 +575,183 @@ async function generateNotifications(
           }
         }
       }
+
+      // ─────────────────────────────────────────────────────────
+      // 5. BALANCE MISMATCH ALERTS (Ledger Integrity)
+      //    Groups LedgerEntry by date, checks if SUM(debit) !== SUM(credit)
+      //    Only visible to Admin/Manager roles
+      // ─────────────────────────────────────────────────────────
+      if (userRole === 'admin' || userRole === 'manager') {
+        // Fetch all active ledger entries with their dates
+        const ledgerEntries = await tx.ledgerEntry.findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            entryCode: true,
+            date: true,
+            debit: true,
+            credit: true,
+          },
+          orderBy: { date: 'desc' },
+        });
+
+        // Group by date and compute totals
+        const dateGroups: Record<string, { totalDebit: number; totalCredit: number; entryCodes: string[] }> = {};
+        for (const entry of ledgerEntries) {
+          const dateKey = new Date(entry.date).toISOString().split('T')[0];
+          if (!dateGroups[dateKey]) {
+            dateGroups[dateKey] = { totalDebit: 0, totalCredit: 0, entryCodes: [] };
+          }
+          dateGroups[dateKey].totalDebit += entry.debit || 0;
+          dateGroups[dateKey].totalCredit += entry.credit || 0;
+          dateGroups[dateKey].entryCodes.push(entry.entryCode);
+        }
+
+        // Check for imbalances
+        for (const [dateKey, totals] of Object.entries(dateGroups)) {
+          const difference = Math.abs(totals.totalDebit - totals.totalCredit);
+          // Use a small epsilon to avoid floating point false positives
+          if (difference > 0.01) {
+            // Check if a BalanceMismatch notification already exists for this date
+            const existing = await tx.notification.findFirst({
+              where: {
+                type: 'BalanceMismatch',
+                isDismissed: false,
+                title: { contains: dateKey },
+              },
+            });
+
+            if (!existing) {
+              const code = await generateCodeInTx(tx, 'NOT-');
+              const notification = await tx.notification.create({
+                data: {
+                  code,
+                  type: 'BalanceMismatch',
+                  severity: 'Critical',
+                  title: `Balance Mismatch: ${dateKey}`,
+                  message: `Ledger imbalance detected on ${dateKey}. Debit total: ৳${totals.totalDebit.toLocaleString()}, Credit total: ৳${totals.totalCredit.toLocaleString()}, Difference: ৳${difference.toLocaleString()}. Affected entries: ${totals.entryCodes.slice(0, 5).join(', ')}${totals.entryCodes.length > 5 ? ` and ${totals.entryCodes.length - 5} more` : ''}.`,
+                  module: 'Ledger',
+                  referenceCode: totals.entryCodes[0] || null,
+                  actionUrl: '/chart-of-accounts',
+                },
+              });
+              created.push(notification);
+            }
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────
+      // 6. CREDIT LIMIT EXCEEDED ALERTS
+      //    Customers with outstanding balance (Dr) exceeding creditLimit
+      //    Only visible to Admin/Manager roles
+      // ─────────────────────────────────────────────────────────
+      if (userRole === 'admin' || userRole === 'manager') {
+        const customersOverLimit = await tx.customer.findMany({
+          where: {
+            isActive: true,
+            openingBalanceType: 'Dr',
+            creditLimit: { gt: 0 },
+          },
+          select: {
+            id: true,
+            customerCode: true,
+            name: true,
+            openingBalance: true,
+            openingBalanceType: true,
+            creditLimit: true,
+            customerType: true,
+          },
+        });
+
+        const exceededCustomers = customersOverLimit.filter(
+          (c: any) => c.openingBalance > c.creditLimit
+        );
+
+        for (const customer of exceededCustomers) {
+          const existing = await tx.notification.findFirst({
+            where: {
+              type: 'CreditLimitExceeded',
+              referenceId: customer.id,
+              isDismissed: false,
+            },
+          });
+
+          if (!existing) {
+            const code = await generateCodeInTx(tx, 'NOT-');
+            const overAmount = customer.openingBalance - customer.creditLimit;
+            const notification = await tx.notification.create({
+              data: {
+                code,
+                type: 'CreditLimitExceeded',
+                severity: 'Warning',
+                title: `Credit Limit Exceeded: ${customer.name}`,
+                message: `Customer ${customer.name} (${customer.customerCode}) has outstanding balance ৳${customer.openingBalance.toLocaleString()} (Dr) exceeding credit limit ৳${customer.creditLimit.toLocaleString()} by ৳${overAmount.toLocaleString()}. Type: ${customer.customerType}.`,
+                module: 'Financial',
+                referenceId: customer.id,
+                referenceCode: customer.customerCode,
+                actionUrl: '/customers',
+              },
+            });
+            created.push(notification);
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────
+      // 7. STOCK TRANSFER DELAY ALERTS
+      //    StockTransfers with shippingStatus = "In-Transit" and
+      //    shipped more than 3 days ago without delivery
+      // ─────────────────────────────────────────────────────────
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+      const delayedTransfers = await tx.stockTransfer.findMany({
+        where: {
+          shippingStatus: 'In-Transit',
+          shippedAt: { lt: threeDaysAgo },
+          isActive: true,
+        },
+        include: {
+          fromGodown: { select: { name: true } },
+          toGodown: { select: { name: true } },
+        },
+        take: 50,
+      });
+
+      for (const transfer of delayedTransfers) {
+        const existing = await tx.notification.findFirst({
+          where: {
+            type: 'TransferDelay',
+            referenceId: transfer.id,
+            isDismissed: false,
+          },
+        });
+
+        if (!existing) {
+          const code = await generateCodeInTx(tx, 'NOT-');
+          const shippedDate = transfer.shippedAt
+            ? new Date(transfer.shippedAt).toISOString().split('T')[0]
+            : 'unknown';
+          const daysInTransit = transfer.shippedAt
+            ? Math.floor((Date.now() - new Date(transfer.shippedAt).getTime()) / (1000 * 60 * 60 * 24))
+            : 0;
+          const notification = await tx.notification.create({
+            data: {
+              code,
+              type: 'TransferDelay',
+              severity: 'Warning',
+              title: `Transfer Delayed: ${transfer.transferNo}`,
+              message: `Stock transfer ${transfer.transferNo} from ${transfer.fromGodown.name} to ${transfer.toGodown.name} has been in-transit for ${daysInTransit} days (shipped: ${shippedDate}). Expected delivery within 3 days.`,
+              module: 'Stock',
+              referenceId: transfer.id,
+              referenceCode: transfer.transferNo,
+              actionUrl: '/stock',
+            },
+          });
+          created.push(notification);
+        }
+      }
     });
 
     // Audit log for generation (outside transaction to avoid double-logging)
@@ -551,20 +762,37 @@ async function generateNotifications(
         recordLabel: 'Auto-Generate',
         userId: security.user.id,
         userName: security.user.name,
-        details: JSON.stringify({ generatedCount: created.length, types: ['LowStock', 'OverdueInstallment', 'DataIntegrity', 'PeriodClose'] }),
+        details: JSON.stringify({
+          generatedCount: created.length,
+          types: ['LowStock', 'OverdueInstallment', 'DataIntegrity', 'PeriodClose', 'BalanceMismatch', 'CreditLimitExceeded', 'TransferDelay'],
+        }),
       },
     });
 
-    // Return fresh count after generation
+    // Return fresh count after generation with severity breakdown
     const roleFilter = getRoleModuleFilter(userRole as UserRole);
-    const unreadCount = await db.notification.count({
-      where: { ...roleFilter, isRead: false, isDismissed: false },
-    });
+    const [unreadCount, criticalCount, warningCount, infoCount] = await Promise.all([
+      db.notification.count({
+        where: { ...roleFilter, isRead: false, isDismissed: false },
+      }),
+      db.notification.count({
+        where: { ...roleFilter, isRead: false, isDismissed: false, severity: 'Critical' },
+      }),
+      db.notification.count({
+        where: { ...roleFilter, isRead: false, isDismissed: false, severity: 'Warning' },
+      }),
+      db.notification.count({
+        where: { ...roleFilter, isRead: false, isDismissed: false, severity: 'Info' },
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,
       generated: created.length,
       count: unreadCount,
+      critical: criticalCount,
+      warning: warningCount,
+      info: infoCount,
       data: created,
     });
   } catch (error) {

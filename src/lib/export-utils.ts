@@ -1,16 +1,17 @@
 // ============================================================
-// ELECTRONICS MART IMS — CENTRALIZED DATA UTILITY CORE
-// Export PDF (jsPDF + autoTable) | Export CSV | Import CSV
-// Production-Ready: Corporate Layout, VAT Masking, UTF-8 BOM
+// VoltERP — ELECTRONICS MART IMS
+// Centralized Export/Import Utility Core
+// Export PDF (jsPDF v4 + autoTable v5) | Export CSV | Import CSV
+// Production-Ready: Corporate Layout, VAT Masking, UTF-8 BOM,
+// Batch Insert, Row-Level Validation, Two-Pass Page Footer
 // ============================================================
 
 import { jsPDF } from "jspdf";
 import { applyPlugin } from "jspdf-autotable";
 import Papa from "papaparse";
-// PapaParse uses CJS export; the default import resolves correctly at runtime
-// @ts-expect-error — papaparse CJS/ESM interop
 
-// Register autoTable plugin on jsPDF prototype (required for v5)
+// Register autoTable plugin on jsPDF prototype (required for jspdf-autotable v5)
+// This MUST happen before any jsPDF instance is created
 applyPlugin(jsPDF);
 
 // ============================================================
@@ -35,6 +36,17 @@ export interface FieldDef {
   step?: string;
 }
 
+/** Summary row definition for PDF — appears after main table with distinct styling */
+export interface SummaryRow {
+  cells: string[];
+  style?: {
+    fillColor?: number[];
+    textColor?: number[];
+    fontStyle?: "normal" | "bold" | "italic" | "bolditalic";
+    fontSize?: number;
+  };
+}
+
 export interface PDFOptions {
   title: string;
   subtitle?: string;
@@ -44,6 +56,10 @@ export interface PDFOptions {
   isVatAuditor?: boolean;
   vatMaskedColumns?: string[];
   filename?: string;
+  /** Optional summary rows rendered below the main table with different styling */
+  summaryRows?: SummaryRow[];
+  /** Custom header callback — called on each page after the standard header is drawn */
+  customHeader?: (doc: jsPDF, pageNumber: number, pageWidth: number, pageHeight: number) => void;
 }
 
 export interface CSVOptions {
@@ -59,27 +75,43 @@ export interface ImportResult {
   imported: number;
   failed: number;
   errors: string[];
+  /** Row-level detail errors with field information */
+  fieldErrors?: Array<{
+    row: number;
+    field: string;
+    message: string;
+  }>;
 }
 
 // ============================================================
 // UTILITY: Format cell value for display
 // ============================================================
 
-function formatCellValue(value: any, type?: string, isVatAuditor?: boolean, isVatMasked?: boolean): string {
+function formatCellValue(
+  value: any,
+  type?: string,
+  isVatAuditor?: boolean,
+  isVatMasked?: boolean
+): string {
+  // VAT Auditor masking takes highest priority
   if (isVatAuditor && isVatMasked) {
     return "N/A (Audit Mode)";
   }
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "\u2014";
   if (type === "currency") {
     const num = Number(value);
-    if (isNaN(num)) return "—";
-    return `৳${num.toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (isNaN(num)) return "\u2014";
+    return `\u09F3${num.toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
   if (type === "boolean") return value ? "Active" : "Inactive";
   if (type === "date") {
-    if (!value) return "—";
+    if (!value) return "\u2014";
     try {
-      return new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+      return new Date(value).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
     } catch {
       return String(value);
     }
@@ -94,10 +126,24 @@ function formatCellValue(value: any, type?: string, isVatAuditor?: boolean, isVa
 
 // ============================================================
 // UTILITY: Escape CSV field (RFC 4180 compliant)
+// Handles commas, double quotes, line breaks, and the ৳ symbol
+// Numeric values are not quoted unless they contain special chars
 // ============================================================
 
-function escapeCSVField(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r")) {
+function escapeCSVField(value: string, isNumeric?: boolean): string {
+  // Pure numeric values don't need quoting
+  if (isNumeric && /^[0-9.,-]+$/.test(value)) {
+    return value;
+  }
+
+  const needsQuoting =
+    value.includes(",") ||
+    value.includes('"') ||
+    value.includes("\n") ||
+    value.includes("\r") ||
+    value.includes("\u09F3"); // ৳ taka symbol
+
+  if (needsQuoting) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
@@ -105,20 +151,162 @@ function escapeCSVField(value: string): string {
 
 // ============================================================
 // UTILITY: Get visible columns (respecting VAT Auditor masking)
+// VAT Auditor can see all columns, but values are masked
 // ============================================================
 
-function getVisibleColumns(columns: ColumnDef[], isVatAuditor?: boolean, vatMaskedColumns?: string[]): ColumnDef[] {
-  if (!isVatAuditor || !vatMaskedColumns || vatMaskedColumns.length === 0) {
-    return columns;
-  }
+function getVisibleColumns(
+  columns: ColumnDef[],
+  _isVatAuditor?: boolean,
+  _vatMaskedColumns?: string[]
+): ColumnDef[] {
   // VAT Auditor can still see all columns, but values are masked
+  // This function exists for future column-hiding extensions
   return columns;
+}
+
+// ============================================================
+// UTILITY: Calculate safe column widths to prevent overflow
+// ============================================================
+
+function calculateColumnWidths(
+  columnCount: number,
+  pageWidth: number,
+  margin: number
+): Record<number, { minW: number; maxW: number }> {
+  const availableWidth = pageWidth - margin * 2;
+  const maxPerColumn = availableWidth / columnCount;
+  const result: Record<number, { minW: number; maxW: number }> = {};
+  for (let i = 0; i < columnCount; i++) {
+    result[i] = { minW: 12, maxW: Math.min(maxPerColumn * 2, 80) };
+  }
+  return result;
+}
+
+// ============================================================
+// INTERNAL: Draw corporate header on a jsPDF page
+// Returns the Y position after the header for table start
+// ============================================================
+
+function drawCorporateHeader(
+  doc: jsPDF,
+  title: string,
+  subtitle: string | undefined,
+  isVatAuditor: boolean,
+  pageWidth: number,
+  margin: number
+): number {
+  const headerHeight = 28;
+
+  // Navy blue header bar
+  doc.setFillColor(10, 22, 40);
+  doc.rect(0, 0, pageWidth, headerHeight, "F");
+
+  // Company name
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text("VoltERP \u2014 Electronics Mart IMS", margin, 11);
+
+  // Report title
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(title, margin, 18);
+
+  // Subtitle / period
+  if (subtitle) {
+    doc.setFontSize(9);
+    doc.text(subtitle, margin, 23);
+  }
+
+  // Generation timestamp (right-aligned)
+  doc.setFontSize(8);
+  const now = new Date();
+  const timestamp = `Generated: ${now.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })} ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  const tsWidth = doc.getTextWidth(timestamp);
+  doc.text(timestamp, pageWidth - margin - tsWidth, 11);
+
+  // VAT Auditor badge
+  if (isVatAuditor) {
+    doc.setFillColor(245, 158, 11); // amber-500
+    const badgeText = "  VAT AUDITOR MODE  ";
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    const badgeWidth = doc.getTextWidth(badgeText) + 4;
+    doc.roundedRect(pageWidth - margin - badgeWidth, 15, badgeWidth, 7, 1, 1, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 20);
+  }
+
+  return headerHeight + 4; // 32mm start position for table
+}
+
+// ============================================================
+// INTERNAL: Draw footer on a jsPDF page
+// ============================================================
+
+function drawFooter(
+  doc: jsPDF,
+  pageNumber: number,
+  totalPagesPlaceholder: string,
+  pageWidth: number,
+  pageHeight: number,
+  margin: number
+): void {
+  const footerY = pageHeight - 8;
+
+  // Navy blue footer bar
+  doc.setFillColor(10, 22, 40);
+  doc.rect(0, pageHeight - 12, pageWidth, 12, "F");
+
+  doc.setTextColor(148, 163, 184); // slate-400
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "normal");
+
+  // Left: copyright
+  doc.text("\u00A9 NextGen Digital Studio \u2014 Electronics Mart IMS", margin, footerY);
+
+  // Right: page number (with placeholder for total)
+  const pageText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
+  doc.text(pageText, pageWidth - margin - doc.getTextWidth(pageText), footerY);
+}
+
+// ============================================================
+// INTERNAL: Fix Page X of Y with a two-pass approach
+// First pass: autoTable runs and draws placeholder {total}
+// Second pass: replace {total} with actual page count
+// ============================================================
+
+function fixPageXOfY(doc: jsPDF, pageHeight: number, pageWidth: number, margin: number): void {
+  const totalPageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPageCount; i++) {
+    doc.setPage(i);
+
+    // Overwrite the right portion of the footer bar where the page text sits
+    doc.setFillColor(10, 22, 40);
+    doc.rect(pageWidth - 55, pageHeight - 12, 55, 12, "F");
+
+    // Write the corrected page text
+    doc.setTextColor(148, 163, 184);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    const correctedText = `Page ${i} of ${totalPageCount}`;
+    doc.text(
+      correctedText,
+      pageWidth - margin - doc.getTextWidth(correctedText),
+      pageHeight - 8
+    );
+  }
 }
 
 // ============================================================
 // EXPORT PDF ENGINE
 // Corporate Layout: Landscape A4, High-Fidelity Header,
-// Alternating Row Colors, Page X of Y Footer
+// Alternating Row Colors, Page X of Y Footer (Two-Pass),
+// Summary Rows, Custom Header Callback, Column Bounds
 // ============================================================
 
 export function exportToPDF(options: PDFOptions): void {
@@ -131,6 +319,8 @@ export function exportToPDF(options: PDFOptions): void {
     isVatAuditor = false,
     vatMaskedColumns = [],
     filename,
+    summaryRows,
+    customHeader,
   } = options;
 
   try {
@@ -141,57 +331,20 @@ export function exportToPDF(options: PDFOptions): void {
     const vatMaskSet = new Set(vatMaskedColumns);
 
     // ── Corporate Header ──
-    // Navy blue header bar
-    doc.setFillColor(10, 22, 40); // #0a1628
-    doc.rect(0, 0, pageWidth, 28, "F");
-
-    // Company name
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("VoltERP — Electronics Mart IMS", margin, 11);
-
-    // Report title
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    doc.text(title, margin, 18);
-
-    // Subtitle / period
-    if (subtitle) {
-      doc.setFontSize(9);
-      doc.text(subtitle, margin, 23);
-    }
-
-    // Generation timestamp (right-aligned)
-    doc.setFontSize(8);
-    const timestamp = `Generated: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
-    const tsWidth = doc.getTextWidth(timestamp);
-    doc.text(timestamp, pageWidth - margin - tsWidth, 11);
-
-    // VAT Auditor badge
-    if (isVatAuditor) {
-      doc.setFillColor(245, 158, 11); // amber-500
-      const badgeText = "  VAT AUDITOR MODE  ";
-      const badgeWidth = doc.getTextWidth(badgeText) + 4;
-      doc.roundedRect(pageWidth - margin - badgeWidth, 15, badgeWidth, 7, 1, 1, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 20);
-    }
+    const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
 
     // ── Prepare Table Data ──
     const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
-    const headers = visibleColumns.map(c => c.label);
+    const headers = visibleColumns.map((c) => c.label);
     const body = data.map((item: any) =>
-      visibleColumns.map(c =>
+      visibleColumns.map((c) =>
         formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key))
       )
     );
 
     // ── autoTable Configuration ──
     const headStyles: any = {
-      fillColor: [37, 99, 235],    // #2563eb - primary blue
+      fillColor: [37, 99, 235], // primary blue
       textColor: [255, 255, 255],
       fontStyle: "bold",
       fontSize: 8,
@@ -200,76 +353,105 @@ export function exportToPDF(options: PDFOptions): void {
     };
 
     const alternateRowStyles: any = {
-      fillColor: [240, 244, 252],  // light blue-gray
+      fillColor: [240, 244, 252], // light blue-gray
     };
 
     const styles: any = {
       fontSize: 7,
       cellPadding: 2.5,
-      textColor: [30, 41, 59],     // slate-800
+      textColor: [30, 41, 59], // slate-800
       lineWidth: 0.1,
-      lineColor: [203, 213, 225],  // slate-300
+      lineColor: [203, 213, 225], // slate-300
     };
 
-    // Currency columns right-aligned
+    // Currency/number columns right-aligned + column width bounds
     const columnStyles: Record<number, any> = {};
+    const colWidths = calculateColumnWidths(visibleColumns.length, pageWidth, margin);
     visibleColumns.forEach((c, i) => {
+      const colConfig: any = {};
       if (c.type === "currency" || c.type === "number") {
-        columnStyles[i] = { halign: "right" };
+        colConfig.halign = "right";
       }
+      // Apply column width bounds to prevent overflow
+      colConfig.minCellWidth = colWidths[i].minW;
+      colConfig.maxCellWidth = colWidths[i].maxW;
+      columnStyles[i] = colConfig;
     });
 
-    let totalPages = 1;
+    // ── Draw Main Table ──
+    // We use {total} as placeholder; second pass will fix it
+    const TOTAL_PLACEHOLDER = "{total}";
 
     (doc as any).autoTable({
       head: [headers],
       body,
-      startY: 32,
+      startY: tableStartY,
       margin: { left: margin, right: margin, bottom: 18 },
       styles,
       headStyles,
       alternateRowStyles,
       columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
-        totalPages = data.pageNumber;
+        // Draw footer on every page
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
 
-        // ── Footer: Page X of Y ──
-        const footerY = pageHeight - 8;
-        doc.setFillColor(10, 22, 40);
-        doc.rect(0, pageHeight - 12, pageWidth, 12, "F");
-
-        doc.setTextColor(148, 163, 184); // slate-400
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "normal");
-
-        // Left: copyright
-        doc.text("© NextGen Digital Studio — Electronics Mart IMS", margin, footerY);
-
-        // Right: page number
-        const pageText = `Page ${data.pageNumber} of {total}`;
-        doc.text(pageText, pageWidth - margin - doc.getTextWidth(pageText), footerY);
+        // Call custom header callback if provided
+        if (customHeader) {
+          customHeader(doc, data.pageNumber, pageWidth, pageHeight);
+        }
       },
     });
 
-    // ── Second pass: replace {total} with actual total pages ──
-    const finalTotal = (doc as any).internal.getNumberOfPages?.() || totalPages;
-    for (let i = 1; i <= finalTotal; i++) {
-      doc.setPage(i);
-      const pageTextOld = `Page ${i} of {total}`;
-      const pageTextNew = `Page ${i} of ${finalTotal}`;
-      // We can't easily replace text in jsPDF, so we overlay the correct text
-      const footerY = pageHeight - 8;
-      doc.setFillColor(10, 22, 40);
-      // Re-draw footer area to cover old text
-      doc.rect(pageWidth - 50, pageHeight - 12, 50, 12, "F");
-      doc.setTextColor(148, 163, 184);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.text(pageTextNew, pageWidth - margin - doc.getTextWidth(pageTextNew), footerY);
+    // ── Summary Rows ──
+    if (summaryRows && summaryRows.length > 0) {
+      const lastTable = (doc as any).lastAutoTable;
+      const summaryStartY = lastTable ? lastTable.finalY + 4 : tableStartY + 30;
+
+      // Check if summary fits on current page, otherwise add new page
+      const currentY = summaryStartY;
+      if (currentY > pageHeight - 30) {
+        doc.addPage();
+        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
+        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+      }
+
+      summaryRows.forEach((summaryRow) => {
+        const rowStyle = summaryRow.style || {
+          fillColor: [10, 22, 40],
+          textColor: [255, 255, 255],
+          fontStyle: "bold" as const,
+          fontSize: 8,
+        };
+
+        (doc as any).autoTable({
+          body: [summaryRow.cells],
+          startY: summaryStartY,
+          margin: { left: margin, right: margin, bottom: 18 },
+          styles: {
+            fontSize: rowStyle.fontSize || 8,
+            cellPadding: 3,
+            textColor: rowStyle.textColor || [255, 255, 255],
+            fontStyle: rowStyle.fontStyle || "bold",
+            lineWidth: 0.1,
+            lineColor: [203, 213, 225],
+          },
+          bodyStyles: {
+            fillColor: rowStyle.fillColor || [10, 22, 40],
+          },
+          columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+          didDrawPage: (data: any) => {
+            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+          },
+        });
+      });
     }
 
+    // ── Second Pass: Fix "Page X of Y" with correct total ──
+    fixPageXOfY(doc, pageHeight, pageWidth, margin);
+
     // ── Save ──
-    const safeFilename = filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const safeFilename =
+      filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     doc.save(`${safeFilename}.pdf`);
   } catch (error: any) {
     console.error("Export PDF Error:", error);
@@ -295,64 +477,48 @@ export function exportToPDFSimple(
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 14;
 
-    // Navy blue header bar
-    doc.setFillColor(10, 22, 40);
-    doc.rect(0, 0, pageWidth, 28, "F");
+    // Corporate header
+    const tableStartY = drawCorporateHeader(doc, title, subtitle, false, pageWidth, margin);
 
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("VoltERP — Electronics Mart IMS", margin, 11);
-
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    doc.text(title, margin, 18);
-
-    if (subtitle) {
-      doc.setFontSize(9);
-      doc.text(subtitle, margin, 23);
-    }
-
-    doc.setFontSize(8);
-    const timestamp = `Generated: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`;
-    doc.text(timestamp, pageWidth - margin - doc.getTextWidth(timestamp), 11);
-
-    let totalPages = 1;
+    const TOTAL_PLACEHOLDER = "{total}";
+    const colWidths = calculateColumnWidths(headers.length, pageWidth, margin);
+    const columnStyles: Record<number, any> = {};
+    headers.forEach((_, i) => {
+      columnStyles[i] = {
+        minCellWidth: colWidths[i].minW,
+        maxCellWidth: colWidths[i].maxW,
+      };
+    });
 
     (doc as any).autoTable({
       head: [headers],
       body: rows,
-      startY: 32,
+      startY: tableStartY,
       margin: { left: margin, right: margin, bottom: 18 },
-      styles: { fontSize: 7, cellPadding: 2.5, textColor: [30, 41, 59], lineWidth: 0.1, lineColor: [203, 213, 225] },
-      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, halign: "left", cellPadding: 3 },
+      styles: {
+        fontSize: 7,
+        cellPadding: 2.5,
+        textColor: [30, 41, 59],
+        lineWidth: 0.1,
+        lineColor: [203, 213, 225],
+      },
+      headStyles: {
+        fillColor: [37, 99, 235],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "left",
+        cellPadding: 3,
+      },
       alternateRowStyles: { fillColor: [240, 244, 252] },
+      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
-        totalPages = data.pageNumber;
-        const footerY = pageHeight - 8;
-        doc.setFillColor(10, 22, 40);
-        doc.rect(0, pageHeight - 12, pageWidth, 12, "F");
-        doc.setTextColor(148, 163, 184);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "normal");
-        doc.text("© NextGen Digital Studio — Electronics Mart IMS", margin, footerY);
-        const pageText = `Page ${data.pageNumber} of {total}`;
-        doc.text(pageText, pageWidth - margin - doc.getTextWidth(pageText), footerY);
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
       },
     });
 
-    // Replace {total} with actual page count
-    const finalTotal = (doc as any).internal.getNumberOfPages?.() || totalPages;
-    for (let i = 1; i <= finalTotal; i++) {
-      doc.setPage(i);
-      const footerY = pageHeight - 8;
-      doc.setFillColor(10, 22, 40);
-      doc.rect(pageWidth - 50, pageHeight - 12, 50, 12, "F");
-      doc.setTextColor(148, 163, 184);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Page ${i} of ${finalTotal}`, pageWidth - margin - doc.getTextWidth(`Page ${i} of ${finalTotal}`), footerY);
-    }
+    // Second pass: fix Page X of Y
+    fixPageXOfY(doc, pageHeight, pageWidth, margin);
 
     const safeFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     doc.save(`${safeFilename}.pdf`);
@@ -364,7 +530,8 @@ export function exportToPDFSimple(
 
 // ============================================================
 // EXPORT CSV ENGINE
-// UTF-8 BOM encoding, RFC 4180 compliant, VAT masking
+// UTF-8 BOM always injected, RFC 4180 compliant, VAT masking,
+// numeric values unquoted, proper escaping for ৳ symbol
 // ============================================================
 
 export function exportToCSV(options: CSVOptions): void {
@@ -381,16 +548,28 @@ export function exportToCSV(options: CSVOptions): void {
     const vatMaskSet = new Set(vatMaskedColumns);
     const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
 
-    // Build CSV rows with proper escaping
-    const headerRow = visibleColumns.map(c => escapeCSVField(c.label)).join(",");
+    // Build header row — labels are always text, so use text escaping
+    const headerRow = visibleColumns
+      .map((c) => escapeCSVField(c.label, false))
+      .join(",");
 
+    // Build data rows
     const dataRows = data.map((item: any) =>
-      visibleColumns.map(c =>
-        escapeCSVField(formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key)))
-      ).join(",")
+      visibleColumns
+        .map((c) => {
+          const rawValue = formatCellValue(
+            item[c.key],
+            c.type,
+            isVatAuditor,
+            vatMaskSet.has(c.key)
+          );
+          const isNumeric = c.type === "number" || c.type === "currency";
+          return escapeCSVField(rawValue, isNumeric);
+        })
+        .join(",")
     );
 
-    // UTF-8 BOM for Excel compatibility (preserves ৳ symbol)
+    // UTF-8 BOM is ALWAYS injected for Excel compatibility (preserves ৳ symbol)
     const bom = "\uFEFF";
     const csv = bom + headerRow + "\n" + dataRows.join("\n") + "\n";
 
@@ -399,7 +578,9 @@ export function exportToCSV(options: CSVOptions): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename || `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.csv`;
+    a.download =
+      filename ||
+      `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -420,9 +601,12 @@ export function exportToCSVSimple(
   rows: string[][]
 ): void {
   try {
-    const headerRow = headers.map(h => escapeCSVField(h)).join(",");
-    const dataRows = rows.map(row => row.map(cell => escapeCSVField(cell)).join(","));
+    const headerRow = headers.map((h) => escapeCSVField(h, false)).join(",");
+    const dataRows = rows.map((row) =>
+      row.map((cell) => escapeCSVField(cell, false)).join(",")
+    );
 
+    // UTF-8 BOM always injected
     const bom = "\uFEFF";
     const csv = bom + headerRow + "\n" + dataRows.join("\n") + "\n";
 
@@ -443,18 +627,29 @@ export function exportToCSVSimple(
 
 // ============================================================
 // IMPORT CSV ENGINE
-// PapaParse-powered: Proper field parsing, schema validation,
-// transactional bulk insert with rollback
+// PapaParse-powered: Proper field parsing, header validation,
+// batch bulk insert (groups of 10), row-level error reporting,
+// UTF-8 BOM stripping from first header
 // ============================================================
 
 export interface ImportCSVOpts {
   apiPath: string;
   formFields: FieldDef[];
   onProgress?: (imported: number, total: number) => void;
+  /** Number of rows per batch insert (default: 10) */
+  batchSize?: number;
+}
+
+/** Strip UTF-8 BOM if present at start of string */
+function stripBOM(str: string): string {
+  if (str.charCodeAt(0) === 0xfeff) {
+    return str.slice(1);
+  }
+  return str;
 }
 
 export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> {
-  const { apiPath, formFields, onProgress } = opts;
+  const { apiPath, formFields, onProgress, batchSize = 10 } = opts;
 
   return new Promise((resolve) => {
     const input = document.createElement("input");
@@ -472,13 +667,18 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
       }
 
       try {
-        const text = await file.text();
+        let text = await file.text();
+
+        // Strip UTF-8 BOM from the raw file content
+        // Some CSV editors (Excel) prepend BOM which would corrupt the first header
+        text = stripBOM(text);
 
         // Parse with PapaParse (handles quoted fields, escaped commas, etc.)
         const result = Papa.parse(text, {
           header: true,
           skipEmptyLines: "greedy",
-          transformHeader: (h: string) => h.trim().replace(/^["']|["']$/g, ""),
+          transformHeader: (h: string) =>
+            h.trim().replace(/^["']|["']$/g, ""),
           encoding: "UTF-8",
         });
 
@@ -486,7 +686,9 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
           resolve({
             imported: 0,
             failed: 0,
-            errors: result.errors.map(e => `Parse error at row ${e.row}: ${e.message}`),
+            errors: result.errors.map(
+              (e) => `Parse error at row ${e.row ?? "?"}: ${e.message}`
+            ),
           });
           return;
         }
@@ -500,24 +702,47 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
         let imported = 0;
         let failed = 0;
         const errors: string[] = [];
+        const fieldErrors: ImportResult["fieldErrors"] = [];
 
         // Build field lookup from label → field definition
         const fieldByLabel = new Map<string, FieldDef>();
-        formFields.forEach(f => {
+        formFields.forEach((f) => {
           fieldByLabel.set(f.label.toLowerCase(), f);
           fieldByLabel.set(f.key.toLowerCase(), f);
         });
 
         // Map CSV headers to form field keys
         const csvHeaders = result.meta.fields || [];
-        const headerFieldMap = csvHeaders.map(header => {
+        const headerFieldMap = csvHeaders.map((header) => {
           const field = fieldByLabel.get(header.toLowerCase());
           return { header, field: field || null };
         });
 
+        // ── Validate: Check that all required fields are present in CSV headers ──
+        const csvHeaderLowerSet = new Set(csvHeaders.map((h) => h.toLowerCase()));
+        const requiredFields = formFields.filter((f) => f.required);
+        const missingHeaders = requiredFields.filter((f) => {
+          return !csvHeaderLowerSet.has(f.label.toLowerCase()) && !csvHeaderLowerSet.has(f.key.toLowerCase());
+        });
+
+        if (missingHeaders.length > 0) {
+          resolve({
+            imported: 0,
+            failed: 0,
+            errors: [
+              `CSV is missing required column headers: ${missingHeaders.map((f) => f.label).join(", ")}. Please ensure your CSV has all required columns.`,
+            ],
+          });
+          return;
+        }
+
+        // ── Process rows and prepare records ──
+        const validatedRecords: { record: Record<string, any>; rowIndex: number }[] = [];
+
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
           const record: Record<string, any> = {};
+          let rowHasError = false;
 
           // Map and validate each field
           for (const { header, field } of headerFieldMap) {
@@ -526,29 +751,75 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
 
             // Type coercion
             if (field.type === "number") {
-              const num = Number(value.replace(/[,$৳]/g, ""));
-              record[field.key] = isNaN(num) ? 0 : num;
+              const num = Number(value.replace(/[,$\u09F3]/g, ""));
+              if (isNaN(num)) {
+                fieldErrors.push({
+                  row: i + 2,
+                  field: field.label,
+                  message: `Invalid number value: "${value}"`,
+                });
+                rowHasError = true;
+                continue;
+              }
+              record[field.key] = num;
             } else if (field.type === "checkbox") {
-              record[field.key] = value.toLowerCase() === "true" || value === "1" || value.toLowerCase() === "active";
+              record[field.key] =
+                value.toLowerCase() === "true" ||
+                value === "1" ||
+                value.toLowerCase() === "active";
             } else if (field.type === "date") {
-              // Try to parse date
               if (value) {
                 const d = new Date(value);
-                record[field.key] = !isNaN(d.getTime()) ? d.toISOString().split("T")[0] : value;
+                if (!isNaN(d.getTime())) {
+                  record[field.key] = d.toISOString().split("T")[0];
+                } else {
+                  fieldErrors.push({
+                    row: i + 2,
+                    field: field.label,
+                    message: `Invalid date value: "${value}"`,
+                  });
+                  rowHasError = true;
+                  continue;
+                }
               }
+            } else if (field.type === "email") {
+              if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+                fieldErrors.push({
+                  row: i + 2,
+                  field: field.label,
+                  message: `Invalid email format: "${value}"`,
+                });
+                rowHasError = true;
+                continue;
+              }
+              record[field.key] = value;
             } else {
               record[field.key] = value;
             }
           }
 
-          // Validate required fields
+          // Validate required fields per row
           const missingRequired = formFields
-            .filter(f => f.required)
-            .filter(f => !record[f.key] && record[f.key] !== 0 && record[f.key] !== false);
+            .filter((f) => f.required)
+            .filter((f) => !record[f.key] && record[f.key] !== 0 && record[f.key] !== false);
 
           if (missingRequired.length > 0) {
             failed++;
-            errors.push(`Row ${i + 2}: Missing required fields: ${missingRequired.map(f => f.label).join(", ")}`);
+            const fieldList = missingRequired.map((f) => f.label).join(", ");
+            errors.push(`Row ${i + 2}: Missing required fields: ${fieldList}`);
+            missingRequired.forEach((f) => {
+              fieldErrors.push({
+                row: i + 2,
+                field: f.label,
+                message: "Required field is empty",
+              });
+            });
+            continue;
+          }
+
+          if (rowHasError) {
+            failed++;
+            errors.push(`Row ${i + 2}: Field validation failed`);
             continue;
           }
 
@@ -558,27 +829,79 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
             continue;
           }
 
-          // Insert via API
+          validatedRecords.push({ record, rowIndex: i + 2 });
+        }
+
+        // ── Batch insert: groups of batchSize rows per API call ──
+        for (let batchStart = 0; batchStart < validatedRecords.length; batchStart += batchSize) {
+          const batch = validatedRecords.slice(batchStart, batchStart + batchSize);
+          const batchRecords = batch.map((b) => b.record);
+
           try {
             const res = await fetch(apiPath, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(record),
+              body: JSON.stringify({ data: batchRecords, batchMode: true }),
             });
+
             if (!res.ok) {
               const err = await res.json().catch(() => ({ error: res.statusText }));
-              throw new Error(err.error || `HTTP ${res.status}`);
+              // If batch fails, fall back to individual inserts for this batch
+              for (const { record, rowIndex } of batch) {
+                try {
+                  const singleRes = await fetch(apiPath, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(record),
+                  });
+                  if (!singleRes.ok) {
+                    const singleErr = await singleRes
+                      .json()
+                      .catch(() => ({ error: singleRes.statusText }));
+                    failed++;
+                    errors.push(`Row ${rowIndex}: ${singleErr.error || `HTTP ${singleRes.status}`}`);
+                  } else {
+                    imported++;
+                  }
+                } catch (singleErr: any) {
+                  failed++;
+                  errors.push(`Row ${rowIndex}: ${singleErr.message || "Insert failed"}`);
+                }
+                onProgress?.(imported + failed, rows.length);
+              }
+            } else {
+              // Batch succeeded — all rows in batch are imported
+              imported += batch.length;
+              onProgress?.(imported + failed, rows.length);
             }
-            imported++;
           } catch (err: any) {
-            failed++;
-            errors.push(`Row ${i + 2}: ${err.message || "Insert failed"}`);
+            // Network or other error — fall back to individual inserts
+            for (const { record, rowIndex } of batch) {
+              try {
+                const singleRes = await fetch(apiPath, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(record),
+                });
+                if (!singleRes.ok) {
+                  const singleErr = await singleRes
+                    .json()
+                    .catch(() => ({ error: singleRes.statusText }));
+                  failed++;
+                  errors.push(`Row ${rowIndex}: ${singleErr.error || `HTTP ${singleRes.status}`}`);
+                } else {
+                  imported++;
+                }
+              } catch (singleErr: any) {
+                failed++;
+                errors.push(`Row ${rowIndex}: ${singleErr.message || "Insert failed"}`);
+              }
+              onProgress?.(imported + failed, rows.length);
+            }
           }
-
-          onProgress?.(imported + failed, rows.length);
         }
 
-        resolve({ imported, failed, errors });
+        resolve({ imported, failed, errors, fieldErrors });
       } catch (error: any) {
         resolve({ imported: 0, failed: 0, errors: [`File read error: ${error.message}`] });
       }
@@ -590,6 +913,7 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
 
 // ============================================================
 // VAT AUDITOR — Column masking helpers
+// Comprehensive list of cost/profit/margin columns
 // ============================================================
 
 /** Standard cost/profit columns that VAT Auditor should not see values for */
@@ -606,17 +930,33 @@ export const VAT_MASKED_COLUMNS = [
   "netProfit",
   "unitCost",
   "unitProfit",
+  "purchasePrice",
+  "buyingPrice",
+  "sellingPrice",
+  "mrp",
+  "retailPrice",
+  "basePrice",
+  "discountAmount",
+  "discountPercent",
+  "vatAmount",
+  "taxAmount",
+  "cogs",
+  "earnings",
+  "revenue",
+  "payable",
+  "receivable",
+  "balance",
+  "openingBalance",
+  "closingBalance",
 ];
 
 /** Check if a column key should be masked for VAT Auditor */
 export function isVatMasked(columnKey: string, extraMasked?: string[]): boolean {
   const allMasked = extraMasked ? [...VAT_MASKED_COLUMNS, ...extraMasked] : VAT_MASKED_COLUMNS;
-  return allMasked.some(m => columnKey.toLowerCase().includes(m.toLowerCase()));
+  return allMasked.some((m) => columnKey.toLowerCase().includes(m.toLowerCase()));
 }
 
 /** Get list of masked column keys from a column definition array */
 export function getVatMaskedKeys(columns: ColumnDef[], extraMasked?: string[]): string[] {
-  return columns
-    .filter(c => isVatMasked(c.key, extraMasked))
-    .map(c => c.key);
+  return columns.filter((c) => isVatMasked(c.key, extraMasked)).map((c) => c.key);
 }
