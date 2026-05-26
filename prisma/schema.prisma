@@ -730,6 +730,10 @@ model StockEntry {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   product     Product  @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([date])
+  @@index([type])
 }
 
 model StockTransfer {
@@ -952,6 +956,10 @@ model LedgerEntry {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   chartOfAccount  ChartOfAccount? @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([date])
+  @@index([referenceType])
 }
 
 // ============================================================
@@ -988,6 +996,11 @@ model AuditLog {
   details     String?  // JSON string with before/after data
   ip          String?
   createdAt   DateTime @default(now())
+
+  @@index([module])
+  @@index([action])
+  @@index([createdAt])
+  @@index([userId])
 }
 
 // ============================================================
@@ -1012,6 +1025,10 @@ model Notification {
   actionUrl    String?  // Navigation hint for frontend
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
 }
 
 // Product Serial/IMEI Lifecycle Tracking — trace full history from procurement to sale/return
@@ -1076,4 +1093,63 @@ model LedgerAutoPost {
   postedBy        String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@index([sourceType])
+  @@index([postingDate])
+  @@index([status])
+}
+
+// ============================================================
+// GROUP 6: CORE PERFORMANCE CONFIGURATIONS & SYSTEM SETTINGS
+// ============================================================
+
+// System Configuration — global app settings, company branding, tax/VAT rates, currency, printer
+model SystemConfig {
+  id                    String   @id @default(cuid())
+  configKey             String   @unique  // Unique key like "company_name", "default_vat_rate", "currency_symbol"
+  configValue           String   // JSON-encoded value
+  configType            String   @default("string")  // "string", "number", "boolean", "json"
+  category              String   @default("General")  // "General", "Tax", "Currency", "Printer", "Branding", "Email"
+  description           String?  // Human-readable description
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([category])
+  @@index([configType])
+}
+
+// Invoice Template — HTML templates for invoice generation, email notifications
+model InvoiceTemplate {
+  id                String   @id @default(cuid())
+  code              String   @unique  // TPL-XXXXX
+  name              String   // "Sales Invoice", "Purchase Invoice", "Hire Receipt", "Credit Memo", "Debit Note", "Email Notification"
+  templateType      String   @default("Invoice")  // "Invoice", "Receipt", "Email", "CreditMemo", "DebitNote", "Statement"
+  subject           String?  // Email subject line (for email templates)
+  headerHtml        String?  // HTML header content (logo, company info)
+  bodyHtml          String?  // HTML body template with {{placeholders}}
+  footerHtml        String?  // HTML footer content (terms, bank details)
+  cssStyles         String?  // Custom CSS for the template
+  paperSize         String   @default("A4")  // "A4", "Letter", "Legal"
+  orientation       String   @default("Portrait")  // "Portrait", "Landscape"
+  defaultPrinter    String?  // Printer name/dimension config
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Number Format — prefix/padding configuration for all document codes
+model NumberFormat {
+  id                String   @id @default(cuid())
+  code              String   @unique  // NF-XXXXX
+  moduleKey         String   @unique  // "purchase_order", "sales_order", "hire_sales", "sales_return", "purchase_return", "replacement", "transfer", "expense", "income", "cash_collection", "cash_delivery", "bank_transaction", "ledger_entry", "journal_entry"
+  prefix            String   // "PUR-", "SO-", "HIR-", "SRT-", "PRT-", "RPL-", "TRF-", "EXP-", "INC-", "CC-", "CD-", "BT-", "LED-", "JRN-"
+  paddingLength     Int      @default(5)  // Zero-padded length (e.g., 5 = 00001)
+  nextSequence      Int      @default(1)  // Auto-incrementing counter
+  resetYearly       Boolean  @default(false)  // Reset counter at fiscal year start
+  separator         String?  // Optional separator between prefix and number (default: none)
+  dateFormat        String?  // Optional date format to embed in code
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }

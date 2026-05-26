@@ -71,9 +71,14 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   // Dashboard
   Dashboard: 'dashboard',
   DashboardAnalytics: 'dashboard',
+  // System Configuration (Group 6)
+  SystemConfig: 'system-config',
+  InvoiceTemplates: 'system-config',
+  NumberFormats: 'system-config',
   // Auth
   Auth: 'auth',
   AuditLogs: 'audit',
+  AuditTrail: 'audit',
   Reports: 'report',
   Seed: 'seed',
 };
@@ -81,18 +86,18 @@ const MODULE_GROUP_MAP: Record<string, string> = {
 // Group-level access per role (mirrors frontend ROLE_ACCESS)
 const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
   admin: ['*'],
-  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'report'],
+  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'system-config', 'report'],
   sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report'],
   dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report'],
-  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'report'],
+  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'system-config', 'audit', 'report'],
 };
 
 // Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Suppliers'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -100,8 +105,8 @@ const MODULE_DENY: Record<UserRole, string[]> = {
 const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
   vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
 };
 

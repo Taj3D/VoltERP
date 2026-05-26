@@ -54,6 +54,8 @@ import BasicModulesGroupPage from "@/components/BasicModulesGroupPage";
 import PersonnelCRMGroupPage from "@/components/PersonnelCRMGroupPage";
 import InventoryGroupPage from "@/components/InventoryGroupPage";
 import FinancialAuditGroupPage from "@/components/FinancialAuditGroupPage";
+import SystemSettingsGroupPage from "@/components/SystemSettingsGroupPage";
+import AuditTrailViewer from "@/components/AuditTrailViewer";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -121,10 +123,10 @@ const ROLE_CREDENTIALS: Record<string, { password: string; role: UserRole; displ
 
 const ROLE_ACCESS: Record<UserRole, string[]> = {
   admin: ["*"],
-  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report"],
+  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report", "system-settings"],
   sr: ["basic-modules", "staff", "customers-suppliers", "inventory", "sms"],
   dealer: ["basic-modules", "customers-suppliers", "inventory"],
-  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report"],
+  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report", "system-settings"],
 };
 
 const ROLE_COLORS: Record<UserRole, string> = {
@@ -148,7 +150,8 @@ const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
   sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report"],
-  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report"],
+  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache"],
+  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache"],
   vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
 };
 
@@ -468,6 +471,18 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "bank-transaction-report", label: "Bank Transaction Report", parent: "Bank Report", isReport: true, reportType: "bank-transaction" },
       { key: "bank-ledger-report", label: "Bank Ledger", parent: "Bank Report", isReport: true, reportType: "bank-ledger" },
       { key: "transfer-report", label: "Transfer Report", parent: "Bank Report", isReport: true, reportType: "transfer-report" },
+    ],
+  },
+  {
+    key: "system-settings",
+    label: "System Settings",
+    icon: Settings,
+    items: [
+      { key: "company-settings", label: "Company Settings", parent: "Configuration" },
+      { key: "invoice-templates", label: "Invoice Templates", parent: "Configuration" },
+      { key: "number-formats", label: "Number Formats", parent: "Configuration" },
+      { key: "audit-trail", label: "Audit Trail Viewer", parent: "Audit & Search" },
+      { key: "performance-cache", label: "Performance & Cache", parent: "Audit & Search" },
     ],
   },
 ];
@@ -5583,6 +5598,11 @@ function AppLayout() {
     items.push({ key: "dashboard", label: "Dashboard", group: "Home" });
     items.push({ key: "change-password", label: "Change Password", group: "Account" });
     items.push({ key: "audit-logs", label: "Audit Logs", group: "System" });
+    items.push({ key: "company-settings", label: "Company Settings", group: "System Settings", parent: "Configuration" });
+    items.push({ key: "invoice-templates", label: "Invoice Templates", group: "System Settings", parent: "Configuration" });
+    items.push({ key: "number-formats", label: "Number Formats", group: "System Settings", parent: "Configuration" });
+    items.push({ key: "audit-trail", label: "Audit Trail Viewer", group: "System Settings", parent: "Audit & Search" });
+    items.push({ key: "performance-cache", label: "Performance & Cache", group: "System Settings", parent: "Audit & Search" });
     return items;
   }, [hasAccess, user]);
 
@@ -5647,6 +5667,11 @@ function AppLayout() {
     // GROUP 5: Financial Auditing, Automated Ledgers & Data Integrity — dedicated FinancialAuditGroupPage component
     const financialAuditKeys = new Set(["dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity"]);
     if (financialAuditKeys.has(currentPage)) return <FinancialAuditGroupPage initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
+
+    // GROUP 6: Core Performance Configurations & System Settings — dedicated components
+    const systemSettingsKeys = new Set(["company-settings", "invoice-templates", "number-formats", "performance-cache"]);
+    if (systemSettingsKeys.has(currentPage)) return <SystemSettingsGroupPage initialTab={currentPage} />;
+    if (currentPage === "audit-trail") return <AuditTrailViewer />;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 
