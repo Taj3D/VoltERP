@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Designations', 'GET');
@@ -9,10 +9,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const item = await db.designation.findUnique({
       where: { id },
-      include: { department: true },
+      include: { department: true, _count: { select: { employees: true } } },
     });
     if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(item);
+
+    // VAT Auditor masking
+    const masked = security.user.role === 'vat_auditor'
+      ? maskForVatAuditor(item, security.user.role, ['salaryBandMin', 'salaryBandMax'])
+      : item;
+
+    return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch designation' }, { status: 500 });
   }
@@ -30,9 +36,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         data: {
           name: body.name,
           departmentId: body.departmentId,
+          gradeLevel: body.gradeLevel || null,
+          salaryBandMin: body.salaryBandMin ?? 0,
+          salaryBandMax: body.salaryBandMax ?? 0,
+          description: body.description || null,
           isActive: body.isActive ?? true,
         },
-        include: { department: true },
+        include: { department: true, _count: { select: { employees: true } } },
       });
 
       await tx.auditLog.create({
@@ -40,10 +50,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           action: 'UPDATE',
           module: 'Designations',
           recordId: record.id,
-          recordLabel: record.name || record.id,
+          recordLabel: `${record.code} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ name: record.name, departmentId: record.departmentId }),
+          details: JSON.stringify({ code: record.code, name: record.name, departmentId: record.departmentId }),
         },
       });
 
@@ -64,26 +74,22 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       const record = await tx.designation.findUnique({ where: { id } });
       if (!record) throw new Error('Not found');
 
-      // FK check: Check if designation is referenced by active employees
       const activeEmployees = await tx.employee.count({ where: { designationId: id, isActive: true } });
       if (activeEmployees > 0) {
         throw new Error(`Cannot delete: Designation is referenced by ${activeEmployees} active employee(s)`);
       }
 
-      await tx.designation.update({
-        where: { id },
-        data: { isActive: false },
-      });
+      await tx.designation.update({ where: { id }, data: { isActive: false } });
 
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
           module: 'Designations',
           recordId: record.id,
-          recordLabel: record.name || record.id,
+          recordLabel: `${record.code} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ name: record.name, softDelete: true }),
+          details: JSON.stringify({ code: record.code, name: record.name, softDelete: true }),
         },
       });
 

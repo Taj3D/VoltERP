@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Suppliers', 'GET');
@@ -12,7 +12,16 @@ export async function GET(request: NextRequest) {
         _count: { select: { purchaseOrders: true, purchaseReturns: true, cashDeliveries: true } },
       },
     });
-    return NextResponse.json(items);
+
+    // VAT Auditor: mask opening balances and credit limits
+    const maskedItems = items.map(item => {
+      if (security.user.role === 'vat_auditor') {
+        return maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit']);
+      }
+      return item;
+    });
+
+    return NextResponse.json(maskedItems);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch suppliers' }, { status: 500 });
   }
@@ -21,10 +30,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'Suppliers', 'POST');
   if (!security.authorized) return security.response;
+  // SR: blocked from creating suppliers (handled by MODULE_DENY in api-security)
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      // Auto-generate code if not provided
+      // Auto-generate SUP-XXXXX code (5-digit zero-padded)
       let supplierCode = body.supplierCode;
       if (!supplierCode) {
         const lastSupplier = await tx.supplier.findFirst({
@@ -36,16 +46,19 @@ export async function POST(request: NextRequest) {
           const match = lastSupplier.supplierCode.match(/SUP-(\d+)/);
           if (match) nextNum = parseInt(match[1]) + 1;
         }
-        supplierCode = `SUP-${String(nextNum).padStart(3, '0')}`;
+        supplierCode = `SUP-${String(nextNum).padStart(5, '0')}`;
       }
 
-      return tx.supplier.create({
+      const record = await tx.supplier.create({
         data: {
           supplierCode,
           name: body.name,
+          contactPerson: body.contactPerson || null,
           phone: body.phone || null,
           email: body.email || null,
           address: body.address || null,
+          area: body.area || null,
+          terms: body.terms || null,
           openingBalance: body.openingBalance ?? 0,
           openingBalanceType: body.openingBalanceType || 'Cr',
           creditLimit: body.creditLimit ?? 0,
@@ -55,6 +68,20 @@ export async function POST(request: NextRequest) {
           _count: { select: { purchaseOrders: true, purchaseReturns: true, cashDeliveries: true } },
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'Suppliers',
+          recordId: record.id,
+          recordLabel: `${record.supplierCode} - ${record.name}`,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
+          details: JSON.stringify({ supplierCode: record.supplierCode, name: record.name, creditLimit: record.creditLimit }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

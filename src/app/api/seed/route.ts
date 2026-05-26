@@ -35,14 +35,14 @@ export async function POST() {
       // 1. CATEGORIES (8)
       // ============================================================
       const categories = await Promise.all([
-        tx.category.create({ data: { name: 'Electronics', description: 'Consumer electronics and entertainment systems' } }),
-        tx.category.create({ data: { name: 'Mobile', description: 'Smartphones, tablets and mobile accessories' } }),
-        tx.category.create({ data: { name: 'Computer', description: 'Desktops, laptops, printers and peripherals' } }),
-        tx.category.create({ data: { name: 'Accessories', description: 'Cables, adapters, cases and general accessories' } }),
-        tx.category.create({ data: { name: 'Home Appliance', description: 'AC, refrigerator, washing machine and kitchen appliances' } }),
-        tx.category.create({ data: { name: 'Networking', description: 'Routers, switches, access points and network cables' } }),
-        tx.category.create({ data: { name: 'Security', description: 'CCTV cameras, DVRs, alarms and access control' } }),
-        tx.category.create({ data: { name: 'Power Solution', description: 'UPS, IPS, stabilizers, generators and batteries' } }),
+        tx.category.create({ data: { code: 'CAT-00001', name: 'Electronics', description: 'Consumer electronics and entertainment systems' } }),
+        tx.category.create({ data: { code: 'CAT-00002', name: 'Mobile', description: 'Smartphones, tablets and mobile accessories' } }),
+        tx.category.create({ data: { code: 'CAT-00003', name: 'Computer', description: 'Desktops, laptops, printers and peripherals' } }),
+        tx.category.create({ data: { code: 'CAT-00004', name: 'Accessories', description: 'Cables, adapters, cases and general accessories' } }),
+        tx.category.create({ data: { code: 'CAT-00005', name: 'Home Appliance', description: 'AC, refrigerator, washing machine and kitchen appliances' } }),
+        tx.category.create({ data: { code: 'CAT-00006', name: 'Networking', description: 'Routers, switches, access points and network cables' } }),
+        tx.category.create({ data: { code: 'CAT-00007', name: 'Security', description: 'CCTV cameras, DVRs, alarms and access control' } }),
+        tx.category.create({ data: { code: 'CAT-00008', name: 'Power Solution', description: 'UPS, IPS, stabilizers, generators and batteries' } }),
       ]);
 
       // ============================================================
@@ -63,14 +63,14 @@ export async function POST() {
       // 3. COMPANIES (8)
       // ============================================================
       const companies = await Promise.all([
-        tx.company.create({ data: { name: 'Samsung', address: 'Gulshan-2, Dhaka 1212', phone: '+880-2-9881669', email: 'info@samsung.com.bd' } }),
-        tx.company.create({ data: { name: 'LG', address: 'Banani, Dhaka 1213', phone: '+880-2-9881230', email: 'info@lg.com.bd' } }),
-        tx.company.create({ data: { name: 'Sony', address: 'Motijheel C/A, Dhaka 1000', phone: '+880-2-9551234', email: 'info@sony.com.bd' } }),
-        tx.company.create({ data: { name: 'Dell', address: 'Kawran Bazar, Dhaka 1215', phone: '+880-2-8123456', email: 'sales@dell.com.bd' } }),
-        tx.company.create({ data: { name: 'HP', address: 'Dhanmondi, Dhaka 1205', phone: '+880-2-9123456', email: 'info@hp.com.bd' } }),
-        tx.company.create({ data: { name: 'Lenovo', address: 'Uttara, Dhaka 1230', phone: '+880-2-8976543', email: 'info@lenovo.com.bd' } }),
-        tx.company.create({ data: { name: 'Xiaomi', address: 'Bashundhara R/A, Dhaka 1229', phone: '+880-2-5551234', email: 'info@xiaomi.com.bd' } }),
-        tx.company.create({ data: { name: 'Huawei', address: 'Tejgaon, Dhaka 1208', phone: '+880-2-8876543', email: 'info@huawei.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00001', name: 'Samsung', address: 'Gulshan-2, Dhaka 1212', phone: '+880-2-9881669', email: 'info@samsung.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00002', name: 'LG', address: 'Banani, Dhaka 1213', phone: '+880-2-9881230', email: 'info@lg.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00003', name: 'Sony', address: 'Motijheel C/A, Dhaka 1000', phone: '+880-2-9551234', email: 'info@sony.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00004', name: 'Dell', address: 'Kawran Bazar, Dhaka 1215', phone: '+880-2-8123456', email: 'sales@dell.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00005', name: 'HP', address: 'Dhanmondi, Dhaka 1205', phone: '+880-2-9123456', email: 'info@hp.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00006', name: 'Lenovo', address: 'Uttara, Dhaka 1230', phone: '+880-2-8976543', email: 'info@lenovo.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00007', name: 'Xiaomi', address: 'Bashundhara R/A, Dhaka 1229', phone: '+880-2-5551234', email: 'info@xiaomi.com.bd' } }),
+        tx.company.create({ data: { code: 'COM-00008', name: 'Huawei', address: 'Tejgaon, Dhaka 1208', phone: '+880-2-8876543', email: 'info@huawei.com.bd' } }),
       ]);
 
       // ============================================================
@@ -97,14 +97,14 @@ export async function POST() {
       // 6. DESIGNATIONS (8)
       // ============================================================
       const designations = await Promise.all([
-        tx.designation.create({ data: { name: 'Sales Manager', departmentId: departments[0].id } }),
-        tx.designation.create({ data: { name: 'Sales Representative', departmentId: departments[0].id } }),
-        tx.designation.create({ data: { name: 'Purchase Manager', departmentId: departments[1].id } }),
-        tx.designation.create({ data: { name: 'Senior Accountant', departmentId: departments[2].id } }),
-        tx.designation.create({ data: { name: 'IT Manager', departmentId: departments[3].id } }),
-        tx.designation.create({ data: { name: 'Warehouse Supervisor', departmentId: departments[4].id } }),
-        tx.designation.create({ data: { name: 'Junior Sales Rep', departmentId: departments[0].id } }),
-        tx.designation.create({ data: { name: 'Accounts Executive', departmentId: departments[2].id } }),
+        tx.designation.create({ data: { code: 'DSG-00001', name: 'Sales Manager', departmentId: departments[0].id, gradeLevel: 'Senior', salaryBandMin: 45000, salaryBandMax: 75000 } }),
+        tx.designation.create({ data: { code: 'DSG-00002', name: 'Sales Representative', departmentId: departments[0].id, gradeLevel: 'Junior', salaryBandMin: 18000, salaryBandMax: 35000 } }),
+        tx.designation.create({ data: { code: 'DSG-00003', name: 'Purchase Manager', departmentId: departments[1].id, gradeLevel: 'Senior', salaryBandMin: 40000, salaryBandMax: 65000 } }),
+        tx.designation.create({ data: { code: 'DSG-00004', name: 'Senior Accountant', departmentId: departments[2].id, gradeLevel: 'Grade-2', salaryBandMin: 35000, salaryBandMax: 55000 } }),
+        tx.designation.create({ data: { code: 'DSG-00005', name: 'IT Manager', departmentId: departments[3].id, gradeLevel: 'Lead', salaryBandMin: 50000, salaryBandMax: 80000 } }),
+        tx.designation.create({ data: { code: 'DSG-00006', name: 'Warehouse Supervisor', departmentId: departments[4].id, gradeLevel: 'Grade-1', salaryBandMin: 22000, salaryBandMax: 38000 } }),
+        tx.designation.create({ data: { code: 'DSG-00007', name: 'Junior Sales Rep', departmentId: departments[0].id, gradeLevel: 'Junior', salaryBandMin: 15000, salaryBandMax: 25000 } }),
+        tx.designation.create({ data: { code: 'DSG-00008', name: 'Accounts Executive', departmentId: departments[2].id, gradeLevel: 'Grade-1', salaryBandMin: 20000, salaryBandMax: 32000 } }),
       ]);
 
       // ============================================================
@@ -113,62 +113,62 @@ export async function POST() {
       const employees = await Promise.all([
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-001', name: 'Kamal Hossain', designationId: designations[0].id, departmentId: departments[0].id,
-            joiningDate: new Date('2020-03-15'), phone: '+880-1712-345001', address: 'House 12, Road 5, Dhanmondi, Dhaka',
+            employeeCode: 'EMP-00001', name: 'Kamal Hossain', designationId: designations[0].id, departmentId: departments[0].id,
+            joiningDate: new Date('2020-03-15'), baseSalary: 55000, employeeType: 'Permanent', phone: '+880-1712-345001', address: 'House 12, Road 5, Dhanmondi, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-002', name: 'Fatema Begum', designationId: designations[1].id, departmentId: departments[0].id,
-            joiningDate: new Date('2021-06-01'), phone: '+880-1712-345002', address: 'Flat 3B, Green Road, Farmgate, Dhaka',
+            employeeCode: 'EMP-00002', name: 'Fatema Begum', designationId: designations[1].id, departmentId: departments[0].id,
+            joiningDate: new Date('2021-06-01'), baseSalary: 25000, employeeType: 'Permanent', phone: '+880-1712-345002', address: 'Flat 3B, Green Road, Farmgate, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-003', name: 'Rafiqul Islam', designationId: designations[2].id, departmentId: departments[1].id,
-            joiningDate: new Date('2019-11-20'), phone: '+880-1712-345003', address: 'House 45, Sector-7, Uttara, Dhaka',
+            employeeCode: 'EMP-00003', name: 'Rafiqul Islam', designationId: designations[2].id, departmentId: departments[1].id,
+            joiningDate: new Date('2019-11-20'), baseSalary: 48000, employeeType: 'Permanent', phone: '+880-1712-345003', address: 'House 45, Sector-7, Uttara, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-004', name: 'Nasreen Akhter', designationId: designations[3].id, departmentId: departments[2].id,
-            joiningDate: new Date('2020-08-10'), phone: '+880-1712-345004', address: 'House 8, Road 12, Mirpur-10, Dhaka',
+            employeeCode: 'EMP-00004', name: 'Nasreen Akhter', designationId: designations[3].id, departmentId: departments[2].id,
+            joiningDate: new Date('2020-08-10'), baseSalary: 42000, employeeType: 'Permanent', phone: '+880-1712-345004', address: 'House 8, Road 12, Mirpur-10, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-005', name: 'Arif Mahmud', designationId: designations[4].id, departmentId: departments[3].id,
-            joiningDate: new Date('2022-01-05'), phone: '+880-1712-345005', address: 'Flat 5A, Bashundhara R/A, Dhaka',
+            employeeCode: 'EMP-00005', name: 'Arif Mahmud', designationId: designations[4].id, departmentId: departments[3].id,
+            joiningDate: new Date('2022-01-05'), baseSalary: 60000, employeeType: 'Permanent', phone: '+880-1712-345005', address: 'Flat 5A, Bashundhara R/A, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-006', name: 'Jahanara Khatun', designationId: designations[5].id, departmentId: departments[4].id,
-            joiningDate: new Date('2021-04-18'), phone: '+880-1712-345006', address: 'House 22, Tongi Bazar, Gazipur',
+            employeeCode: 'EMP-00006', name: 'Jahanara Khatun', designationId: designations[5].id, departmentId: departments[4].id,
+            joiningDate: new Date('2021-04-18'), baseSalary: 28000, employeeType: 'Permanent', phone: '+880-1712-345006', address: 'House 22, Tongi Bazar, Gazipur',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-007', name: 'Shahidul Islam', designationId: designations[6].id, departmentId: departments[0].id,
-            joiningDate: new Date('2023-02-14'), phone: '+880-1712-345007', address: 'Room 4, BBA Hostel, Mohakhali, Dhaka',
+            employeeCode: 'EMP-00007', name: 'Shahidul Islam', designationId: designations[6].id, departmentId: departments[0].id,
+            joiningDate: new Date('2023-02-14'), baseSalary: 18000, employeeType: 'Probation', phone: '+880-1712-345007', address: 'Room 4, BBA Hostel, Mohakhali, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-008', name: 'Momena Khatun', designationId: designations[7].id, departmentId: departments[2].id,
-            joiningDate: new Date('2022-09-01'), phone: '+880-1712-345008', address: 'House 17, Banasree, Dhaka',
+            employeeCode: 'EMP-00008', name: 'Momena Khatun', designationId: designations[7].id, departmentId: departments[2].id,
+            joiningDate: new Date('2022-09-01'), baseSalary: 22000, employeeType: 'Permanent', phone: '+880-1712-345008', address: 'House 17, Banasree, Dhaka',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-009', name: 'Abdus Salam', designationId: designations[1].id, departmentId: departments[0].id,
-            joiningDate: new Date('2023-07-20'), phone: '+880-1712-345009', address: 'Village: Charbadma, Chandpur',
+            employeeCode: 'EMP-00009', name: 'Abdus Salam', designationId: designations[1].id, departmentId: departments[0].id,
+            joiningDate: new Date('2023-07-20'), baseSalary: 20000, employeeType: 'Contract', phone: '+880-1712-345009', address: 'Village: Charbadma, Chandpur',
           },
         }),
         tx.employee.create({
           data: {
-            employeeCode: 'EMP-010', name: 'Roksana Parvin', designationId: designations[5].id, departmentId: departments[4].id,
-            joiningDate: new Date('2022-12-01'), phone: '+880-1712-345010', address: 'House 9, Section-12, Pallabi, Mirpur, Dhaka',
+            employeeCode: 'EMP-00010', name: 'Roksana Parvin', designationId: designations[5].id, departmentId: departments[4].id,
+            joiningDate: new Date('2022-12-01'), baseSalary: 25000, employeeType: 'Permanent', phone: '+880-1712-345010', address: 'House 9, Section-12, Pallabi, Mirpur, Dhaka',
           },
         }),
       ]);
@@ -338,34 +338,34 @@ export async function POST() {
       // ============================================================
       const customers = await Promise.all([
         tx.customer.create({
-          data: { customerCode: 'CUST-001', name: 'Al-Amin Electronics', phone: '+880-1811-550001', address: 'Shop 10, Eastern Plaza, Hatirpool, Dhaka', openingBalance: 85000 },
+          data: { customerCode: 'CUS-00001', name: 'Al-Amin Electronics', phone: '+880-1811-550001', address: 'Shop 10, Eastern Plaza, Hatirpool, Dhaka', area: 'Hatirpool', openingBalance: 85000, creditLimit: 200000, customerType: 'Dealer' },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-002', name: 'Rafi Traders', phone: '+880-1811-550002', address: 'Shop 22, IDB Bhaban, Elephant Road, Dhaka', openingBalance: 42000 },
+          data: { customerCode: 'CUS-00002', name: 'Rafi Traders', phone: '+880-1811-550002', address: 'Shop 22, IDB Bhaban, Elephant Road, Dhaka', area: 'Elephant Road', openingBalance: 42000, creditLimit: 150000 },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-003', name: 'Mehedi Enterprise', phone: '+880-1811-550003', address: 'Shop 5, Multiplan Center, Elephant Road, Dhaka', openingBalance: 0 },
+          data: { customerCode: 'CUS-00003', name: 'Mehedi Enterprise', phone: '+880-1811-550003', address: 'Shop 5, Multiplan Center, Elephant Road, Dhaka', area: 'Elephant Road', openingBalance: 0, creditLimit: 100000 },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-004', name: 'Nasir Mobile House', phone: '+880-1811-550004', address: 'Shop 15, Level-4, Bashundhara City, Dhaka', openingBalance: 35000 },
+          data: { customerCode: 'CUS-00004', name: 'Nasir Mobile House', phone: '+880-1811-550004', address: 'Shop 15, Level-4, Bashundhara City, Dhaka', area: 'Panthapath', openingBalance: 35000, creditLimit: 120000 },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-005', name: 'Tareq Digital Store', phone: '+880-1811-550005', address: 'Shop 8, Jamuna Future Park, Kuril, Dhaka', openingBalance: 28000 },
+          data: { customerCode: 'CUS-00005', name: 'Tareq Digital Store', phone: '+880-1811-550005', address: 'Shop 8, Jamuna Future Park, Kuril, Dhaka', area: 'Kuril', openingBalance: 28000, creditLimit: 80000 },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-006', name: 'Jamil Brothers', phone: '+880-1811-550006', address: '55/A, Agrabad C/A, Chittagong', openingBalance: 60000 },
+          data: { customerCode: 'CUS-00006', name: 'Jamil Brothers', phone: '+880-1811-550006', address: '55/A, Agrabad C/A, Chittagong', area: 'Chittagong', openingBalance: 60000, creditLimit: 250000, customerType: 'Dealer' },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-007', name: 'Sumaiya Communication', phone: '+880-1811-550007', address: '12/3 Station Road, Khulna', openingBalance: 15000 },
+          data: { customerCode: 'CUS-00007', name: 'Sumaiya Communication', phone: '+880-1811-550007', address: '12/3 Station Road, Khulna', area: 'Khulna', openingBalance: 15000, creditLimit: 50000 },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-008', name: 'Rahman IT Solutions', phone: '+880-1811-550008', address: 'Suite 302, BSEC Bhaban, Karwan Bazar, Dhaka', openingBalance: 120000 },
+          data: { customerCode: 'CUS-00008', name: 'Rahman IT Solutions', phone: '+880-1811-550008', address: 'Suite 302, BSEC Bhaban, Karwan Bazar, Dhaka', area: 'Karwan Bazar', openingBalance: 120000, creditLimit: 500000, customerType: 'Dealer' },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-009', name: 'Habib Electronics Sylhet', phone: '+880-1811-550009', address: 'Zindabazar Road, Sylhet 3100', openingBalance: 0 },
+          data: { customerCode: 'CUS-00009', name: 'Habib Electronics Sylhet', phone: '+880-1811-550009', address: 'Zindabazar Road, Sylhet 3100', area: 'Sylhet', openingBalance: 0, creditLimit: 75000 },
         }),
         tx.customer.create({
-          data: { customerCode: 'CUST-010', name: 'Maksud Trading Corporation', phone: '+880-1811-550010', address: 'DIT Extension Road, Fulbaria, Dhaka', openingBalance: 95000 },
+          data: { customerCode: 'CUS-00010', name: 'Maksud Trading Corporation', phone: '+880-1811-550010', address: 'DIT Extension Road, Fulbaria, Dhaka', area: 'Fulbaria', openingBalance: 95000, creditLimit: 300000, customerType: 'Dealer' },
         }),
       ]);
 
@@ -374,19 +374,19 @@ export async function POST() {
       // ============================================================
       const suppliers = await Promise.all([
         tx.supplier.create({
-          data: { supplierCode: 'SUP-001', name: 'Samsung Bangladesh Pvt Ltd', phone: '+880-2-9881669', address: 'Gulshan Avenue, Dhaka 1212', openingBalance: 250000 },
+          data: { supplierCode: 'SUP-00001', name: 'Samsung Bangladesh Pvt Ltd', phone: '+880-2-9881669', address: 'Gulshan Avenue, Dhaka 1212', area: 'Gulshan', openingBalance: 250000, contactPerson: 'Mr. Park', terms: 'Net 30 days' },
         }),
         tx.supplier.create({
-          data: { supplierCode: 'SUP-002', name: 'LG Electronics Bangladesh', phone: '+880-2-9881230', address: 'House 7, Road 23, Banani, Dhaka', openingBalance: 180000 },
+          data: { supplierCode: 'SUP-00002', name: 'LG Electronics Bangladesh', phone: '+880-2-9881230', address: 'House 7, Road 23, Banani, Dhaka', area: 'Banani', openingBalance: 180000, contactPerson: 'Dr. Kim', terms: 'Net 45 days' },
         }),
         tx.supplier.create({
-          data: { supplierCode: 'SUP-003', name: 'Sony Bangladesh Ltd', phone: '+880-2-9551234', address: '18 Motijheel C/A, Dhaka 1000', openingBalance: 120000 },
+          data: { supplierCode: 'SUP-00003', name: 'Sony Bangladesh Ltd', phone: '+880-2-9551234', address: '18 Motijheel C/A, Dhaka 1000', area: 'Motijheel', openingBalance: 120000, contactPerson: 'Tareq Hasan', terms: 'Net 30 days' },
         }),
         tx.supplier.create({
-          data: { supplierCode: 'SUP-004', name: 'Rangs Electronics Ltd', phone: '+880-2-9123789', address: '59/1 Panthapath, Karwan Bazar, Dhaka', openingBalance: 95000 },
+          data: { supplierCode: 'SUP-00004', name: 'Rangs Electronics Ltd', phone: '+880-2-9123789', address: '59/1 Panthapath, Karwan Bazar, Dhaka', area: 'Karwan Bazar', openingBalance: 95000, contactPerson: 'Rafiq Rangs', terms: 'Net 60 days' },
         }),
         tx.supplier.create({
-          data: { supplierCode: 'SUP-005', name: 'Transcom Digital', phone: '+880-2-8823456', address: 'Gulshan North C/A, Dhaka 1212', openingBalance: 150000 },
+          data: { supplierCode: 'SUP-00005', name: 'Transcom Digital', phone: '+880-2-8823456', address: 'Gulshan North C/A, Dhaka 1212', area: 'Gulshan', openingBalance: 150000, contactPerson: 'Siddharth Rahman', terms: 'Net 30 days' },
         }),
       ]);
 
@@ -579,19 +579,19 @@ export async function POST() {
       // ============================================================
       await Promise.all([
         tx.expense.create({
-          data: { date: oneMonthAgo, headId: expenseHeads[0].id, amount: 65000, paymentOptionId: paymentOptions[0].id, bankId: banks[0].id, description: 'Showroom rent for February' },
+          data: { expenseCode: 'EXP-00001', date: oneMonthAgo, headId: expenseHeads[0].id, amount: 65000, paymentOptionId: paymentOptions[0].id, bankId: banks[0].id, description: 'Showroom rent for February' },
         }),
         tx.expense.create({
-          data: { date: twoWeeksAgo, headId: expenseHeads[1].id, amount: 18500, paymentOptionId: paymentOptions[0].id, description: 'Electricity bill - January' },
+          data: { expenseCode: 'EXP-00002', date: twoWeeksAgo, headId: expenseHeads[1].id, amount: 18500, paymentOptionId: paymentOptions[0].id, description: 'Electricity bill - January' },
         }),
         tx.expense.create({
-          data: { date: oneWeekAgo, headId: expenseHeads[2].id, amount: 320000, paymentOptionId: paymentOptions[4].id, bankId: banks[1].id, description: 'Staff salary - February payroll' },
+          data: { expenseCode: 'EXP-00003', date: oneWeekAgo, headId: expenseHeads[2].id, amount: 320000, paymentOptionId: paymentOptions[4].id, bankId: banks[1].id, description: 'Staff salary - February payroll' },
         }),
         tx.expense.create({
-          data: { date: twoDaysAgo, headId: expenseHeads[4].id, amount: 25000, paymentOptionId: paymentOptions[2].id, description: 'Facebook Ads campaign - March' },
+          data: { expenseCode: 'EXP-00004', date: twoDaysAgo, headId: expenseHeads[4].id, amount: 25000, paymentOptionId: paymentOptions[2].id, description: 'Facebook Ads campaign - March' },
         }),
         tx.expense.create({
-          data: { date: yesterday, headId: expenseHeads[3].id, amount: 12000, paymentOptionId: paymentOptions[0].id, description: 'Delivery van fuel and maintenance' },
+          data: { expenseCode: 'EXP-00005', date: yesterday, headId: expenseHeads[3].id, amount: 12000, paymentOptionId: paymentOptions[0].id, description: 'Delivery van fuel and maintenance' },
         }),
       ]);
 
@@ -600,19 +600,19 @@ export async function POST() {
       // ============================================================
       await Promise.all([
         tx.income.create({
-          data: { date: twoWeeksAgo, headId: incomeHeads[0].id, amount: 25000, paymentOptionId: paymentOptions[0].id, bankId: banks[0].id, description: 'Cash sale over-the-counter' },
+          data: { incomeCode: 'INC-00001', date: twoWeeksAgo, headId: incomeHeads[0].id, amount: 25000, paymentOptionId: paymentOptions[0].id, bankId: banks[0].id, description: 'Cash sale over-the-counter' },
         }),
         tx.income.create({
-          data: { date: oneWeekAgo, headId: incomeHeads[2].id, amount: 8500, paymentOptionId: paymentOptions[0].id, description: 'AC installation service charges' },
+          data: { incomeCode: 'INC-00002', date: oneWeekAgo, headId: incomeHeads[2].id, amount: 8500, paymentOptionId: paymentOptions[0].id, description: 'AC installation service charges' },
         }),
         tx.income.create({
-          data: { date: threeDaysAgo, headId: incomeHeads[1].id, amount: 4200, paymentOptionId: paymentOptions[4].id, bankId: banks[0].id, description: 'Bank interest - Q1 2025' },
+          data: { incomeCode: 'INC-00003', date: threeDaysAgo, headId: incomeHeads[1].id, amount: 4200, paymentOptionId: paymentOptions[4].id, bankId: banks[0].id, description: 'Bank interest - Q1 2025' },
         }),
         tx.income.create({
-          data: { date: twoDaysAgo, headId: incomeHeads[3].id, amount: 15000, paymentOptionId: paymentOptions[2].id, description: 'Samsung product sales commission' },
+          data: { incomeCode: 'INC-00004', date: twoDaysAgo, headId: incomeHeads[3].id, amount: 15000, paymentOptionId: paymentOptions[2].id, description: 'Samsung product sales commission' },
         }),
         tx.income.create({
-          data: { date: yesterday, headId: incomeHeads[2].id, amount: 12000, paymentOptionId: paymentOptions[0].id, description: 'Warranty extension service fees' },
+          data: { incomeCode: 'INC-00005', date: yesterday, headId: incomeHeads[2].id, amount: 12000, paymentOptionId: paymentOptions[0].id, description: 'Warranty extension service fees' },
         }),
       ]);
 
@@ -621,20 +621,20 @@ export async function POST() {
       // ============================================================
       await Promise.all([
         tx.cashCollection.create({
-          data: { customerId: customers[0].id, date: oneWeekAgo, amount: 300000, paymentOptionId: paymentOptions[0].id, bankId: banks[0].id, description: 'Partial payment from Al-Amin Electronics for INV-001' },
+          data: { collectionCode: 'CC-00001', customerId: customers[0].id, date: oneWeekAgo, amount: 300000, paymentOptionId: paymentOptions[0].id, bankId: banks[0].id, description: 'Partial payment from Al-Amin Electronics for INV-001' },
         }),
         tx.cashCollection.create({
-          data: { customerId: customers[7].id, date: yesterday, amount: 200000, paymentOptionId: paymentOptions[4].id, bankId: banks[1].id, description: 'Payment from Rahman IT Solutions for INV-003' },
+          data: { collectionCode: 'CC-00002', customerId: customers[7].id, date: yesterday, amount: 200000, paymentOptionId: paymentOptions[4].id, bankId: banks[1].id, description: 'Payment from Rahman IT Solutions for INV-003' },
         }),
       ]);
 
       // Cash deliveries to suppliers
       await Promise.all([
         tx.cashDelivery.create({
-          data: { supplierId: suppliers[0].id, date: oneMonthAgo, amount: 500000, paymentOptionId: paymentOptions[4].id, bankId: banks[0].id, description: 'Payment to Samsung Bangladesh for PO-001' },
+          data: { deliveryCode: 'CD-00001', supplierId: suppliers[0].id, date: oneMonthAgo, amount: 500000, paymentOptionId: paymentOptions[4].id, bankId: banks[0].id, description: 'Payment to Samsung Bangladesh for PO-001' },
         }),
         tx.cashDelivery.create({
-          data: { supplierId: suppliers[1].id, date: twoWeeksAgo, amount: 400000, paymentOptionId: paymentOptions[4].id, bankId: banks[1].id, description: 'Partial payment to LG Electronics for PO-002' },
+          data: { deliveryCode: 'CD-00002', supplierId: suppliers[1].id, date: twoWeeksAgo, amount: 400000, paymentOptionId: paymentOptions[4].id, bankId: banks[1].id, description: 'Partial payment to LG Electronics for PO-002' },
         }),
       ]);
 
@@ -643,10 +643,10 @@ export async function POST() {
       // ============================================================
       await Promise.all([
         tx.bankTransaction.create({
-          data: { bankId: banks[0].id, date: oneWeekAgo, type: 'Deposit', amount: 300000, description: 'Cash collection deposit from Al-Amin Electronics' },
+          data: { transactionCode: 'BT-00001', bankId: banks[0].id, date: oneWeekAgo, type: 'Deposit', amount: 300000, description: 'Cash collection deposit from Al-Amin Electronics' },
         }),
         tx.bankTransaction.create({
-          data: { bankId: banks[1].id, date: twoDaysAgo, type: 'Withdraw', amount: 75000, description: 'Cash withdrawal for daily operations and transport' },
+          data: { transactionCode: 'BT-00002', bankId: banks[1].id, date: twoDaysAgo, type: 'Withdraw', amount: 75000, description: 'Cash withdrawal for daily operations and transport' },
         }),
       ]);
 
@@ -664,20 +664,20 @@ export async function POST() {
       // LEDGER ENTRIES
       // ============================================================
       await Promise.all([
-        tx.ledgerEntry.create({ data: { date: twoMonthsAgo, account: 'Cash', particulars: 'Opening balance brought forward', debit: 1500000, credit: 0, reference: 'OB-2025' } }),
-        tx.ledgerEntry.create({ data: { date: twoMonthsAgo, account: 'Purchase', particulars: 'Samsung stock purchase PO-001', debit: 4690000, credit: 0, reference: 'PO-001' } }),
-        tx.ledgerEntry.create({ data: { date: twoMonthsAgo, account: 'Accounts Payable', particulars: 'Payable to Samsung Bangladesh', debit: 0, credit: 4690000, reference: 'PO-001' } }),
-        tx.ledgerEntry.create({ data: { date: oneMonthAgo, account: 'Purchase', particulars: 'LG + Dell stock purchase PO-002', debit: 1788000, credit: 0, reference: 'PO-002' } }),
-        tx.ledgerEntry.create({ data: { date: oneMonthAgo, account: 'Accounts Payable', particulars: 'Payable to LG Electronics', debit: 0, credit: 1788000, reference: 'PO-002' } }),
-        tx.ledgerEntry.create({ data: { date: twoWeeksAgo, account: 'Accounts Receivable', particulars: 'Sale to Al-Amin Electronics INV-001', debit: 618000, credit: 0, reference: 'INV-001' } }),
-        tx.ledgerEntry.create({ data: { date: twoWeeksAgo, account: 'Sales', particulars: 'Sales revenue INV-001', debit: 0, credit: 618000, reference: 'INV-001' } }),
-        tx.ledgerEntry.create({ data: { date: oneWeekAgo, account: 'Accounts Receivable', particulars: 'Sale to Rafi Traders INV-002', debit: 248000, credit: 0, reference: 'INV-002' } }),
-        tx.ledgerEntry.create({ data: { date: oneWeekAgo, account: 'Sales', particulars: 'Sales revenue INV-002', debit: 0, credit: 248000, reference: 'INV-002' } }),
-        tx.ledgerEntry.create({ data: { date: yesterday, account: 'Cash', particulars: 'Payment received Rahman IT INV-003', debit: 200000, credit: 0, reference: 'INV-003' } }),
-        tx.ledgerEntry.create({ data: { date: yesterday, account: 'Accounts Receivable', particulars: 'Sale to Rahman IT INV-003', debit: 350000, credit: 0, reference: 'INV-003' } }),
-        tx.ledgerEntry.create({ data: { date: yesterday, account: 'Sales', particulars: 'Sales revenue INV-003', debit: 0, credit: 350000, reference: 'INV-003' } }),
-        tx.ledgerEntry.create({ data: { date: oneMonthAgo, account: 'Rent Expense', particulars: 'Showroom rent February', debit: 65000, credit: 0, reference: 'EXP-001' } }),
-        tx.ledgerEntry.create({ data: { date: oneWeekAgo, account: 'Salary Expense', particulars: 'Staff payroll February', debit: 320000, credit: 0, reference: 'EXP-004' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00001', date: twoMonthsAgo, account: 'Cash', particulars: 'Opening balance brought forward', debit: 1500000, credit: 0, reference: 'OB-2025' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00002', date: twoMonthsAgo, account: 'Purchase', particulars: 'Samsung stock purchase PO-001', debit: 4690000, credit: 0, reference: 'PO-001' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00003', date: twoMonthsAgo, account: 'Accounts Payable', particulars: 'Payable to Samsung Bangladesh', debit: 0, credit: 4690000, reference: 'PO-001' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00004', date: oneMonthAgo, account: 'Purchase', particulars: 'LG + Dell stock purchase PO-002', debit: 1788000, credit: 0, reference: 'PO-002' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00005', date: oneMonthAgo, account: 'Accounts Payable', particulars: 'Payable to LG Electronics', debit: 0, credit: 1788000, reference: 'PO-002' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00006', date: twoWeeksAgo, account: 'Accounts Receivable', particulars: 'Sale to Al-Amin Electronics INV-001', debit: 618000, credit: 0, reference: 'INV-001' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00007', date: twoWeeksAgo, account: 'Sales', particulars: 'Sales revenue INV-001', debit: 0, credit: 618000, reference: 'INV-001' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00008', date: oneWeekAgo, account: 'Accounts Receivable', particulars: 'Sale to Rafi Traders INV-002', debit: 248000, credit: 0, reference: 'INV-002' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00009', date: oneWeekAgo, account: 'Sales', particulars: 'Sales revenue INV-002', debit: 0, credit: 248000, reference: 'INV-002' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00010', date: yesterday, account: 'Cash', particulars: 'Payment received Rahman IT INV-003', debit: 200000, credit: 0, reference: 'INV-003' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00011', date: yesterday, account: 'Accounts Receivable', particulars: 'Sale to Rahman IT INV-003', debit: 350000, credit: 0, reference: 'INV-003' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00012', date: yesterday, account: 'Sales', particulars: 'Sales revenue INV-003', debit: 0, credit: 350000, reference: 'INV-003' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00013', date: oneMonthAgo, account: 'Rent Expense', particulars: 'Showroom rent February', debit: 65000, credit: 0, reference: 'EXP-001' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00014', date: oneWeekAgo, account: 'Salary Expense', particulars: 'Staff payroll February', debit: 320000, credit: 0, reference: 'EXP-004' } }),
       ]);
 
       // ============================================================

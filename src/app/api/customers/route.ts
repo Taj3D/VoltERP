@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Customers', 'GET');
@@ -12,7 +12,16 @@ export async function GET(request: NextRequest) {
         _count: { select: { salesOrders: true, hireSales: true, cashCollections: true, orderSheets: true } },
       },
     });
-    return NextResponse.json(items);
+
+    // VAT Auditor: mask credit limits and opening balances (sensitive margins)
+    const maskedItems = items.map(item => {
+      if (security.user.role === 'vat_auditor') {
+        return maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit']);
+      }
+      return item;
+    });
+
+    return NextResponse.json(maskedItems);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch customers' }, { status: 500 });
   }
@@ -24,7 +33,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      // Auto-generate code if not provided
+      // Auto-generate CUS-XXXXX code (5-digit zero-padded)
       let customerCode = body.customerCode;
       if (!customerCode) {
         const lastCustomer = await tx.customer.findFirst({
@@ -33,19 +42,21 @@ export async function POST(request: NextRequest) {
         });
         let nextNum = 1;
         if (lastCustomer?.customerCode) {
-          const match = lastCustomer.customerCode.match(/CUST-(\d+)/);
+          const match = lastCustomer.customerCode.match(/CUS-(\d+)/);
           if (match) nextNum = parseInt(match[1]) + 1;
         }
-        customerCode = `CUST-${String(nextNum).padStart(3, '0')}`;
+        customerCode = `CUS-${String(nextNum).padStart(5, '0')}`;
       }
 
-      return tx.customer.create({
+      const record = await tx.customer.create({
         data: {
           customerCode,
           name: body.name,
           phone: body.phone || null,
           email: body.email || null,
           address: body.address || null,
+          area: body.area || null,
+          reference: body.reference || null,
           openingBalance: body.openingBalance ?? 0,
           openingBalanceType: body.openingBalanceType || 'Dr',
           creditLimit: body.creditLimit ?? 0,
@@ -56,6 +67,20 @@ export async function POST(request: NextRequest) {
           _count: { select: { salesOrders: true, hireSales: true, cashCollections: true, orderSheets: true } },
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'Customers',
+          recordId: record.id,
+          recordLabel: `${record.customerCode} - ${record.name}`,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
+          details: JSON.stringify({ customerCode: record.customerCode, name: record.name, customerType: record.customerType, creditLimit: record.creditLimit }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

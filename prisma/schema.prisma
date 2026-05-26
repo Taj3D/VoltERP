@@ -304,46 +304,80 @@ model Product {
 // ============================================================
 
 model Designation {
-  id           String     @id @default(cuid())
-  name         String
-  departmentId String
-  isActive     Boolean    @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  department   Department @relation(fields: [departmentId], references: [id])
-  employees    Employee[]
+  id            String     @id @default(cuid())
+  code          String     @unique  // DSG-XXXXX
+  name          String
+  departmentId  String
+  gradeLevel    String?    // e.g. "Grade-1", "Grade-2", "Senior", "Junior"
+  salaryBandMin Float      @default(0)
+  salaryBandMax Float      @default(0)
+  description   String?
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  department    Department @relation(fields: [departmentId], references: [id])
+  employees     Employee[]
 }
 
 model Employee {
-  id            String          @id @default(cuid())
-  employeeCode  String          @unique
-  name          String
-  designationId String
-  departmentId  String
-  joiningDate   DateTime
-  phone         String?
-  address       String?
-  photo         String?
-  isActive      Boolean         @default(true)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  designation   Designation     @relation(fields: [designationId], references: [id])
-  department    Department      @relation(fields: [departmentId], references: [id])
-  leaves        EmployeeLeave[]
-  srTargets     SRTargetSetup[]
+  id                 String          @id @default(cuid())
+  employeeCode       String          @unique  // EMP-XXXXX
+  name               String
+  designationId      String
+  departmentId       String
+  joiningDate        DateTime
+  baseSalary         Float           @default(0)
+  employeeType       String          @default("Permanent")  // "Permanent", "Contract", "Probation", "Part-time"
+  status             String          @default("Active")  // "Active", "On Leave", "Resigned", "Terminated"
+  // Personal Info
+  gender             String?         // "Male", "Female", "Other"
+  bloodGroup         String?         // "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"
+  religion           String?
+  dateOfBirth        DateTime?
+  fatherName         String?
+  motherName         String?
+  spouseName         String?
+  maritalStatus      String?         // "Single", "Married", "Divorced", "Widowed"
+  nidNumber          String?         // National ID
+  tinNumber          String?         // Tax Identification Number
+  // Contact
+  phone              String?
+  email              String?
+  presentAddress     String?
+  permanentAddress   String?
+  emergencyContact   String?
+  emergencyContactName String?
+  // Banking
+  bankName           String?
+  bankAccountNo      String?
+  // Other
+  photo              String?
+  referenceBy        String?
+  address            String?
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  designation        Designation     @relation(fields: [designationId], references: [id])
+  department         Department      @relation(fields: [departmentId], references: [id])
+  leaves             EmployeeLeave[]
+  srTargets          SRTargetSetup[]
 }
 
 model EmployeeLeave {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
+  leaveCode   String    @unique  // LEV-XXXXX
   employeeId  String
-  leaveType   String
+  leaveType   String    // "Casual", "Sick", "Annual", "Maternity"
   fromDate    DateTime
   toDate      DateTime
+  totalDays   Float     @default(0)
   reason      String?
-  status      String   @default("Pending")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  employee    Employee @relation(fields: [employeeId], references: [id])
+  status      String    @default("Pending")  // "Pending", "Approved", "Rejected"
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  employee    Employee  @relation(fields: [employeeId], references: [id])
 }
 
 // ============================================================
@@ -352,11 +386,13 @@ model EmployeeLeave {
 
 model Customer {
   id                String          @id @default(cuid())
-  customerCode      String          @unique
+  customerCode      String          @unique  // CUS-XXXXX
   name              String
   phone             String?
   email             String?
   address           String?
+  area              String?
+  reference         String?
   openingBalance    Float           @default(0)
   openingBalanceType String         @default("Dr")  // "Dr" or "Cr"
   creditLimit       Float           @default(0)
@@ -373,11 +409,14 @@ model Customer {
 
 model Supplier {
   id                 String           @id @default(cuid())
-  supplierCode       String           @unique
+  supplierCode       String           @unique  // SUP-XXXXX
   name               String
+  contactPerson      String?
   phone              String?
   email              String?
   address            String?
+  area               String?
+  terms              String?          // Payment terms
   openingBalance     Float            @default(0)
   openingBalanceType String           @default("Cr")  // "Dr" or "Cr"
   creditLimit        Float            @default(0)

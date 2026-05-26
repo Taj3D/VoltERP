@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Designations', 'GET');
@@ -9,9 +10,18 @@ export async function GET(request: NextRequest) {
     const items = await db.designation.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
-      include: { department: true },
+      include: { department: true, _count: { select: { employees: true } } },
     });
-    return NextResponse.json(items);
+
+    // VAT Auditor masking: hide salary band values
+    const maskedItems = items.map(item => {
+      if (security.user.role === 'vat_auditor') {
+        return maskForVatAuditor(item, security.user.role, ['salaryBandMin', 'salaryBandMax']);
+      }
+      return item;
+    });
+
+    return NextResponse.json(maskedItems);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch designations' }, { status: 500 });
   }
@@ -23,13 +33,33 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
+      // Auto-generate DSG-XXXXX code
+      let code = body.code;
+      if (!code) {
+        const lastRecord = await tx.designation.findFirst({
+          orderBy: { createdAt: 'desc' },
+          select: { code: true },
+        });
+        let nextNum = 1;
+        if (lastRecord?.code) {
+          const match = lastRecord.code.match(/DSG-(\d+)/);
+          if (match) nextNum = parseInt(match[1]) + 1;
+        }
+        code = `DSG-${String(nextNum).padStart(5, '0')}`;
+      }
+
       const record = await tx.designation.create({
         data: {
+          code,
           name: body.name,
           departmentId: body.departmentId,
+          gradeLevel: body.gradeLevel || null,
+          salaryBandMin: body.salaryBandMin ?? 0,
+          salaryBandMax: body.salaryBandMax ?? 0,
+          description: body.description || null,
           isActive: body.isActive ?? true,
         },
-        include: { department: true },
+        include: { department: true, _count: { select: { employees: true } } },
       });
 
       await tx.auditLog.create({
@@ -37,10 +67,10 @@ export async function POST(request: NextRequest) {
           action: 'CREATE',
           module: 'Designations',
           recordId: record.id,
-          recordLabel: record.name || record.id,
+          recordLabel: `${record.code} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ name: record.name, departmentId: record.departmentId }),
+          details: JSON.stringify({ code: record.code, name: record.name, departmentId: record.departmentId, gradeLevel: record.gradeLevel, salaryBandMin: record.salaryBandMin, salaryBandMax: record.salaryBandMax }),
         },
       });
 

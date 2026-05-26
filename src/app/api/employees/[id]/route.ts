@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Employees', 'GET');
@@ -12,10 +12,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       include: {
         designation: true,
         department: true,
+        _count: { select: { leaves: true, srTargets: true } },
       },
     });
     if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(item);
+
+    // Mask salary for SR and VAT Auditor
+    const masked = (security.user.role === 'vat_auditor' || security.user.role === 'sr')
+      ? maskForVatAuditor(item, security.user.role, ['baseSalary'])
+      : item;
+
+    return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch employee' }, { status: 500 });
   }
@@ -31,19 +38,40 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       const record = await tx.employee.update({
         where: { id },
         data: {
-          employeeCode: body.employeeCode,
           name: body.name,
           designationId: body.designationId,
           departmentId: body.departmentId,
           joiningDate: body.joiningDate ? new Date(body.joiningDate) : undefined,
+          baseSalary: body.baseSalary ?? undefined,
+          employeeType: body.employeeType || undefined,
+          status: body.status || undefined,
+          gender: body.gender || null,
+          bloodGroup: body.bloodGroup || null,
+          religion: body.religion || null,
+          dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : null,
+          fatherName: body.fatherName || null,
+          motherName: body.motherName || null,
+          spouseName: body.spouseName || null,
+          maritalStatus: body.maritalStatus || null,
+          nidNumber: body.nidNumber || null,
+          tinNumber: body.tinNumber || null,
           phone: body.phone || null,
-          address: body.address || null,
+          email: body.email || null,
+          presentAddress: body.presentAddress || null,
+          permanentAddress: body.permanentAddress || null,
+          emergencyContact: body.emergencyContact || null,
+          emergencyContactName: body.emergencyContactName || null,
+          bankName: body.bankName || null,
+          bankAccountNo: body.bankAccountNo || null,
           photo: body.photo || null,
+          referenceBy: body.referenceBy || null,
+          address: body.address || null,
           isActive: body.isActive ?? true,
         },
         include: {
           designation: true,
           department: true,
+          _count: { select: { leaves: true, srTargets: true } },
         },
       });
 
@@ -52,7 +80,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           action: 'UPDATE',
           module: 'Employees',
           recordId: record.id,
-          recordLabel: record.name || record.employeeCode || record.id,
+          recordLabel: `${record.employeeCode} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeCode: record.employeeCode, name: record.name }),
@@ -76,7 +104,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       const record = await tx.employee.findUnique({ where: { id } });
       if (!record) throw new Error('Not found');
 
-      // FK check: Check if employee is referenced by active SR targets or employee leaves
       const [activeSRTargets, activeLeaves] = await Promise.all([
         tx.sRTargetSetup.count({ where: { employeeId: id, isActive: true } }),
         tx.employeeLeave.count({ where: { employeeId: id } }),
@@ -88,17 +115,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
         );
       }
 
-      await tx.employee.update({
-        where: { id },
-        data: { isActive: false },
-      });
+      await tx.employee.update({ where: { id }, data: { isActive: false } });
 
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
           module: 'Employees',
           recordId: record.id,
-          recordLabel: record.name || record.employeeCode || record.id,
+          recordLabel: `${record.employeeCode} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
           details: JSON.stringify({ employeeCode: record.employeeCode, name: record.name, softDelete: true }),
