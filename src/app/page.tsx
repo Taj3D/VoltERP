@@ -52,6 +52,7 @@ import SMSAnalyticsPage from "@/components/SMSAnalyticsPage";
 import InvestmentGroupPage from "@/components/InvestmentGroupPage";
 import BasicModulesGroupPage from "@/components/BasicModulesGroupPage";
 import PersonnelCRMGroupPage from "@/components/PersonnelCRMGroupPage";
+import InventoryGroupPage from "@/components/InventoryGroupPage";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -5605,12 +5606,9 @@ function AppLayout() {
     if (currentPage === "sms-settings") return <SMSAnalyticsPage initialTab="settings" />;
     if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage initialTab="billing" />;
     if (currentPage === "change-password") return <ChangePasswordPage />;
-    if (currentPage === "purchase-orders") return <PurchaseOrdersPage onNavigate={(page) => setCurrentPage(page)} />;
-    if (currentPage === "sales-orders") return <SalesOrdersPage onNavigate={(page) => setCurrentPage(page)} />;
-    if (currentPage === "hire-sales") return <HireSalesPage onNavigate={(page) => setCurrentPage(page)} />;
-    if (currentPage === "sales-returns") return <SalesReturnsPage onNavigate={(page) => setCurrentPage(page)} />;
-    if (currentPage === "purchase-returns") return <PurchaseReturnsPage onNavigate={(page) => setCurrentPage(page)} />;
-    if (currentPage === "stock-transfers") return <StockTransfersPage />;
+    // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
+    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "stock", "stock-details", "stock-transfers"]);
+    if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
     if (currentPage === "expenses") return <ExpensesIncomesPage />;
     if (currentPage === "incomes") return <ExpensesIncomesPage />;
     if (currentPage === "cash-collections") return <CashCollectionsDeliveriesPage />;

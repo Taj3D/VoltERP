@@ -7,6 +7,11 @@ export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'StockTransfers', 'GET');
   if (!security.authorized) return security.response;
 
+  // Dealer: completely blocked from transfer records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access transfer records.' }, { status: 403 });
+  }
+
   try {
     const transfers = await db.stockTransfer.findMany({
       where: { isActive: true },
@@ -35,6 +40,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'StockTransfers', 'POST');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from transfer records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access transfer records.' }, { status: 403 });
+  }
+
+  // SR: cannot create transfers
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create or modify transfers.' }, { status: 403 });
+  }
 
   try {
     const body = await request.json();
@@ -157,6 +172,8 @@ export async function POST(request: NextRequest) {
           module: 'StockTransfers',
           recordId: transfer.id,
           recordLabel: transferNo,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({
             fromGodownId,
             toGodownId,

@@ -7,6 +7,11 @@ export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'PurchaseOrders', 'GET');
   if (!security.authorized) return security.response;
 
+  // Dealer: completely blocked from purchase order records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase order records.' }, { status: 403 });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
@@ -43,6 +48,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'PurchaseOrders', 'POST');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from purchase order records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase order records.' }, { status: 403 });
+  }
+
+  // SR: cannot create purchase orders
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create purchase orders.' }, { status: 403 });
+  }
 
   try {
     const body = await request.json();
@@ -87,7 +102,7 @@ export async function POST(request: NextRequest) {
     const vatAmount = Math.round(afterDiscount * (vatPct / 100) * 100) / 100;
     const grandTotal = Math.round((afterDiscount + vatAmount) * 100) / 100;
 
-    // Auto-generate poNumber with 5-digit padding: PO-XXXXX
+    // Auto-generate poNumber with 5-digit padding: PUR-XXXXX
     const lastPO = await db.purchaseOrder.findFirst({
       orderBy: { createdAt: 'desc' },
       select: { poNumber: true },
@@ -95,12 +110,12 @@ export async function POST(request: NextRequest) {
 
     let nextNum = 1;
     if (lastPO?.poNumber) {
-      const match = lastPO.poNumber.match(/PO-(\d+)/);
+      const match = lastPO.poNumber.match(/PUR-(\d+)/);
       if (match) {
         nextNum = parseInt(match[1], 10) + 1;
       }
     }
-    const poNumber = `PO-${String(nextNum).padStart(5, '0')}`;
+    const poNumber = `PUR-${String(nextNum).padStart(5, '0')}`;
 
     const result = await db.$transaction(async (tx) => {
       // Create purchase order with lines

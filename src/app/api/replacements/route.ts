@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         nextNum = parseInt(match[1], 10) + 1;
       }
     }
-    const replacementNo = `RPL-${String(nextNum).padStart(3, '0')}`;
+    const replacementNo = `RPL-${String(nextNum).padStart(5, '0')}`;
 
     const result = await db.$transaction(async (tx) => {
       const replacement = await tx.replacementOrder.create({

@@ -10,6 +10,11 @@ export async function GET(
   const security = await withApiSecurity(request, 'PurchaseReturns', 'GET');
   if (!security.authorized) return security.response;
 
+  // Dealer: completely blocked from purchase return records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase return records.' }, { status: 403 });
+  }
+
   try {
     const { id } = await params;
     const purchaseReturn = await db.purchaseReturn.findUnique({
@@ -53,6 +58,16 @@ export async function PUT(
 ) {
   const security = await withApiSecurity(request, 'PurchaseReturns', 'PUT');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from purchase return records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase return records.' }, { status: 403 });
+  }
+
+  // SR: cannot modify purchase returns
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create or modify purchase returns.' }, { status: 403 });
+  }
 
   try {
     const { id } = await params;
@@ -284,6 +299,16 @@ export async function DELETE(
 ) {
   const security = await withApiSecurity(request, 'PurchaseReturns', 'DELETE');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from purchase return records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase return records.' }, { status: 403 });
+  }
+
+  // SR: cannot delete purchase returns
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create or modify purchase returns.' }, { status: 403 });
+  }
 
   try {
     const { id } = await params;

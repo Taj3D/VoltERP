@@ -131,6 +131,30 @@ export async function POST(request: NextRequest) {
     const invoiceNo = `HIR-${String(nextNum).padStart(5, '0')}`;
 
     const result = await db.$transaction(async (tx) => {
+      // STOCK SAFETY: Verify sufficient stock before creating hire sale
+      for (const line of processedLines) {
+        const product = await tx.product.findUnique({ where: { id: line.productId } });
+        if (!product) throw new Error(`Product not found: ${line.productId}`);
+
+        const stockWhere: { productId: string; godownId?: string } = { productId: line.productId };
+        if (godownId) stockWhere.godownId = godownId;
+
+        const stockIns = await tx.stockEntry.aggregate({
+          where: { ...stockWhere, type: 'IN' },
+          _sum: { quantity: true },
+        });
+        const stockOuts = await tx.stockEntry.aggregate({
+          where: { ...stockWhere, type: 'OUT' },
+          _sum: { quantity: true },
+        });
+
+        const currentStock = (product.openingStock || 0) + (stockIns._sum.quantity || 0) - (stockOuts._sum.quantity || 0);
+
+        if (currentStock < line.quantity) {
+          throw new Error(`Insufficient stock for "${product.name}". Available: ${currentStock}, Requested: ${line.quantity}. Transaction rolled back.`);
+        }
+      }
+
       // Create hire sale with lines
       const hireSale = await tx.hireSales.create({
         data: {

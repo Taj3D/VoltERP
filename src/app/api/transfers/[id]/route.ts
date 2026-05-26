@@ -10,6 +10,11 @@ export async function GET(
   const security = await withApiSecurity(request, 'StockTransfers', 'GET');
   if (!security.authorized) return security.response;
 
+  // Dealer: completely blocked from transfer records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access transfer records.' }, { status: 403 });
+  }
+
   try {
     const { id } = await params;
     const transfer = await db.stockTransfer.findUnique({
@@ -49,6 +54,16 @@ export async function PUT(
 ) {
   const security = await withApiSecurity(request, 'StockTransfers', 'PUT');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from transfer records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access transfer records.' }, { status: 403 });
+  }
+
+  // SR: cannot modify transfers
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create or modify transfers.' }, { status: 403 });
+  }
 
   try {
     const { id } = await params;
@@ -224,6 +239,8 @@ export async function PUT(
           module: 'StockTransfers',
           recordId: transfer.id,
           recordLabel: existing.transferNo,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({
             previousShippingStatus: existing.shippingStatus,
             newShippingStatus,
@@ -256,6 +273,16 @@ export async function DELETE(
 ) {
   const security = await withApiSecurity(request, 'StockTransfers', 'DELETE');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from transfer records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access transfer records.' }, { status: 403 });
+  }
+
+  // SR: cannot delete transfers
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create or modify transfers.' }, { status: 403 });
+  }
 
   try {
     const { id } = await params;
@@ -296,6 +323,8 @@ export async function DELETE(
           module: 'StockTransfers',
           recordId: id,
           recordLabel: existing.transferNo,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify({ softDelete: true, shippingStatus: existing.shippingStatus }),
         },
       });

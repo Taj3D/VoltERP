@@ -477,18 +477,24 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const loadStock = useCallback(async () => {
     setStockLoading(true);
     try {
-      const res = await apiFetch("/api/stock");
+      const params = new URLSearchParams();
+      if (stockFilterGodown && stockFilterGodown !== "all") params.set("godownId", stockFilterGodown);
+      if (stockFilterCategory && stockFilterCategory !== "all") params.set("categoryId", stockFilterCategory);
+      if (stockFilterStatus && stockFilterStatus !== "all") params.set("status", stockFilterStatus);
+      const qs = params.toString();
+      const res = await apiFetch(`/api/stock${qs ? `?${qs}` : ""}`);
       setStockData(Array.isArray(res) ? res : []);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setStockLoading(false); }
-  }, [toast]);
+  }, [toast, stockFilterGodown, stockFilterCategory, stockFilterStatus]);
 
   const loadStockDetails = useCallback(async (productId: string) => {
     if (!productId) { setSdData([]); return; }
     setSdLoading(true);
     try {
-      const res = await apiFetch(`/api/stock-entries?productId=${productId}`);
-      setSdData(Array.isArray(res) ? res : []);
+      const res = await apiFetch(`/api/stock-details?productId=${productId}`);
+      // stock-details API returns { product, entries, summary }
+      setSdData(res?.entries || (Array.isArray(res) ? res : []));
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setSdLoading(false); }
   }, [toast]);
@@ -2331,3 +2337,187 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     );
   };
 
+  // ─── Stock & Transfer Renders ───
+
+  const renderStock = () => (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+          <Input value={stockSearch} onChange={e => setStockSearch(e.target.value)} placeholder="Search stock..." className="pl-8" />
+        </div>
+        <Select value={stockFilterGodown} onValueChange={setStockFilterGodown}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Godown" /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All Godowns</SelectItem>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+        </Select>
+        <Select value={stockFilterStatus} onValueChange={setStockFilterStatus}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="In Stock">In Stock</SelectItem><SelectItem value="Low Stock">Low Stock</SelectItem><SelectItem value="Out of Stock">Out of Stock</SelectItem></SelectContent>
+        </Select>
+        <Button variant="ghost" size="sm" onClick={loadStock}><RefreshCw className={`h-4 w-4 ${stockLoading ? "animate-spin" : ""}`} /></Button>
+      </div>
+      <div className="border rounded-lg overflow-auto max-h-[70vh]">
+        <Table>
+          <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+            <TableHead className="text-white text-xs">Product</TableHead>
+            <TableHead className="text-white text-xs">Category</TableHead>
+            <TableHead className="text-white text-xs">Godown</TableHead>
+            <TableHead className="text-white text-xs text-right">Qty</TableHead>
+            <TableHead className="text-white text-xs text-right">Value</TableHead>
+            <TableHead className="text-white text-xs">Status</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {stockLoading ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
+            stockData.filter((s: any) => {
+              if (stockSearch) { const q = stockSearch.toLowerCase(); if (!(s.product?.name || "").toLowerCase().includes(q) && !(s.product?.productCode || "").toLowerCase().includes(q)) return false; }
+              if (stockFilterGodown !== "all" && s.godownId !== stockFilterGodown) return false;
+              if (stockFilterStatus !== "all" && s.stockStatus !== stockFilterStatus) return false;
+              return true;
+            }).map((s: any, i: number) => (
+              <TableRow key={i}>
+                <TableCell className="text-xs font-medium">{s.product?.productCode} — {s.product?.name}</TableCell>
+                <TableCell className="text-xs">{s.product?.category?.name || "—"}</TableCell>
+                <TableCell className="text-xs">{s.godown?.name || "Main"}</TableCell>
+                <TableCell className="text-xs text-right font-medium">{Number(s.currentStock || 0).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.stockValue || 0)}</TableCell>
+                <TableCell className="text-xs"><StockStatusBadge status={s.stockStatus || "In Stock"} /></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+
+  const renderStockDetails = () => (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={sdSelectedProduct} onValueChange={v => { setSdSelectedProduct(v); loadStockDetails(v); }}>
+          <SelectTrigger className="w-64"><SelectValue placeholder="Select product..." /></SelectTrigger>
+          <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.productCode} — {p.name}</SelectItem>)}</SelectContent>
+        </Select>
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+          <Input value={sdSearch} onChange={e => setSdSearch(e.target.value)} placeholder="Search entries..." className="pl-8" />
+        </div>
+      </div>
+      <div className="border rounded-lg overflow-auto max-h-[70vh]">
+        <Table>
+          <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+            <TableHead className="text-white text-xs">Date</TableHead>
+            <TableHead className="text-white text-xs">Type</TableHead>
+            <TableHead className="text-white text-xs">Reference</TableHead>
+            <TableHead className="text-white text-xs text-right">Qty</TableHead>
+            <TableHead className="text-white text-xs">Notes</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {!sdSelectedProduct ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-400">Select a product to view stock entries</TableCell></TableRow> :
+            sdLoading ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
+            sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }).map((e: any, i: number) => (
+              <TableRow key={i}>
+                <TableCell className="text-xs">{fmt(e.date, "date")}</TableCell>
+                <TableCell className="text-xs"><Badge className={`${TYPE_BADGE[e.type as string] || ""} border-0 text-xs`}>{e.type}</Badge></TableCell>
+                <TableCell className="text-xs">{e.reference || "—"}</TableCell>
+                <TableCell className="text-xs text-right font-medium">{Number(e.quantity || 0).toLocaleString()}</TableCell>
+                <TableCell className="text-xs">{e.notes || "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+
+  const renderTransfers = () => (
+    <div className="space-y-4">
+      <Toolbar search={trnSearch} setSearch={setTrnSearch} onRefresh={loadTransfers} loading={trnLoading}
+        onExportCSV={() => doExportCSV("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData)}
+        onExportPDF={() => doExportPDF("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData)}
+        canCreate={isAdmin} onCreate={() => { setTrnForm({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" }); setTrnLines([{ productId: "", quantity: 1 }]); setTrnEdit(null); setTrnDialog(true); }} createLabel="New Transfer"
+      />
+      <div className="border rounded-lg overflow-auto max-h-[70vh]">
+        <Table>
+          <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+            <TableHead className="text-white text-xs">Date</TableHead>
+            <TableHead className="text-white text-xs">From</TableHead>
+            <TableHead className="text-white text-xs">To</TableHead>
+            <TableHead className="text-white text-xs">Items</TableHead>
+            <TableHead className="text-white text-xs">Status</TableHead>
+            {isAdmin && <TableHead className="text-white text-xs">Actions</TableHead>}
+          </TableRow></TableHeader>
+          <TableBody>
+            {trnLoading ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
+            trnData.filter((t: any) => { if (!trnSearch) return true; const q = trnSearch.toLowerCase(); return (t.fromGodown?.name || "").toLowerCase().includes(q) || (t.toGodown?.name || "").toLowerCase().includes(q) || (t.status || "").toLowerCase().includes(q); }).map((t: any) => (
+              <TableRow key={t.id}>
+                <TableCell className="text-xs">{fmt(t.date, "date")}</TableCell>
+                <TableCell className="text-xs">{t.fromGodown?.name || "—"}</TableCell>
+                <TableCell className="text-xs">{t.toGodown?.name || "—"}</TableCell>
+                <TableCell className="text-xs">{t.lines?.length || 0}</TableCell>
+                <TableCell className="text-xs"><StatusBadge status={t.status} /></TableCell>
+                {isAdmin && <TableCell className="text-xs"><Button variant="ghost" size="sm" onClick={() => { setTrnEdit(t); setTrnForm({ fromGodownId: t.fromGodownId || "", toGodownId: t.toGodownId || "", date: t.date?.split("T")[0] || "", status: t.status || "Pending", notes: t.notes || "" }); setTrnLines(t.lines?.length > 0 ? t.lines : [{ productId: "", quantity: 1 }]); setTrnDialog(true); }}><Edit className="h-3 w-3" /></Button></TableCell>}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <Dialog open={trnDialog} onOpenChange={setTrnDialog}>
+        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{trnEdit ? "Edit Transfer" : "New Stock Transfer"}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label className="text-sm font-medium">From Godown</Label><Select value={trnForm.fromGodownId} onValueChange={v => setTrnForm(p => ({ ...p, fromGodownId: v }))}><SelectTrigger><SelectValue placeholder="From" /></SelectTrigger><SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent></Select></div>
+              <div><Label className="text-sm font-medium">To Godown</Label><Select value={trnForm.toGodownId} onValueChange={v => setTrnForm(p => ({ ...p, toGodownId: v }))}><SelectTrigger><SelectValue placeholder="To" /></SelectTrigger><SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent></Select></div>
+            </div>
+            <div><Label className="text-sm font-medium">Date</Label><Input type="date" value={trnForm.date} onChange={e => setTrnForm(p => ({ ...p, date: e.target.value }))} /></div>
+            <LineItemsGrid lines={trnLines} setLines={setTrnLines} template={{ productId: "", quantity: 1 }} columns={[{ key: "productId", label: "Product" }, { key: "quantity", label: "Qty" }]} />
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setTrnDialog(false)}>Cancel</Button><Button onClick={async () => { setTrnSaving(true); try { const payload = { ...trnForm, lines: trnLines.filter((l: any) => l.productId).map((l: any) => ({ productId: l.productId, quantity: Number(l.quantity) || 1 })) }; if (trnEdit) { await apiFetch(`/api/transfers/${trnEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated" }); } else { await apiFetch("/api/transfers", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created" }); } setTrnDialog(false); loadTransfers(); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setTrnSaving(false); } }} disabled={trnSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">{trnSaving ? "Saving..." : "Save"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+
+  // ─── Main Return ───
+
+  if (isSR || isDealer) return <AccessDenied message="Sales Representatives and Dealers cannot access Inventory Management modules." />;
+
+  return (
+    <div className="page-enter space-y-4">
+      {isVatAuditor && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Internal cost prices and margins are masked.</span>
+        </div>
+      )}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex flex-wrap h-auto gap-1 bg-slate-100 dark:bg-slate-800 p-1">
+          <TabsTrigger value="company-ordersheet" className="text-xs">Company OS</TabsTrigger>
+          <TabsTrigger value="customer-ordersheet" className="text-xs">Customer OS</TabsTrigger>
+          <TabsTrigger value="ordersheet-report" className="text-xs">OS Report</TabsTrigger>
+          <TabsTrigger value="purchase-orders" className="text-xs">Purchase Orders</TabsTrigger>
+          <TabsTrigger value="auto-po" className="text-xs">Auto PO</TabsTrigger>
+          <TabsTrigger value="sales-orders" className="text-xs">Sales Orders</TabsTrigger>
+          <TabsTrigger value="hire-sales" className="text-xs">Hire Sales</TabsTrigger>
+          <TabsTrigger value="sales-returns" className="text-xs">Sales Returns</TabsTrigger>
+          <TabsTrigger value="purchase-returns" className="text-xs">Purchase Returns</TabsTrigger>
+          <TabsTrigger value="replacements" className="text-xs">Replacements</TabsTrigger>
+          <TabsTrigger value="stock" className="text-xs">Stock</TabsTrigger>
+          <TabsTrigger value="stock-details" className="text-xs">Stock Details</TabsTrigger>
+          <TabsTrigger value="transfers" className="text-xs">Transfers</TabsTrigger>
+        </TabsList>
+        <TabsContent value="company-ordersheet">{renderCompanyOrdersheet()}</TabsContent>
+        <TabsContent value="customer-ordersheet">{renderCustomerOrdersheet()}</TabsContent>
+        <TabsContent value="ordersheet-report">{renderOrdersheetReport()}</TabsContent>
+        <TabsContent value="purchase-orders">{renderPurchaseOrder()}</TabsContent>
+        <TabsContent value="auto-po">{renderAutoPo()}</TabsContent>
+        <TabsContent value="sales-orders">{renderSalesOrder()}</TabsContent>
+        <TabsContent value="hire-sales">{renderHireSales()}</TabsContent>
+        <TabsContent value="sales-returns">{renderSalesReturn()}</TabsContent>
+        <TabsContent value="purchase-returns">{renderPurchaseReturn()}</TabsContent>
+        <TabsContent value="replacements">{renderReplacements()}</TabsContent>
+        <TabsContent value="stock">{renderStock()}</TabsContent>
+        <TabsContent value="stock-details">{renderStockDetails()}</TabsContent>
+        <TabsContent value="transfers">{renderTransfers()}</TabsContent>
+      </Tabs>
+    </div>
+  );
+}

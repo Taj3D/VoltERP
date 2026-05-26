@@ -7,6 +7,11 @@ export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'PurchaseReturns', 'GET');
   if (!security.authorized) return security.response;
 
+  // Dealer: completely blocked from purchase return records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase return records.' }, { status: 403 });
+  }
+
   try {
     const purchaseReturns = await db.purchaseReturn.findMany({
       where: { isActive: true },
@@ -39,6 +44,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'PurchaseReturns', 'POST');
   if (!security.authorized) return security.response;
+
+  // Dealer: completely blocked from purchase return records
+  if (security.user?.role === 'dealer') {
+    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase return records.' }, { status: 403 });
+  }
+
+  // SR: cannot create purchase returns
+  if (security.user?.role === 'sr') {
+    return NextResponse.json({ error: 'Access denied. SRs cannot create or modify purchase returns.' }, { status: 403 });
+  }
 
   try {
     const body = await request.json();
