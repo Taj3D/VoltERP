@@ -5553,6 +5553,7 @@ function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { logout, user, isVatAuditor, hasAccess } = useAuth();
+  const userRole = user?.role || "admin";
   const { theme, setTheme } = useTheme();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
