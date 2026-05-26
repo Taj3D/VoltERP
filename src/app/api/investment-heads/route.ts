@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
           module: 'InvestmentHeads',
           recordId: record.id,
           recordLabel: record.name || record.code || record.id,
-          userId: 'system',
-          userName: 'System',
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({ code: record.code, name: record.name, type: record.type }),
         },
       });

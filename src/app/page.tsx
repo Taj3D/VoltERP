@@ -48,6 +48,7 @@ import DashboardAnalyticsPage from "@/components/DashboardAnalyticsPage";
 import MISReportEngine from "@/components/MISReportEngine";
 import CustomerSupplierLedgerPage from "@/components/CustomerSupplierLedgerPage";
 import SMSAnalyticsPage from "@/components/SMSAnalyticsPage";
+import InvestmentGroupPage from "@/components/InvestmentGroupPage";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -287,12 +288,13 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     label: "Investment",
     icon: TrendingUp,
     items: [
-      { key: "investment-heads", label: "Investment Heads", apiPath: "/api/investment-heads", columns: [{ key: "code", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "type", label: "Investment Type", type: "text" }], formFields: [{ key: "code", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Name", type: "text", required: true }, { key: "type", label: "Head Type", type: "select", required: true, options: [{ value: "Liability", label: "Liability" }, { value: "Asset", label: "Asset" }, { value: "Investment", label: "Investment" }] }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "openingType", label: "Opening Type", type: "select", options: [{ value: "None", label: "--Select Head--" }, { value: "Payment", label: "Payment" }, { value: "Receive", label: "Receive" }] }] },
-      { key: "fixed-asset", label: "Fixed Asset", parent: "Asset", apiPath: "/api/assets", columns: [{ key: "date", label: "Date", type: "date" }, { key: "amount", label: "Amount", type: "currency" }, { key: "description", label: "Description", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "investmentHeadId", label: "Investment Head", type: "select", required: true, options: [] }, { key: "date", label: "Date", type: "date", required: true }, { key: "amount", label: "Amount", type: "number", required: true }, { key: "description", label: "Description", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "current-asset", label: "Current Asset", parent: "Asset", apiPath: "/api/assets", columns: [{ key: "date", label: "Date", type: "date" }, { key: "amount", label: "Amount", type: "currency" }, { key: "description", label: "Description", type: "text" }], formFields: [{ key: "investmentHeadId", label: "Investment Head", type: "select", required: true }, { key: "date", label: "Date", type: "date", required: true }, { key: "amount", label: "Amount", type: "number", required: true }, { key: "description", label: "Description", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "liability-receive", label: "Liability Receive", parent: "Liability", apiPath: "/api/liabilities", columns: [{ key: "date", label: "Date", type: "date" }, { key: "amount", label: "Amount", type: "currency" }, { key: "paymentMethod", label: "Payment Method", type: "text" }], formFields: [{ key: "investmentHeadId", label: "Investment Head", type: "select", required: true }, { key: "date", label: "Date", type: "date", required: true }, { key: "amount", label: "Amount", type: "number", required: true }, { key: "type", label: "Type", type: "select", options: [{ value: "received", label: "Received" }, { value: "pay", label: "Pay" }], defaultValue: "received" }, { key: "paymentMethod", label: "Payment Method", type: "select", options: [{ value: "Cash", label: "Cash" }, { value: "Bank Transfer", label: "Bank Transfer" }, { value: "Cheque", label: "Cheque" }] }, { key: "description", label: "Description", type: "textarea" }] },
-      { key: "liability-pay", label: "Liability Pay", parent: "Liability", apiPath: "/api/liabilities", columns: [{ key: "date", label: "Date", type: "date" }, { key: "amount", label: "Amount", type: "currency" }, { key: "paymentMethod", label: "Payment Method", type: "text" }], formFields: [{ key: "investmentHeadId", label: "Investment Head", type: "select", required: true }, { key: "date", label: "Date", type: "date", required: true }, { key: "amount", label: "Amount", type: "number", required: true }, { key: "type", label: "Type", type: "select", options: [{ value: "pay", label: "Pay" }, { value: "received", label: "Received" }], defaultValue: "pay" }, { key: "paymentMethod", label: "Payment Method", type: "select", options: [{ value: "Cash", label: "Cash" }, { value: "Bank Transfer", label: "Bank Transfer" }, { value: "Cheque", label: "Cheque" }] }, { key: "description", label: "Description", type: "textarea" }] },
-      { key: "liability-report", label: "Liability Report", parent: "Liability", isReport: true, reportType: "liability" },
+      { key: "investment-heads", label: "Investment Heads" },
+      { key: "investment", label: "Investment" },
+      { key: "fixed-asset", label: "Fixed Asset", parent: "Asset" },
+      { key: "current-asset", label: "Current Asset", parent: "Asset" },
+      { key: "liability-receive", label: "Liability Receive", parent: "Liability" },
+      { key: "liability-pay", label: "Liability Pay", parent: "Liability" },
+      { key: "liability-report", label: "Liability Report", parent: "Liability" },
     ],
   },
   {
@@ -5613,6 +5615,10 @@ function AppLayout() {
     if (currentPage === "trial-balance") return <AccountingReportsPage initialTab="trial-balance" />;
     if (currentPage === "profit-loss") return <AccountingReportsPage initialTab="profit-loss" />;
     if (currentPage === "balance-sheet") return <BalanceSheetPeriodClosePage initialTab="balance-sheet" />;
+    // GROUP 1: Investment & Asset Balances — dedicated InvestmentGroupPage component
+    const investmentGroupKeys = new Set(["investment-heads", "investment", "fixed-asset", "current-asset", "liability-receive", "liability-pay", "liability-report"]);
+    if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage initialTab={currentPage} />;
+
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 
     // MIS Report Engine - route all MIS report sidebar items to dedicated component

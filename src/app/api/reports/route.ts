@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
         return await getMonthlyTransaction(searchParams);
       case 'sms':
         return await getSmsReport(searchParams);
+      case 'liability':
+        return await getLiabilityReport(searchParams, security);
       default:
         return await getTransactionSummary(searchParams);
     }
@@ -424,6 +426,96 @@ async function getSmsReport(searchParams: URLSearchParams) {
       partialBills,
       bills: smsBills,
       payments: smsPayments,
+    },
+  });
+}
+
+async function getLiabilityReport(searchParams: URLSearchParams, security: { authorized: true; user: { id: string; email: string; name: string; role: string } } | { authorized: false; response: NextResponse }) {
+  const dateFrom = searchParams.get('from') || searchParams.get('dateFrom');
+  const dateTo = searchParams.get('to') || searchParams.get('dateTo');
+  const headId = searchParams.get('headId');
+
+  const isVatAuditor = security.authorized && security.user.role === 'vat_auditor';
+
+  // Get all liability-type investment heads
+  const headWhere: any = { isActive: true, type: 'Liability' };
+  if (headId) headWhere.id = headId;
+
+  const heads = await db.investmentHead.findMany({
+    where: headWhere,
+    include: {
+      liabilities: {
+        where: {
+          isActive: true,
+          ...(dateFrom || dateTo ? {
+            date: {
+              ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+              ...(dateTo ? { lte: new Date(dateTo + 'T23:59:59.999Z') } : {}),
+            },
+          } : {}),
+        },
+        orderBy: { date: 'desc' },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  // Calculate balances per head
+  const headBalances = heads.map(head => {
+    const totalReceived = head.liabilities.filter(l => l.type === 'received').reduce((sum, l) => sum + l.amount, 0);
+    const totalPaid = head.liabilities.filter(l => l.type === 'pay').reduce((sum, l) => sum + l.amount, 0);
+    const currentBalance = head.openingBalance + totalReceived - totalPaid;
+
+    // Group by payment method
+    const byMethod = new Map<string, { method: string; received: number; paid: number; count: number }>();
+    for (const l of head.liabilities) {
+      const method = l.paymentMethod || 'Cash';
+      const existing = byMethod.get(method);
+      if (existing) {
+        if (l.type === 'received') existing.received += l.amount;
+        else existing.paid += l.amount;
+        existing.count += 1;
+      } else {
+        byMethod.set(method, { method, received: l.type === 'received' ? l.amount : 0, paid: l.type === 'pay' ? l.amount : 0, count: 1 });
+      }
+    }
+
+    return {
+      id: head.id,
+      code: head.code,
+      name: head.name,
+      openingBalance: isVatAuditor ? 'N/A (Audit Mode)' : head.openingBalance,
+      totalReceived: isVatAuditor ? 'N/A (Audit Mode)' : totalReceived,
+      totalPaid: isVatAuditor ? 'N/A (Audit Mode)' : totalPaid,
+      currentBalance: isVatAuditor ? 'N/A (Audit Mode)' : currentBalance,
+      transactionCount: head.liabilities.length,
+      byMethod: Array.from(byMethod.values()),
+      transactions: head.liabilities.map(l => ({
+        id: l.id,
+        date: l.date,
+        amount: isVatAuditor ? 'N/A (Audit Mode)' : l.amount,
+        type: l.type,
+        paymentMethod: l.paymentMethod,
+        description: l.description,
+      })),
+    };
+  });
+
+  // Overall summary
+  const totalOpening = heads.reduce((sum, h) => sum + h.openingBalance, 0);
+  const totalReceived = heads.reduce((sum, h) => sum + h.liabilities.filter(l => l.type === 'received').reduce((s, l) => s + l.amount, 0), 0);
+  const totalPaid = heads.reduce((sum, h) => sum + h.liabilities.filter(l => l.type === 'pay').reduce((s, l) => s + l.amount, 0), 0);
+  const totalOutstanding = totalOpening + totalReceived - totalPaid;
+
+  return NextResponse.json({
+    heads: headBalances,
+    summary: {
+      totalHeads: heads.length,
+      totalOpening: isVatAuditor ? 'N/A (Audit Mode)' : totalOpening,
+      totalReceived: isVatAuditor ? 'N/A (Audit Mode)' : totalReceived,
+      totalPaid: isVatAuditor ? 'N/A (Audit Mode)' : totalPaid,
+      totalOutstanding: isVatAuditor ? 'N/A (Audit Mode)' : totalOutstanding,
+      totalTransactions: heads.reduce((sum, h) => sum + h.liabilities.length, 0),
     },
   });
 }

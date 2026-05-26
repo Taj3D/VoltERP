@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Assets', 'GET');
@@ -12,6 +12,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       include: { investmentHead: true },
     });
     if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+    if (security.user.role === 'vat_auditor') {
+      return NextResponse.json({ ...item, amount: 'N/A (Audit Mode)' });
+    }
+
     return NextResponse.json(item);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
@@ -24,6 +29,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
+
+    // Period close check
+    if (body.date) {
+      const periodLock = await checkPeriodClose(body.date);
+      if (periodLock) return periodLock;
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.asset.update({
         where: { id },
@@ -31,6 +43,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           investmentHeadId: body.investmentHeadId,
           date: body.date ? new Date(body.date) : new Date(),
           amount: body.amount,
+          assetCategory: body.assetCategory || undefined,
           description: body.description || null,
           isActive: body.isActive ?? true,
         },
@@ -42,10 +55,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           action: 'UPDATE',
           module: 'Assets',
           recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ${record.amount}`,
-          userId: 'system',
-          userName: 'System',
-          details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount }),
+          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, category: record.assetCategory }),
         },
       });
 
@@ -69,7 +82,6 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       });
       if (!record) throw new Error('Not found');
 
-      // Asset has no FK references, safe to soft-delete
       await tx.asset.update({
         where: { id },
         data: { isActive: false },
@@ -80,9 +92,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           action: 'DELETE',
           module: 'Assets',
           recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ${record.amount}`,
-          userId: 'system',
-          userName: 'System',
+          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, softDelete: true }),
         },
       });

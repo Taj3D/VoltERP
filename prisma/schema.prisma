@@ -46,6 +46,7 @@ model Asset {
   investmentHeadId String
   date            DateTime
   amount          Float
+  assetCategory   String         @default("Fixed") // "Fixed" or "Current"
   description     String?
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
