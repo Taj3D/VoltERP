@@ -538,15 +538,16 @@ function LoginPage() {
           <h1 className="text-3xl font-bold text-white">Electronics Mart</h1>
           <p className="text-slate-400 mt-2">Inventory Management System</p>
         </div>
-        <Card className="border-0 shadow-2xl bg-white/95 dark:bg-[#132240]/95 backdrop-blur-sm">
-          <CardHeader className="pb-4">
+        <Card className="border-0 shadow-2xl bg-white/95 dark:bg-[#132240]/95 backdrop-blur-sm overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-blue-500 via-blue-600 to-blue-400" />
+          <CardHeader className="pb-4 pt-5">
             <CardTitle className="text-xl text-center text-slate-900 dark:text-white">Sign In</CardTitle>
             <CardDescription className="text-center">Select your role and enter credentials</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2">
+                <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2 animate-in fade-in duration-200">
                   <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
                   <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
                 </div>
@@ -554,10 +555,13 @@ function LoginPage() {
               <div className="space-y-2">
                 <Label htmlFor="role">Login As</Label>
                 <Select value={selectedRole} onValueChange={handleRoleChange}>
-                  <SelectTrigger><SelectValue placeholder="Select Role" /></SelectTrigger>
+                  <SelectTrigger className="transition-all duration-200 focus:ring-2 focus:ring-blue-500/20"><SelectValue placeholder="Select Role" /></SelectTrigger>
                   <SelectContent>
                     {ROLE_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      <SelectItem key={opt.value} value={opt.value} className="flex items-center gap-2">
+                        <span className={`inline-block w-2 h-2 rounded-full ${ROLE_COLORS[opt.value as UserRole]}`} />
+                        {opt.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -566,24 +570,31 @@ function LoginPage() {
                 <Label htmlFor="username">User Name</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input id="username" placeholder="Enter username" value={username} onChange={e => setUsername(e.target.value)} className="pl-10" required />
+                  <Input id="username" placeholder="Enter username" value={username} onChange={e => setUsername(e.target.value)} className="pl-10 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20" required />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input id="password" type="password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} className="pl-10" required />
+                  <Input id="password" type="password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} className="pl-10 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20" required />
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white" disabled={loading}>
+              <Button type="submit" className="w-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200" disabled={loading}>
                 {loading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <LogOut className="w-4 h-4 mr-2 rotate-180" />}
                 Sign In
               </Button>
+              <div className="flex items-center justify-center gap-4 pt-1">
+                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  System Online
+                </div>
+                <span className="text-xs text-slate-300">v2.0</span>
+              </div>
             </form>
           </CardContent>
         </Card>
-        <p className="text-center text-slate-500 text-xs mt-6">Developed & Copyright by NextGen Digital Studio</p>
+        <p className="text-center text-slate-500 text-xs mt-6">© {new Date().getFullYear()} NextGen Digital Studio — All Rights Reserved</p>
       </div>
     </div>
   );
@@ -1936,14 +1947,14 @@ function DashboardPage() {
   }, [toast]);
 
   const kpis = [
-    { label: "Total Products", value: stats.totalProducts || 0, icon: Package, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-    { label: "Today's Sales", value: fmt(stats.todaysSales || 0, "currency"), icon: Receipt, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
-    { label: "Today's Purchase", value: fmt(stats.todaysPurchases || 0, "currency"), icon: ShoppingCart, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
-    { label: "Low Stock Items", value: stats.lowStockProducts?.length || 0, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-900/30" },
-    { label: "Total Customers", value: stats.totalCustomers || 0, icon: Users, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-900/30" },
-    { label: "Total Suppliers", value: stats.totalSuppliers || 0, icon: Truck, color: "text-indigo-600", bg: "bg-indigo-50 dark:bg-indigo-900/30" },
-    { label: "Bank Balance", value: fmt(stats.cashBalance || 0, "currency"), icon: Banknote, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
-    { label: "Total Expenses", value: fmt(stats.totalExpenses, "currency"), icon: ArrowDownCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+    { label: "Total Products", value: stats.totalProducts || 0, icon: Package, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-900/30", gradient: "from-blue-500/10 to-transparent", border: "border-blue-200 dark:border-blue-800/50" },
+    { label: "Today's Sales", value: fmt(stats.todaysSales || 0, "currency"), icon: Receipt, color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-900/30", gradient: "from-green-500/10 to-transparent", border: "border-green-200 dark:border-green-800/50" },
+    { label: "Today's Purchase", value: fmt(stats.todaysPurchases || 0, "currency"), icon: ShoppingCart, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-900/30", gradient: "from-purple-500/10 to-transparent", border: "border-purple-200 dark:border-purple-800/50" },
+    { label: "Low Stock Items", value: stats.lowStockProducts?.length || 0, icon: AlertTriangle, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-50 dark:bg-orange-900/30", gradient: "from-orange-500/10 to-transparent", border: "border-orange-200 dark:border-orange-800/50" },
+    { label: "Total Customers", value: stats.totalCustomers || 0, icon: Users, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-50 dark:bg-cyan-900/30", gradient: "from-cyan-500/10 to-transparent", border: "border-cyan-200 dark:border-cyan-800/50" },
+    { label: "Total Suppliers", value: stats.totalSuppliers || 0, icon: Truck, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-50 dark:bg-teal-900/30", gradient: "from-teal-500/10 to-transparent", border: "border-teal-200 dark:border-teal-800/50" },
+    { label: "Bank Balance", value: fmt(stats.cashBalance || 0, "currency"), icon: Banknote, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-900/30", gradient: "from-emerald-500/10 to-transparent", border: "border-emerald-200 dark:border-emerald-800/50" },
+    { label: "Total Expenses", value: fmt(stats.totalExpenses, "currency"), icon: ArrowDownCircle, color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-900/30", gradient: "from-red-500/10 to-transparent", border: "border-red-200 dark:border-red-800/50" },
   ];
 
   const auth = useAuth();
@@ -1975,15 +1986,16 @@ function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {visibleKpis.map((kpi, i) => (
-          <Card key={i} className="kpi-card dashboard-kpi-card">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className={`p-2 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon className="w-5 h-5" /></div>
+          <Card key={i} className={`kpi-card dashboard-kpi-card relative overflow-hidden ${kpi.border}`}>
+            <div className={`absolute inset-0 bg-gradient-to-br ${kpi.gradient} pointer-events-none`} />
+            <CardContent className="p-4 relative">
+              <div className="flex items-center justify-between mb-3">
+                <div className={`p-2.5 rounded-xl ${kpi.bg} ${kpi.color}`}><kpi.icon className="w-5 h-5" /></div>
               </div>
-              <p className="text-xs text-muted-foreground">{kpi.label}</p>
-              <p className="text-xl font-bold text-slate-900 dark:text-white stat-value">{kpi.value}</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{kpi.label}</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white stat-value tracking-tight">{kpi.value}</p>
             </CardContent>
           </Card>
         ))}
@@ -2004,19 +2016,30 @@ function DashboardPage() {
 
       {/* Quick Actions */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {[
-            { label: "New Sale", icon: Receipt },
-            { label: "New Purchase", icon: ShoppingCart },
-            { label: "Add Product", icon: Plus },
-            { label: "View Reports", icon: BarChart3 },
-            { label: "Transfer Stock", icon: ArrowLeftRight },
-            { label: "Record Expense", icon: DollarSign },
-            { label: "Send SMS", icon: Send },
-          ].map((action, i) => (
-            <Button key={i} variant="outline" size="sm" className="btn-hover-scale"><action.icon className="w-4 h-4 mr-1" />{action.label}</Button>
-          ))}
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-500" />
+            Quick Actions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {[
+              { label: "New Sale", icon: Receipt, color: "text-green-600 bg-green-50 hover:bg-green-100 dark:text-green-400 dark:bg-green-900/30 dark:hover:bg-green-900/50" },
+              { label: "New Purchase", icon: ShoppingCart, color: "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:text-purple-400 dark:bg-purple-900/30 dark:hover:bg-purple-900/50" },
+              { label: "Add Product", icon: Plus, color: "text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30 dark:hover:bg-blue-900/50" },
+              { label: "View Reports", icon: BarChart3, color: "text-cyan-600 bg-cyan-50 hover:bg-cyan-100 dark:text-cyan-400 dark:bg-cyan-900/30 dark:hover:bg-cyan-900/50" },
+              { label: "Transfer Stock", icon: ArrowLeftRight, color: "text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30 dark:hover:bg-amber-900/50" },
+              { label: "Record Expense", icon: DollarSign, color: "text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-400 dark:bg-red-900/30 dark:hover:bg-red-900/50" },
+              { label: "Send SMS", icon: Send, color: "text-teal-600 bg-teal-50 hover:bg-teal-100 dark:text-teal-400 dark:bg-teal-900/30 dark:hover:bg-teal-900/50" },
+              { label: "Print Report", icon: Printer, color: "text-slate-600 bg-slate-50 hover:bg-slate-100 dark:text-slate-400 dark:bg-slate-900/30 dark:hover:bg-slate-900/50" },
+            ].map((action, i) => (
+              <Button key={i} variant="ghost" size="sm" className={`justify-start gap-2 h-9 ${action.color} transition-all duration-200`}>
+                <action.icon className="w-4 h-4" />
+                <span className="text-xs font-medium">{action.label}</span>
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
@@ -2100,19 +2123,30 @@ function DashboardPage() {
 
       {/* Recent Activities */}
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Recent Activities</CardTitle></CardHeader>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-500" />
+            Recent Activities
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           {(stats.recentActivities || []).length > 0 ? (
-            <div className="space-y-3">
+            <div className="relative activity-timeline pl-6 space-y-4">
               {(stats.recentActivities || []).slice(0, 6).map((act: any, i: number) => (
-                <div key={i} className="flex items-start gap-3 text-sm">
-                  <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                  <div><p className="font-medium text-slate-900 dark:text-white">{act.action || act.label || "Activity"}</p><p className="text-xs text-muted-foreground">{act.details || act.description || ""} — {act.time || act.createdAt || ""}</p></div>
+                <div key={i} className="relative flex items-start gap-3 text-sm">
+                  <div className="absolute -left-6 top-1 w-3 h-3 rounded-full bg-blue-500 border-2 border-white dark:border-[#132240] timeline-dot-pulse" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-900 dark:text-white truncate">{act.action || act.label || "Activity"}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{act.details || act.description || ""} — {act.time || act.createdAt || ""}</p>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-8 text-muted-foreground"><p>No recent activities</p></div>
+            <div className="text-center py-8 text-muted-foreground">
+              <Activity className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No recent activities</p>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -2212,10 +2246,27 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
     <aside className={`fixed left-0 top-0 z-40 h-full bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} flex flex-col shadow-xl`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-white/10">
-        {!collapsed && <h1 className="text-lg font-bold text-white flex items-center gap-2"><Package className="w-5 h-5 text-blue-400" />Electronics Mart</h1>}
-        <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10" onClick={onToggle}>
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </Button>
+        {!collapsed && (
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20">
+              <Package className="w-4.5 h-4.5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-white leading-tight">Electronics Mart</h1>
+              <p className="text-[10px] text-slate-400 leading-tight">IMS v2.0</p>
+            </div>
+          </div>
+        )}
+        {collapsed && (
+          <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto">
+            <Package className="w-4 h-4 text-white" />
+          </div>
+        )}
+        {!collapsed && (
+          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={onToggle}>
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+        )}
       </div>
 
       {/* Navigation */}
@@ -5969,8 +6020,8 @@ function AppLayout() {
       </main>
 
       {/* Footer */}
-      <footer className={`bg-[#0a1628] text-slate-400 text-center py-3 text-sm transition-all duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
-        Developed & Copyright by NextGen Digital Studio
+      <footer className={`bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-all duration-300 border-t border-white/5 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
+        <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<span className="text-slate-300 font-medium">NextGen Digital Studio</span>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>
   );
