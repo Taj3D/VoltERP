@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 
 // ============================================================
 // LOCAL UTILITY FUNCTIONS (self-contained)
@@ -330,94 +331,64 @@ export default function BankTransactionsPage() {
 
   // Export CSV
   const exportCSV = () => {
-    const headers = ["Transaction Code", "Bank", "Type", "Amount", "Running Balance", "To Bank", "Date", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.transactionCode,
-      item.bank?.bankName || "—",
-      item.type,
-      item.amount || 0,
-      item.runningBalance || 0,
-      item.toBank?.bankName || "—",
-      fmtDate(item.date),
-      item.status,
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "bank-transactions.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Bank Transactions exported to CSV" });
+    try {
+      const headers = ["Transaction Code", "Bank", "Type", "Amount", "Running Balance", "To Bank", "Date", "Status"];
+      const rows = filtered.map((item: any) => [
+        item.transactionCode,
+        item.bank?.bankName || "—",
+        item.type,
+        String(item.amount || 0),
+        String(item.runningBalance || 0),
+        item.toBank?.bankName || "—",
+        fmtDate(item.date),
+        item.status,
+      ]);
+      exportToCSVSimple("Bank Transactions", headers, rows);
+      toast({ title: "Exported", description: "Bank Transactions exported to CSV" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   // Export PDF
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Bank Transactions", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = ["Code", "Bank", "Type", "Amount", "Running Bal", "To Bank", "Date", "Status"];
-        const body = filtered.map((item: any) => [
-          item.transactionCode,
-          item.bank?.bankName || "—",
-          item.type,
-          fmt(item.amount, "currency"),
-          fmt(item.runningBalance, "currency"),
-          item.toBank?.bankName || "—",
-          fmtDate(item.date),
-          item.status,
-        ]);
-        (doc as any).autoTable({
-          head: [headers],
-          body,
-          startY: 32,
-          styles: { fontSize: 7 },
-          headStyles: { fillColor: [37, 99, 235] },
-        });
-        doc.save("bank-transactions.pdf");
-        toast({ title: "Exported", description: "Bank Transactions exported to PDF" });
-      });
-    });
+    try {
+      const headers = ["Code", "Bank", "Type", "Amount", "Running Bal", "To Bank", "Date", "Status"];
+      const body = filtered.map((item: any) => [
+        item.transactionCode,
+        item.bank?.bankName || "—",
+        item.type,
+        fmt(item.amount, "currency"),
+        fmt(item.runningBalance, "currency"),
+        item.toBank?.bankName || "—",
+        fmtDate(item.date),
+        item.status,
+      ]);
+      exportToPDFSimple("Bank Transactions", headers, body, "landscape");
+      toast({ title: "Exported", description: "Bank Transactions exported to PDF" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   // Import CSV
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const headerLine = linesArr[0].split(",").map(v => v.trim().replace(/"/g, ""));
-      const requiredHeaders = ["Bank", "Type", "Amount", "Date"];
-      const missingHeaders = requiredHeaders.filter(h => !headerLine.includes(h));
-      if (missingHeaders.length > 0) {
-        toast({ title: "Validation Error", description: `Missing required columns: ${missingHeaders.join(", ")}`, variant: "destructive" });
-        return;
-      }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = {
-          bankId: vals[headerLine.indexOf("Bank")] || "",
-          type: vals[headerLine.indexOf("Type")] || "Deposit",
-          amount: Number(vals[headerLine.indexOf("Amount")]) || 0,
-          date: vals[headerLine.indexOf("Date")] || "",
-          toBankId: headerLine.includes("To Bank") ? vals[headerLine.indexOf("To Bank")] || undefined : undefined,
-          description: headerLine.includes("Description") ? vals[headerLine.indexOf("Description")] || "" : "",
-          status: headerLine.includes("Status") ? vals[headerLine.indexOf("Status")] || "Approved" : "Approved",
-        };
-        try {
-          await apiFetch("/api/bank-transactions", { method: "POST", body: JSON.stringify(record) });
-          imported++;
-        } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` });
+    importFromCSV({
+      apiPath: "/api/bank-transactions",
+      formFields: [
+        { key: "bankId", label: "Bank", type: "text", required: true },
+        { key: "type", label: "Type", type: "select", required: true, options: [{ value: "Deposit", label: "Deposit" }, { value: "Withdraw", label: "Withdraw" }, { value: "Transfer", label: "Transfer" }] },
+        { key: "amount", label: "Amount", type: "number", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "toBankId", label: "To Bank", type: "text" },
+        { key: "description", label: "Description", type: "text" },
+        { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
       load();
       loadBanks();
-    };
-    input.click();
+    });
   };
 
   // Column count for table spans

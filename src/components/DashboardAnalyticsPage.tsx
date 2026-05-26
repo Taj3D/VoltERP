@@ -19,6 +19,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell
 } from "recharts";
+import { exportToPDFSimple, exportToCSVSimple } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -235,112 +236,61 @@ function RatioIndicator({ value, label, description, format }: {
 // ============================================================
 
 function exportStockAlertsCSV(data: any[]) {
-  const headers = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
-  const rows = data.map(d => [d.productCode, d.productName, d.category, d.currentStock, d.reorderLevel, d.deficit, d.godown].map(v => `"${String(v ?? "")}"`).join(","));
-  const csv = [headers.join(","), ...rows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url; a.download = "stock-alerts.csv"; a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const headers = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
+    const rows = data.map(d => [d.productCode, d.productName, d.category, String(d.currentStock ?? ""), String(d.reorderLevel ?? ""), String(d.deficit ?? ""), d.godown ?? ""]);
+    exportToCSVSimple("Stock Alerts", headers, rows);
+  } catch (e: any) {
+    console.error("Export Stock Alerts CSV Error:", e);
+  }
 }
 
 function exportStockAlertsPDF(data: any[], kpiData?: Record<string, any>) {
-  import("jspdf").then(jsPDF => {
-    import("jspdf-autotable").then(() => {
-      const doc = new jsPDF.default({ orientation: "landscape" });
-      // Corporate header
-      doc.setFontSize(18);
-      doc.setTextColor(37, 99, 235);
-      doc.text("Electronics Mart IMS", 14, 15);
-      doc.setFontSize(12);
-      doc.setTextColor(100, 100, 100);
-      doc.text("Stock Alerts & KPI Summary Report", 14, 21);
-      doc.setFontSize(9);
-      doc.setTextColor(150, 150, 150);
-      doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")} ${new Date().toLocaleTimeString()}`, 14, 26);
-
-      // KPI Summary
-      if (kpiData) {
-        doc.setFontSize(11);
-        doc.setTextColor(37, 99, 235);
-        doc.text("KPI Summary", 14, 33);
-        const kpiBody = [
-          ["Total Revenue", fmt(kpiData.totalRevenue, "currency")],
-          ["Total Purchases", fmt(kpiData.totalPurchases, "currency")],
-          ["Net Profit", typeof kpiData.netProfit === "string" ? kpiData.netProfit : fmt(kpiData.netProfit, "currency")],
-          ["Today's Sales", fmt(kpiData.todaysSales, "currency")],
-          ["Low Stock Alerts", String(kpiData.lowStockCount || 0)],
-          ["Total Customers", String(kpiData.totalCustomers || 0)],
-          ["Total Products", String(kpiData.totalProducts || 0)],
-        ];
-        (doc as any).autoTable({
-          body: kpiBody,
-          startY: 36,
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: [37, 99, 235] },
-          columnStyles: { 0: { fontStyle: "bold", cellWidth: 50 }, 1: { cellWidth: 50 } },
-          theme: "grid",
-        });
-      }
-
-      // Stock Alerts table
-      const startY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 8 : 36;
-      doc.setFontSize(11);
-      doc.setTextColor(37, 99, 235);
-      doc.text("Stock Alerts", 14, startY);
-      const headers = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
-      const body = data.map(d => [d.productCode, d.productName, d.category, d.currentStock, d.reorderLevel, d.deficit, d.godown]);
-      (doc as any).autoTable({ head: [headers], body, startY: startY + 3, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-      doc.save("stock-alerts-report.pdf");
-    });
-  });
+  try {
+    const headers = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
+    const body = data.map(d => [d.productCode, d.productName, d.category, String(d.currentStock ?? ""), String(d.reorderLevel ?? ""), String(d.deficit ?? ""), d.godown ?? ""]);
+    const subtitle = kpiData
+      ? `KPI: Revenue ${fmt(kpiData.totalRevenue, "currency")} | Purchases ${fmt(kpiData.totalPurchases, "currency")} | Profit ${typeof kpiData.netProfit === "string" ? kpiData.netProfit : fmt(kpiData.netProfit, "currency")} | Today's Sales ${fmt(kpiData.todaysSales, "currency")}`
+      : undefined;
+    exportToPDFSimple("Stock Alerts & KPI Summary", headers, body, "landscape", subtitle);
+  } catch (e: any) {
+    console.error("Export Stock Alerts PDF Error:", e);
+  }
 }
 
 function exportFinancialRatiosCSV(ratios: Record<string, any>) {
-  const headers = ["Ratio", "Value"];
-  const rows = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode").map(([k, v]) => `"${k}","${String(v)}"` );
-  const csv = [headers.join(","), ...rows].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url; a.download = "financial-ratios.csv"; a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const headers = ["Ratio", "Value"];
+    const rows = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode").map(([k, v]) => [k.replace(/([A-Z])/g, " $1").trim(), String(v)]);
+    exportToCSVSimple("Financial Ratios", headers, rows);
+  } catch (e: any) {
+    console.error("Export Financial Ratios CSV Error:", e);
+  }
 }
 
 function exportFinancialRatiosPDF(ratios: Record<string, any>) {
-  import("jspdf").then(jsPDF => {
-    import("jspdf-autotable").then(() => {
-      const doc = new jsPDF.default({ orientation: "portrait" });
-      doc.setFontSize(16); doc.text("Electronics Mart - Financial Ratios", 14, 15);
-      doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 21);
-      const headers = ["Ratio", "Value"];
-      const body = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode").map(([k, v]) => [k.replace(/([A-Z])/g, " $1").trim(), String(v)]);
-      (doc as any).autoTable({ head: [headers], body, startY: 26, styles: { fontSize: 9 }, headStyles: { fillColor: [37, 99, 235] } });
-      doc.save("financial-ratios.pdf");
-    });
-  });
+  try {
+    const headers = ["Ratio", "Value"];
+    const body = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode").map(([k, v]) => [k.replace(/([A-Z])/g, " $1").trim(), String(v)]);
+    exportToPDFSimple("Financial Ratios", headers, body, "portrait");
+  } catch (e: any) {
+    console.error("Export Financial Ratios PDF Error:", e);
+  }
 }
 
 function exportDashboardCSV(stockData: any[], ratios: Record<string, any>) {
-  // Combine stock alerts and financial ratios into one CSV
-  const stockHeaders = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
-  const stockRows = stockData.map(d => [d.productCode, d.productName, d.category, d.currentStock, d.reorderLevel, d.deficit, d.godown].map(v => `"${String(v ?? "")}"`).join(","));
-  const ratioHeaders = ["Ratio", "Value"];
-  const ratioRows = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode").map(([k, v]) => `"${k}","${String(v)}"`);
+  try {
+    // Export stock alerts and financial ratios as separate CSVs
+    const stockHeaders = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
+    const stockRows = stockData.map(d => [d.productCode, d.productName, d.category, String(d.currentStock ?? ""), String(d.reorderLevel ?? ""), String(d.deficit ?? ""), d.godown ?? ""]);
+    exportToCSVSimple("Stock Alerts", stockHeaders, stockRows);
 
-  const csv = [
-    "STOCK ALERTS",
-    stockHeaders.join(","),
-    ...stockRows,
-    "",
-    "FINANCIAL RATIOS",
-    ratioHeaders.join(","),
-    ...ratioRows,
-  ].join("\n");
-
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url; a.download = "dashboard-analytics.csv"; a.click();
-  URL.revokeObjectURL(url);
+    const ratioHeaders = ["Ratio", "Value"];
+    const ratioRows = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode").map(([k, v]) => [k, String(v)]);
+    exportToCSVSimple("Financial Ratios", ratioHeaders, ratioRows);
+  } catch (e: any) {
+    console.error("Export Dashboard CSV Error:", e);
+  }
 }
 
 // ============================================================

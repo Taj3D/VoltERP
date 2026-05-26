@@ -20,6 +20,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell,
@@ -266,63 +267,25 @@ export default function CustomerSupplierLedgerPage({
 
   // ── Export Helpers ────────────────────────────────────
   const exportCSV = (title: string, headers: string[], rows: string[][]) => {
-    const csv = [
-      headers.join(","),
-      ...rows.map((r) =>
-        r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")
-      ),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title.replace(/\s+/g, "-")}-report.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: `${title} exported to CSV` });
+    try {
+      exportToCSVSimple(title, headers, rows);
+      toast({ title: "Exported", description: `${title} exported to CSV` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const exportPDF = (title: string, headers: string[], rows: string[][]) => {
-    import("jspdf").then((jsPDF) => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16);
-        doc.text("Electronics Mart IMS", 14, 15);
-        doc.setFontSize(12);
-        doc.text(title, 14, 22);
-        doc.setFontSize(9);
-        doc.text(
-          `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-          14,
-          28
-        );
-        (doc as any).autoTable({
-          head: [headers],
-          body: rows,
-          startY: 32,
-          styles: { fontSize: 7 },
-          headStyles: { fillColor: [37, 99, 235] },
-        });
-        doc.save(`${title.replace(/\s+/g, "-")}-report.pdf`);
-        toast({ title: "Exported", description: `${title} exported to PDF` });
-      });
-    });
+    try {
+      exportToPDFSimple(title, headers, rows, "landscape");
+      toast({ title: "Exported", description: `${title} exported to PDF` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const handleImportCSV = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      toast({
-        title: "Import",
-        description: `CSV import processed. ${text.split("\n").length - 1} rows found.`,
-      });
-    };
-    input.click();
+    toast({ title: "Import", description: "CSV import is available through the data management pages." });
   };
 
   // ── Sort helpers for summary tables ───────────────────

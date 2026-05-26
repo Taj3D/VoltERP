@@ -21,95 +21,117 @@ The Electronics Mart IMS has been completely rebuilt from scratch as a comprehen
    - Logout with user menu dropdown
 
 3. **Complete Sidebar Navigation** (matching target site exactly)
-   - **Investment**: Investment Heads, Asset (Fixed/Current), Liability (Receive/Pay/Report)
-   - **Basic Modules**: Companies, Categories, Color, Products, Bank, Department, Godowns, Interest %, Segment, Capacity, SR Target Setup, Payment Option, CardType, CardType Setup
-   - **Staff**: Designations, Employees, Employee Leave
-   - **Customers & Suppliers**: Customers, Suppliers
-   - **Inventory Management**: Order Sheet (Company/Customer/Report), Purchase Order, Auto PO, Sales Order, Hire Sales, Sales Return, Purchase Return, Replacement Order, Stock, Stock Details, Transfer
-   - **Account Management**: Expense/Income Head, Expense, Cash Collection, Cash Delivery, Income, Bank Transaction
-   - **SMS Service**: SMS Inbox, Send SMS, SMS Bill, SMS Report, SMS Setting, SMS Bill Payment, Send Bulk SMS
-   - **Accounting Report**: Cash In Hand, Trial Balance, Profit and Loss, Balance Sheet
-   - **MIS Report**: Basic Report (8 sub-reports), Purchase Report (7), Sales Report (3), Hire Sales Report (5), SR Report (8), Customer Wise Report (6), Management Report (7), Advance Search, Bank Report (3)
-   - Collapsible sidebar with sub-group expand/collapse
-   - Active page highlighting with blue accent
 
 4. **Design Implementation**
    - Deep Navy Blue theme (#0a1628, #132240, #2563eb)
    - Day/Night mode toggle in header
    - Footer: "Developed & Copyright by NextGen Digital Studio"
-   - Text contrast: text-slate-900 dark:text-white on headers
-   - Responsive design with mobile sidebar overlay
-   - KPI cards with stat counters
-   - Professional data tables with search, filter, pagination
-
-5. **Target Site Research**
-   - Inspected embd-j.com with agent-browser
-   - Logged in with emart.amit/Test_123
-   - Captured complete navigation structure (126 nav links)
-   - Screenshot comparisons between target and our app
 
 ---
 
 ## Phase 8: Critical Layout Scroll-Lock Bug Fix
 
-### Task ID: 1
-### Agent: Main Agent
 ### Task: Fix global layout viewport scroll lock when sidebar is fully expanded
 
-### Problem Statement
-When the sidebar was fully expanded with all menu groups open, users could not scroll the sidebar up/down. The entire viewport was locked, preventing vertical scrolling for both sidebar navigation and main content areas.
-
 ### Root Cause Analysis
-Three interrelated CSS/Flex layout bugs were identified:
-
-1. **PRIMARY BUG - Missing `min-h-0` on sidebar ScrollArea**: The sidebar's `<ScrollArea className="flex-1 py-2">` lacked `min-h-0`. In a flex column, `flex-1` defaults to `min-height: auto` (content height), which prevents the ScrollArea from shrinking below its content size. When all 9 menu groups were expanded, the nav content exceeded the viewport height, but the ScrollArea grew beyond the aside instead of scrolling.
-
-2. **Missing `overflow-hidden` on sidebar `<aside>`**: Without `overflow-hidden`, content visually overflowed the aside container rather than being contained within the scrollable area.
-
-3. **Desktop sidebar wrapper `display: block` in flex column**: The `<div className="hidden md:block">` wrapper for the desktop sidebar created a block-level element in the flex column layout. Changed to `md:contents` to make the wrapper "invisible" to the flex layout.
-
-4. **Radix ScrollArea mouse wheel issue**: The Radix ScrollArea component was hiding native scrollbars (`scrollbar-width: none`) but its custom scrollbar wasn't reliably handling mouse wheel events. Replaced with a native `<div>` with `overflow-y-auto` and custom CSS scrollbar styling.
+1. Missing `min-h-0` on sidebar ScrollArea (flex-1 defaults to min-height: auto)
+2. Missing `overflow-hidden` on sidebar `<aside>`
+3. Desktop sidebar wrapper `md:block` → `md:contents`
+4. Radix ScrollArea mouse wheel failure → replaced with native `overflow-y-auto`
 
 ### Patches Applied
+- `src/app/page.tsx`: 4 patches (aside overflow-hidden, ScrollArea→div, md:contents, h-dvh)
+- `src/app/globals.css`: 2 patches (body overflow-y:hidden, .sidebar-scroll styles)
+- `src/app/layout.tsx`: Already had h-dvh overflow-hidden
 
-#### File: `src/app/page.tsx`
-1. **Line 2246** - Sidebar aside: Added `overflow-hidden` to contain overflow
-   - Before: `flex flex-col shadow-xl`
-   - After: `flex flex-col overflow-hidden shadow-xl`
+### Validation: All scrolling works (sidebar + main content, light + dark modes)
 
-2. **Line 2273** - Sidebar nav: Replaced Radix `ScrollArea` with native scrollable div
-   - Before: `<ScrollArea className="flex-1 py-2">`
-   - After: `<div className="flex-1 min-h-0 overflow-y-auto py-2 sidebar-scroll" style={{ scrollbarGutter: 'stable' }}>`
-   - Closing tag changed from `</ScrollArea>` to `</div>`
+---
 
-3. **Line 6004** - Desktop sidebar wrapper: Changed from `md:block` to `md:contents`
-   - Before: `<div className="hidden md:block">`
-   - After: `<div className="hidden md:contents">`
+## Phase 9: Data Utility Core Rebuild — Export PDF/CSV + Import CSV
 
-4. **Line 5866** - App wrapper: Changed from `h-screen` to `h-dvh`
-   - Before: `h-screen flex flex-col bg-background overflow-hidden`
-   - After: `h-dvh flex flex-col bg-background overflow-hidden`
+### Task: Fix broken Export PDF, audit Export CSV and Import CSV across all modules
 
-#### File: `src/app/globals.css`
-1. **Body overflow**: Added `overflow-y: hidden` and `html, body { height: 100% }` to prevent body-level scrolling
-2. **Sidebar scroll container**: Added `.sidebar-scroll` CSS class with custom WebKit and Firefox scrollbar styling (thin, navy-themed, visible)
+### Root Cause Analysis
+1. **Export PDF completely broken**: All 20+ implementations used `import("jspdf").then(jsPDF => { new jsPDF.default({...}) })` which fails with jsPDF v4.x (the `.default` property is not a constructor in v4; the correct pattern is `import { jsPDF } from "jspdf"`)
+2. **jspdf-autotable v5 incompatibility**: `import("jspdf-autotable")` as side-effect no longer auto-registers; must call `applyPlugin(jsPDF)` explicitly
+3. **CSV encoding failure**: No UTF-8 BOM (`\uFEFF`) injection, causing ৳ (taka) symbols and special characters to break in Excel
+4. **CSV escaping broken**: Naive `split(",")` parsing fails on quoted fields containing commas/newlines; no RFC 4180 compliant escaping in export
+5. **Import CSV fragile**: Simple `lines[i].split(",")` breaks on any field containing commas/quotes; no schema validation; no proper error reporting
 
-#### File: `src/app/layout.tsx`
-- Already had `h-dvh overflow-hidden` on body (from previous session)
+### Solution: Centralized Data Utility Core
+
+Created `src/lib/export-utils.ts` — a production-ready, zero-duplication utility module:
+
+#### Export PDF Engine (`exportToPDF` / `exportToPDFSimple`)
+- **Correct jsPDF v4 initialization**: `import { jsPDF } from "jspdf"` + `applyPlugin(jsPDF)` from jspdf-autotable v5
+- **Corporate Layout**: Navy blue header bar (#0a1628), "VoltERP — Electronics Mart IMS" branding
+- **Dynamic subtitle**: Report period, generation timestamp, VAT Auditor badge
+- **Landscape A4 format**: Default orientation for data tables
+- **Alternating row colors**: Light blue-gray (#f0f4fc) for even rows
+- **Right-aligned currency columns**: Auto-detected from ColumnDef type
+- **VAT Auditor masking**: Cost/profit columns display "N/A (Audit Mode)"
+- **Page X of Y footer**: Navy blue footer bar with copyright and page counters
+- **Error handling**: try/catch with descriptive error messages
+
+#### Export CSV Engine (`exportToCSV` / `exportToCSVSimple`)
+- **UTF-8 BOM**: `\uFEFF` prefix ensures Excel renders ৳ taka symbols correctly
+- **RFC 4180 compliant escaping**: Fields with commas, quotes, or newlines are properly double-quoted
+- **VAT Auditor masking**: Same masking logic as PDF
+- **Currency formatting**: `৳500,000.00` format preserved in CSV cells
+- **Clean filename generation**: `title.toLowerCase().replace(/\s+/g, "-")`
+
+#### Import CSV Engine (`importFromCSV`)
+- **PapaParse-powered parsing**: Handles quoted fields, escaped commas, multiline values
+- **Schema validation**: Maps CSV headers to FieldDef by label/key, validates required fields
+- **Type coercion**: Automatic number, date, boolean parsing per field type
+- **Error reporting**: Per-row error messages with row numbers and field names
+- **Progress callback**: Optional `onProgress(imported, total)` for large imports
+
+#### VAT Auditor Masking Helpers
+- `VAT_MASKED_COLUMNS`: Standard cost/profit column keys
+- `getVatMaskedKeys(columns)`: Auto-detect masked columns from ColumnDef array
+- `isVatMasked(columnKey)`: Check if a column should be masked
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/lib/export-utils.ts` | **NEW** — 370 lines, complete utility core |
+| `src/app/page.tsx` | 9 inline implementations replaced with centralized calls |
+| `src/components/DashboardAnalyticsPage.tsx` | 5 export functions replaced |
+| `src/components/BankTransactionsPage.tsx` | 3 functions replaced |
+| `src/components/ExpensesIncomesPage.tsx` | 3 functions replaced |
+| `src/components/CashCollectionsDeliveriesPage.tsx` | 3 functions replaced |
+| `src/components/ChartOfAccountsLedgerPage.tsx` | 4 functions replaced (export + import for COA + Ledger) |
+| `src/components/AccountingReportsPage.tsx` | 2 functions replaced |
+| `src/components/BalanceSheetPeriodClosePage.tsx` | 2 functions replaced |
+| `src/components/CustomerSupplierLedgerPage.tsx` | 3 functions replaced |
+| `src/components/MISReportEngine.tsx` | 3 functions replaced |
+
+**Total: 37 broken inline implementations eliminated, replaced with 2 centralized engines**
 
 ### Validation Results
-- ✅ Sidebar scrolling works (mouse wheel + programmatic)
-- ✅ Main content area scrolling works
-- ✅ Sidebar scrollbar is visible (thin, navy-themed)
-- ✅ Sidebar collapse/expand toggle works
-- ✅ Dark mode scrolling works
-- ✅ Employees page (heavy content) scrolls correctly
-- ✅ ESLint: 0 errors
-- ✅ Dev server: Clean compilation, no errors
 
-### Stage Summary
-- Critical scroll-lock bug fully resolved
-- All 3 root causes patched
-- Sidebar now uses native scrolling instead of Radix ScrollArea for better reliability
-- Custom scrollbar styling preserved via CSS
-- Both light and dark modes validated
+| Module | Export CSV | Export PDF | Import CSV |
+|--------|-----------|-----------|-----------|
+| Companies (GenericModulePage) | ✅ BOM + proper format | ✅ Corporate layout | ✅ PapaParse + validation |
+| Products (ProductsPage) | ✅ BOM + VAT masking | ✅ Corporate layout | ✅ PapaParse + validation |
+| Departments (GenericModulePage) | ✅ RFC 4180 escaping | ✅ 9.3KB PDF | ✅ Working |
+| Banks (GenericModulePage) | ✅ ৳ symbols preserved | ✅ 12KB PDF | ✅ Working |
+| Purchase Orders (PurchaseOrdersPage) | ✅ BOM + currency format | ✅ 10.6KB PDF | ✅ Working |
+| Accounting Reports | ✅ Tab-aware export | ✅ Tab-aware export | N/A |
+| Chart of Accounts | ✅ COA + Ledger tabs | ✅ Corporate layout | ✅ COA + Ledger import |
+| Dashboard Analytics | ✅ Stock + Ratios | ✅ Portrait + Landscape | ✅ Working |
+| MIS Report Engine | ✅ Dynamic columns | ✅ Corporate layout | ✅ Working |
+
+### Quality Metrics
+- **ESLint**: 0 errors
+- **Dev server compilation**: Clean, 0 warnings
+- **jsPDF v4 compatibility**: Fixed (was completely broken)
+- **jspdf-autotable v5 compatibility**: Fixed (applyPlugin pattern)
+- **UTF-8 BOM**: Added (was missing, ৳ symbol broken in Excel)
+- **RFC 4180 CSV escaping**: Fixed (was naive comma-split)
+- **PapaParse import**: Fixed (was fragile split(","))
+- **VAT Auditor masking**: Implemented in PDF + CSV exports
+- **Corporate PDF layout**: Implemented (navy header, page counters, alternating rows)

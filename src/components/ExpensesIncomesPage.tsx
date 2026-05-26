@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS (local copies for standalone component)
@@ -263,41 +264,36 @@ export default function ExpensesIncomesPage() {
   };
 
   const exportCSV = () => {
-    const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Payment Option", "Bank", "Status"];
-    const rows = filtered.map((item: any) => [
-      item[codeField], item.head?.name || "—", fmtDate(item.date),
-      item.amount || 0, item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `${activeTab}.csv`; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: `${tabLabel}s exported to CSV` });
+    try {
+      const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Payment Option", "Bank", "Status"];
+      const rows = filtered.map((item: any) => [
+        item[codeField], item.head?.name || "—", fmtDate(item.date),
+        String(item.amount || 0), item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
+      ]);
+      exportToCSVSimple(tabLabel, headers, rows);
+      toast({ title: "Exported", description: `${tabLabel}s exported to CSV` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text(`${tabLabel}s`, 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Payment Option", "Bank", "Status"];
-        const body = filtered.map((item: any) => [
-          item[codeField],
-          item.head?.name || "—",
-          fmtDate(item.date),
-          isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"),
-          item.paymentOption?.name || "—",
-          item.bank?.bankName || "—",
-          item.status,
-        ]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save(`${activeTab}.pdf`);
-        toast({ title: "Exported", description: `${tabLabel}s exported to PDF` });
-      });
-    });
+    try {
+      const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Payment Option", "Bank", "Status"];
+      const body = filtered.map((item: any) => [
+        item[codeField],
+        item.head?.name || "—",
+        fmtDate(item.date),
+        isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"),
+        item.paymentOption?.name || "—",
+        item.bank?.bankName || "—",
+        item.status,
+      ]);
+      exportToPDFSimple(`${tabLabel}s`, headers, body, "landscape");
+      toast({ title: "Exported", description: `${tabLabel}s exported to PDF` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const importCSV = () => {
@@ -306,36 +302,21 @@ export default function ExpensesIncomesPage() {
       toast({ title: "Access Denied", description: "You can only import Income entries", variant: "destructive" });
       return;
     }
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const requiredFields = activeTab === "expenses" ? ["headid", "amount", "date"] : ["headid", "amount", "date"];
-      const headerLine = linesArr[0].split(",").map(v => v.trim().replace(/"/g, "").toLowerCase());
-      const missingFields = requiredFields.filter(f => !headerLine.includes(f));
-      if (missingFields.length > 0) {
-        toast({ title: "Validation Error", description: `Missing required columns: ${missingFields.join(", ")}`, variant: "destructive" });
-        return;
-      }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = {
-          headId: vals[1] || "",
-          amount: vals[3] ? parseFloat(vals[3]) : 0,
-          date: vals[2] || "",
-          status: vals[6] || "Approved",
-          paymentOptionId: vals[4] || null,
-          bankId: vals[5] || null,
-          description: vals[7] || null,
-        };
-        try { await apiFetch(apiBase, { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: apiBase,
+      formFields: [
+        { key: "headId", label: "Head", type: "text", required: true },
+        { key: "amount", label: "Amount", type: "number", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "paymentOptionId", label: "Payment Option", type: "text" },
+        { key: "bankId", label: "Bank", type: "text" },
+        { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+        { key: "description", label: "Description", type: "text" },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {

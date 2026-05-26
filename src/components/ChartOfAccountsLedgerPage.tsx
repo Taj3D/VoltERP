@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS (local copies for standalone component)
@@ -382,86 +383,54 @@ export default function ChartOfAccountsLedgerPage() {
 
   // Triple Utility Bundle
   const exportCSV = (title: string, headers: string[], rows: string[][]) => {
-    const csv = [headers.join(","), ...rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `${title.replace(/\s+/g, "-")}-report.csv`; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: `${title} exported to CSV` });
+    try {
+      exportToCSVSimple(title, headers, rows);
+      toast({ title: "Exported", description: `${title} exported to CSV` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const exportPDF = (title: string, headers: string[], rows: string[][]) => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart IMS", 14, 15);
-        doc.setFontSize(12); doc.text(title, 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        (doc as any).autoTable({
-          head: [headers], body: rows, startY: 32, styles: { fontSize: 7 },
-          headStyles: { fillColor: [37, 99, 235] },
-        });
-        doc.save(`${title.replace(/\s+/g, "-")}-report.pdf`);
-        toast({ title: "Exported", description: `${title} exported to PDF` });
-      });
-    });
+    try {
+      exportToPDFSimple(title, headers, rows, "landscape");
+      toast({ title: "Exported", description: `${title} exported to PDF` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const handleCOAImportCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      if (lines.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const headerLine = lines[0].split(",").map(v => v.trim().replace(/"/g, "").toLowerCase());
-      const required = ["name"];
-      const missing = required.filter(f => !headerLine.includes(f));
-      if (missing.length > 0) {
-        toast({ title: "Validation Error", description: `Missing columns: ${missing.join(", ")}`, variant: "destructive" });
-        return;
-      }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const vals = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = {
-          name: vals[0] || "", classification: vals[1] || "Asset",
-          parentAccountId: null, openingBalance: vals[3] ? parseFloat(vals[3]) : 0,
-          openingBalanceType: vals[4] || "Dr",
-        };
-        try { await apiFetch("/api/chart-of-accounts", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); loadCOA();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/chart-of-accounts",
+      formFields: [
+        { key: "name", label: "Name", type: "text", required: true },
+        { key: "classification", label: "Classification", type: "select", options: [{ value: "Asset", label: "Asset" }, { value: "Liability", label: "Liability" }, { value: "Income", label: "Income" }, { value: "Expense", label: "Expense" }, { value: "Equity", label: "Equity" }] },
+        { key: "openingBalance", label: "Opening Balance", type: "number" },
+        { key: "openingBalanceType", label: "Opening Type", type: "select", options: [{ value: "Dr", label: "Dr" }, { value: "Cr", label: "Cr" }] },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+      loadCOA();
+    });
   };
 
   const handleLedImportCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      if (lines.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const headerLine = lines[0].split(",").map(v => v.trim().replace(/"/g, "").toLowerCase());
-      const required = ["date", "account"];
-      const missing = required.filter(f => !headerLine.includes(f));
-      if (missing.length > 0) {
-        toast({ title: "Validation Error", description: `Missing columns: ${missing.join(", ")}`, variant: "destructive" }); return;
-      }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const vals = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = {
-          date: vals[0] || "", account: vals[1] || "", particulars: vals[2] || null,
-          debit: vals[3] ? parseFloat(vals[3]) : 0, credit: vals[4] ? parseFloat(vals[4]) : 0,
-          reference: vals[5] || null, referenceType: vals[6] || "Manual", accountId: null,
-        };
-        try { await apiFetch("/api/ledger-entries", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); loadLedger();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/ledger-entries",
+      formFields: [
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "account", label: "Account", type: "text", required: true },
+        { key: "particulars", label: "Particulars", type: "text" },
+        { key: "debit", label: "Debit", type: "number" },
+        { key: "credit", label: "Credit", type: "number" },
+        { key: "reference", label: "Reference", type: "text" },
+        { key: "referenceType", label: "Reference Type", type: "select", options: [{ value: "Manual", label: "Manual" }, { value: "SalesOrder", label: "Sales Order" }, { value: "PurchaseOrder", label: "Purchase Order" }, { value: "Expense", label: "Expense" }, { value: "Income", label: "Income" }, { value: "CashCollection", label: "Cash Collection" }, { value: "CashDelivery", label: "Cash Delivery" }, { value: "BankTransaction", label: "Bank Transaction" }] },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+      loadLedger();
+    });
   };
 
   const toggleCOAExpand = (id: string) => {

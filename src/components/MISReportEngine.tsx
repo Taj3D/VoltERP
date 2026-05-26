@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell,
@@ -517,26 +518,23 @@ export default function MISReportEngine() {
       toast({ title: "No Data", description: "Generate a report first", variant: "destructive" });
       return;
     }
-    const headers = reportData.columns.map((c) => c.label);
-    const rows = sortedRows.map((row) =>
-      reportData.columns.map((col) => {
-        const val = row[col.key];
-        const ct = detectColumnType(col.key);
-        if (isVatAuditor && ct === "currency") return '"N/A (Audit Mode)"';
-        if (ct === "currency") return `"${fmt(val, "currency")}"`;
-        if (ct === "date") return `"${fmt(val, "date")}"`;
-        return `"${String(val ?? "").replace(/"/g, '""')}"`;
-      }).join(",")
-    );
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${reportData.title || "report"}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "CSV exported successfully" });
+    try {
+      const headers = reportData.columns.map((c) => c.label);
+      const rows = sortedRows.map((row) =>
+        reportData.columns.map((col) => {
+          const val = row[col.key];
+          const ct = detectColumnType(col.key);
+          if (isVatAuditor && ct === "currency") return "N/A (Audit Mode)";
+          if (ct === "currency") return fmt(val, "currency");
+          if (ct === "date") return fmt(val, "date");
+          return String(val ?? "");
+        })
+      );
+      exportToCSVSimple(reportData.title || "MIS Report", headers, rows);
+      toast({ title: "Exported", description: "CSV exported successfully" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   }, [reportData, sortedRows, isVatAuditor, toast]);
 
   const exportPDF = useCallback(() => {
@@ -544,68 +542,24 @@ export default function MISReportEngine() {
       toast({ title: "No Data", description: "Generate a report first", variant: "destructive" });
       return;
     }
-    import("jspdf").then((jsPDFModule) => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDFModule.default({ orientation: "landscape" });
-        // Corporate header
-        doc.setFontSize(18);
-        doc.setTextColor(10, 22, 40);
-        doc.text("Electronics Mart IMS - MIS Report", 14, 15);
-        doc.setFontSize(12);
-        doc.setTextColor(100, 100, 100);
-        doc.text(reportData.title || "Report", 14, 22);
-        doc.setFontSize(9);
-        doc.text(
-          `Generated: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} | Period: ${fmt(fromDate, "date")} - ${fmt(toDate, "date")}`,
-          14,
-          28
-        );
-        if (isVatAuditor) {
-          doc.setTextColor(217, 119, 6);
-          doc.text("VAT AUDIT MODE — Cost/Margin fields masked", 14, 33);
-        }
-
-        const headers = reportData.columns.map((c) => c.label);
-        const body = sortedRows.map((row) =>
-          reportData.columns.map((col) => {
-            const val = row[col.key];
-            const ct = detectColumnType(col.key);
-            if (isVatAuditor && ct === "currency") return "N/A";
-            if (ct === "currency") return fmt(val, "currency");
-            if (ct === "date") return fmt(val, "date");
-            return String(val ?? "");
-          })
-        );
-
-        const finalY = isVatAuditor ? 37 : 32;
-        (doc as Record<string, unknown>).autoTable = (doc as Record<string, unknown>).autoTable;
-        (doc as unknown as { autoTable: (opts: Record<string, unknown>) => void }).autoTable({
-          head: [headers],
-          body,
-          startY: finalY,
-          styles: { fontSize: 7, cellPadding: 2 },
-          headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
-          alternateRowStyles: { fillColor: [245, 247, 250] },
-          margin: { top: finalY },
-        });
-
-        // Page numbers
-        const pageCount = doc.getNumberOfPages();
-        for (let i = 1; i <= pageCount; i++) {
-          doc.setPage(i);
-          doc.setFontSize(8);
-          doc.setTextColor(150);
-          doc.text(
-            `Page ${i} of ${pageCount}`,
-            doc.internal.pageSize.getWidth() - 30,
-            doc.internal.pageSize.getHeight() - 10
-          );
-        }
-
-        doc.save(`${reportData.title || "report"}.pdf`);
-        toast({ title: "Exported", description: "PDF exported successfully" });
-      });
-    });
+    try {
+      const headers = reportData.columns.map((c) => c.label);
+      const body = sortedRows.map((row) =>
+        reportData.columns.map((col) => {
+          const val = row[col.key];
+          const ct = detectColumnType(col.key);
+          if (isVatAuditor && ct === "currency") return "N/A";
+          if (ct === "currency") return fmt(val, "currency");
+          if (ct === "date") return fmt(val, "date");
+          return String(val ?? "");
+        })
+      );
+      const subtitle = `Period: ${fmt(fromDate, "date")} - ${fmt(toDate, "date")}${isVatAuditor ? " | VAT AUDIT MODE" : ""}`;
+      exportToPDFSimple(reportData.title || "MIS Report", headers, body, "landscape", subtitle);
+      toast({ title: "Exported", description: "PDF exported successfully" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   }, [reportData, sortedRows, isVatAuditor, fromDate, toDate, toast]);
 
   const importCSV = useCallback(() => {
@@ -613,36 +567,22 @@ export default function MISReportEngine() {
       toast({ title: "No Data", description: "Generate a report first", variant: "destructive" });
       return;
     }
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv";
-    input.onchange = async (e: Event) => {
-      const target = e.target as HTMLInputElement;
-      const file = target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length < 2) {
-        toast({ title: "Error", description: "CSV file is empty", variant: "destructive" });
-        return;
-      }
-      const headerLine = lines[0].split(",").map((v) => v.trim().replace(/"/g, "").toLowerCase());
-      const requiredHeaders = reportData.columns.map((c) => c.label.toLowerCase());
-      const missing = requiredHeaders.filter((h) => !headerLine.includes(h));
-      if (missing.length > 0 && requiredHeaders.length <= 5) {
-        toast({
-          title: "Validation Error",
-          description: `Missing columns: ${missing.join(", ")}`,
-          variant: "destructive",
-        });
-        return;
-      }
+    // MIS Report import is for validation/review only — not data insertion
+    const formFields = reportData.columns.map((col) => ({
+      key: col.key,
+      label: col.label,
+      type: (detectColumnType(col.key) === "currency" ? "number" : detectColumnType(col.key) === "date" ? "date" : "text") as "text" | "number" | "date",
+    }));
+    importFromCSV({
+      apiPath: "/api/mis-reports",
+      formFields,
+    }).then(result => {
       toast({
         title: "Import CSV",
-        description: `File "${file.name}" validated with ${lines.length - 1} data rows. Headers: ${headerLine.length} columns detected.`,
+        description: `File validated: ${result.imported} rows parsed, ${result.failed} failed`,
+        variant: result.failed > 0 ? "destructive" : "default",
       });
-    };
-    input.click();
+    });
   }, [reportData, toast]);
 
   // ============================================================

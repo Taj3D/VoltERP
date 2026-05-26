@@ -47,6 +47,8 @@ import BalanceSheetPeriodClosePage from "@/components/BalanceSheetPeriodClosePag
 import DashboardAnalyticsPage from "@/components/DashboardAnalyticsPage";
 import MISReportEngine from "@/components/MISReportEngine";
 import CustomerSupplierLedgerPage from "@/components/CustomerSupplierLedgerPage";
+import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
+import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
 // ============================================================
 // TYPES & INTERFACES
@@ -747,76 +749,11 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
     }
   };
 
-  const exportCSV = () => {
-    const header = visibleColumns.map(c => c.label).join(",");
-    const rows = filteredData.map((item: any, idx: number) => visibleColumns.map(c => c.key === "code" ? `"${String(item[c.key] ?? "").replace(/"/g, '""')}"` : `"${String(item[c.key] ?? "").replace(/"/g, '""')}"`).join(","));
-    const csv = [header, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `${title.toLowerCase().replace(/\s+/g, "-")}.csv`; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: `${title} exported to CSV` });
-  };
+  const exportCSV = () => { try { exportToCSV({ title, columns: visibleColumns, data: filteredData, isVatAuditor }); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
 
-  const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16);
-        doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12);
-        doc.text(`Existing ${title}`, 14, 22);
-        doc.setFontSize(9);
-        doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = visibleColumns.map(c => c.label);
-        const body = filteredData.map((item: any) => visibleColumns.map(c => String(item[c.key] ?? "—")));
-        (doc as any).autoTable({
-          head: [headers],
-          body,
-          startY: 32,
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: [37, 99, 235] },
-        });
-        doc.save(`${title.toLowerCase().replace(/\s+/g, "-")}.pdf`);
-        toast({ title: "Exported", description: `${title} exported to PDF` });
-      });
-    });
-  };
+  const exportPDF = () => { try { exportToPDF({ title: `Existing ${title}`, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to PDF` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
 
-  const importCSV = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      if (lines.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const csvHeaders = lines[0].split(",").map(h => h.trim().replace(/"/g, ""));
-      let imported = 0;
-      let failed = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = {};
-        formFields.forEach(f => {
-          const idx = csvHeaders.indexOf(f.label);
-          if (idx >= 0 && values[idx]) {
-            record[f.key] = f.type === "number" ? Number(values[idx]) || 0 : values[idx];
-          }
-        });
-        if (Object.keys(record).length > 0) {
-          try {
-            await apiFetch(apiPath, { method: "POST", body: JSON.stringify(record) });
-            imported++;
-          } catch { failed++; }
-        }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` });
-      loadData();
-    };
-    input.click();
-  };
+  const importCSV = () => { importFromCSV({ apiPath, formFields }).then(result => { toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" }); loadData(); }); };
 
   return (
     <div className="page-enter space-y-4">
@@ -1129,63 +1066,50 @@ function ProductsPage() {
   const getCatName = (id: string) => categories.find((c: any) => c.id === id)?.name || "—";
 
   const exportCSV = () => {
-    const headers = ["Code", "Name", "Category", "Cost Price", "MRP", "Wholesale", "Dealer", "Stock", "Status"];
+    const headers = isVatAuditor
+      ? ["Code", "Name", "Category", "MRP", "Stock", "Status"]
+      : ["Code", "Name", "Category", "Cost Price", "MRP", "Wholesale", "Dealer", "Stock", "Status"];
     const rows = filtered.map((item: any) => {
       const stock = item.openingStock || 0;
       const reorder = item.reorderLevel || 0;
       const status = stock <= 0 ? "Out" : stock <= reorder ? "Low" : "In";
-      return [item.productCode, item.name, getCatName(item.categoryId), item.costPrice, item.salePrice, item.wholesalePrice, item.dealerPrice, stock, status].map(v => `"${String(v ?? "")}"`).join(",");
+      if (isVatAuditor) return [item.productCode, item.name, getCatName(item.categoryId), item.salePrice, stock, status].map(String);
+      return [item.productCode, item.name, getCatName(item.categoryId), item.costPrice, item.salePrice, item.wholesalePrice, item.dealerPrice, stock, status].map(String);
     });
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "products.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Products exported to CSV" });
+    try { exportToCSVSimple("Products", headers, rows); toast({ title: "Exported", description: "Products exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Products List", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = isVatAuditor
-          ? ["Code", "Name", "Category", "MRP", "Stock", "Status"]
-          : ["Code", "Name", "Category", "Cost", "MRP", "Wholesale", "Dealer", "Stock", "Status"];
-        const body = filtered.map((item: any) => {
-          const stock = item.openingStock || 0;
-          const reorder = item.reorderLevel || 0;
-          const status = stock <= 0 ? "Out" : stock <= reorder ? "Low" : "In";
-          if (isVatAuditor) return [item.productCode, item.name, getCatName(item.categoryId), item.salePrice, stock, status];
-          return [item.productCode, item.name, getCatName(item.categoryId), item.costPrice, item.salePrice, item.wholesalePrice, item.dealerPrice, stock, status];
-        });
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("products.pdf");
-        toast({ title: "Exported", description: "Products exported to PDF" });
-      });
+    const headers = isVatAuditor
+      ? ["Code", "Name", "Category", "MRP", "Stock", "Status"]
+      : ["Code", "Name", "Category", "Cost", "MRP", "Wholesale", "Dealer", "Stock", "Status"];
+    const body = filtered.map((item: any) => {
+      const stock = item.openingStock || 0;
+      const reorder = item.reorderLevel || 0;
+      const status = stock <= 0 ? "Out" : stock <= reorder ? "Low" : "In";
+      if (isVatAuditor) return [item.productCode, item.name, getCatName(item.categoryId), item.salePrice, stock, status].map(String);
+      return [item.productCode, item.name, getCatName(item.categoryId), item.costPrice, item.salePrice, item.wholesalePrice, item.dealerPrice, stock, status].map(String);
     });
+    try { exportToPDFSimple("Products", headers, body, "landscape"); toast({ title: "Exported", description: "Products exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      if (lines.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const vals = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { name: vals[1] || "", productCode: vals[0] || "", salePrice: Number(vals[4]) || 0, costPrice: Number(vals[3]) || 0, openingStock: Number(vals[7]) || 0 };
-        if (Object.keys(record).length > 0) {
-          try { await apiFetch("/api/products", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-        }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/products",
+      formFields: [
+        { key: "productCode", label: "Code", type: "text" },
+        { key: "name", label: "Name", type: "text", required: true },
+        { key: "categoryId", label: "Category", type: "text" },
+        { key: "costPrice", label: "Cost Price", type: "number" },
+        { key: "salePrice", label: "MRP", type: "number" },
+        { key: "wholesalePrice", label: "Wholesale", type: "number" },
+        { key: "dealerPrice", label: "Dealer", type: "number" },
+        { key: "openingStock", label: "Stock", type: "number" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   // Determine table column count for colSpan
@@ -1653,27 +1577,17 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default();
-        doc.setFontSize(16);
-        doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12);
-        doc.text(title, 14, 22);
-        doc.setFontSize(9);
-        doc.text(`Period: ${dateFrom} to ${dateTo}`, 14, 28);
-        if (data.length > 0) {
-          const headers = Object.keys(data[0]).filter(k => k !== "id");
-          (doc as any).autoTable({
-            head: [headers],
-            body: data.map(row => headers.map(h => String(row[h] ?? "—"))),
-            startY: 32,
-            styles: { fontSize: 8 },
-          });
-        }
-        doc.save(`${reportType}-report.pdf`);
-      });
-    });
+    if (data.length === 0) return;
+    const headers = Object.keys(data[0]).filter(k => k !== "id");
+    const rows = data.map((row: any) => headers.map(h => String(row[h] ?? "—")));
+    try { exportToPDFSimple(title, headers, rows, "portrait", `Period: ${dateFrom} to ${dateTo}`); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const exportCSVReport = () => {
+    if (data.length === 0) return;
+    const headers = Object.keys(data[0]).filter(k => k !== "id");
+    const rows = data.map((row: any) => headers.map(h => String(row[h] ?? "—")));
+    try { exportToCSVSimple(title, headers, rows); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const columns = data.length > 0 ? Object.keys(data[0]).filter(k => k !== "id") : [];
@@ -1684,7 +1598,7 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{title}</h2>
         {generated && <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />PDF</Button>
-          <Button variant="outline" size="sm"><Download className="w-4 h-4 mr-1" />CSV</Button>
+          <Button variant="outline" size="sm" onClick={exportCSVReport}><Download className="w-4 h-4 mr-1" />CSV</Button>
           <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="w-4 h-4 mr-1" />Print</Button>
         </div>}
       </div>
@@ -2539,53 +2453,29 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
 
   const exportCSV = () => {
     const headers = ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.poNumber, item.supplierName || "—", fmtDate(item.date), item.subTotal || 0, item.vatPercentage || 0, item.vatAmount || 0, item.grandTotal || 0, item.status
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "purchase-orders.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Purchase Orders exported to CSV" });
+    const rows = filtered.map((item: any) => [item.poNumber, item.supplierName || "—", fmtDate(item.date), item.subTotal || 0, item.vatPercentage || 0, item.vatAmount || 0, item.grandTotal || 0, item.status].map(String));
+    try { exportToCSVSimple("Purchase Orders", headers, rows); toast({ title: "Exported", description: "Purchase Orders exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Purchase Orders", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = isVatAuditor
-          ? ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"]
-          : ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"];
-        const body = filtered.map((item: any) => isVatAuditor
-          ? [item.poNumber, item.supplierName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), item.vatPercentage, fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]
-          : [item.poNumber, item.supplierName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), item.vatPercentage, fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("purchase-orders.pdf");
-        toast({ title: "Exported", description: "Purchase Orders exported to PDF" });
-      });
-    });
+    const headers = ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"];
+    const body = filtered.map((item: any) => [item.poNumber, item.supplierName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), String(item.vatPercentage || 0), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
+    try { exportToPDFSimple("Purchase Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { poNumber: vals[0], supplierId: vals[1], date: vals[2], status: vals[7] || "Draft" };
-        try { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/purchase-orders",
+      formFields: [
+        { key: "poNumber", label: "PO Number", type: "text", required: true },
+        { key: "supplierId", label: "Supplier", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "status", label: "Status", type: "text" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {
@@ -3080,49 +2970,29 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
 
   const exportCSV = () => {
     const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Discount", "VAT %", "VAT Amount", "Grand Total", "Payment", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.invoiceNo, item.customerName || "—", fmtDate(item.date), item.subTotal || 0, item.discount || 0, item.vatPercentage || 0, item.vatAmount || 0, item.grandTotal || 0, item.paymentOptionId || "—", item.status
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "sales-orders.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Sales Orders exported to CSV" });
+    const rows = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), item.subTotal || 0, item.discount || 0, item.vatPercentage || 0, item.vatAmount || 0, item.grandTotal || 0, item.paymentOptionId || "—", item.status].map(String));
+    try { exportToCSVSimple("Sales Orders", headers, rows); toast({ title: "Exported", description: "Sales Orders exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Sales Orders", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Discount", "VAT %", "VAT Amount", "Grand Total", "Status"];
-        const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.discount, "currency"), item.vatPercentage, fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("sales-orders.pdf");
-        toast({ title: "Exported", description: "Sales Orders exported to PDF" });
-      });
-    });
+    const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Discount", "VAT %", "VAT Amount", "Grand Total", "Status"];
+    const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.discount, "currency"), String(item.vatPercentage || 0), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
+    try { exportToPDFSimple("Sales Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { invoiceNo: vals[0], customerId: vals[1], date: vals[2], status: vals[9] || "Draft" };
-        try { await apiFetch("/api/sales-orders", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/sales-orders",
+      formFields: [
+        { key: "invoiceNo", label: "Invoice No", type: "text", required: true },
+        { key: "customerId", label: "Customer", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "status", label: "Status", type: "text" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {
@@ -3644,49 +3514,30 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
 
   const exportCSV = () => {
     const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Down Payment", "Grand Total", "Duration", "Installment Amt", "Balance", "Next Payment", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.invoiceNo, item.customerName || "—", fmtDate(item.date), item.subTotal || 0, item.downPayment || 0, item.grandTotal || 0, item.duration || 0, item.installmentAmount || 0, item.balanceAfterDP || 0, item.nextPaymentDate || "—", item.currentStatus || item.status
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "hire-sales.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Hire Sales exported to CSV" });
+    const rows = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), item.subTotal || 0, item.downPayment || 0, item.grandTotal || 0, item.duration || 0, item.installmentAmount || 0, item.balanceAfterDP || 0, item.nextPaymentDate || "—", item.currentStatus || item.status].map(String));
+    try { exportToCSVSimple("Hire Sales", headers, rows); toast({ title: "Exported", description: "Hire Sales exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Hire Sales", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = ["Invoice No", "Customer", "Date", "Down Payment", "Grand Total", "Duration", "Installment", "Status"];
-        const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.downPayment, "currency"), fmt(item.grandTotal, "currency"), item.duration, fmt(item.installmentAmount, "currency"), item.currentStatus || item.status]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("hire-sales.pdf");
-        toast({ title: "Exported", description: "Hire Sales exported to PDF" });
-      });
-    });
+    const headers = ["Invoice No", "Customer", "Date", "Down Payment", "Grand Total", "Duration", "Installment", "Status"];
+    const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.downPayment, "currency"), fmt(item.grandTotal, "currency"), String(item.duration || 0), fmt(item.installmentAmount, "currency"), item.currentStatus || item.status]);
+    try { exportToPDFSimple("Hire Sales", headers, body, "landscape"); toast({ title: "Exported", description: "Hire Sales exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { invoiceNo: vals[0], customerId: vals[1], date: vals[2], downPayment: Number(vals[4]) || 0, duration: Number(vals[6]) || 12 };
-        try { await apiFetch("/api/hire-sales", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/hire-sales",
+      formFields: [
+        { key: "invoiceNo", label: "Invoice No", type: "text", required: true },
+        { key: "customerId", label: "Customer", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "downPayment", label: "Down Payment", type: "number" },
+        { key: "duration", label: "Duration", type: "number" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {
@@ -4285,56 +4136,30 @@ function SalesReturnsPage({ onNavigate }: { onNavigate?: (page: string) => void 
 
   const exportCSV = () => {
     const headers = ["Return No", "SO Invoice", "Customer", "Date", "SubTotal", "VAT", "GrandTotal", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.returnNo, item.salesOrder?.invoiceNo || "—", item.customer?.name || "—", fmtDate(item.date), item.subTotal || 0, item.vatAmount || 0, item.grandTotal || 0, item.status
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "sales-returns.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Sales Returns exported to CSV" });
+    const rows = filtered.map((item: any) => [item.returnNo, item.salesOrder?.invoiceNo || "—", item.customer?.name || "—", fmtDate(item.date), item.subTotal || 0, item.vatAmount || 0, item.grandTotal || 0, item.status].map(String));
+    try { exportToCSVSimple("Sales Returns", headers, rows); toast({ title: "Exported", description: "Sales Returns exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Sales Returns", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = ["Return No", "SO Invoice", "Customer", "Date", "SubTotal", "VAT", "GrandTotal", "Status"];
-        const body = filtered.map((item: any) => [item.returnNo, item.salesOrder?.invoiceNo || "—", item.customer?.name || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("sales-returns.pdf");
-        toast({ title: "Exported", description: "Sales Returns exported to PDF" });
-      });
-    });
+    const headers = ["Return No", "SO Invoice", "Customer", "Date", "SubTotal", "VAT", "GrandTotal", "Status"];
+    const body = filtered.map((item: any) => [item.returnNo, item.salesOrder?.invoiceNo || "—", item.customer?.name || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
+    try { exportToPDFSimple("Sales Returns", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const requiredFields = ["returnNo", "salesOrderId", "customerId", "date"];
-      const headerLine = linesArr[0].split(",").map(v => v.trim().replace(/"/g, "").toLowerCase());
-      const missingFields = requiredFields.filter(f => !headerLine.includes(f));
-      if (missingFields.length > 0) {
-        toast({ title: "Validation Error", description: `Missing required columns: ${missingFields.join(", ")}`, variant: "destructive" });
-        return;
-      }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { returnNo: vals[0], salesOrderId: vals[1], customerId: vals[2], date: vals[3], status: vals[7] || "Pending" };
-        try { await apiFetch("/api/sales-returns", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/sales-returns",
+      formFields: [
+        { key: "returnNo", label: "Return No", type: "text", required: true },
+        { key: "salesOrderId", label: "Sales Order", type: "text", required: true },
+        { key: "customerId", label: "Customer", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "status", label: "Status", type: "text" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {
@@ -4873,49 +4698,30 @@ function PurchaseReturnsPage({ onNavigate }: { onNavigate?: (page: string) => vo
 
   const exportCSV = () => {
     const headers = ["Return No", "PO Number", "Supplier", "Date", "GrandTotal", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.returnNo, item.purchaseOrder?.poNumber || "—", item.purchaseOrder?.supplier?.name || "—", fmtDate(item.date), item.grandTotal || 0, item.status
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "purchase-returns.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Purchase Returns exported to CSV" });
+    const rows = filtered.map((item: any) => [item.returnNo, item.purchaseOrder?.poNumber || "—", item.purchaseOrder?.supplier?.name || "—", fmtDate(item.date), item.grandTotal || 0, item.status].map(String));
+    try { exportToCSVSimple("Purchase Returns", headers, rows); toast({ title: "Exported", description: "Purchase Returns exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Purchase Returns", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = ["Return No", "PO Number", "Supplier", "Date", "GrandTotal", "Status"];
-        const body = filtered.map((item: any) => [item.returnNo, item.purchaseOrder?.poNumber || "—", item.purchaseOrder?.supplier?.name || "—", fmtDate(item.date), fmt(item.grandTotal, "currency"), item.status]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("purchase-returns.pdf");
-        toast({ title: "Exported", description: "Purchase Returns exported to PDF" });
-      });
-    });
+    const headers = ["Return No", "PO Number", "Supplier", "Date", "GrandTotal", "Status"];
+    const body = filtered.map((item: any) => [item.returnNo, item.purchaseOrder?.poNumber || "—", item.purchaseOrder?.supplier?.name || "—", fmtDate(item.date), fmt(item.grandTotal, "currency"), item.status]);
+    try { exportToPDFSimple("Purchase Returns", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { returnNo: vals[0], purchaseOrderId: vals[1], supplierId: vals[2], date: vals[3], status: vals[5] || "Pending" };
-        try { await apiFetch("/api/purchase-returns", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/purchase-returns",
+      formFields: [
+        { key: "returnNo", label: "Return No", type: "text", required: true },
+        { key: "purchaseOrderId", label: "Purchase Order", type: "text", required: true },
+        { key: "supplierId", label: "Supplier", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "status", label: "Status", type: "text" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {
@@ -5386,49 +5192,30 @@ function StockTransfersPage() {
 
   const exportCSV = () => {
     const headers = ["Transfer No", "From Godown", "To Godown", "Date", "Shipping Status", "Total Items", "Total Qty"];
-    const rows = filtered.map((item: any) => [
-      item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0
-    ].map(v => `"${String(v ?? "")}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "stock-transfers.csv"; a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Exported", description: "Stock Transfers exported to CSV" });
+    const rows = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0].map(String));
+    try { exportToCSVSimple("Stock Transfers", headers, rows); toast({ title: "Exported", description: "Stock Transfers exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        doc.setFontSize(12); doc.text("Stock Transfers", 14, 22);
-        doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-        const headers = ["Transfer No", "From", "To", "Date", "Status", "Items", "Qty"];
-        const body = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0]);
-        (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-        doc.save("stock-transfers.pdf");
-        toast({ title: "Exported", description: "Stock Transfers exported to PDF" });
-      });
-    });
+    const headers = ["Transfer No", "From", "To", "Date", "Status", "Items", "Qty"];
+    const body = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", String(item.totalItems || 0), String(item.totalQuantity || 0)]);
+    try { exportToPDFSimple("Stock Transfers", headers, body, "landscape"); toast({ title: "Exported", description: "Stock Transfers exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { transferNo: vals[0], fromGodownId: vals[1], toGodownId: vals[2], date: vals[3], notes: vals[4] || "" };
-        try { await apiFetch("/api/transfers", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); load();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/transfers",
+      formFields: [
+        { key: "transferNo", label: "Transfer No", type: "text", required: true },
+        { key: "fromGodownId", label: "From Godown", type: "text", required: true },
+        { key: "toGodownId", label: "To Godown", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "notes", label: "Notes", type: "text" },
+      ]
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" });
+      load();
+    });
   };
 
   const toggleExpand = (id: string) => {

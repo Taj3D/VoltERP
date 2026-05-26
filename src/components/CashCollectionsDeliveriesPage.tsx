@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS (self-contained)
@@ -373,99 +374,78 @@ export default function CashCollectionsDeliveriesPage() {
 
   // ---- Export CSV ----
   const exportCSV = (type: "collection" | "delivery") => {
-    if (type === "collection") {
-      const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
-      const rows = filteredColl.map((item: any) => [
-        item.collectionCode, item.customer?.name || "—", fmtDate(item.date), item.amount || 0,
-        item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
-      ].map(v => `"${String(v ?? "")}"`).join(","));
-      const csv = [headers.join(","), ...rows].join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = "cash-collections.csv"; a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "Exported", description: "Cash Collections exported to CSV" });
-    } else {
-      const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
-      const rows = filteredDel.map((item: any) => [
-        item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date), item.amount || 0,
-        item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
-      ].map(v => `"${String(v ?? "")}"`).join(","));
-      const csv = [headers.join(","), ...rows].join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = "cash-deliveries.csv"; a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "Exported", description: "Cash Deliveries exported to CSV" });
+    try {
+      if (type === "collection") {
+        const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
+        const rows = filteredColl.map((item: any) => [
+          item.collectionCode, item.customer?.name || "—", fmtDate(item.date), String(item.amount || 0),
+          item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
+        ]);
+        exportToCSVSimple("Cash Collections", headers, rows);
+        toast({ title: "Exported", description: "Cash Collections exported to CSV" });
+      } else {
+        const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
+        const rows = filteredDel.map((item: any) => [
+          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date), String(item.amount || 0),
+          item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
+        ]);
+        exportToCSVSimple("Cash Deliveries", headers, rows);
+        toast({ title: "Exported", description: "Cash Deliveries exported to CSV" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
 
   // ---- Export PDF ----
   const exportPDF = (type: "collection" | "delivery") => {
-    import("jspdf").then(jsPDF => {
-      import("jspdf-autotable").then(() => {
-        const doc = new jsPDF.default({ orientation: "landscape" });
-        doc.setFontSize(16); doc.text("Electronics Mart", 14, 15);
-        if (type === "collection") {
-          doc.setFontSize(12); doc.text("Cash Collections", 14, 22);
-          doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-          const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
-          const body = filteredColl.map((item: any) => [
-            item.collectionCode, item.customer?.name || "—", fmtDate(item.date),
-            fmt(item.amount, "currency"), item.paymentOption?.name || "—",
-            item.bank?.bankName || "—", item.status
-          ]);
-          (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-          doc.save("cash-collections.pdf");
-          toast({ title: "Exported", description: "Cash Collections exported to PDF" });
-        } else {
-          doc.setFontSize(12); doc.text("Cash Deliveries", 14, 22);
-          doc.setFontSize(9); doc.text(`Generated: ${new Date().toLocaleDateString("en-GB")}`, 14, 28);
-          const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
-          const body = filteredDel.map((item: any) => [
-            item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date),
-            fmt(item.amount, "currency"), item.paymentOption?.name || "—",
-            item.bank?.bankName || "—", item.status
-          ]);
-          (doc as any).autoTable({ head: [headers], body, startY: 32, styles: { fontSize: 7 }, headStyles: { fillColor: [37, 99, 235] } });
-          doc.save("cash-deliveries.pdf");
-          toast({ title: "Exported", description: "Cash Deliveries exported to PDF" });
-        }
-      });
-    });
+    try {
+      if (type === "collection") {
+        const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
+        const body = filteredColl.map((item: any) => [
+          item.collectionCode, item.customer?.name || "—", fmtDate(item.date),
+          fmt(item.amount, "currency"), item.paymentOption?.name || "—",
+          item.bank?.bankName || "—", item.status
+        ]);
+        exportToPDFSimple("Cash Collections", headers, body, "landscape");
+        toast({ title: "Exported", description: "Cash Collections exported to PDF" });
+      } else {
+        const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
+        const body = filteredDel.map((item: any) => [
+          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date),
+          fmt(item.amount, "currency"), item.paymentOption?.name || "—",
+          item.bank?.bankName || "—", item.status
+        ]);
+        exportToPDFSimple("Cash Deliveries", headers, body, "landscape");
+        toast({ title: "Exported", description: "Cash Deliveries exported to PDF" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   // ---- Import CSV ----
   const importCSV = (type: "collection" | "delivery") => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const linesArr = text.split("\n").filter(l => l.trim());
-      if (linesArr.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      // Header validation
-      const expectedHeaders = type === "collection"
-        ? ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"]
-        : ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
-      const csvHeaders = linesArr[0].split(",").map(h => h.trim().replace(/"/g, ""));
-      const missingHeaders = expectedHeaders.filter(h => !csvHeaders.includes(h));
-      if (missingHeaders.length > 0) {
-        toast({ title: "Validation Error", description: `Missing columns: ${missingHeaders.join(", ")}`, variant: "destructive" });
-        return;
-      }
-      let imported = 0; let failed = 0;
-      const apiBase = type === "collection" ? "/api/cash-collections" : "/api/cash-deliveries";
-      for (let i = 1; i < linesArr.length; i++) {
-        const vals = linesArr[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = type === "collection"
-          ? { collectionCode: vals[0], customerId: vals[1], date: vals[2], amount: vals[3], status: vals[6] || "Approved" }
-          : { deliveryCode: vals[0], supplierId: vals[1], date: vals[2], amount: vals[3], status: vals[6] || "Approved" };
-        try { await apiFetch(apiBase, { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` });
+    const apiBase = type === "collection" ? "/api/cash-collections" : "/api/cash-deliveries";
+    const formFields = type === "collection"
+      ? [
+          { key: "collectionCode", label: "Collection Code", type: "text" as const },
+          { key: "customerId", label: "Customer", type: "text" as const, required: true },
+          { key: "date", label: "Date", type: "date" as const, required: true },
+          { key: "amount", label: "Amount", type: "number" as const, required: true },
+          { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+        ]
+      : [
+          { key: "deliveryCode", label: "Delivery Code", type: "text" as const },
+          { key: "supplierId", label: "Supplier", type: "text" as const, required: true },
+          { key: "date", label: "Date", type: "date" as const, required: true },
+          { key: "amount", label: "Amount", type: "number" as const, required: true },
+          { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+        ];
+    importFromCSV({ apiPath: apiBase, formFields }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
       if (type === "collection") loadCollections(); else loadDeliveries();
-    };
-    input.click();
+    });
   };
 
   // ---- Dealer: COMPLETELY HIDDEN ----
