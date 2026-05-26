@@ -989,3 +989,91 @@ model AuditLog {
   ip          String?
   createdAt   DateTime @default(now())
 }
+
+// ============================================================
+// GROUP 5: FINANCIAL AUDITING, AUTOMATED LEDGERS & DATA INTEGRITY
+// ============================================================
+
+// Notification Engine — threshold alerts for low-stock, out-of-balance, overdue installments
+model Notification {
+  id           String   @id @default(cuid())
+  code         String   @unique  // NOT-XXXXX
+  type         String   // "LowStock", "OverdueInstallment", "BalanceMismatch", "PeriodClose", "DataIntegrity", "System"
+  severity     String   @default("Info")  // "Info", "Warning", "Critical"
+  title        String
+  message      String
+  module       String?  // "SalesOrder", "PurchaseOrder", "Stock", "Ledger", etc.
+  referenceId  String?  // ID of the related record
+  referenceCode String? // Human-readable code (PO-00001, SO-00001, etc.)
+  isRead       Boolean  @default(false)
+  isDismissed  Boolean  @default(false)
+  dismissedAt  DateTime?
+  dismissedBy  String?
+  actionUrl    String?  // Navigation hint for frontend
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Product Serial/IMEI Lifecycle Tracking — trace full history from procurement to sale/return
+model ProductSerialTracking {
+  id              String   @id @default(cuid())
+  code            String   @unique  // SRL-XXXXX
+  productId       String
+  serialNumber    String?  // Serial number
+  imeiNumber      String?  // IMEI number (for mobile devices)
+  status          String   @default("InStock")  // "InStock", "Sold", "Returned", "Replaced", "Damaged", "Transferred"
+  purchaseOrderId String?  // Original procurement source
+  salesOrderId    String?  // Sale record
+  godownId        String?  // Current warehouse location
+  customerId      String?  // Current owner (if sold)
+  supplierId      String?  // Original supplier
+  purchaseDate    DateTime?
+  saleDate        DateTime?
+  returnDate      DateTime?
+  warrantyExpiry  DateTime?
+  notes           String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Data Integrity Audit Log — out-of-balance entries, reconciliation failures
+model DataIntegrityLog {
+  id              String   @id @default(cuid())
+  code            String   @unique  // DIL-XXXXX
+  checkType       String   // "LedgerBalance", "StockReconciliation", "PeriodIntegrity", "VATReconciliation", "AccountConsistency"
+  status          String   @default("Passed")  // "Passed", "Failed", "Warning"
+  module          String?  // Module being checked
+  details         String?  // JSON string with check details
+  discrepancy     Float    @default(0)  // Amount of imbalance if any
+  expectedValue   Float    @default(0)
+  actualValue     Float    @default(0)
+  checkedAt       DateTime @default(now())
+  checkedBy       String?
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  resolution      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Ledger Auto-Post Queue — tracks automatic ledger entries generated from transactions
+model LedgerAutoPost {
+  id              String   @id @default(cuid())
+  code            String   @unique  // LAP-XXXXX
+  sourceType      String   // "SalesOrder", "PurchaseOrder", "Expense", "Income", "CashCollection", "CashDelivery", "BankTransaction", "HireSales", "SalesReturn", "PurchaseReturn"
+  sourceId        String   // ID of the source transaction
+  sourceCode      String?  // Human-readable reference (invoice no, PO no, etc.)
+  debitEntryId    String?  // LED-XXXXX of the debit entry
+  creditEntryId   String?  // LED-XXXXX of the credit entry
+  debitAccount    String   // Account name debited
+  creditAccount   String   // Account name credited
+  amount          Float    @default(0)
+  postingDate     DateTime
+  status          String   @default("Posted")  // "Pending", "Posted", "Reversed", "Failed"
+  reversalReason  String?
+  postedAt        DateTime @default(now())
+  postedBy        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

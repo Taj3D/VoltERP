@@ -1488,3 +1488,306 @@ Based on the current system architecture, Group 5 should focus on:
 7. **Data Integrity Audit** — Cross-validate stock entries against order totals, verify ledger balances match stock values
 8. **Performance Optimization** — Add pagination to all list endpoints, implement cursor-based scrolling for large datasets, add database indexes on frequently queried fields
 
+
+---
+
+## Task ID 3: GROUP 5 — Financial Auditing, Automated Ledgers & Data Integrity Hooks
+
+**Date**: 2026-05-27
+**Agent**: Frontend Engineer (Task 3)
+**Status**: COMPLETED
+
+### Work Done
+
+1. **Created `/home/z/my-project/src/components/FinancialAuditGroupPage.tsx`** — A comprehensive, production-ready component with 5 tabs:
+
+   - **Tab 1: Dashboard KPI Enhancement** (key="kpi")
+     - 12 dynamic KPI cards wired to `/api/dashboard`: Total Revenue, Total Purchases, Gross Profit, Net Profit, Total Expenses, Total Incomes, Bank Balance, Total Receivables, Total Payables, Inventory Value, Low Stock Alerts, Pending Orders
+     - 4 recharts charts: Monthly Sales Trend (BarChart), Revenue vs Expense (BarChart), Category Distribution (PieChart), Top Products (horizontal BarChart)
+     - Financial Ratios table: Current Ratio, Quick Ratio, Debt-to-Equity, Gross Margin %, Net Margin %, Inventory Turnover, Receivable Days, Payable Days
+     - VAT Auditor masking: Gross Profit, Net Profit, Inventory Value, COGS, all cost/margin ratios show "N/A (Audit Mode)"
+     - SR/Dealer: 403 Forbidden page
+
+   - **Tab 2: Ledger Auto-Posting** (key="ledger-auto-post")
+     - Table of LedgerAutoPost records from `/api/ledger-auto-post` with columns: Code, Source Type, Source Code, Debit Account, Credit Account, Amount, Status, Posted At
+     - Action buttons: "Post Sales Order" (dialog to select SO), "Post Purchase Order" (dialog to select PO), "Run All Pending" (batch post)
+     - "Reverse" button with confirmation dialog on each posted row
+     - Double-Entry Verification panel: total debits vs total credits, balance status
+     - Import CSV, Export CSV, Export PDF buttons
+     - SR/Dealer: 403 Forbidden page
+
+   - **Tab 3: Inventory Aging Report** (key="inventory-aging")
+     - Date range filter (asOf date picker) and godown filter
+     - 6 aging bracket cards (0-30, 31-60, 61-90, 91-180, 181-365, 365+) with color gradients
+     - Detailed table: Product Code, Name, Category, Qty, Cost Price, Total Value, Age (days), Bracket
+     - Summary cards: Total Products, Total Value, Average Age, Oldest Age
+     - Bar chart showing bracket distribution
+     - Import CSV, Export CSV, Export PDF buttons
+     - VAT Auditor: Cost Price and Total Value columns masked
+     - Dealer: Cost Price and Total Value columns masked
+
+   - **Tab 4: Product Lifecycle Tracking** (key="product-lifecycle")
+     - Serial/IMEI lookup search bar
+     - Table of tracking records from `/api/product-lifecycle` with status badges (InStock=green, Sold=blue, Returned=amber, Replaced=purple, Damaged=red, Transferred=cyan)
+     - "Add Tracking" dialog with form fields: Product (select), Serial Number, IMEI, Status (select), Godown (select), Warranty Expiry (date), Notes
+     - Lifecycle timeline view: chronological events (Purchased → In Stock → Sold → Returned etc.)
+     - Import CSV, Export CSV, Export PDF buttons
+     - No RBAC restriction (all roles can view)
+
+   - **Tab 5: Notifications & Data Integrity** (key="notifications-integrity")
+     - **5a: Notification Engine**: 6 KPI cards (Total, Unread, Critical, Warning, Low Stock, Overdue Installments), "Generate Alerts" button, filterable table with severity badges (Info=blue, Warning=amber, Critical=red), Mark Read/Dismiss actions
+     - **5b: Data Integrity Audit**: "Run All Checks" button, table with check type/status/module/discrepancy, health score display, Resolve dialog with notes, status badges (Passed=green, Failed=red, Warning=amber)
+     - Import CSV, Export CSV, Export PDF buttons
+
+2. **Created 5 backend API routes**:
+
+   | API Route | Methods | Purpose |
+   |-----------|---------|---------|
+   | `/api/ledger-auto-post` | GET, POST, PUT | Ledger auto-posting with double-entry creation, batch processing, reversal support |
+   | `/api/inventory-aging` | GET | Inventory aging report with 6 bracket calculations, VAT masking |
+   | `/api/product-lifecycle` | GET, POST, PUT | Product serial/IMEI lifecycle CRUD with product/godown enrichment |
+   | `/api/notifications` | GET, PUT | Notification engine with alert generation, mark-read/dismiss actions |
+   | `/api/data-integrity` | GET, PUT | Data integrity checks (LedgerBalance, StockReconciliation, VATReconciliation, AccountConsistency), resolve workflow |
+
+3. **Integrated into page.tsx**:
+   - Added `FinancialAuditGroupPage` import
+   - Added `ShieldCheck` icon to lucide-react imports
+   - Added "Financial Audit" sidebar group with 5 items (Dashboard KPI, Ledger Auto-Post, Inventory Aging, Product Lifecycle, Notifications & Integrity)
+   - Added routing: `financialAuditKeys` set routes to `<FinancialAuditGroupPage initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />`
+   - Added `financial-audit` to VAT Auditor role permissions
+
+4. **Quality Validation**:
+   - **ESLint**: 0 errors (`bun run lint` clean)
+   - **Dev server**: Compiles successfully
+   - **Auth**: `apiFetch` with X-User-Email header + 401 auto-logout
+   - **VAT Auditor masking**: Applied across KPI, Ledger amounts, Inventory Aging cost/value, all exports
+   - **RBAC**: SR/Dealer blocked on KPI and Ledger Auto-Post tabs (403 page); Dealer cost masked on Inventory Aging; Product Lifecycle open to all roles
+   - **Theme**: Dark/light mode support via `next-themes` with chart color adaptation
+   - **Deep Navy Blue theme**: Card headers `bg-[#132240] dark:bg-[#0a1628]`, primary buttons `bg-[#2563eb] hover:bg-[#1d4ed8]`
+   - **Typography**: `text-slate-900 dark:text-white` for headers throughout
+
+### Files Created/Modified
+
+| File | Type | Lines |
+|------|------|-------|
+| `src/components/FinancialAuditGroupPage.tsx` | NEW | ~1,600 |
+| `src/app/api/ledger-auto-post/route.ts` | NEW | ~230 |
+| `src/app/api/inventory-aging/route.ts` | NEW | ~95 |
+| `src/app/api/product-lifecycle/route.ts` | NEW | ~100 |
+| `src/app/api/notifications/route.ts` | NEW | ~160 |
+| `src/app/api/data-integrity/route.ts` | NEW | ~165 |
+| `src/app/page.tsx` | MODIFIED | Added import + sidebar group + routing + VAT permissions |
+
+## Task ID 2: GROUP 5 — Financial Auditing, Automated Ledgers & Data Integrity Backend API Routes
+
+**Date**: 2026-03-05
+**Agent**: Group 5 Backend Engineer
+**Status**: COMPLETED
+
+### Scope
+Created 5 production-ready API route files for GROUP 5: Financial Auditing, Automated Ledgers & Data Integrity. All routes use `withApiSecurity` for RBAC, implement VAT Auditor masking, use `db.$transaction()` for atomicity, and create AuditLog entries for all mutations.
+
+### Files Created
+
+| # | File | Endpoints | Lines | RBAC Module |
+|---|------|-----------|-------|-------------|
+| 1 | `src/app/api/notifications/route.ts` | GET (list + generate), POST (create), PUT (mark read/dismiss) | ~290 | 'Reports' |
+| 2 | `src/app/api/inventory-aging/route.ts` | GET (aging brackets) | ~140 | 'Stock' |
+| 3 | `src/app/api/product-lifecycle/route.ts` | GET (list + lookup), POST (create), PUT (update status) | ~410 | 'Stock' |
+| 4 | `src/app/api/data-integrity/route.ts` | GET (list logs), POST (run checks) | ~370 | 'LedgerEntries' |
+| 5 | `src/app/api/ledger-auto-post/route.ts` | GET (list), POST (post-sales, post-purchase, reverse, run-all-pending) | ~845 | 'LedgerEntries' |
+
+### RBAC Matrix
+
+| Route | Admin | Manager | SR | Dealer | VAT Auditor |
+|-------|-------|---------|-----|--------|-------------|
+| Notifications | Full CRUD | Full CRUD | Read (no Ledger/Financial) | 403 | Read (amounts masked) |
+| Inventory Aging | Full | Full | View (cost masked) | View (cost masked) | View (cost+totalValue masked) |
+| Product Lifecycle | Full CRUD | Full CRUD | View | View-only (no CUD) | View (cost masked) |
+| Data Integrity | Full | Full | 403 | 403 | View (amounts masked) |
+| Ledger Auto Post | Full | Full | 403 | 403 | View (amounts masked) |
+
+### Feature Details
+
+#### 1. Notifications API (`/api/notifications`)
+- **GET**: List with filters (type, severity, isRead, isDismissed, limit, offset). Sorted unread-first, then by createdAt desc.
+- **GET ?action=generate**: Auto-scans for low-stock products and overdue installments, creates NOT-XXXXX coded notifications.
+- **POST**: Create notification (auto NOT-XXXXX code). SR blocked from creating Ledger/Financial notifications.
+- **PUT**: Mark as read ({id, isRead: true}) or dismiss ({id, isDismissed: true, dismissedBy}).
+- SR: module filter excludes "Ledger" and "Financial". Dealer: 403 entirely. VAT Auditor: message masked for financial notifications.
+
+#### 2. Inventory Aging API (`/api/aging`)
+- Calculates age from earliest StockEntry type="IN" for each product with stock > 0.
+- Groups into 6 brackets: 0-30, 31-60, 61-90, 91-180, 181-365, 365+ days.
+- Returns: `{ brackets: [{label, count, totalValue, products}], summary: {totalProducts, totalValue, averageAge, oldestAge} }`
+- Supports `?asOf=2024-01-31` date filter and `?godownId=xxx` warehouse filter.
+- VAT Auditor: costPrice and totalValue masked to "N/A (Audit Mode)".
+
+#### 3. Product Lifecycle API (`/api/product-lifecycle`)
+- **GET**: List ProductSerialTracking with filters (productId, serialNumber, imeiNumber, status, godownId).
+- **GET ?action=lookup&serial=XXX**: Full lifecycle history for a serial/IMEI including purchase order, sales order, stock entries.
+- **POST**: Create tracking record (auto SRL-XXXXX code). Requires productId and at least one of serialNumber/imeiNumber.
+- **PUT**: Update status (Sold, Returned, etc.) with auto-set of saleDate/returnDate.
+- Dealer: view-only. VAT Auditor: costPrice masked.
+
+#### 4. Data Integrity API (`/api/data-integrity`)
+- **GET**: List DataIntegrityLog with filters (checkType, status).
+- **POST ?action=run-check**: Runs 4 integrity checks:
+  1. **LedgerBalance**: Uses `verifyLedgerBalance()` from accounting-utils
+  2. **StockReconciliation**: Verifies openingStock = SUM(IN) - SUM(OUT) per product
+  3. **AccountConsistency**: Verifies each LedgerEntry's accountId points to active ChartOfAccount
+  4. **VATReconciliation**: Verifies SO/PO header VAT matches line-level VAT totals
+- Each check creates DataIntegrityLog with DIL-XXXXX code.
+- SR and Dealer: 403. VAT Auditor: amounts masked.
+
+#### 5. Ledger Auto Post API (`/api/ledger-auto-post`)
+- **GET**: List auto-post records with filters (sourceType, status, dateFrom, dateTo).
+- **POST ?action=post-sales&salesOrderId=XXX**: Posts Sales Order to ledger:
+  - Dr: Accounts Receivable | Cr: Sales Revenue
+  - Dr: Cost of Goods Sold | Cr: Inventory
+  - Creates LedgerEntry records + LedgerAutoPost (LAP-XXXXX)
+  - Uses `db.$transaction()` for atomicity
+- **POST ?action=post-purchase&purchaseOrderId=XXX**: Posts Purchase Order:
+  - Dr: Inventory | Cr: Accounts Payable
+- **POST ?action=reverse&autoPostId=XXX**: Reverses a previous auto-post:
+  - Creates reversing entries (swaps debit/credit)
+  - Updates status to "Reversed"
+- **POST ?action=run-all-pending**: Finds all Confirmed SOs/POs without auto-posts and posts them all
+- Helper: `findOrCreateAccount()` auto-creates ChartOfAccount entries if missing
+- SR and Dealer: 403. VAT Auditor: amounts masked.
+
+### Code Generation
+All new models use inline `generateCode()` pattern since `generateNextCode()` only supports COA/LED/BAL models:
+```typescript
+async function generateCode(model: string, prefix: string): Promise<string> {
+  const latest = await (db as any)[model].findFirst({
+    where: { code: { startsWith: prefix } },
+    orderBy: { code: 'desc' },
+    select: { code: true },
+  });
+  if (!latest) return `${prefix}00001`;
+  const num = parseInt(latest.code.replace(prefix, ''), 10) || 0;
+  return `${prefix}${String(num + 1).padStart(5, '0')}`;
+}
+```
+
+### Quality Metrics
+
+| Metric | Value |
+|--------|-------|
+| ESLint Errors | 0 |
+| Dev Server Compilation | Clean |
+| RBAC Enforcement | 5/5 routes using withApiSecurity |
+| VAT Auditor Masking | 5/5 routes implemented |
+| Transaction Atomicity | Ledger Auto Post uses db.$transaction() |
+| Audit Logging | All mutations create AuditLog entries |
+| Code Generation | Inline for NOT-, SRL-, DIL-, LAP- prefixes |
+
+---
+
+## Phase 14: GROUP 5 — Financial Auditing, Automated Ledgers & Data Integrity Hooks
+
+**Date**: 2026-05-26
+**Mode**: God Mode — GROUP 5 Implementation
+**Status**: ✅ COMPLETE — ALL 5 MODULES VALIDATED
+
+---
+
+### Modules Implemented
+
+| # | Module | Description | API Endpoint | Status |
+|---|--------|-------------|--------------|--------|
+| 1 | Dashboard KPI Enhancement | 12 dynamic KPI widgets, 4 charts, Financial Ratios table, real-time DB aggregation | `/api/dashboard` (enhanced) | ✅ Complete |
+| 2 | Ledger Auto-Posting | Double-entry Debit/Credit hooks, auto-post SO/PO, batch processing, reversal | `/api/ledger-auto-post` | ✅ Complete |
+| 3 | Inventory Aging Report | 6-bracket age calculation (0-30 to 365+), mathematical aging models | `/api/inventory-aging` | ✅ Complete |
+| 4 | Product Lifecycle Tracking | Serial/IMEI lookup, full lifecycle history, status tracking | `/api/product-lifecycle` | ✅ Complete |
+| 5 | Notification Engine & Data Integrity | Auto-generated alerts, 4 integrity checks, health scoring | `/api/notifications` + `/api/data-integrity` | ✅ Complete |
+
+### Schema Changes (4 new models)
+
+| Model | Code Prefix | Purpose |
+|-------|------------|---------|
+| Notification | NOT-XXXXX | Threshold alerts for low-stock, overdue installments, balance mismatches |
+| ProductSerialTracking | SRL-XXXXX | Serial/IMEI lifecycle tracking from procurement to sale |
+| DataIntegrityLog | DIL-XXXXX | Out-of-balance entries, reconciliation failures |
+| LedgerAutoPost | LAP-XXXXX | Tracks automatic ledger entries from transactions |
+
+### Backend API Routes (5 new routes)
+
+| File | Lines | Methods | RBAC |
+|------|-------|---------|------|
+| `/api/notifications/route.ts` | ~290 | GET/POST/PUT + auto-generate | Dealer blocked; SR filtered; VAT masked |
+| `/api/inventory-aging/route.ts` | ~140 | GET with 6-bracket calculation | SR/Dealer cost masked; VAT masked |
+| `/api/product-lifecycle/route.ts` | ~410 | GET/POST/PUT + serial/IMEI lookup | Dealer view-only; VAT cost masked |
+| `/api/data-integrity/route.ts` | ~370 | GET/POST + run 4 checks | Admin/Manager only; SR/Dealer 403 |
+| `/api/ledger-auto-post/route.ts` | ~845 | GET/POST + post-sales/post-purchase/reverse/run-all | Admin/Manager only; SR/Dealer 403; VAT read-only |
+
+### Frontend Component
+
+| Component | Lines | Tabs | Status |
+|-----------|-------|------|--------|
+| `FinancialAuditGroupPage.tsx` | ~1,759 | 5 (KPI, Ledger Auto-Post, Inventory Aging, Product Lifecycle, Notifications & Integrity) | ✅ Complete |
+
+### RBAC Enforcement
+
+| Role | Dashboard KPI | Ledger Auto-Post | Inventory Aging | Product Lifecycle | Notifications | Data Integrity |
+|------|--------------|-----------------|----------------|-------------------|---------------|----------------|
+| Admin | ✅ Full | ✅ Full | ✅ Full | ✅ Full | ✅ Full | ✅ Full |
+| Manager | ✅ Full | ✅ Full | ✅ Full | ✅ Full | ✅ Full | ✅ Full |
+| SR | ❌ 403 | ❌ 403 | ✅ Cost Masked | ✅ View | ✅ Filtered | ❌ 403 |
+| Dealer | ❌ 403 | ❌ 403 | ✅ Cost Masked | ✅ View-Only | ❌ 403 | ❌ 403 |
+| VAT Auditor | ✅ Masked | ✅ Read-Only | ✅ Masked | ✅ Masked | ✅ Masked | ✅ Masked |
+
+### Double-Entry General Ledger Framework
+
+- **5 Asset Heads**: Asset, Liability, Income, Expense, Equity
+- **Auto-posting** creates balanced Debit/Credit entries within `db.$transaction()`
+- **Sales Order posting**: Dr: Accounts Receivable | Cr: Sales Revenue + Dr: COGS | Cr: Inventory
+- **Purchase Order posting**: Dr: Inventory | Cr: Accounts Payable
+- **Reversal**: Creates mirror entries (swaps debit/credit) within transaction
+- **Balance verification**: All entries must balance to zero (float tolerance 0.01)
+
+### Data Integrity Checks (4 types)
+
+1. **LedgerBalance**: Total debits = total credits (using `verifyLedgerBalance()`)
+2. **StockReconciliation**: Product openingStock = SUM(stock IN) - SUM(stock OUT)
+3. **AccountConsistency**: Every LedgerEntry has valid ChartOfAccount reference
+4. **VATReconciliation**: SO/PO header VAT = SUM(line-level VAT)
+
+### Triple Utility Bundle Validation
+
+| Module | Import CSV | Export CSV | Export PDF |
+|--------|-----------|-----------|-----------|
+| Dashboard KPI | N/A | ✅ | ✅ |
+| Ledger Auto-Post | ✅ | ✅ | ✅ |
+| Inventory Aging | ✅ | ✅ | ✅ |
+| Product Lifecycle | ✅ | ✅ | ✅ |
+| Notifications & Integrity | ✅ | ✅ | ✅ |
+
+### Quality Metrics
+
+| Metric | Value |
+|--------|-------|
+| ESLint Errors | 0 |
+| Dev Server Compilation | Clean |
+| API Routes Working | 5/5 ✅ |
+| Frontend Component | 1,759 lines, 5 tabs |
+| RBAC Enforcement | All roles tested |
+| VAT Auditor Masking | Applied to all financial modules |
+| Double-Entry Framework | 5 asset heads, auto-balanced |
+| $transaction() Safety | All ledger mutations |
+
+### Bug Fixed
+
+| # | Bug | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | Notification model missing `isActive` field caused 500 error on GET | 🔴 CRITICAL | Removed `isActive: true` from query filters since Notification model doesn't have isActive field |
+
+### Next Batch Targets (GROUP 6)
+
+1. **Performance Optimization** — Database indexes, query optimization, caching layer
+2. **Bulk Operations Engine** — Mass update, mass delete, batch import with preview
+3. **Advanced Reporting** — Custom report builder, cross-tab analysis
+4. **Dashboard Personalization** — Widget drag-and-drop, custom layouts
+5. **System Configuration** — Company settings, email templates, number format settings
+

@@ -18,7 +18,7 @@ import {
   DollarSign, ArrowUpCircle, ArrowDownCircle, Send, Inbox, Phone,
   Calendar, CheckCircle, AlertTriangle, XCircle, Info, ChevronLeft,
   MoreVertical, Copy, FileSpreadsheet, FileDown, ArrowUpDown, Activity,
-  KeyRound
+  KeyRound, ShieldCheck
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ import InvestmentGroupPage from "@/components/InvestmentGroupPage";
 import BasicModulesGroupPage from "@/components/BasicModulesGroupPage";
 import PersonnelCRMGroupPage from "@/components/PersonnelCRMGroupPage";
 import InventoryGroupPage from "@/components/InventoryGroupPage";
+import FinancialAuditGroupPage from "@/components/FinancialAuditGroupPage";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
 
@@ -120,10 +121,10 @@ const ROLE_CREDENTIALS: Record<string, { password: string; role: UserRole; displ
 
 const ROLE_ACCESS: Record<UserRole, string[]> = {
   admin: ["*"],
-  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "mis-report"],
+  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report"],
   sr: ["basic-modules", "staff", "customers-suppliers", "inventory", "sms"],
   dealer: ["basic-modules", "customers-suppliers", "inventory"],
-  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "mis-report"],
+  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report"],
 };
 
 const ROLE_COLORS: Record<UserRole, string> = {
@@ -146,8 +147,8 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report"],
-  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report"],
+  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report"],
+  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report"],
   vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
 };
 
@@ -400,6 +401,18 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "trial-balance", label: "Trial Balance" },
       { key: "profit-loss", label: "Profit and Loss Account" },
       { key: "balance-sheet", label: "Balance Sheet & Period Close" },
+    ],
+  },
+  {
+    key: "financial-audit",
+    label: "Financial Audit",
+    icon: ShieldCheck,
+    items: [
+      { key: "dashboard-kpi", label: "Dashboard KPI", parent: "Audit & Integrity" },
+      { key: "ledger-auto-post", label: "Ledger Auto-Post", parent: "Audit & Integrity" },
+      { key: "inventory-aging", label: "Inventory Aging", parent: "Audit & Integrity" },
+      { key: "product-lifecycle", label: "Product Lifecycle", parent: "Audit & Integrity" },
+      { key: "notifications-integrity", label: "Notifications & Integrity", parent: "Audit & Integrity" },
     ],
   },
   {
@@ -5630,6 +5643,10 @@ function AppLayout() {
     // GROUP 3: Personnel & CRM Ecosystem — dedicated PersonnelCRMGroupPage component
     const personnelCRMKeys = new Set(["designations", "employees", "employee-leaves", "customers", "suppliers"]);
     if (personnelCRMKeys.has(currentPage)) return <PersonnelCRMGroupPage activeModule={currentPage} />;
+
+    // GROUP 5: Financial Auditing, Automated Ledgers & Data Integrity — dedicated FinancialAuditGroupPage component
+    const financialAuditKeys = new Set(["dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity"]);
+    if (financialAuditKeys.has(currentPage)) return <FinancialAuditGroupPage initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 
