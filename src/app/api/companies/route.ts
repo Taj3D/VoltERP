@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Companies', 'GET');
@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    const imgError = validateImageFields(body, ['brandLogo']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       // Auto-generate code
       const count = await tx.company.count();
@@ -36,6 +38,7 @@ export async function POST(request: NextRequest) {
           address: body.address || null,
           phone: body.phone || null,
           email: body.email || null,
+          brandLogo: body.brandLogo || null,
           isActive: body.isActive ?? true,
         },
       });

@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Suppliers', 'GET');
@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
   // SR: blocked from creating suppliers (handled by MODULE_DENY in api-security)
   try {
     const body = await request.json();
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       // Auto-generate SUP-XXXXX code (5-digit zero-padded)
       let supplierCode = body.supplierCode;
@@ -62,6 +64,9 @@ export async function POST(request: NextRequest) {
           openingBalance: body.openingBalance ?? 0,
           openingBalanceType: body.openingBalanceType || 'Cr',
           creditLimit: body.creditLimit ?? 0,
+          profileImage: body.profileImage || null,
+          nidFrontImage: body.nidFrontImage || null,
+          nidBackImage: body.nidBackImage || null,
           isActive: body.isActive ?? true,
         },
         include: {

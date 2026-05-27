@@ -89,6 +89,8 @@ export interface ImportResult {
 // UTILITY: Format cell value for display
 // ============================================================
 
+const MASKING_SENTINEL = "N/A (Audit Mode)";
+
 function formatCellValue(
   value: any,
   type?: string,
@@ -97,8 +99,11 @@ function formatCellValue(
 ): string {
   // VAT Auditor masking takes highest priority
   if (isVatAuditor && isVatMasked) {
-    return "N/A (Audit Mode)";
+    return MASKING_SENTINEL;
   }
+  // If the value was already pre-masked by the caller (e.g. SR role salary masking),
+  // return it as-is to prevent type-specific formatting from destroying the sentinel
+  if (value === MASKING_SENTINEL) return MASKING_SENTINEL;
   if (value === null || value === undefined || value === "") return "\u2014";
   if (type === "currency") {
     const num = Number(value);
@@ -410,14 +415,15 @@ export function exportToPDF(options: PDFOptions): void {
       const summaryStartY = lastTable ? lastTable.finalY + 4 : tableStartY + 30;
 
       // Check if summary fits on current page, otherwise add new page
-      const currentY = summaryStartY;
-      if (currentY > pageHeight - 30) {
+      let currentSummaryY: number;
+      if (summaryStartY > pageHeight - 30) {
         doc.addPage();
         drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
         drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+        currentSummaryY = 36; // Below corporate header on new page
+      } else {
+        currentSummaryY = summaryStartY;
       }
-
-      let currentSummaryY = summaryStartY;
       summaryRows.forEach((summaryRow) => {
         const rowStyle = summaryRow.style || {
           fillColor: [10, 22, 40],

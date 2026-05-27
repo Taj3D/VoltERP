@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'InvestmentHeads', 'GET');
@@ -26,6 +26,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       const record = await tx.investmentHead.update({
         where: { id },
@@ -35,6 +37,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           type: body.type,
           openingBalance: body.openingBalance !== undefined ? body.openingBalance : undefined,
           openingType: body.openingType !== undefined ? body.openingType : undefined,
+          profileImage: body.profileImage !== undefined ? (body.profileImage || null) : undefined,
+          nidFrontImage: body.nidFrontImage !== undefined ? (body.nidFrontImage || null) : undefined,
+          nidBackImage: body.nidBackImage !== undefined ? (body.nidBackImage || null) : undefined,
           isActive: body.isActive !== undefined ? body.isActive : undefined,
         },
       });

@@ -117,7 +117,21 @@ async function handleKPI(vatMode: boolean, dateFilter: (base: Record<string, unk
   const totalExpenses = Number(expensesAgg._sum.amount || 0);
   const totalIncomes = Number(incomeAgg._sum.amount || 0);
 
-  const cogs = totalPurchases;
+  // FIX: COGS = sum of (quantity × costPrice) from sales order lines for confirmed sales
+  // NOT total purchase order amounts (which includes unsold inventory)
+  const salesLinesForCOGS = await db.salesOrderLine.findMany({
+    where: {
+      salesOrder: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true },
+    },
+    include: {
+      product: { select: { costPrice: true } },
+    },
+  });
+  const cogs = salesLinesForCOGS.reduce((sum, line) => {
+    const costPrice = line.product?.costPrice || 0;
+    return sum + (Number(line.quantity) * Number(costPrice));
+  }, 0);
+
   const grossProfit = totalRevenue - cogs;
   const netProfit = grossProfit + totalIncomes - totalExpenses;
 
@@ -410,7 +424,22 @@ async function handleFinancialRatios(vatMode: boolean, dateFilter: (base: Record
   const totalPurchases = Number(purchasesAgg._sum.grandTotal || 0);
   const totalExpenses = Number(expensesAgg._sum.amount || 0);
   const totalIncomes = Number(incomeAgg._sum.amount || 0);
-  const cogs = totalPurchases;
+
+  // FIX: COGS = sum of (quantity × costPrice) from sales order lines for confirmed sales
+  // NOT total purchase order amounts (which includes unsold inventory)
+  const salesLinesForCOGS = await db.salesOrderLine.findMany({
+    where: {
+      salesOrder: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true },
+    },
+    include: {
+      product: { select: { costPrice: true } },
+    },
+  });
+  const cogs = salesLinesForCOGS.reduce((sum, line) => {
+    const costPrice = line.product?.costPrice || 0;
+    return sum + (Number(line.quantity) * Number(costPrice));
+  }, 0);
+
   const grossProfit = totalRevenue - cogs;
   const netProfit = grossProfit + totalIncomes - totalExpenses;
 

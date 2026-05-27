@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Employees', 'GET');
@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
   // SR: blocked from creating employees (handled by WRITE_DENY in api-security)
   try {
     const body = await request.json();
+    const imgError = validateImageFields(body, ['photo', 'nidFrontImage', 'nidBackImage']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       // Auto-generate EMP-XXXXX code (5-digit zero-padded)
       let employeeCode = body.employeeCode;
@@ -83,6 +85,8 @@ export async function POST(request: NextRequest) {
           bankName: body.bankName || null,
           bankAccountNo: body.bankAccountNo || null,
           photo: body.photo || null,
+          nidFrontImage: body.nidFrontImage || null,
+          nidBackImage: body.nidBackImage || null,
           referenceBy: body.referenceBy || null,
           address: body.address || null,
           isActive: body.isActive ?? true,

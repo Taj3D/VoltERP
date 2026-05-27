@@ -35,6 +35,9 @@ export default function ImageUploadField({ value, onChange, label, placeholder }
       const result = e.target?.result as string;
       onChange(result);
     };
+    reader.onerror = () => {
+      setError("Failed to read file. Please try again.");
+    };
     reader.readAsDataURL(file);
   }, [onChange]);
 

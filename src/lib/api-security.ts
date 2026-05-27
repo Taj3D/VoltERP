@@ -301,3 +301,27 @@ export function validateVatMode(
   }
   return requestedVatMode;
 }
+
+/**
+ * validateImageFields - Server-side validation for base64 image data
+ * Prevents oversized base64 payloads that could cause 500 errors or bloat the database.
+ * Matches the client-side 2MB limit per file, with ~33% base64 overhead = 3MB string limit.
+ */
+const MAX_BASE64_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB base64 string (≈2MB original file)
+
+export function validateImageFields(
+  body: Record<string, unknown>,
+  imageFields: string[]
+): string | null {
+  for (const field of imageFields) {
+    const value = body[field];
+    if (typeof value === 'string' && value.length > MAX_BASE64_IMAGE_SIZE) {
+      return `Image "${field}" exceeds maximum allowed size (2MB). Please compress the image and try again.`;
+    }
+    // Also validate it looks like a data URL if present
+    if (typeof value === 'string' && !value.startsWith('data:') && value.length > 0) {
+      return `Image "${field}" has invalid format. Expected base64 data URL.`;
+    }
+  }
+  return null;
+}

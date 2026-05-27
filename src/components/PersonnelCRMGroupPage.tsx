@@ -646,6 +646,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           let val = getNestedValue(item, col.key);
           if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
           if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
+          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
           row[col.key] = val;
         });
         return row;
@@ -672,6 +673,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           let val = getNestedValue(item, col.key);
           if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
           if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
+          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
           row[col.key] = val;
         });
         return row;
@@ -1049,6 +1051,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                         let val = getNestedValue(item, col.key);
                         if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
                         if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
+                        if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
 
                         // Special rendering for isActive
                         if (col.key === "isActive") {

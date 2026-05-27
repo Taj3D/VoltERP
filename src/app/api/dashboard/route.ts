@@ -40,7 +40,23 @@ export async function GET(request: NextRequest) {
     const totalExpenses = totalExpensesAgg._sum.amount || 0;
     const totalIncome = totalIncomeAgg._sum.amount || 0;
     const totalPurchases = confirmedPurchasesAgg._sum.grandTotal || 0;
-    const netProfit = totalRevenue + totalIncome - totalPurchases - totalExpenses;
+
+    // FIX: COGS = sum of (quantity × costPrice) from sales order lines for confirmed sales
+    // NOT total purchase order amounts (which includes unsold inventory)
+    const salesLinesForCOGS = await db.salesOrderLine.findMany({
+      where: {
+        salesOrder: { status: revenueStatusFilter, isActive: true },
+      },
+      include: {
+        product: { select: { costPrice: true } },
+      },
+    });
+    const cogs = salesLinesForCOGS.reduce((sum, line) => {
+      const costPrice = line.product?.costPrice || 0;
+      return sum + (Number(line.quantity) * Number(costPrice));
+    }, 0);
+
+    const netProfit = totalRevenue + totalIncome - cogs - totalExpenses;
 
     // FIX 1: Compute stock value as SUM(costPrice * openingStock) per product
     // If total stock is 0, inventory value should be 0

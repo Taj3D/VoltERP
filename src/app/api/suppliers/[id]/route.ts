@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Suppliers', 'GET');
@@ -31,6 +31,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       const record = await tx.supplier.update({
         where: { id },
@@ -46,6 +48,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           openingBalance: body.openingBalance ?? 0,
           openingBalanceType: body.openingBalanceType || 'Cr',
           creditLimit: body.creditLimit ?? 0,
+          profileImage: body.profileImage || null,
+          nidFrontImage: body.nidFrontImage || null,
+          nidBackImage: body.nidBackImage || null,
           isActive: body.isActive ?? true,
         },
         include: {

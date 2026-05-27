@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Customers', 'GET');
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       // Auto-generate CUS-XXXXX code (5-digit zero-padded)
       let customerCode = body.customerCode;
@@ -61,6 +63,9 @@ export async function POST(request: NextRequest) {
           openingBalanceType: body.openingBalanceType || 'Dr',
           creditLimit: body.creditLimit ?? 0,
           customerType: body.customerType || 'Regular',
+          profileImage: body.profileImage || null,
+          nidFrontImage: body.nidFrontImage || null,
+          nidBackImage: body.nidBackImage || null,
           isActive: body.isActive ?? true,
         },
         include: {

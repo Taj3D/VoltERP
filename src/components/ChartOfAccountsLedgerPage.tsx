@@ -753,7 +753,7 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* COA Create/Edit Dialog */}
       <Dialog open={coaForm} onOpenChange={setCoaForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{coaEdit ? "Edit" : "Create"} Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -821,7 +821,7 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* Ledger Create/Edit Dialog */}
       <Dialog open={ledForm} onOpenChange={setLedForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{ledEdit ? "Edit" : "Create"} Ledger Entry</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

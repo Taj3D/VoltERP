@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Companies', 'GET');
@@ -26,6 +26,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
+    const imgError = validateImageFields(body, ['brandLogo']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       const record = await tx.company.update({
         where: { id },
@@ -34,6 +36,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           address: body.address !== undefined ? (body.address || null) : undefined,
           phone: body.phone !== undefined ? (body.phone || null) : undefined,
           email: body.email !== undefined ? (body.email || null) : undefined,
+          brandLogo: body.brandLogo !== undefined ? (body.brandLogo || null) : undefined,
           isActive: body.isActive !== undefined ? body.isActive : undefined,
         },
       });
