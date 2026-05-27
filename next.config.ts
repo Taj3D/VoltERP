@@ -22,6 +22,8 @@ const nextConfig: NextConfig = {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:81",
+    "https://preview-chat-fa2c15ed-30fa-4327-b586-0adccc59d359.space-z.ai",
+    "http://preview-chat-fa2c15ed-30fa-4327-b586-0adccc59d359.space-z.ai",
   ],
 };
 
