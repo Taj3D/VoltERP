@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -716,6 +716,7 @@ export default function CashCollectionsDeliveriesPage() {
             <DialogTitle>
               {editItem ? "Edit" : formType === "collection" ? "Record Collection" : "Record Delivery"} {formType === "collection" ? "Cash Collection" : "Cash Delivery"}
             </DialogTitle>
+            <DialogDescription>{editItem ? "Edit the details below" : "Fill in the details to record a new entry"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {formType === "collection" ? (
@@ -876,10 +877,8 @@ export default function CashCollectionsDeliveriesPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogDescription>Are you sure you want to delete this {formType === "collection" ? "cash collection" : "cash delivery"}? This action will soft-delete the record and reverse any bank impact.</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Are you sure you want to delete this {formType === "collection" ? "cash collection" : "cash delivery"}? This action will soft-delete the record and reverse any bank impact.
-          </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete}>Delete</Button>

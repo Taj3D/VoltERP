@@ -133,6 +133,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [smsRecipient, setSmsRecipient] = useState("");
   const [smsBulkRecipients, setSmsBulkRecipients] = useState("");
   const [smsMessage, setSmsMessage] = useState("");
+  const [smsCostPerMessage, setSmsCostPerMessage] = useState(0.5);
   const [smsSending, setSmsSending] = useState(false);
 
   // SMS Settings form state
@@ -332,7 +333,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             recipient: smsRecipient.trim(),
             message: smsMessage.trim(),
             status: "Pending",
-            cost: 0.5,
+            cost: smsCostPerMessage,
           }),
         });
         toast({ title: "SMS Sent", description: `Message queued for ${smsRecipient}` });
@@ -348,7 +349,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 recipient,
                 message: smsMessage.trim(),
                 status: "Pending",
-                cost: 0.5,
+                cost: smsCostPerMessage,
               }),
             });
             successCount++;
@@ -401,7 +402,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         data: filteredLogs,
         isVatAuditor,
         vatMaskedColumns: ["cost"],
-        filename: "sms-logs.csv",
+        filename: "sms-logs",
       });
       toast({ title: "Exported", description: "SMS Logs exported to CSV" });
     } catch (e: any) {
@@ -419,7 +420,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         data: filteredLogs,
         isVatAuditor,
         vatMaskedColumns: ["cost"],
-        filename: "sms-logs.pdf",
+        filename: "sms-logs",
       });
       toast({ title: "Exported", description: "SMS Logs exported to PDF" });
     } catch (e: any) {
@@ -435,7 +436,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         data: filteredBills,
         isVatAuditor,
         vatMaskedColumns: ["totalCost", "paidAmount"],
-        filename: "sms-bills.csv",
+        filename: "sms-bills",
       });
       toast({ title: "Exported", description: "SMS Bills exported to CSV" });
     } catch (e: any) {
@@ -453,7 +454,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         data: filteredBills,
         isVatAuditor,
         vatMaskedColumns: ["totalCost", "paidAmount"],
-        filename: "sms-bills.pdf",
+        filename: "sms-bills",
       });
       toast({ title: "Exported", description: "SMS Bills exported to PDF" });
     } catch (e: any) {
@@ -471,6 +472,26 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
     importFromCSV({
       apiPath: "/api/sms-logs",
       formFields,
+    }).then(result => {
+      toast({
+        title: "Import Complete",
+        description: `Imported: ${result.imported}, Failed: ${result.failed}`,
+        variant: result.failed > 0 ? "destructive" : "default",
+      });
+      loadData();
+    });
+  };
+
+  const handleImportBillCSV = () => {
+    importFromCSV({
+      apiPath: "/api/sms-bills",
+      formFields: [
+        { key: "period", label: "Period", type: "text" },
+        { key: "totalSms", label: "Total SMS", type: "number" },
+        { key: "totalCost", label: "Total Cost", type: "number" },
+        { key: "paidAmount", label: "Paid Amount", type: "number" },
+        { key: "status", label: "Status", type: "text" },
+      ],
     }).then(result => {
       toast({
         title: "Import Complete",
@@ -1010,21 +1031,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <FileDown className="w-4 h-4 mr-1" />
                   Export PDF
                 </Button>
-                <label className="cursor-pointer">
-                  <Button variant="outline" size="sm" asChild><span><Upload className="w-4 h-4 mr-1" /> Import CSV</span></Button>
-                  <input type="file" accept=".csv" className="hidden" onChange={() => {
-                    importFromCSV({ apiPath: "/api/sms-bills", formFields: [
-                      { key: "period", label: "Period", type: "text" },
-                      { key: "totalSms", label: "Total SMS", type: "number" },
-                      { key: "totalCost", label: "Total Cost", type: "number" },
-                      { key: "paidAmount", label: "Paid Amount", type: "number" },
-                      { key: "status", label: "Status", type: "text" },
-                    ] }).then(result => {
-                      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
-                      loadData();
-                    });
-                  }} />
-                </label>
+                <Button variant="outline" size="sm" onClick={handleImportBillCSV}>
+                  <Upload className="w-4 h-4 mr-1" />
+                  Import CSV
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -1245,6 +1255,24 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                       {smsCount} SMS part(s)
                     </span>
                   </div>
+                </div>
+
+                {/* Cost per SMS */}
+                <div className="space-y-1.5">
+                  <Label className="text-slate-900 dark:text-white">
+                    Cost per SMS (৳)
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={smsCostPerMessage}
+                    onChange={(e) => setSmsCostPerMessage(Number(e.target.value) || 0)}
+                    className="w-32"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Estimated total: {fmt(smsCostPerMessage * (sendMode === "single" ? 1 : smsBulkRecipients.split(",").filter(r => r.trim()).length) * smsCount, "currency")}
+                  </p>
                 </div>
 
                 {/* Send Button */}

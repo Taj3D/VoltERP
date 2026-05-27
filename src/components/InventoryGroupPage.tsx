@@ -1136,12 +1136,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "godownName", label: "Godown", type: "text" },
     { key: "subTotal", label: "Sub-Total", type: "currency" },
     { key: "discount", label: "Discount", type: "currency" },
-    { key: "vat", label: "VAT", type: "currency" },
+    { key: "vatAmount", label: "VAT", type: "currency" },
     { key: "grandTotal", label: "Grand Total", type: "currency" },
     { key: "status", label: "Status", type: "text" },
   ];
 
-  const poMaskedCols = ["subTotal", "discount", "vat", "grandTotal", "costPrice", "wholesalePrice"];
+  const poMaskedCols = ["subTotal", "discount", "vatAmount", "grandTotal", "costPrice", "wholesalePrice"];
 
   const poFiltered = useMemo(() => {
     if (!poSearch) return poData;
@@ -1164,7 +1164,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const openPoEdit = (item: any) => {
-    setPoForm({ supplierId: item.supplierId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercent || 0, notes: item.notes || "" });
+    setPoForm({ supplierId: item.supplierId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, notes: item.notes || "" });
     setPoLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setPoEdit(item);
     setPoDialog(true);
@@ -1181,7 +1181,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const discountAmt = Number(poForm.discount) || 0;
       const vatAmt = (subTotal - discountAmt) * (Number(poForm.vatPercent) || 0) / 100;
       const grandTotal = subTotal - discountAmt + vatAmt;
-      const payload = { ...poForm, lines: linesPayload, subTotal, discount: discountAmt, vat: vatAmt, grandTotal };
+      const payload = { ...poForm, lines: linesPayload, subTotal, discount: discountAmt, vatAmount: vatAmt, vatPercentage: Number(poForm.vatPercent) || 0, grandTotal };
       if (poEdit) { await apiFetch(`/api/purchase-orders/${poEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Purchase Order updated" }); }
       else { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Order created" }); }
       setPoDialog(false); loadPurchaseOrders();
@@ -1235,7 +1235,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.discount)}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vat)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
@@ -1327,7 +1327,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       if (selectedItems.length === 0) { toast({ title: "Error", description: "Select at least one product", variant: "destructive" }); setAutoPoGenerating(false); return; }
       const lines = selectedItems.map((item: any) => ({ productId: item.productId || item.id, quantity: item.suggestedQty || 1, rate: item.costPrice || 0, discountPercent: 0 }));
       const subTotal = lines.reduce((s: number, l: any) => s + l.quantity * l.rate, 0);
-      const payload = { supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, notes: "Auto-generated PO", lines, subTotal, discount: 0, vat: 0, grandTotal: subTotal };
+      const payload = { supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, notes: "Auto-generated PO", lines, subTotal, vatAmount: 0, vatPercentage: 0, grandTotal: subTotal };
       await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) });
       toast({ title: "PO Generated", description: `Purchase Order created with ${selectedItems.length} items` });
       setAutoPoSelected(new Set());
@@ -1594,8 +1594,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "subTotal", label: "Sub-Total", type: "currency" },
     { key: "downPayment", label: "Down Payment", type: "currency" },
     { key: "duration", label: "Duration (mo)", type: "number" },
-    { key: "installmentAmt", label: "Installment Amt", type: "currency" },
-    { key: "balance", label: "Balance", type: "currency" },
+    { key: "installmentAmount", label: "Installment Amt", type: "currency" },
+    { key: "balanceAmount", label: "Balance", type: "currency" },
     { key: "status", label: "Status", type: "text" },
   ];
 
@@ -1609,7 +1609,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     total: hsData.length,
     active: hsData.filter((o: any) => o.status === "Active").length,
     totalValue: hsData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.subTotal) || 0), 0),
-    totalOutstanding: hsData.reduce((s: number, o: any) => s + (Number(o.balance) || 0), 0),
+    totalOutstanding: hsData.reduce((s: number, o: any) => s + (Number(o.balanceAmount) || 0), 0),
   }), [hsData]);
 
   const openHsCreate = () => {
@@ -1639,7 +1639,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const totalWithHire = subTotal + hireCharge;
       const balance = totalWithHire - downPayment;
       const installmentAmt = duration > 0 ? balance / duration : 0;
-      const payload = { ...hsForm, lines: linesPayload, subTotal, downPayment, hireCharge, grandTotal: totalWithHire, balance, installmentAmt };
+      const payload = { ...hsForm, lines: linesPayload, subTotal, downPayment, hireCharge, grandTotal: totalWithHire, balanceAmount: balance, installmentAmount: installmentAmt };
       if (hsEdit) { await apiFetch(`/api/hire-sales/${hsEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Hire Sale updated" }); }
       else { await apiFetch("/api/hire-sales", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Hire Sale created" }); }
       setHsDialog(false); loadHireSales();
@@ -1665,8 +1665,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <StatCard label="Outstanding" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(hsStats.totalOutstanding)} icon={AlertTriangle} color="text-amber-500" bg="bg-amber-500/10" />
         </div>
         <Toolbar search={hsSearch} setSearch={setHsSearch} onRefresh={loadHireSales} loading={hsLoading}
-          onExportCSV={() => doExportCSV("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balance", "installmentAmt"])}
-          onExportPDF={() => doExportPDF("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balance", "installmentAmt"])}
+          onExportCSV={() => doExportCSV("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
+          onExportPDF={() => doExportPDF("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
           onImportCSV={() => doImportCSV("/api/hire-sales", [], loadHireSales)}
           canCreate={isAdmin || isSR} onCreate={openHsCreate} createLabel="Add Hire Sale" />
         <Card className="border-slate-200 dark:border-slate-700">
@@ -1692,8 +1692,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{fmtCurrency(item.subTotal)}</TableCell>
                       <TableCell className="text-xs">{fmtCurrency(item.downPayment)}</TableCell>
                       <TableCell className="text-xs">{item.duration || "—"}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.installmentAmt)}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.balance)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.installmentAmount)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.balanceAmount)}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Active"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -1801,7 +1801,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "salesOrderNo", label: "Sales Order", type: "text" },
     { key: "customerName", label: "Customer", type: "text" },
     { key: "subTotal", label: "Sub-Total", type: "currency" },
-    { key: "vat", label: "VAT", type: "currency" },
+    { key: "vatAmount", label: "VAT", type: "currency" },
     { key: "grandTotal", label: "Grand Total", type: "currency" },
     { key: "reason", label: "Reason", type: "text" },
     { key: "status", label: "Status", type: "text" },
@@ -1837,7 +1837,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const openSrCreate = () => {
-    setSrForm({ salesOrderId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
+    setSrForm({ salesOrderId: "", customerId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
     setSrLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSrAvailableProducts([]);
     setSrEdit(null);
@@ -1845,7 +1845,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const openSrEdit = (item: any) => {
-    setSrForm({ salesOrderId: item.salesOrderId || "", date: item.date ? item.date.split("T")[0] : "", reason: item.reason || "", status: item.status || "Pending" });
+    setSrForm({ salesOrderId: item.salesOrderId || "", customerId: item.customerId || "", date: item.date ? item.date.split("T")[0] : "", reason: item.reason || "", status: item.status || "Pending" });
     setSrLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSrEdit(item);
     setSrDialog(true);
@@ -1853,7 +1853,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const saveSr = async () => {
-    if (!srForm.salesOrderId || !srForm.date) { toast({ title: "Error", description: "Sales Order and Date are required", variant: "destructive" }); return; }
+    const selectedSo = soData.find((so: any) => so.id === srForm.salesOrderId);
+    const customerId = srForm.customerId || selectedSo?.customerId || selectedSo?.customer?.id || "";
+    if (!srForm.salesOrderId || !customerId || !srForm.date) { toast({ title: "Error", description: "Sales Order and Date are required", variant: "destructive" }); return; }
     setSrSaving(true);
     try {
       const linesPayload = srLines.filter((l: any) => l.productId && l.quantity > 0).map((l: any) => {
@@ -1863,7 +1865,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       });
       const subTotal = linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate * (1 - l.discountPercent / 100), 0);
       const vatAmt = subTotal * 0.15;
-      const payload = { ...srForm, lines: linesPayload, subTotal, vat: vatAmt, grandTotal: subTotal + vatAmt };
+      const payload = { ...srForm, customerId, lines: linesPayload, subTotal, vatAmount: vatAmt, vatPercentage: 15, grandTotal: subTotal + vatAmt };
       if (srEdit) { await apiFetch(`/api/sales-returns/${srEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Sales Return updated" }); }
       else { await apiFetch("/api/sales-returns", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Sales Return created" }); }
       setSrDialog(false); loadSalesReturns();
@@ -1913,7 +1915,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{item.salesOrder?.invoiceNo || "—"}</TableCell>
                       <TableCell className="text-xs">{item.salesOrder?.customer?.name || "—"}</TableCell>
                       <TableCell className="text-xs">{fmtCurrency(item.subTotal)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.vat)}</TableCell>
+                      <TableCell className="text-xs">{fmtCurrency(item.vatAmount)}</TableCell>
                       <TableCell className="text-xs">{fmtCurrency(item.grandTotal)}</TableCell>
                       <TableCell className="text-xs max-w-[150px] truncate">{item.reason || "—"}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
@@ -1936,7 +1938,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Sales Order <span className="text-red-500">*</span></Label>
-                  <Select value={srForm.salesOrderId || ""} onValueChange={v => { setSrForm(p => ({ ...p, salesOrderId: v })); loadSrProducts(v); }}>
+                  <Select value={srForm.salesOrderId || ""} onValueChange={v => { const so = soData.find((s: any) => s.id === v); setSrForm(p => ({ ...p, salesOrderId: v, customerId: so?.customerId || so?.customer?.id || "" })); loadSrProducts(v); }}>
                     <SelectTrigger><SelectValue placeholder="Select Sales Order" /></SelectTrigger>
                     <SelectContent>{soData.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.invoiceNo || `SO-${String(s.id).padStart(5, "0")}`}</SelectItem>)}</SelectContent>
                   </Select></div>
@@ -2007,13 +2009,13 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "purchaseOrderNo", label: "Purchase Order", type: "text" },
     { key: "supplierName", label: "Supplier", type: "text" },
     { key: "subTotal", label: "Sub-Total", type: "currency" },
-    { key: "vat", label: "VAT", type: "currency" },
+    { key: "vatAmount", label: "VAT", type: "currency" },
     { key: "grandTotal", label: "Grand Total", type: "currency" },
-    { key: "debitNote", label: "Debit Note", type: "text" },
+    { key: "debitNoteCode", label: "Debit Note", type: "text" },
     { key: "status", label: "Status", type: "text" },
   ];
 
-  const prMaskedCols = ["subTotal", "vat", "grandTotal"];
+  const prMaskedCols = ["subTotal", "vatAmount", "grandTotal"];
 
   const prFiltered = useMemo(() => {
     if (!prSearch) return prData;
@@ -2045,7 +2047,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const openPrCreate = () => {
-    setPrForm({ purchaseOrderId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
+    setPrForm({ purchaseOrderId: "", supplierId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
     setPrLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setPrAvailableProducts([]);
     setPrEdit(null);
@@ -2053,7 +2055,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const openPrEdit = (item: any) => {
-    setPrForm({ purchaseOrderId: item.purchaseOrderId || "", date: item.date ? item.date.split("T")[0] : "", reason: item.reason || "", status: item.status || "Pending" });
+    setPrForm({ purchaseOrderId: item.purchaseOrderId || "", supplierId: item.supplierId || "", date: item.date ? item.date.split("T")[0] : "", reason: item.reason || "", status: item.status || "Pending" });
     setPrLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setPrEdit(item);
     setPrDialog(true);
@@ -2061,7 +2063,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const savePr = async () => {
-    if (!prForm.purchaseOrderId || !prForm.date) { toast({ title: "Error", description: "Purchase Order and Date are required", variant: "destructive" }); return; }
+    const selectedPo = poData.find((po: any) => po.id === prForm.purchaseOrderId);
+    const supplierId = prForm.supplierId || selectedPo?.supplierId || selectedPo?.supplier?.id || "";
+    if (!prForm.purchaseOrderId || !supplierId || !prForm.date) { toast({ title: "Error", description: "Purchase Order and Date are required", variant: "destructive" }); return; }
     setPrSaving(true);
     try {
       const linesPayload = prLines.filter((l: any) => l.productId && l.quantity > 0).map((l: any) => {
@@ -2071,7 +2075,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       });
       const subTotal = linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate * (1 - l.discountPercent / 100), 0);
       const vatAmt = subTotal * 0.15;
-      const payload = { ...prForm, lines: linesPayload, subTotal, vat: vatAmt, grandTotal: subTotal + vatAmt, debitNote: `DN-${Date.now()}` };
+      const payload = { ...prForm, supplierId, lines: linesPayload, subTotal, vatAmount: vatAmt, vatPercentage: 15, grandTotal: subTotal + vatAmt };
       if (prEdit) { await apiFetch(`/api/purchase-returns/${prEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Purchase Return updated" }); }
       else { await apiFetch("/api/purchase-returns", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Return created" }); }
       setPrDialog(false); loadPurchaseReturns();
@@ -2123,9 +2127,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{item.purchaseOrder?.poNumber || "—"}</TableCell>
                       <TableCell className="text-xs">{item.purchaseOrder?.supplier?.name || "—"}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vat)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
-                      <TableCell className="text-xs">{item.debitNote || "—"}</TableCell>
+                      <TableCell className="text-xs">{item.debitNoteCode || "—"}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -2146,7 +2150,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Purchase Order <span className="text-red-500">*</span></Label>
-                  <Select value={prForm.purchaseOrderId || ""} onValueChange={v => { setPrForm(p => ({ ...p, purchaseOrderId: v })); loadPrProducts(v); }}>
+                  <Select value={prForm.purchaseOrderId || ""} onValueChange={v => { const po = poData.find((p: any) => p.id === v); setPrForm(p => ({ ...p, purchaseOrderId: v, supplierId: po?.supplierId || po?.supplier?.id || "" })); loadPrProducts(v); }}>
                     <SelectTrigger><SelectValue placeholder="Select PO" /></SelectTrigger>
                     <SelectContent>{poData.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.poNumber || `PO-${String(p.id).padStart(5, "0")}`}</SelectItem>)}</SelectContent>
                   </Select></div>
@@ -2486,8 +2490,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const renderTransfers = () => (
     <div className="space-y-4">
       <Toolbar search={trnSearch} setSearch={setTrnSearch} onRefresh={loadTransfers} loading={trnLoading}
-        onExportCSV={() => doExportCSV("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData)}
-        onExportPDF={() => doExportPDF("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData)}
+        onExportCSV={() => doExportCSV("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
+        onExportPDF={() => doExportPDF("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
         onImportCSV={() => doImportCSV("/api/transfers", [], loadTransfers)}
         canCreate={isAdmin} onCreate={() => { setTrnForm({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" }); setTrnLines([{ productId: "", quantity: 1 }]); setTrnEdit(null); setTrnDialog(true); }} createLabel="New Transfer"
       />

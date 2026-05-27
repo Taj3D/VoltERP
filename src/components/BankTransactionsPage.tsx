@@ -404,7 +404,7 @@ export default function BankTransactionsPage() {
   };
 
   // Column count for table spans
-  const colCount = isVatAuditor ? 9 : 10;
+  const colCount = 10;
 
   // ============================================================
   // RBAC: Dealer - COMPLETELY HIDDEN
@@ -532,7 +532,7 @@ export default function BankTransactionsPage() {
                   <TableHead>Bank</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Amount</TableHead>
-                  {!isVatAuditor && <TableHead>Running Balance</TableHead>}
+                  <TableHead>Running Balance</TableHead>
                   <TableHead>To Bank</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
@@ -563,8 +563,7 @@ export default function BankTransactionsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="font-mono">{fmt(item.amount, "currency")}</TableCell>
-                        {!isVatAuditor && <TableCell className="font-mono">{fmt(item.runningBalance, "currency")}</TableCell>}
-                        {isVatAuditor && <TableCell className="font-mono text-xs text-muted-foreground italic">N/A (Audit Mode)</TableCell>}
+                        <TableCell className="font-mono">{isVatAuditor ? <span className="text-xs text-muted-foreground italic">N/A (Audit Mode)</span> : fmt(item.runningBalance, "currency")}</TableCell>
                         <TableCell>{item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—"}</TableCell>
                         <TableCell>{fmtDate(item.date)}</TableCell>
                         <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>

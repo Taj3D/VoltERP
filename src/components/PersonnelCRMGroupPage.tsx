@@ -692,21 +692,17 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   };
 
   // Import CSV
-  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const result = await importFromCSV({ apiPath: config.apiPath, formFields: config.formFields });
+  const handleImportCSV = () => {
+    importFromCSV({ apiPath: config.apiPath, formFields: config.formFields }).then((result) => {
       toast({
         title: "Import Complete",
         description: `${result.imported} imported, ${result.failed} failed`,
         variant: result.failed > 0 ? "destructive" : "default",
       });
       loadData();
-    } catch (e: any) {
+    }).catch((e: any) => {
       toast({ title: "Import Error", description: e.message, variant: "destructive" });
-    }
-    e.target.value = "";
+    });
   };
 
   // Render form field
@@ -995,12 +991,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           <FileDown className="h-4 w-4 mr-1" /> PDF
         </Button>
         {canMutate && (
-          <label className="cursor-pointer">
-            <Button variant="outline" size="sm" asChild>
-              <span><Upload className="h-4 w-4 mr-1" /> Import</span>
-            </Button>
-            <input type="file" accept=".csv" className="hidden" onChange={handleImportCSV} />
-          </label>
+          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+            <Upload className="h-4 w-4 mr-1" /> Import
+          </Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadData}>
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />

@@ -294,7 +294,27 @@ export default function CustomerSupplierLedgerPage({
   };
 
   const handleImportCSV = () => {
-    toast({ title: "Import", description: "CSV import is available through the data management pages." });
+    importFromCSV({
+      apiPath: "/api/ledger-reports",
+      formFields: [
+        { key: "type", label: "Type", type: "text", required: true },
+        { key: "date", label: "Date", type: "date", required: true },
+        { key: "account", label: "Account", type: "text", required: true },
+        { key: "particulars", label: "Particulars", type: "text" },
+        { key: "debit", label: "Debit", type: "number" },
+        { key: "credit", label: "Credit", type: "number" },
+        { key: "reference", label: "Reference", type: "text" },
+        { key: "referenceType", label: "Reference Type", type: "text" },
+      ],
+    }).then(result => {
+      toast({
+        title: "Import Complete",
+        description: `${result.imported} imported, ${result.failed} failed`,
+        variant: result.failed > 0 ? "destructive" : "default",
+      });
+    }).catch((e: any) => {
+      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+    });
   };
 
   // ── Sort helpers for summary tables ───────────────────

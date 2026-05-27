@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Lock, Search, RefreshCw, Download, FileDown, Upload, BarChart3, Filter,
   ArrowUpDown, ChevronDown, ChevronUp, ChevronRight, Calendar, TrendingUp,
@@ -353,7 +353,6 @@ interface MISReportEngineProps {
 export default function MISReportEngine({ initialReport }: MISReportEngineProps = {}) {
   const { toast } = useToast();
   const { isVatAuditor, isSR, isDealer, user } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Resolve initial tab and subtype from sidebar key ---
   const resolved = initialReport ? SIDEBAR_REPORT_MAP[initialReport] : null;

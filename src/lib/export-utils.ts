@@ -465,8 +465,10 @@ export function exportToPDF(options: PDFOptions): void {
     fixPageXOfY(doc, pageHeight, pageWidth, margin);
 
     // ── Save ──
-    const safeFilename =
+    // Strip any .pdf extension if already present in filename to prevent double .pdf.pdf
+    const rawFilename =
       filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
   } catch (error: any) {
     console.error("Export PDF Error:", error);
@@ -535,7 +537,8 @@ export function exportToPDFSimple(
     // Second pass: fix Page X of Y
     fixPageXOfY(doc, pageHeight, pageWidth, margin);
 
-    const safeFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const rawFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
   } catch (error: any) {
     console.error("Export PDF Simple Error:", error);
@@ -593,9 +596,11 @@ export function exportToCSV(options: CSVOptions): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download =
-      filename ||
-      `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.csv`;
+    // Strip any .csv extension if already present in filename to prevent double .csv.csv
+    const rawCsvFilename =
+      filename || `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
+    const safeCsvFilename = rawCsvFilename.replace(/\.csv$/i, "");
+    a.download = `${safeCsvFilename}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -629,7 +634,9 @@ export function exportToCSVSimple(
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.csv`;
+    const rawSimpleFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const safeSimpleFilename = rawSimpleFilename.replace(/\.csv$/i, "");
+    a.download = `${safeSimpleFilename}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -396,9 +396,9 @@ export default function FinancialAuditGroupPage({
     const netProfit = kpiData.netProfit || 0;
     const bankBalance = kpiData.cashBalance || 0;
 
-    // Receivables & Payables from sales/purchase data
-    const totalReceivables = totalRevenue * 0.6; // Simplified estimate
-    const totalPayables = totalPurchases * 0.7; // Simplified estimate
+    // Receivables & Payables — use actual API data if available, otherwise estimate
+    const totalReceivables = kpiData.totalReceivables || Math.round(totalRevenue * 0.6);
+    const totalPayables = kpiData.totalPayables || Math.round(totalPurchases * 0.7);
 
     const lowStockCount = kpiData.lowStockProducts?.length || 0;
     const pendingOrders = (kpiData.pendingOrders?.pendingPOCount || 0) + (kpiData.pendingOrders?.pendingSOCount || 0);
@@ -435,7 +435,7 @@ export default function FinancialAuditGroupPage({
     return kpiData.monthlySalesData.map((m: any) => ({
       month: m.month,
       Revenue: m.sales || 0,
-      Expenses: Math.round((m.sales || 0) * 0.35),
+      Expenses: m.expenses || m.purchase || 0,
     }));
   }, [kpiData]);
 
@@ -460,21 +460,22 @@ export default function FinancialAuditGroupPage({
     if (!kpiData) return [];
     const rev = kpiData.totalRevenue || 0;
     const exp = kpiData.totalExpenses || 0;
-    const inc = kpiData.totalIncome || 0;
     const purch = kpiData.totalPurchases || 0;
     const stock = kpiData.stockValue || 0;
     const bank = kpiData.cashBalance || 0;
+    const receivables = kpiData.totalReceivables || Math.round(rev * 0.6);
+    const payables = kpiData.totalPayables || Math.round(purch * 0.7);
 
-    const currentAssets = bank + stock + rev * 0.6;
-    const currentLiabilities = purch * 0.7 + exp;
+    const currentAssets = bank + stock + receivables;
+    const currentLiabilities = payables + exp;
     const currentRatio = currentLiabilities > 0 ? (currentAssets / currentLiabilities) : 0;
     const quickRatio = currentLiabilities > 0 ? ((currentAssets - stock) / currentLiabilities) : 0;
-    const debtToEquity = bank > 0 ? (currentLiabilities / (currentAssets + bank)) : 0;
+    const debtToEquity = (currentAssets + bank) > 0 ? (currentLiabilities / (currentAssets + bank)) : 0;
     const grossMargin = rev > 0 ? ((rev - stock) / rev * 100) : 0;
     const netMargin = rev > 0 ? (kpiData.netProfit / rev * 100) : 0;
     const inventoryTurnover = stock > 0 ? (purch / stock) : 0;
-    const receivableDays = rev > 0 ? ((rev * 0.6) / rev * 365) : 0;
-    const payableDays = purch > 0 ? ((purch * 0.7) / purch * 365) : 0;
+    const receivableDays = rev > 0 ? (receivables / rev * 365) : 0;
+    const payableDays = purch > 0 ? (payables / purch * 365) : 0;
 
     const mask = (val: any) => (isVatAuditor ? "N/A (Audit Mode)" : val);
 
@@ -1047,6 +1048,9 @@ export default function FinancialAuditGroupPage({
             <RefreshCw className="w-4 h-4 mr-1" /> Refresh
           </Button>
           <div className="flex-1" />
+          <Button variant="outline" size="sm" onClick={() => handleImportCSV("/api/inventory-aging", agingImportFields, loadAging)}>
+            <Upload className="w-3.5 h-3.5 mr-1" /> Import CSV
+          </Button>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Aging", agingExportColumns, agingData, ["costPrice", "totalValue"])}>
             <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
           </Button>
@@ -1506,6 +1510,12 @@ export default function FinancialAuditGroupPage({
           <div className="flex flex-wrap gap-2 items-end">
             <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={generateAlerts}>
               <BellRing className="w-4 h-4 mr-1" /> Generate Alerts
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => doExportCSV("Notifications", notifExportColumns, notifRecords)}>
+              <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => doExportPDF("Notifications", notifExportColumns, notifRecords)}>
+              <FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF
             </Button>
             <div>
               <Select value={notifTypeFilter} onValueChange={setNotifTypeFilter}>

@@ -5,7 +5,7 @@ import {
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   ChevronDown, ChevronRight, FileDown, Shield, Landmark,
   Building2, Wallet, ArrowDownCircle, ArrowUpCircle, FileBarChart,
-  Banknote, TrendingUp, CheckCircle, X, Eye, EyeOff,
+  Banknote, TrendingUp, CheckCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -220,7 +220,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [liabReceiveSaving, setLiabReceiveSaving] = useState(false);
   const [liabReceiveFormData, setLiabReceiveFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, type: "received", paymentMethod: "Cash", description: "",
+    amount: 0, type: "received", paymentMethod: "Cash", description: "", isActive: true,
   });
 
   // ─── Liabilities (Pay) State ───
@@ -233,7 +233,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [liabPaySaving, setLiabPaySaving] = useState(false);
   const [liabPayFormData, setLiabPayFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, type: "pay", paymentMethod: "Cash", description: "",
+    amount: 0, type: "pay", paymentMethod: "Cash", description: "", isActive: true,
   });
 
   // ─── Liability Report State ───
@@ -648,7 +648,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     const setFormData = isReceive ? setLiabReceiveFormData : setLiabPayFormData;
     setFormData({
       investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-      amount: 0, type, paymentMethod: "Cash", description: "",
+      amount: 0, type, paymentMethod: "Cash", description: "", isActive: true,
     });
     if (isReceive) setLiabReceiveEdit(null);
     else setLiabPayEdit(null);
@@ -665,6 +665,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       type: item.type || type,
       paymentMethod: item.paymentMethod || "Cash",
       description: item.description || "",
+      isActive: item.isActive ?? true,
     });
     if (isReceive) { setLiabReceiveEdit(item); setLiabReceiveForm(true); }
     else { setLiabPayEdit(item); setLiabPayForm(true); }
@@ -688,6 +689,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         type: formData.type || type,
         paymentMethod: formData.paymentMethod || null,
         description: formData.description || null,
+        isActive: formData.isActive ?? true,
       };
       if (editItem) {
         await apiFetch(`/api/liabilities/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
@@ -887,6 +889,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "type", label: "Type", type: "select", options: [{ value: "received", label: "Received" }, { value: "pay", label: "Pay" }] },
     { key: "paymentMethod", label: "Payment Method", type: "select", options: [{ value: "Cash", label: "Cash" }, { value: "Bank Transfer", label: "Bank Transfer" }, { value: "Cheque", label: "Cheque" }] },
     { key: "description", label: "Description", type: "textarea" },
+    { key: "isActive", label: "Active", type: "boolean" },
   ];
 
   const handleImportCSV = (apiPath: string, fields: ExportFieldDef[], reloadFn: () => void) => {
@@ -897,6 +900,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         variant: result.failed > 0 ? "destructive" : "default",
       });
       reloadFn();
+    }).catch((e: any) => {
+      toast({ title: "Import Error", description: e?.message || "Import failed", variant: "destructive" });
     });
   };
 
@@ -1896,8 +1901,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Select value={assetsFormData.investmentHeadId} onValueChange={(v) => setAssetsFormData({ ...assetsFormData, investmentHeadId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select investment head" /></SelectTrigger>
                 <SelectContent>
-                  {headOptions.map((h: any) => (
-                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name} ({h.type})</SelectItem>
+                  {assetTypeHeads.map((h: any) => (
+                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1962,8 +1967,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Select value={currentAssetsFormData.investmentHeadId} onValueChange={(v) => setCurrentAssetsFormData({ ...currentAssetsFormData, investmentHeadId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select investment head" /></SelectTrigger>
                 <SelectContent>
-                  {headOptions.map((h: any) => (
-                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name} ({h.type})</SelectItem>
+                  {assetTypeHeads.map((h: any) => (
+                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -2028,8 +2033,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Select value={liabReceiveFormData.investmentHeadId} onValueChange={(v) => setLiabReceiveFormData({ ...liabReceiveFormData, investmentHeadId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select investment head" /></SelectTrigger>
                 <SelectContent>
-                  {headOptions.map((h: any) => (
-                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name} ({h.type})</SelectItem>
+                  {liabilityTypeHeads.map((h: any) => (
+                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -2058,6 +2063,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <div>
               <Label>Description</Label>
               <Textarea value={liabReceiveFormData.description} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, description: e.target.value })} placeholder="Optional description" rows={2} />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox id="liab-receive-active" checked={liabReceiveFormData.isActive} onCheckedChange={(v) => setLiabReceiveFormData({ ...liabReceiveFormData, isActive: !!v })} />
+              <Label htmlFor="liab-receive-active">Active</Label>
             </div>
           </div>
           <DialogFooter>
@@ -2097,8 +2106,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Select value={liabPayFormData.investmentHeadId} onValueChange={(v) => setLiabPayFormData({ ...liabPayFormData, investmentHeadId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select investment head" /></SelectTrigger>
                 <SelectContent>
-                  {headOptions.map((h: any) => (
-                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name} ({h.type})</SelectItem>
+                  {liabilityTypeHeads.map((h: any) => (
+                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -2127,6 +2136,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <div>
               <Label>Description</Label>
               <Textarea value={liabPayFormData.description} onChange={(e) => setLiabPayFormData({ ...liabPayFormData, description: e.target.value })} placeholder="Optional description" rows={2} />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox id="liab-pay-active" checked={liabPayFormData.isActive} onCheckedChange={(v) => setLiabPayFormData({ ...liabPayFormData, isActive: !!v })} />
+              <Label htmlFor="liab-pay-active">Active</Label>
             </div>
           </div>
           <DialogFooter>

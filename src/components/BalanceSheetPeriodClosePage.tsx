@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { exportToPDFSimple, exportToCSVSimple } from "@/lib/export-utils";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell
@@ -226,27 +226,17 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
   };
 
   const handlePerImportCSV = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".csv";
-    input.onchange = async (e: any) => {
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      if (lines.length < 2) { toast({ title: "Error", description: "CSV file is empty", variant: "destructive" }); return; }
-      const headerLine = lines[0].split(",").map(v => v.trim().replace(/"/g, "").toLowerCase());
-      const required = ["periodmonth", "periodyear"];
-      const missing = required.filter(f => !headerLine.includes(f));
-      if (missing.length > 0) {
-        toast({ title: "Validation Error", description: `Missing columns: ${missing.join(", ")}`, variant: "destructive" }); return;
-      }
-      let imported = 0; let failed = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const vals = lines[i].split(",").map(v => v.trim().replace(/"/g, ""));
-        const record: Record<string, any> = { periodMonth: parseInt(vals[0]) || 1, periodYear: parseInt(vals[1]) || 2025, notes: vals[2] || null, closedBy: user?.displayName || null };
-        try { await apiFetch("/api/period-close", { method: "POST", body: JSON.stringify(record) }); imported++; } catch { failed++; }
-      }
-      toast({ title: "Import Complete", description: `Imported: ${imported}, Failed: ${failed}` }); loadPeriods();
-    };
-    input.click();
+    importFromCSV({
+      apiPath: "/api/period-close",
+      formFields: [
+        { key: "periodMonth", label: "Period Month", type: "number", required: true },
+        { key: "periodYear", label: "Period Year", type: "number", required: true },
+        { key: "notes", label: "Notes", type: "text" },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+      loadPeriods();
+    });
   };
 
   // RBAC: SR/Dealer => 403 (AFTER all hooks and memos)

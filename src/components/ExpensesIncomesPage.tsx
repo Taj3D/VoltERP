@@ -105,7 +105,7 @@ function useAuth() {
 export default function ExpensesIncomesPage() {
   const { toast } = useToast();
   const { isVatAuditor, user } = useAuth();
-  const [activeTab, setActiveTab] = useState<"expenses" | "incomes">("expenses");
+  const [activeTab, setActiveTab] = useState<"heads" | "expenses" | "incomes">("heads");
 
   // Expenses state
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -122,6 +122,14 @@ export default function ExpensesIncomesPage() {
   const [heads, setHeads] = useState<any[]>([]);
   const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
   const [banks, setBanks] = useState<any[]>([]);
+
+  // Heads form state
+  const [headForm, setHeadForm] = useState<{ name: string; type: string }>({ name: "", type: "Expense" });
+  const [headEditItem, setHeadEditItem] = useState<any>(null);
+  const [headDeleteItem, setHeadDeleteItem] = useState<any>(null);
+  const [headSaving, setHeadSaving] = useState(false);
+  const [headsLoading, setHeadsLoading] = useState(true);
+  const [headSearch, setHeadSearch] = useState("");
 
   // Form state
   const [formData, setFormData] = useState<Record<string, any>>({
@@ -146,6 +154,54 @@ export default function ExpensesIncomesPage() {
   const codePrefix = activeTab === "expenses" ? "EXP" : "INC";
   const tabLabel = activeTab === "expenses" ? "Expense" : "Income";
 
+  // Heads CRUD handlers
+  const openHeadCreate = () => {
+    setHeadForm({ name: "", type: "Expense" });
+    setHeadEditItem({}); // Use empty object so form becomes visible (headEditItem !== null)
+  };
+
+  const openHeadEdit = (item: any) => {
+    setHeadForm({ name: item.name, type: item.type });
+    setHeadEditItem(item);
+  };
+
+  const saveHead = async () => {
+    if (!headForm.name.trim()) {
+      toast({ title: "Error", description: "Head name is required", variant: "destructive" });
+      return;
+    }
+    setHeadSaving(true);
+    try {
+      if (headEditItem?.id) {
+        await apiFetch(`/api/expense-income-heads/${headEditItem.id}`, { method: "PUT", body: JSON.stringify(headForm) });
+        toast({ title: "Updated", description: "Head updated" });
+      } else {
+        await apiFetch("/api/expense-income-heads", { method: "POST", body: JSON.stringify(headForm) });
+        toast({ title: "Created", description: "Head created" });
+      }
+      setHeadEditItem(null);
+      loadHeads();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setHeadSaving(false); }
+  };
+
+  const deleteHead = async () => {
+    if (!headDeleteItem) return;
+    try {
+      await apiFetch(`/api/expense-income-heads/${headDeleteItem.id}`, { method: "DELETE" });
+      toast({ title: "Deleted" }); setHeadDeleteItem(null); loadHeads();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const filteredHeadsList = useMemo(() => {
+    if (!headSearch) return heads;
+    const s = headSearch.toLowerCase();
+    return heads.filter((h: any) => h.name?.toLowerCase().includes(s) || h.type?.toLowerCase().includes(s));
+  }, [heads, headSearch]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -160,7 +216,17 @@ export default function ExpensesIncomesPage() {
     } finally { setLoading(false); }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadHeads = useCallback(async () => {
+    setHeadsLoading(true);
+    try {
+      const hRes = await apiFetch("/api/expense-income-heads").catch(() => []);
+      setHeads(Array.isArray(hRes) ? hRes : hRes.data || []);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setHeadsLoading(false); }
+  }, [toast]);
+
+  useEffect(() => { load(); loadHeads(); }, [load, loadHeads]);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -394,8 +460,11 @@ export default function ExpensesIncomesPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "expenses" | "incomes"); setSearch(""); setExpandedRows(new Set()); }}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "heads" | "expenses" | "incomes"); setSearch(""); setHeadSearch(""); setExpandedRows(new Set()); }}>
         <TabsList>
+          <TabsTrigger value="heads" className="flex items-center gap-1">
+            <FileText className="w-4 h-4" />Heads
+          </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-1">
             <ArrowDownCircle className="w-4 h-4" />Expenses
           </TabsTrigger>
@@ -403,6 +472,87 @@ export default function ExpensesIncomesPage() {
             <ArrowUpCircle className="w-4 h-4" />Incomes
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="heads">
+          {/* Expense/Income Heads Tab */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input placeholder="Search heads..." value={headSearch} onChange={e => setHeadSearch(e.target.value)} className="pl-10" />
+                </div>
+                <Button variant="outline" size="sm" onClick={loadHeads}><RefreshCw className="w-4 h-4" /></Button>
+              </div>
+              {/* Head Form (inline create/edit) */}
+              {headEditItem !== null && (
+                <div className="mb-4 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border flex flex-wrap items-end gap-3">
+                  <div className="space-y-1.5 flex-1 min-w-[200px]">
+                    <Label className="text-sm font-medium">Name <span className="text-red-500">*</span></Label>
+                    <Input value={headForm.name} onChange={e => setHeadForm({ ...headForm, name: e.target.value })} placeholder="Head name" />
+                  </div>
+                  <div className="space-y-1.5 min-w-[140px]">
+                    <Label className="text-sm font-medium">Type</Label>
+                    <Select value={headForm.type} onValueChange={v => setHeadForm({ ...headForm, type: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Expense">Expense</SelectItem>
+                        <SelectItem value="Income">Income</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={saveHead} disabled={headSaving}>
+                      {headSaving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}{headEditItem?.id ? "Update" : "Create"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setHeadEditItem(null)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead>#</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Active</TableHead>
+                      <TableHead className="w-20 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {headsLoading ? (
+                      <TableRow><TableCell colSpan={5} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                    ) : filteredHeadsList.length === 0 ? (
+                      <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No heads found</TableCell></TableRow>
+                    ) : filteredHeadsList.map((h: any, idx: number) => (
+                      <TableRow key={h.id} className="data-table-row hover:bg-muted/50">
+                        <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+                        <TableCell className="font-medium text-slate-900 dark:text-white">{h.name}</TableCell>
+                        <TableCell><Badge className={h.type === "Expense" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}>{h.type}</Badge></TableCell>
+                        <TableCell><Badge className={h.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}>{h.isActive ? "Active" : "Inactive"}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => openHeadEdit(h)} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setHeadDeleteItem(h)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Showing {filteredHeadsList.length} of {heads.length} heads</span>
+                {headEditItem === null && !isVatAuditor && (
+                  <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openHeadCreate}>
+                    <Plus className="w-4 h-4 mr-1" />Create Head
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="expenses">
           {/* Expenses content rendered below */}

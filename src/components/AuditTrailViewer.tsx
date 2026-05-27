@@ -343,7 +343,7 @@ export default function AuditTrailViewer() {
         data: entries,
         isVatAuditor,
         vatMaskedColumns: maskedKeys,
-        filename: "audit-trail.csv",
+        filename: "audit-trail",
       });
       toast({ title: "Exported", description: "Audit Trail exported to CSV" });
     } catch (e: any) {
@@ -364,7 +364,7 @@ export default function AuditTrailViewer() {
         data: entries,
         isVatAuditor,
         vatMaskedColumns: maskedKeys,
-        filename: "audit-trail.pdf",
+        filename: "audit-trail",
       });
       toast({ title: "Exported", description: "Audit Trail exported to PDF" });
     } catch (e: any) {
