@@ -180,6 +180,8 @@ export async function PUT(
           module: 'CashCollections',
           recordId: updated.id,
           recordLabel: existing.collectionCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             previousBankId: oldBankId,
             newBankId,
@@ -261,6 +263,8 @@ export async function DELETE(
           module: 'CashCollections',
           recordId: id,
           recordLabel: existing.collectionCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             softDelete: true,
             bankImpactReversed: existing.status === 'Approved' && existing.bankId ? true : false,

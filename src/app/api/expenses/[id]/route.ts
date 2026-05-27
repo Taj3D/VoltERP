@@ -258,6 +258,8 @@ export async function PUT(
           module: 'Expenses',
           recordId: expense.id,
           recordLabel: existing.expenseCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             previousBankId: oldBankId,
             newBankId,
@@ -345,6 +347,8 @@ export async function DELETE(
           module: 'Expenses',
           recordId: id,
           recordLabel: existing.expenseCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             softDelete: true,
             bankBalanceReversed: !!(existing.bankId && existing.status === 'Approved'),

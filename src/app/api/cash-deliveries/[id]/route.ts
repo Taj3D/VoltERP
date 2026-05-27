@@ -229,6 +229,8 @@ export async function PUT(
           module: 'CashDeliveries',
           recordId: updated.id,
           recordLabel: existing.deliveryCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             previousBankId: oldBankId,
             newBankId,
@@ -312,6 +314,8 @@ export async function DELETE(
           module: 'CashDeliveries',
           recordId: id,
           recordLabel: existing.deliveryCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             softDelete: true,
             bankImpactReversed: existing.status === 'Approved' && existing.bankId ? true : false,

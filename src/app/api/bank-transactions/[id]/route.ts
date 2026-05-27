@@ -159,6 +159,8 @@ export async function PUT(
               module: 'BankTransactions',
               recordId: id,
               recordLabel: existing.transactionCode,
+              userId: security.user.id,
+              userName: security.user.name,
               details: JSON.stringify({
                 type: effectiveType,
                 amountChanged,
@@ -212,6 +214,8 @@ export async function PUT(
               module: 'BankTransactions',
               recordId: id,
               recordLabel: existing.transactionCode,
+              userId: security.user.id,
+              userName: security.user.name,
               details: JSON.stringify({
                 type: effectiveType,
                 amountChanged,
@@ -320,6 +324,8 @@ export async function PUT(
               module: 'BankTransactions',
               recordId: id,
               recordLabel: existing.transactionCode,
+              userId: security.user.id,
+              userName: security.user.name,
               details: JSON.stringify({
                 type: 'Transfer',
                 amountChanged,
@@ -355,6 +361,8 @@ export async function PUT(
           module: 'BankTransactions',
           recordId: id,
           recordLabel: existing.transactionCode,
+              userId: security.user.id,
+              userName: security.user.name,
           details: JSON.stringify({
             type: effectiveType,
             balanceImpact: false,
@@ -476,6 +484,8 @@ export async function DELETE(
           module: 'BankTransactions',
           recordId: id,
           recordLabel: existing.transactionCode,
+              userId: security.user.id,
+              userName: security.user.name,
           details: JSON.stringify({
             softDelete: true,
             type: existing.type,
