@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 // GET /api/cash-collections - List all cash collections with relations
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'CashCollections', 'GET');
   if (!security.authorized) return security.response;
+
+  const role = security.user.role;
 
   try {
     const items = await db.cashCollection.findMany({
@@ -17,7 +19,23 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(items);
+
+    // Apply VAT Auditor masking to amount field + nested customer creditLimit
+    // creditLimit is restricted for sr/dealer roles only
+    const masked = items.map((item) => {
+      const maskedItem = maskForVatAuditor(item, role, ['amount']);
+      if (maskedItem.customer) {
+        maskedItem.customer = maskForVatAuditor(
+          maskedItem.customer,
+          role,
+          ['creditLimit'],
+          { creditLimit: ['sr', 'dealer'] }
+        );
+      }
+      return maskedItem;
+    });
+
+    return NextResponse.json(masked);
   } catch (error) {
     console.error('Error fetching cash collections:', error);
     return NextResponse.json(

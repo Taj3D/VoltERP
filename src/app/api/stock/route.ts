@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 // GET /api/stock - Calculate current stock for each product
 // Query params: godownId, categoryId, status (In Stock, Low Stock, Out of Stock)
@@ -13,8 +13,6 @@ export async function GET(request: NextRequest) {
     const godownId = searchParams.get('godownId');
     const categoryId = searchParams.get('categoryId');
     const statusFilter = searchParams.get('status'); // "In Stock", "Low Stock", "Out of Stock"
-
-    const isVatAuditor = security.user?.role === 'vat_auditor';
 
     // Build product filter
     const productWhere: Record<string, unknown> = { isActive: true };
@@ -76,11 +74,20 @@ export async function GET(request: NextRequest) {
         currentStock,
         reorderLevel: product.reorderLevel,
         stockStatus,
-        costPrice: isVatAuditor ? 'N/A (Audit Mode)' : product.costPrice,
-        salePrice: isVatAuditor ? 'N/A (Audit Mode)' : product.salePrice,
-        stockValue: isVatAuditor ? 'N/A (Audit Mode)' : stockValue,
+        costPrice: product.costPrice,
+        salePrice: product.salePrice,
+        wholesalePrice: product.wholesalePrice,
+        dealerPrice: product.dealerPrice,
+        stockValue,
+        openingStock: product.openingStock,
       };
     });
+
+    // Apply VAT Auditor masking using centralized maskForVatAuditor utility
+    const role = security.user.role;
+    stockReport = stockReport.map(item =>
+      maskForVatAuditor(item, role, ['costPrice', 'salePrice', 'wholesalePrice', 'dealerPrice', 'stockValue', 'openingStock'])
+    );
 
     // Filter by status if provided
     if (statusFilter) {

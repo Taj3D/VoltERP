@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
-// GET /api/expenses/[id] - Get single expense with full includes
+// GET /api/expenses/[id] - Get single expense with full includes + VAT Auditor masking
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,7 +28,10 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(expense);
+    // Apply VAT Auditor masking for the amount field
+    const role = security.user.role;
+    const maskedExpense = maskForVatAuditor(expense, role, ['amount']);
+    return NextResponse.json(maskedExpense);
   } catch (error) {
     console.error('Error fetching expense:', error);
     return NextResponse.json(
@@ -38,7 +41,7 @@ export async function GET(
   }
 }
 
-// PUT /api/expenses/[id] - Update expense (expenseCode is immutable)
+// PUT /api/expenses/[id] - Update expense with balanced double-entry ledger reversal + re-entry
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -51,7 +54,7 @@ export async function PUT(
     const body = await request.json();
     const { date, headId, amount, paymentOptionId, bankId, description, status } = body;
 
-    // Fetch existing record for bank adjustment logic and period check
+    // Fetch existing record for bank adjustment logic, ledger reversal, and period check
     const existing = await db.expense.findUnique({
       where: { id },
       select: {
@@ -61,6 +64,7 @@ export async function PUT(
         status: true,
         isActive: true,
         date: true,
+        headId: true,
       },
     });
 
@@ -80,13 +84,17 @@ export async function PUT(
     const result = await db.$transaction(async (tx) => {
       const newAmount = amount !== undefined ? parseFloat(String(amount)) : existing.amount;
       const newBankId = bankId !== undefined ? (bankId || null) : existing.bankId;
+      const newHeadId = headId !== undefined ? headId : existing.headId;
       const newStatus = status || existing.status;
       const oldBankId = existing.bankId;
       const oldAmount = existing.amount;
       const oldStatus = existing.status;
+      const oldHeadId = existing.headId;
+      const expenseDate = date ? new Date(date) : existing.date;
 
-      // Bank balance adjustment: reverse old, apply new
-      // If old expense had bankId and was Approved, reverse the decrement (increment back)
+      // ============================================================
+      // STEP 1: Reverse old bank balance if old status was Approved
+      // ============================================================
       if (oldBankId && oldStatus === 'Approved') {
         await tx.bank.update({
           where: { id: oldBankId },
@@ -98,7 +106,63 @@ export async function PUT(
         });
       }
 
-      // If new expense has bankId and is Approved, apply the decrement
+      // ============================================================
+      // STEP 2: Create reversal ledger entries for the old state
+      // (Only if the old expense was Approved — it would have had ledger entries)
+      // ============================================================
+      if (oldStatus === 'Approved') {
+        // Resolve old head name for reversal
+        let oldHeadName = 'Unknown';
+        if (oldHeadId) {
+          const oldHead = await tx.expenseIncomeHead.findUnique({
+            where: { id: oldHeadId },
+            select: { name: true },
+          });
+          oldHeadName = oldHead?.name || 'Unknown';
+        }
+
+        // Resolve old cash/bank account name for reversal
+        let oldCashAccountName = 'Cash in Hand';
+        if (oldBankId) {
+          const oldBankRecord = await tx.bank.findUnique({
+            where: { id: oldBankId },
+            select: { bankName: true },
+          });
+          oldCashAccountName = oldBankRecord?.bankName || 'Bank';
+        }
+
+        // Reversal entry 1: Cr: [old head name] with OLD amount
+        // (Reverses the original debit to the expense head)
+        await tx.ledgerEntry.create({
+          data: {
+            date: expenseDate,
+            account: oldHeadName,
+            particulars: 'Reversal: Expense update',
+            debit: 0,
+            credit: oldAmount,
+            reference: existing.expenseCode,
+            referenceType: 'Expense',
+          },
+        });
+
+        // Reversal entry 2: Dr: [old cash/bank account name] with OLD amount
+        // (Reverses the original credit from cash/bank)
+        await tx.ledgerEntry.create({
+          data: {
+            date: expenseDate,
+            account: oldCashAccountName,
+            particulars: 'Reversal: Expense update',
+            debit: oldAmount,
+            credit: 0,
+            reference: existing.expenseCode,
+            referenceType: 'Expense',
+          },
+        });
+      }
+
+      // ============================================================
+      // STEP 3: Apply new bank balance if new status is Approved
+      // ============================================================
       if (newBankId && newStatus === 'Approved') {
         await tx.bank.update({
           where: { id: newBankId },
@@ -110,17 +174,63 @@ export async function PUT(
         });
       }
 
-      // Resolve head name for ledger if headId changed
-      let headName: string | null = null;
-      if (headId) {
-        const head = await tx.expenseIncomeHead.findUnique({
-          where: { id: headId },
-          select: { name: true },
+      // ============================================================
+      // STEP 4: Create new ledger entries for the updated state
+      // (Only if the new status is Approved)
+      // ============================================================
+      if (newStatus === 'Approved') {
+        // Resolve new head name for ledger entry
+        let newHeadName: string | null = null;
+        if (newHeadId) {
+          const head = await tx.expenseIncomeHead.findUnique({
+            where: { id: newHeadId },
+            select: { name: true },
+          });
+          newHeadName = head?.name || null;
+        }
+
+        // Resolve new cash/bank account name for ledger entry
+        let newCashAccountName = 'Cash in Hand';
+        if (newBankId) {
+          const newBankRecord = await tx.bank.findUnique({
+            where: { id: newBankId },
+            select: { bankName: true },
+          });
+          newCashAccountName = newBankRecord?.bankName || 'Bank';
+        }
+
+        const newParticulars = description || 'Expense updated';
+
+        // New entry 1: Dr: [new head name] with NEW amount
+        await tx.ledgerEntry.create({
+          data: {
+            date: expenseDate,
+            account: newHeadName || 'Unknown',
+            particulars: newParticulars,
+            debit: newAmount,
+            credit: 0,
+            reference: existing.expenseCode,
+            referenceType: 'Expense',
+          },
         });
-        headName = head?.name || null;
+
+        // New entry 2: Cr: [new cash/bank account name] with NEW amount
+        await tx.ledgerEntry.create({
+          data: {
+            date: expenseDate,
+            account: newCashAccountName,
+            particulars: newParticulars,
+            debit: 0,
+            credit: newAmount,
+            reference: existing.expenseCode,
+            referenceType: 'Expense',
+          },
+        });
       }
 
-      // Update the expense (expenseCode is NOT updated — immutable)
+      // ============================================================
+      // STEP 5: Update the expense record (expenseCode is NOT updated — immutable)
+      // ============================================================
       const expense = await tx.expense.update({
         where: { id },
         data: {
@@ -139,7 +249,9 @@ export async function PUT(
         },
       });
 
-      // Create AuditLog entry for update
+      // ============================================================
+      // STEP 6: Create AuditLog entry for update
+      // ============================================================
       await tx.auditLog.create({
         data: {
           action: 'UPDATE',
@@ -153,7 +265,11 @@ export async function PUT(
             newAmount,
             previousStatus: oldStatus,
             newStatus,
+            previousHeadId: oldHeadId,
+            newHeadId,
             bankBalanceAdjusted: !!(oldBankId || newBankId),
+            ledgerReversalCreated: oldStatus === 'Approved',
+            ledgerNewEntriesCreated: newStatus === 'Approved',
           }),
         },
       });

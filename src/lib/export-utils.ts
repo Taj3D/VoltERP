@@ -144,9 +144,12 @@ function escapeCSVField(value: string, isNumeric?: boolean): string {
   }
 
   // CSV Injection Protection: Prevent formula injection in Excel/Sheets
-  // Cells starting with =, +, -, @, \t, \r are dangerous
+  // Cells starting with =, +, -, @, \t, \r, | are dangerous
+  // | (pipe) added: pipe-delimited CSV exports treat | as a cell separator,
+  // and some spreadsheet parsers (e.g. older Excel localized versions) may
+  // interpret a leading pipe as a formula or command prefix, enabling injection.
   const trimmed = value.trimStart();
-  if (trimmed.startsWith('=') || trimmed.startsWith('+') || trimmed.startsWith('-') || trimmed.startsWith('@') || trimmed.startsWith('\t') || trimmed.startsWith('\r')) {
+  if (trimmed.startsWith('=') || trimmed.startsWith('+') || trimmed.startsWith('-') || trimmed.startsWith('@') || trimmed.startsWith('\t') || trimmed.startsWith('\r') || trimmed.startsWith('|')) {
     // Prefix with a single quote to neutralize formula; quote the whole field
     return `"'" + value.replace(/"/g, '""') + '"'`;
   }

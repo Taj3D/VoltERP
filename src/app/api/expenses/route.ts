@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 // GET /api/expenses - List all expenses with relations
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Expenses', 'GET');
   if (!security.authorized) return security.response;
+
+  const role = security.user.role;
 
   try {
     const expenses = await db.expense.findMany({
@@ -17,7 +19,13 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json(expenses);
+
+    // Apply VAT Auditor masking to amount field
+    const masked = expenses.map((item) =>
+      maskForVatAuditor(item, role, ['amount'])
+    );
+
+    return NextResponse.json(masked);
   } catch (error) {
     console.error('Error fetching expenses:', error);
     return NextResponse.json(

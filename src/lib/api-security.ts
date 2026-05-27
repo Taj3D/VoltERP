@@ -276,26 +276,41 @@ const DEFAULT_VAT_MASKED_FIELDS = ['costPrice', 'wholesalePrice', 'dealerPrice',
 export function maskForVatAuditor<T extends Record<string, unknown>>(
   data: T,
   role: UserRole,
-  sensitiveFields: string[] = DEFAULT_VAT_MASKED_FIELDS
+  sensitiveFields: string[] = DEFAULT_VAT_MASKED_FIELDS,
+  /** Optional per-field role restrictions: { creditLimit: ['sr', 'dealer'] } means
+   *  creditLimit is masked ONLY for sr and dealer roles, not for admin/manager/vat_auditor.
+   *  If not provided, the field is masked for ALL non-admin roles. */
+  fieldRoleRestrictions?: Record<string, UserRole[]>
 ): T {
-  // Support multi-role masking: VAT Auditor gets all default + extra fields,
-  // SR/Dealer get only the explicitly passed fields (e.g., creditLimit, baseSalary)
-  // For non-VAT roles, only mask if explicit non-default fields are provided
-  if (role !== 'vat_auditor') {
-    // Check if the caller passed custom fields (different from default list)
-    const isDefaultList = sensitiveFields.length === DEFAULT_VAT_MASKED_FIELDS.length &&
-      sensitiveFields.every(f => DEFAULT_VAT_MASKED_FIELDS.includes(f));
-    if (isDefaultList) return data; // Non-VAT role with default fields = no masking needed
-    // Non-VAT role with custom fields = mask those specific fields
+  // Admin and manager roles are NEVER masked — they have full visibility
+  if (role === 'admin' || role === 'manager') {
+    return data;
   }
 
   const masked = { ...data };
-  const maskingLabel = role === 'vat_auditor' ? 'N/A (Audit Mode)' : 'N/A (Restricted)';
+
   for (const field of sensitiveFields) {
-    if (field in masked) {
-      (masked as Record<string, unknown>)[field] = maskingLabel;
+    if (!(field in masked)) continue;
+
+    // Check if this field has specific role restrictions
+    if (fieldRoleRestrictions && fieldRoleRestrictions[field]) {
+      // Only mask if the current role is in the restriction list
+      if (fieldRoleRestrictions[field].includes(role)) {
+        (masked as Record<string, unknown>)[field] = 'N/A (Restricted)';
+      }
+    } else if (role === 'vat_auditor') {
+      // VAT Auditor: mask ALL passed sensitive fields
+      (masked as Record<string, unknown>)[field] = 'N/A (Audit Mode)';
+    } else {
+      // Other roles (sr, dealer): mask custom (non-default) fields only
+      // Default fields (costPrice, etc.) are only masked for vat_auditor
+      const isDefaultField = DEFAULT_VAT_MASKED_FIELDS.includes(field);
+      if (!isDefaultField) {
+        (masked as Record<string, unknown>)[field] = 'N/A (Restricted)';
+      }
     }
   }
+
   return masked;
 }
 
