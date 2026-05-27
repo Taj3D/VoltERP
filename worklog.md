@@ -302,3 +302,28 @@ Stage Summary:
 - Credentials: emart.amit / Test_123
 - All 4 phases verified: Mobile Responsive, NID/Logo Uploaders, Hidden Login Roles, jsPDF Engine
 - 0 compile errors, 0 lint errors
+
+---
+Task ID: 8
+Agent: Main Agent
+Task: Create comprehensive Bengali usage guide for Electronics Mart IMS v2.0 and generate PDF
+
+Work Log:
+- Read worklog.md for project context
+- Verified node_modules, ran npm install, prisma db push, prisma generate — all successful
+- Started dev server on port 3000 — HTTP 200 confirmed
+- Created comprehensive Bengali usage guide HTML at `/home/z/my-project/public/guides/usage-guide.html`
+- 12 chapters covering all modules: Investment, Basic Modules, Inventory, Account Management, SMS Service, Accounting Report, Reporting System, Financial Audit, System Settings, PDF/CSV Export/Import, Mobile Responsiveness
+- Used Noto Sans Bengali Google Font for proper Bengali script rendering
+- Styled with professional navy blue theme matching VoltERP branding
+- Generated PDF using Playwright html2pdf-next.js pipeline — 34 pages, 1.1MB
+- PDF output at `/home/z/my-project/public/guides/Electronics_Mart_IMS_v2_User_Guide_BN.pdf`
+- Added PDF metadata (title, creator, subject)
+- Set up 15-minute cron job (ID: 171710) for continuous development review
+
+Stage Summary:
+- Bengali usage guide created: 12 chapters, 34 pages, covering all system modules
+- PDF generated: /home/z/my-project/public/guides/Electronics_Mart_IMS_v2_User_Guide_BN.pdf (1.1MB)
+- HTML source: /home/z/my-project/public/guides/usage-guide.html
+- Cron job set up for continuous development (every 15 minutes)
+- Dev server running on port 3000

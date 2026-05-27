@@ -1,0 +1,1879 @@
+<!DOCTYPE html>
+<html lang="bn" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Electronics Mart IMS v2.0 - ব্যবহার নির্দেশিকা</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  @page {
+    size: A4;
+    margin: 20mm 18mm 22mm 18mm;
+  }
+
+  :root {
+    --navy-900: #0a1628;
+    --navy-800: #0f1f3d;
+    --navy-700: #132240;
+    --navy-600: #1a3058;
+    --blue-600: #2563eb;
+    --blue-500: #3b82f6;
+    --blue-400: #60a5fa;
+    --blue-100: #dbeafe;
+    --blue-50: #eff6ff;
+    --green-600: #16a34a;
+    --green-100: #dcfce7;
+    --amber-600: #d97706;
+    --amber-100: #fef3c7;
+    --red-600: #dc2626;
+    --red-100: #fee2e2;
+    --gray-900: #111827;
+    --gray-700: #374151;
+    --gray-600: #4b5563;
+    --gray-500: #6b7280;
+    --gray-400: #9ca3af;
+    --gray-300: #d1d5db;
+    --gray-200: #e5e7eb;
+    --gray-100: #f3f4f6;
+    --gray-50: #f9fafb;
+    --white: #ffffff;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--white);
+    font-family: 'Noto Sans Bengali', 'Inter', sans-serif;
+    color: var(--gray-900);
+    line-height: 1.75;
+    font-size: 11pt;
+  }
+
+  /* ===== COVER PAGE ===== */
+  .cover-page {
+    page-break-after: always;
+    width: 100%;
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--navy-900) 0%, var(--navy-700) 50%, var(--navy-600) 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover-page::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.08);
+  }
+
+  .cover-page::after {
+    content: '';
+    position: absolute;
+    bottom: -30%;
+    left: -10%;
+    width: 400px;
+    height: 400px;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.05);
+  }
+
+  .cover-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    background: rgba(37, 99, 235, 0.15);
+    border: 1px solid rgba(37, 99, 235, 0.3);
+    border-radius: 999px;
+    color: var(--blue-400);
+    font-size: 11pt;
+    font-weight: 500;
+    margin-bottom: 32px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-title {
+    font-size: 36pt;
+    font-weight: 800;
+    color: var(--white);
+    text-align: center;
+    line-height: 1.3;
+    margin-bottom: 16px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-subtitle {
+    font-size: 16pt;
+    font-weight: 400;
+    color: var(--blue-400);
+    text-align: center;
+    margin-bottom: 40px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-description {
+    max-width: 500px;
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 11pt;
+    line-height: 1.8;
+    margin-bottom: 48px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-meta {
+    display: flex;
+    gap: 32px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .cover-meta-item {
+    text-align: center;
+  }
+
+  .cover-meta-label {
+    font-size: 9pt;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .cover-meta-value {
+    font-size: 12pt;
+    font-weight: 600;
+    color: var(--white);
+  }
+
+  .cover-divider {
+    width: 80px;
+    height: 3px;
+    background: var(--blue-600);
+    margin: 32px auto;
+    border-radius: 2px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ===== TABLE OF CONTENTS ===== */
+  .toc-page {
+    page-break-after: always;
+    padding: 0;
+  }
+
+  .toc-title {
+    font-size: 22pt;
+    font-weight: 700;
+    color: var(--navy-900);
+    margin-bottom: 8px;
+  }
+
+  .toc-subtitle {
+    font-size: 10pt;
+    color: var(--gray-500);
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--gray-200);
+  }
+
+  .toc-section {
+    margin-bottom: 20px;
+  }
+
+  .toc-section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    color: var(--navy-700);
+    margin-bottom: 6px;
+    padding-left: 12px;
+    border-left: 3px solid var(--blue-600);
+  }
+
+  .toc-items {
+    list-style: none;
+    padding-left: 16px;
+  }
+
+  .toc-items li {
+    font-size: 10.5pt;
+    color: var(--gray-700);
+    padding: 3px 0;
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dotted var(--gray-200);
+  }
+
+  .toc-items li:hover {
+    color: var(--blue-600);
+  }
+
+  /* ===== BODY CONTENT ===== */
+  .content-page {
+    padding: 0;
+  }
+
+  h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    color: var(--navy-900);
+    margin-top: 28px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 3px solid var(--blue-600);
+    page-break-after: avoid;
+  }
+
+  h2 {
+    font-size: 15pt;
+    font-weight: 700;
+    color: var(--navy-700);
+    margin-top: 24px;
+    margin-bottom: 12px;
+    padding-left: 12px;
+    border-left: 4px solid var(--blue-600);
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 12pt;
+    font-weight: 600;
+    color: var(--navy-600);
+    margin-top: 18px;
+    margin-bottom: 8px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin-bottom: 12px;
+    text-align: justify;
+    font-size: 10.5pt;
+    line-height: 1.8;
+  }
+
+  ul, ol {
+    margin-left: 20px;
+    margin-bottom: 12px;
+  }
+
+  li {
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+    line-height: 1.7;
+  }
+
+  /* ===== INFO BOXES ===== */
+  .info-box {
+    background: var(--blue-50);
+    border-left: 4px solid var(--blue-600);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 10pt;
+  }
+
+  .info-box-title {
+    font-weight: 700;
+    color: var(--blue-600);
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+  }
+
+  .warning-box {
+    background: var(--amber-100);
+    border-left: 4px solid var(--amber-600);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 10pt;
+  }
+
+  .warning-box-title {
+    font-weight: 700;
+    color: var(--amber-600);
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+  }
+
+  .danger-box {
+    background: var(--red-100);
+    border-left: 4px solid var(--red-600);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 10pt;
+  }
+
+  .danger-box-title {
+    font-weight: 700;
+    color: var(--red-600);
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+  }
+
+  .success-box {
+    background: var(--green-100);
+    border-left: 4px solid var(--green-600);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 10pt;
+  }
+
+  .success-box-title {
+    font-weight: 700;
+    color: var(--green-600);
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+  }
+
+  /* ===== TABLES ===== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 9.5pt;
+  }
+
+  thead th {
+    background: var(--navy-700);
+    color: var(--white);
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 9.5pt;
+  }
+
+  tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--gray-200);
+    vertical-align: top;
+  }
+
+  tbody tr:nth-child(even) {
+    background: var(--gray-50);
+  }
+
+  tbody tr:hover {
+    background: var(--blue-50);
+  }
+
+  /* ===== CODE / KEYBOARD ===== */
+  kbd {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 9pt;
+    font-family: 'Inter', monospace;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-300);
+    border-radius: 4px;
+    color: var(--gray-700);
+  }
+
+  code {
+    background: var(--gray-100);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 9pt;
+    font-family: 'Inter', monospace;
+    color: var(--blue-600);
+  }
+
+  /* ===== STEP CARDS ===== */
+  .step-card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    padding: 18px;
+    margin: 14px 0;
+    page-break-inside: avoid;
+  }
+
+  .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    background: var(--blue-600);
+    color: var(--white);
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 13pt;
+    margin-right: 10px;
+    flex-shrink: 0;
+  }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .step-title {
+    font-weight: 700;
+    font-size: 11pt;
+    color: var(--navy-700);
+  }
+
+  .step-body {
+    margin-left: 40px;
+    font-size: 10pt;
+    line-height: 1.7;
+  }
+
+  /* ===== MODULE GRID ===== */
+  .module-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 16px 0;
+  }
+
+  .module-card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+    padding: 14px;
+    page-break-inside: avoid;
+  }
+
+  .module-card-title {
+    font-weight: 700;
+    font-size: 10.5pt;
+    color: var(--navy-700);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .module-card-title .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .module-card-body {
+    font-size: 9.5pt;
+    color: var(--gray-600);
+    line-height: 1.6;
+  }
+
+  .module-card-body ul {
+    margin-left: 14px;
+    margin-bottom: 0;
+  }
+
+  /* ===== FLOWCHART ===== */
+  .flow-steps {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+    flex-wrap: wrap;
+  }
+
+  .flow-step {
+    background: var(--blue-600);
+    color: var(--white);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 9.5pt;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .flow-arrow {
+    color: var(--gray-400);
+    font-size: 16pt;
+  }
+
+  /* ===== ROLE BADGE ===== */
+  .role-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    margin: 2px;
+  }
+
+  .role-admin { background: #dbeafe; color: #1d4ed8; }
+  .role-manager { background: #dcfce7; color: #15803d; }
+  .role-sr { background: #fef3c7; color: #b45309; }
+  .role-dealer { background: #f3e8ff; color: #7c3aed; }
+  .role-vat { background: #fee2e2; color: #dc2626; }
+
+  /* ===== PAGE BREAKS ===== */
+  .page-break {
+    page-break-before: always;
+  }
+
+  /* ===== FOOTER ===== */
+  .page-footer {
+    margin-top: 32px;
+    padding-top: 12px;
+    border-top: 1px solid var(--gray-200);
+    font-size: 8pt;
+    color: var(--gray-400);
+    text-align: center;
+  }
+
+  /* ===== SECTION DIVIDER ===== */
+  .section-divider {
+    width: 60px;
+    height: 3px;
+    background: linear-gradient(to right, var(--blue-600), var(--blue-400));
+    margin: 20px 0;
+    border-radius: 2px;
+  }
+
+  /* ===== PRINT STYLES ===== */
+  @media print {
+    .cover-page {
+      min-height: auto;
+      height: 100vh;
+    }
+    h1, h2, h3 {
+      page-break-after: avoid;
+    }
+    .step-card, .module-card, .info-box, .warning-box, .danger-box, .success-box {
+      page-break-inside: avoid;
+    }
+    table {
+      page-break-inside: avoid;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== COVER PAGE ========== -->
+<div class="cover-page">
+  <div class="cover-badge">&#9881; Enterprise Resource Planning</div>
+  <div class="cover-title">Electronics Mart<br>IMS v2.0</div>
+  <div class="cover-subtitle">সম্পূর্ণ ব্যবহার নির্দেশিকা</div>
+  <div class="cover-divider"></div>
+  <div class="cover-description">
+    ইনভেন্টরি ম্যানেজমেন্ট, হিসাব নিকাশ, ক্রয়-বিক্রয় পরিচালনা, এসআর ম্যানেজমেন্ট, এবং আর্থিক রিপোর্টিং সিস্টেমের সম্পূর্ণ ব্যবহার পদ্ধতি ও রেফারেন্স ম্যানুয়াল
+  </div>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">সংস্করণ</div>
+      <div class="cover-meta-value">v2.0</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">প্রকাশকাল</div>
+      <div class="cover-meta-value">জুলাই ২০২৫</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">শ্রেণি</div>
+      <div class="cover-meta-value">ব্যবহারকারী ম্যানুয়াল</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== TABLE OF CONTENTS ========== -->
+<div class="toc-page">
+  <div class="toc-title">সূচিপত্র</div>
+  <div class="toc-subtitle">Electronics Mart IMS v2.0 — সম্পূর্ণ ব্যবহার নির্দেশিকা</div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">১. ভূমিকা ও সিস্টেম ওভারভিউ</div>
+    <ul class="toc-items">
+      <li><span>১.১ সিস্টেম পরিচিতি</span></li>
+      <li><span>১.২ লগইন ও অ্যাক্সেস কন্ট্রোল</span></li>
+      <li><span>১.৩ ইউজার রোল ও পারমিশন</span></li>
+      <li><span>১.৪ ড্যাশবোর্ড পরিচিতি</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">২. ইনভেস্টমেন্ট মডিউল</div>
+    <ul class="toc-items">
+      <li><span>২.১ ইনভেস্টমেন্ট হেড</span></li>
+      <li><span>২.২ সম্পদ ব্যবস্থাপনা (Asset)</span></li>
+      <li><span>২.৩ দায় ব্যবস্থাপনা (Liability)</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৩. বেসিক মডিউল (সিস্টেম সেটআপ)</div>
+    <ul class="toc-items">
+      <li><span>৩.১ কোর কনফিগারেশন</span></li>
+      <li><span>৩.২ স্ট্রাকচার সেটআপ</span></li>
+      <li><span>৩.৩ অপারেশন কনফিগারেশন</span></li>
+      <li><span>৩.৪ স্টাফ ম্যানেজমেন্ট</span></li>
+      <li><span>৩.৫ গ্রাহক ও সরবরাহকারী</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৪. ইনভেন্টরি ম্যানেজমেন্ট</div>
+    <ul class="toc-items">
+      <li><span>৪.১ অর্ডার শিট ও পারচেজ অর্ডার</span></li>
+      <li><span>৪.২ সেলস অর্ডার ও হায়ার সেলস</span></li>
+      <li><span>৪.৩ রিটার্ন ও রিপ্লেসমেন্ট</span></li>
+      <li><span>৪.৪ স্টক ম্যানেজমেন্ট</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৫. অ্যাকাউন্ট ম্যানেজমেন্ট</div>
+    <ul class="toc-items">
+      <li><span>৫.১ খরচ ও আয়</span></li>
+      <li><span>৫.২ ক্যাশ কালেকশন ও ডেলিভারি</span></li>
+      <li><span>৫.৩ ব্যাংক ট্রানজেকশন</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৬. SMS সার্ভিস</div>
+    <ul class="toc-items">
+      <li><span>৬.১ SMS কনফিগারেশন ও বিলিং</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৭. অ্যাকাউন্টিং রিপোর্ট</div>
+    <ul class="toc-items">
+      <li><span>৭.১ চার্ট অফ অ্যাকাউন্টস ও লেজার</span></li>
+      <li><span>৭.২ ট্রায়াল ব্যালেন্স ও পিএল</span></li>
+      <li><span>৭.৩ ব্যালেন্স শিট ও পিরিয়ড ক্লোজ</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৮. রিপোর্টিং সিস্টেম</div>
+    <ul class="toc-items">
+      <li><span>৮.১ বেসিক রিপোর্ট</span></li>
+      <li><span>৮.২ পারচেজ রিপোর্ট</span></li>
+      <li><span>৮.৩ সেলস রিপোর্ট</span></li>
+      <li><span>৮.৪ হায়ার সেলস রিপোর্ট</span></li>
+      <li><span>৮.৫ SR রিপোর্ট</span></li>
+      <li><span>৮.৬ গ্রাহক ভিত্তিক রিপোর্ট</span></li>
+      <li><span>৮.৭ ম্যানেজমেন্ট রিপোর্ট</span></li>
+      <li><span>৮.৮ ব্যাংক রিপোর্ট</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">৯. ফিন্যান্সিয়াল অডিট</div>
+    <ul class="toc-items">
+      <li><span>৯.১ অডিট ও ডেটা ইন্টিগ্রিটি</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">১০. সিস্টেম সেটিংস</div>
+    <ul class="toc-items">
+      <li><span>১০.১ কনফিগারেশন</span></li>
+      <li><span>১০.২ অডিট ট্রেইল ও পারফরম্যান্স</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">১১. পিডিএফ/CSV এক্সপোর্ট ও ইমপোর্ট</div>
+    <ul class="toc-items">
+      <li><span>১১.১ PDF এক্সপোর্ট</span></li>
+      <li><span>১১.২ CSV এক্সপোর্ট/ইমপোর্ট</span></li>
+      <li><span>১১.৩ VAT অডিটর মাস্কিং</span></li>
+    </ul>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">১২. মোবাইল রেসপন্সিভনেস</div>
+    <ul class="toc-items">
+      <li><span>১২.১ মোবাইল ব্যবহার নির্দেশিকা</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 1: INTRODUCTION ========== -->
+<div class="content-page page-break">
+  <h1>১. ভূমিকা ও সিস্টেম ওভারভিউ</h1>
+
+  <h2>১.১ সিস্টেম পরিচিতি</h2>
+  <p>
+    <strong>Electronics Mart IMS v2.0</strong> হলো একটি সম্পূর্ণ এন্টারপ্রাইজ রিসোর্স প্ল্যানিং (ERP) সিস্টেম যা ইলেকট্রনিক্স মার্কেটের জন্য বিশেষভাবে ডিজাইন করা হয়েছে। এই সিস্টেমটি ইনভেন্টরি ম্যানেজমেন্ট, হিসাব নিকাশ, ক্রয়-বিক্রয় পরিচালনা, এসআর (Sales Representative) ম্যানেজমেন্ট, হায়ার সেলস (কিস্তিতে বিক্রয়), এবং আর্থিক রিপোর্টিং এর জন্য ব্যবহৃত হয়।
+  </p>
+
+  <div class="info-box">
+    <div class="info-box-title">&#128274; প্রযুক্তি স্ট্যাক</div>
+    <p style="margin-bottom:0">Next.js 16 + TypeScript + Tailwind CSS + Prisma ORM (SQLite) + Zustand স্টেট ম্যানেজমেন্ট দিয়ে তৈরি এই সিস্টেমটি আধুনিক ওয়েব প্রযুক্তির উপর ভিত্তি করে কাজ করে এবং যেকোনো ব্রাউজার থেকে অ্যাক্সেস করা যায়।</p>
+  </div>
+
+  <h3>প্রধান বৈশিষ্ট্যসমূহ:</h3>
+  <ul>
+    <li><strong>৫-রোল RBAC সিস্টেম:</strong> Admin, Manager, SR, Dealer, VAT Auditor — প্রতিটি রোলের জন্য আলাদা অ্যাক্সেস পারমিশন</li>
+    <li><strong>ডাবল-এন্ট্রি জেনারেল লেজার:</strong> ডেবিট-ক্রেডিট ব্যালেন্সিং সহ সম্পূর্ণ হিসাব ব্যবস্থা</li>
+    <li><strong>অটো-কোড জেনারেশন:</strong> PUR-XXXXX, SO-XXXXX, CUS-00001 ফরম্যাটে স্বয়ংক্রিয় কোড তৈরি</li>
+    <li><strong>VAT অডিটর মাস্কিং:</strong> সংবেদনশীল আর্থিক তথ্য সুরক্ষিত রাখা</li>
+    <li><strong>পিরিয়ড ক্লোজ:</strong> মাসিক হিসাব বন্ধ করার পর পরিবর্তন রোধ</li>
+    <li><strong>রিয়েল-টাইম নোটিফিকেশন:</strong> লো স্টক, ওভারডিউ ইনস্টলমেন্ট, ব্যালেন্স মিসম্যাচ সতর্কতা</li>
+    <li><strong>PDF/CSV এক্সপোর্ট:</strong> প্রতিটি রিপোর্ট ও ডেটা টেবিল PDF ও CSV ফরম্যাটে ডাউনলোড</li>
+    <li><strong>মোবাইল রেসপন্সিভ:</strong> ট্যাবলেট ও মোবাইলে সম্পূর্ণ ব্যবহারযোগ্য</li>
+  </ul>
+
+  <h2>১.২ লগইন ও অ্যাক্সেস কন্ট্রোল</h2>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">সিস্টেমে প্রবেশ (Login)</span>
+    </div>
+    <div class="step-body">
+      <p>ব্রাউজারে সিস্টেমের URL লিখে প্রবেশ করুন। লগইন পেজে আপনার <strong>ইউজারনেম</strong> ও <strong>পাসওয়ার্ড</strong> দিন।</p>
+      <div class="info-box">
+        <div class="info-box-title">&#128273; ডিফল্ট লগইন তথ্য</div>
+        <p style="margin-bottom:0"><strong>ইউজারনেম:</strong> <code>emart.amit</code> &nbsp;&nbsp; <strong>পাসওয়ার্ড:</strong> <code>Test_123</code></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">২</span>
+      <span class="step-title">রোল নির্ধারণ</span>
+    </div>
+    <div class="step-body">
+      <p>লগইন করার পর সিস্টেম স্বয়ংক্রিয়ভাবে আপনার রোল নির্ধারণ করে। আপনাকে রোল নির্বাচন করতে হবে না — সার্ভার সাইডে আপনার অ্যাক্সেস লেভেল নিয়ন্ত্রিত হয়।</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">৩</span>
+      <span class="step-title">ড্যাশবোর্ডে প্রবেশ</span>
+    </div>
+    <div class="step-body">
+      <p>সফলভাবে লগইন করলে আপনি প্রধান ড্যাশবোর্ডে প্রবেশ করবেন যেখানে সকল মডিউলের সারসংক্ষেপ দেখা যাবে।</p>
+    </div>
+  </div>
+
+  <h2>১.৩ ইউজার রোল ও পারমিশন</h2>
+  <p>সিস্টেমে ৫টি প্রধান রোল রয়েছে এবং প্রতিটি রোলের জন্য আলাদা অ্যাক্সেস লেভেল নির্ধারিত:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>রোল</th>
+        <th>বর্ণনা</th>
+        <th>অ্যাক্সেস স্তর</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="role-badge role-admin">Admin</span></td>
+        <td>সিস্টেম প্রশাসক — সকল মডিউলে সম্পূর্ণ অ্যাক্সেস</td>
+        <td>সকল মডিউল, সেটিংস, অডিট, রিপোর্ট</td>
+      </tr>
+      <tr>
+        <td><span class="role-badge role-manager">Manager</span></td>
+        <td>ম্যানেজার — অপারেশনাল মডিউলে সম্পূর্ণ অ্যাক্সেস</td>
+        <td>সকল মডিউল (সিস্টেম সেটিংস আংশিক)</td>
+      </tr>
+      <tr>
+        <td><span class="role-badge role-sr">SR</span></td>
+        <td>সেলস রিপ্রেজেন্টেটিভ — বিক্রয় সংক্রান্ত কাজ</td>
+        <td>সেলস, গ্রাহক, স্টক দেখা; লেজার/ফিন্যান্স ব্লকড (৪০৩)</td>
+      </tr>
+      <tr>
+        <td><span class="role-badge role-dealer">Dealer</span></td>
+        <td>ডিলার — ডিলার প্রাইস ও অর্ডার ব্যবস্থাপনা</td>
+        <td>সেলস, পারচেজ, স্টক; লেজার/ফিন্যান্স ব্লকড (৪০৩)</td>
+      </tr>
+      <tr>
+        <td><span class="role-badge role-vat">VAT Auditor</span></td>
+        <td>VAT অডিটর — কোস্ট/হোলসেল/ড্যামেজ মাস্কড</td>
+        <td>রিপোর্ট দেখা; সংবেদনশীল মান মাস্কড (****)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="danger-box">
+    <div class="danger-box-title">&#9888; গুরুত্বপূর্ণ সতর্কতা</div>
+    <p style="margin-bottom:0"><strong>SR ও Dealer</strong> রোলের ব্যবহারকারীরা <strong>লেজার, ফিন্যান্সিয়াল রিপোর্ট, সিস্টেম সেটিংস, অডিট ট্রেইল</strong> মডিউলে প্রবেশ করতে পারবেন না — সিস্টেম ৪০৩ Forbidden এরর দেখাবে।</p>
+  </div>
+
+  <h2>১.৪ ড্যাশবোর্ড পরিচিতি</h2>
+  <p>লগইন করার পর আপনি প্রধান ড্যাশবোর্ড দেখতে পাবেন যেখানে নিম্নলিখিত তথ্য প্রদর্শিত হবে:</p>
+
+  <div class="module-grid">
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#2563eb"></span> KPI কার্ড</div>
+      <div class="module-card-body">
+        <ul>
+          <li>মোট রেভিনিউ</li>
+          <li>মোট পারচেজ</li>
+          <li>মোট সেলস</li>
+          <li>নগদে টাকা</li>
+        </ul>
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#16a34a"></span> অনুপাত সূচক</div>
+      <div class="module-card-body">
+        <ul>
+          <li>পারচেজ vs সেলস অনুপাত</li>
+          <li>গ্রাহক বকেয়া</li>
+          <li>সরবরাহকারী বকেয়া</li>
+          <li>হায়ার সেলস আউটস্ট্যান্ডিং</li>
+        </ul>
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#d97706"></span> শীর্ষ পারফরমার</div>
+      <div class="module-card-body">
+        <ul>
+          <li>সর্বোচ্চ বিক্রয়কারী SR</li>
+          <li>সর্বোচ্চ বিক্রয় হওয়া পণ্য</li>
+          <li>শীর্ষ গ্রাহক</li>
+        </ul>
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#dc2626"></span> নোটিফিকেশন</div>
+      <div class="module-card-body">
+        <ul>
+          <li>লো স্টক সতর্কতা</li>
+          <li>ওভারডিউ ইনস্টলমেন্ট</li>
+          <li>ব্যালেন্স মিসম্যাচ</li>
+          <li>ক্রেডিট লিমিট অতিক্রম</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 2: INVESTMENT ========== -->
+<div class="content-page page-break">
+  <h1>২. ইনভেস্টমেন্ট মডিউল</h1>
+  <p>ইনভেস্টমেন্ট মডিউলের মাধ্যমে ব্যবসায় বিনিয়োগকারীদের তথ্য, সম্পদ (Asset) এবং দায় (Liability) পরিচালনা করা হয়।</p>
+
+  <h2>২.১ ইনভেস্টমেন্ট হেড</h2>
+  <p><strong>Investment Heads</strong> হলো বিনিয়োগকারীদের মাস্টার রেকর্ড। প্রতিটি বিনিয়োগকারীর তথ্য এখানে সংরক্ষিত থাকে।</p>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">নতুন ইনভেস্টমেন্ট হেড তৈরি</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li>সাইডবার থেকে <strong>Investment → Investment Heads</strong> এ ক্লিক করুন</li>
+        <li><strong>+ Add New</strong> বাটনে ক্লিক করুন</li>
+        <li>ফর্মে নিম্নলিখিত তথ্য পূরণ করুন:
+          <ul>
+            <li><strong>কোড:</strong> স্বয়ংক্রিয়ভাবে তৈরি হবে (INV-XXXXX)</li>
+            <li><strong>নাম:</strong> বিনিয়োগকারীর পুরো নাম</li>
+            <li><strong>ধরন:</strong> Liability / Asset নির্বাচন</li>
+            <li><strong>ওপেনিং ব্যালেন্স:</strong> প্রারম্ভিক ব্যালেন্স</li>
+            <li><strong>ওপেনিং টাইপ:</strong> Dr (Debit) বা Cr (Credit)</li>
+          </ul>
+        </li>
+        <li><strong>Document Uploads</strong> সেকশনে ছবি আপলোড করুন:
+          <ul>
+            <li>প্রোফাইল ছবি (JPEG/PNG, সর্বোচ্চ ২MB)</li>
+            <li>এনআইডি সামনের অংশ</li>
+            <li>এনআইডি পেছনের অংশ</li>
+          </ul>
+        </li>
+        <li><strong>Save</strong> বাটনে ক্লিক করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <div class="info-box-title">&#128247; ছবি আপলোড নিয়ম</div>
+    <p style="margin-bottom:0">ছবি আপলোড করতে ড্র্যাগ-অ্যান্ড-ড্রপ বা ক্লিক করে সিলেক্ট করুন। শুধুমাত্র <strong>JPEG/PNG</strong> ফরম্যাট গ্রহণযোগ্য। সর্বোচ্চ আকার <strong>২MB</strong>। আপলোডের পর থাম্বনেইল প্রিভিউ দেখা যাবে এবং প্রয়োজনে পরিবর্তন বা মুছে ফেলা যাবে।</p>
+  </div>
+
+  <h2>২.২ সম্পদ ব্যবস্থাপনা (Asset)</h2>
+  <p><strong>Fixed Asset</strong> (স্থায়ী সম্পদ) ও <strong>Current Asset</strong> (চলতি সম্পদ) এর মাধ্যমে ব্যবসায়ের সকল সম্পদ রেকর্ড করা হয়।</p>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">নতুন সম্পদ যোগ করা</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Investment → Fixed Asset</strong> বা <strong>Current Asset</strong> এ যান</li>
+        <li><strong>+ Add New</strong> ক্লিক করুন</li>
+        <li><strong>ইনভেস্টমেন্ট হেড</strong> নির্বাচন করুন (যার অধীনে সম্পদ যোগ হবে)</li>
+        <li><strong>তারিখ, পরিমাণ, সম্পদের ধরন</strong> (Fixed/Current) এবং <strong>বিবরণ</strong> দিন</li>
+        <li><strong>Save</strong> ক্লিক করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>২.৩ দায় ব্যবস্থাপনা (Liability)</h2>
+  <p><strong>Liability Receive</strong> (প্রাপ্য দায়) ও <strong>Liability Pay</strong> (প্রদেয় দায়) এর মাধ্যমে ব্যবসায়ের সকল দায় রেকর্ড করা হয়।</p>
+
+  <ul>
+    <li><strong>Liability Receive:</strong> যখন কেউ থেকে টাকা পাওয়ার কথা আছে</li>
+    <li><strong>Liability Pay:</strong> যখন অন্যকে টাকা দিতে হবে</li>
+    <li><strong>পেমেন্ট মেথড:</strong> Cash, Bank Transfer, Cheque</li>
+    <li><strong>Liability Report:</strong> সকল দায়ের সমন্বিত রিপোর্ট</li>
+  </ul>
+</div>
+
+<!-- ========== CHAPTER 3: BASIC MODULES ========== -->
+<div class="content-page page-break">
+  <h1>৩. বেসিক মডিউল (সিস্টেম সেটআপ)</h1>
+  <p>সিস্টেম ব্যবহার শুরু করার আগে বেসিক মডিউলের সকল কনফিগারেশন সম্পন্ন করা আবশ্যক।</p>
+
+  <h2>৩.১ কোর কনফিগারেশন</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>মডিউল</th>
+        <th>উদ্দেশ্য</th>
+        <th>অটো-কোড</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Companies</strong></td>
+        <td>কোম্পানির তথ্য, ঠিকানা, ব্র্যান্ড লোগো</td>
+        <td>COM-XXXXX</td>
+      </tr>
+      <tr>
+        <td><strong>Categories</strong></td>
+        <td>পণ্যের ক্যাটাগরি (যেমন: মোবাইল, ল্যাপটপ, এসেসরিজ)</td>
+        <td>CAT-XXXXX</td>
+      </tr>
+      <tr>
+        <td><strong>Colors</strong></td>
+        <td>পণ্যের রঙের বিবরণ</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><strong>Brands</strong></td>
+        <td>ব্র্যান্ডের নাম (যেমন: Samsung, Apple, Xiaomi)</td>
+        <td>BRD-XXXXX</td>
+      </tr>
+      <tr>
+        <td><strong>Units</strong></td>
+        <td>পরিমাপের একক (Pcs, Kg, M, L)</td>
+        <td>UNT-XXXXX</td>
+      </tr>
+      <tr>
+        <td><strong>Products</strong></td>
+        <td>পণ্যের মাস্টার ডেটা (কোস্ট প্রাইস, সেল প্রাইস, হোলসেল, ডিলার প্রাইস)</td>
+        <td>PRD-XXXXX</td>
+      </tr>
+      <tr>
+        <td><strong>Bank</strong></td>
+        <td>ব্যাংক অ্যাকাউন্ট তথ্য (অপেনিং ও কারেন্ট ব্যালেন্স)</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">পণ্য (Product) যোগ করা</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Basic Modules → Products</strong> এ যান</li>
+        <li><strong>+ Add New</strong> ক্লিক করুন</li>
+        <li>নিম্নলিখিত তথ্য পূরণ করুন:
+          <ul>
+            <li><strong>পণ্যের কোড:</strong> স্বয়ংক্রিয় (PRD-XXXXX)</li>
+            <li><strong>নাম:</strong> পণ্যের নাম</li>
+            <li><strong>ক্যাটাগরি:</strong> ক্যাটাগরি নির্বাচন</li>
+            <li><strong>ব্র্যান্ড, রঙ, ইউনিট:</strong> প্রযোজ্য ক্ষেত্রে নির্বাচন</li>
+            <li><strong>কোস্ট প্রাইস:</strong> ক্রয়মূল্য (VAT Auditor ছাড়া দেখা যাবে)</li>
+            <li><strong>সেল প্রাইস:</strong> বিক্রয়মূল্য</li>
+            <li><strong>হোলসেল প্রাইস:</strong> পাইকারি মূল্য</li>
+            <li><strong>ডিলার প্রাইস:</strong> ডিলার মূল্য</li>
+            <li><strong>ওপেনিং স্টক:</strong> প্রারম্ভিক মজুত</li>
+            <li><strong>রিঅর্ডার লেভেল:</strong> সতর্কতার সীমা</li>
+            <li><strong>গডাউন:</strong> মজুতের স্থান নির্বাচন</li>
+            <li><strong>IMEI নম্বর:</strong> মোবাইলের ক্ষেত্রে</li>
+          </ul>
+        </li>
+        <li><strong>Save</strong> ক্লিক করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>৩.২ স্ট্রাকচার সেটআপ</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>মডিউল</th>
+        <th>উদ্দেশ্য</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Department</strong></td>
+        <td>বিভাগ তৈরি (সেলস, অ্যাকাউন্টস, ওয়্যারহাউস ইত্যাদি)</td>
+      </tr>
+      <tr>
+        <td><strong>Godowns</strong></td>
+        <td>পণ্য মজুতের স্থান / ওয়্যারহাউস</td>
+      </tr>
+      <tr>
+        <td><strong>Interest Percentage</strong></td>
+        <td>হায়ার সেলসের সুদের হার</td>
+      </tr>
+      <tr>
+        <td><strong>Segment</strong></td>
+        <td>বাজার সেগমেন্ট (যেমন: প্রিমিয়াম, মিড-রেঞ্জ, বাজেট)</td>
+      </tr>
+      <tr>
+        <td><strong>Capacity</strong></td>
+        <td>পণ্যের ধারণক্ষমতা / স্টোরেজ ক্যাপাসিটি</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>৩.৩ অপারেশন কনফিগারেশন</h2>
+  <ul>
+    <li><strong>SR Target Setup:</strong> প্রতি মাসে SR-এর বিক্রয় লক্ষ্যমাত্রা নির্ধারণ</li>
+    <li><strong>Payment Option:</strong> পেমেন্ট পদ্ধতি (Cash, Card, Bkash, Bank)</li>
+    <li><strong>CardType:</strong> কার্ডের ধরন (Visa, Mastercard, Amex)</li>
+    <li><strong>CardType Setup:</strong> প্রতিটি পেমেন্ট অপশনে কার্ডের চার্জ শতাংশ নির্ধারণ</li>
+  </ul>
+
+  <h2>৩.৪ স্টাফ ম্যানেজমেন্ট</h2>
+
+  <h3>ডিজিগনেশন (Designation)</h3>
+  <p>কর্মীদের পদবি ও বেতন ব্যান্ড নির্ধারণ:</p>
+  <ul>
+    <li>পদবির কোড স্বয়ংক্রিয় (DSG-XXXXX)</li>
+    <li>বিভাগ নির্বাচন</li>
+    <li>গ্রেড লেভেল (Grade-1, Senior, Junior ইত্যাদি)</li>
+    <li>বেতন ব্যান্ড (সর্বনিম্ন - সর্বোচ্চ)</li>
+  </ul>
+
+  <h3>কর্মী (Employee)</h3>
+  <p>কর্মীদের সম্পূর্ণ তথ্য রেকর্ড:</p>
+  <ul>
+    <li><strong>ব্যক্তিগত তথ্য:</strong> নাম, লিঙ্গ, রক্তের গ্রুপ, ধর্ম, জন্ম তারিখ</li>
+    <li><strong>পারিবারিক তথ্য:</strong> পিতা, মাতা, স্বামী/স্ত্রী, বৈবাহিক অবস্থা</li>
+    <li><strong>জাতীয় পরিচয়:</strong> NID নম্বর, TIN নম্বর</li>
+    <li><strong>যোগাযোগ:</strong> ফোন, ইমেইল, বর্তমান ও স্থায়ী ঠিকানা</li>
+    <li><strong>ব্যাংকিং:</strong> ব্যাংক নাম, অ্যাকাউন্ট নম্বর</li>
+    <li><strong>ছবি আপলোড:</strong> ছবি, NID সামনে ও পেছনে</li>
+  </ul>
+
+  <h3>কর্মী ছুটি (Employee Leave)</h3>
+  <p>কর্মীদের ছুটি আবেদন ও অনুমোদন ব্যবস্থা:</p>
+  <ul>
+    <li>ছুটির ধরন: Casual, Sick, Annual, Maternity</li>
+    <li>স্ট্যাটাস: Pending → Approved / Rejected</li>
+    <li>স্বয়ংক্রিয় কোড: LEV-XXXXX</li>
+  </ul>
+
+  <h2>৩.৫ গ্রাহক ও সরবরাহকারী</h2>
+
+  <h3>গ্রাহক (Customer)</h3>
+  <ul>
+    <li>স্বয়ংক্রিয় কোড: CUS-XXXXX</li>
+    <li>গ্রাহকের ধরন: Regular / Dealer</li>
+    <li>ক্রেডিট লিমিট নির্ধারণ</li>
+    <li>ওপেনিং ব্যালেন্স (Dr/Cr)</li>
+    <li>প্রোফাইল ছবি, NID ফ্রন্ট ও ব্যাক আপলোড</li>
+  </ul>
+
+  <h3>সরবরাহকারী (Supplier)</h3>
+  <ul>
+    <li>স্বয়ংক্রিয় কোড: SUP-XXXXX</li>
+    <li>পেমেন্ট টার্মস</li>
+    <li>ক্রেডিট লিমিট</li>
+    <li>ওপেনিং ব্যালেন্স (Dr/Cr)</li>
+    <li>প্রোফাইল ছবি, NID ফ্রন্ট ও ব্যাক আপলোড</li>
+  </ul>
+</div>
+
+<!-- ========== CHAPTER 4: INVENTORY ========== -->
+<div class="content-page page-break">
+  <h1>৪. ইনভেন্টরি ম্যানেজমেন্ট</h1>
+  <p>ইনভেন্টরি মডিউল হলো সিস্টেমের সবচেয়ে গুরুত্বপূর্ণ অংশ। এখানে ক্রয়, বিক্রয়, স্টক পরিচালনা ও ট্রান্সফার করা হয়।</p>
+
+  <h2>৪.১ অর্ডার শিট ও পারচেজ অর্ডার</h2>
+
+  <h3>কোম্পানি অর্ডার শিট (Company Ordersheet)</h3>
+  <p>কোম্পানির কাছে পণ্যের অর্ডার রুটিন:</p>
+  <div class="flow-steps">
+    <span class="flow-step">অর্ডার শিট তৈরি</span>
+    <span class="flow-arrow">&#8594;</span>
+    <span class="flow-step">পণ্য ও পরিমাণ যোগ</span>
+    <span class="flow-arrow">&#8594;</span>
+    <span class="flow-step">কোম্পানি নির্বাচন</span>
+    <span class="flow-arrow">&#8594;</span>
+    <span class="flow-step">সাবমিট</span>
+  </div>
+
+  <h3>গ্রাহক অর্ডার শিট (Customer Ordersheet)</h3>
+  <p>গ্রাহকের চাহিদা অনুযায়ী অর্ডার শিট তৈরি। গ্রাহক নির্বাচন করে পণ্যের তালিকা ও পরিমাণ নির্ধারণ করুন।</p>
+
+  <h3>পারচেজ অর্ডার (Purchase Order)</h3>
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">পারচেজ অর্ডার তৈরি</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Inventory → Purchase Order</strong> এ যান</li>
+        <li><strong>+ Add New</strong> ক্লিক করুন</li>
+        <li><strong>সরবরাহকারী</strong> নির্বাচন করুন</li>
+        <li><strong>গডাউন</strong> নির্বাচন করুন (পণ্য কোথায় পৌঁছাবে)</li>
+        <li>পণ্যের লাইন আইটেম যোগ করুন:
+          <ul>
+            <li>পণ্য নির্বাচন</li>
+            <li>পরিমাণ ও রেট</li>
+            <li>ডিসকাউন্ট শতাংশ (যদি থাকে)</li>
+            <li>VAT স্বয়ংক্রিয়ভাবে হিসাব হবে</li>
+          </ul>
+        </li>
+        <li>সাবটোটাল, ডিসকাউন্ট, VAT, গ্র্যান্ড টোটাল যাচাই করুন</li>
+        <li><strong>Save</strong> ক্লিক করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <div class="info-box-title">&#128736; Auto PO (স্বয়ংক্রিয় পারচেজ অর্ডার)</div>
+    <p style="margin-bottom:0"><strong>Auto PO</strong> ফিচারটি স্বয়ংক্রিয়ভাবে রিঅর্ডার লেভেলের নিচে থাকা পণ্যগুলো সনাক্ত করে পারচেজ অর্ডার তৈরি করে। এটি ম্যানুয়ালি প্রতিটি পণ্য চেক করার প্রয়োজনীয়তা দূর করে।</p>
+  </div>
+
+  <h2>৪.২ সেলস অর্ডার ও হায়ার সেলস</h2>
+
+  <h3>সেলস অর্ডার (Sales Order)</h3>
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">সেলস অর্ডার তৈরি</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Inventory → Sales Order</strong> এ যান</li>
+        <li><strong>+ Add New</strong> ক্লিক করুন</li>
+        <li><strong>গ্রাহক</strong> নির্বাচন করুন</li>
+        <li><strong>গডাউন</strong> নির্বাচন করুন (পণ্য কোথা থেকে বিক্রয় হবে)</li>
+        <li><strong>পেমেন্ট অপশন</strong> নির্বাচন করুন</li>
+        <li>পণ্যের লাইন আইটেম যোগ করুন (পণ্য, পরিমাণ, রেট, ডিসকাউন্ট)</li>
+        <li>VAT, গ্র্যান্ড টোটাল যাচাই করুন</li>
+        <li><strong>Save</strong> ক্লিক করুন — স্বয়ংক্রিয় ইনভয়েস নম্বর (SO-XXXXX) তৈরি হবে</li>
+      </ol>
+    </div>
+  </div>
+
+  <h3>হায়ার সেলস (Hire Sales / কিস্তিতে বিক্রয়)</h3>
+  <p>কিস্তিতে পণ্য বিক্রয়ের জন্য হায়ার সেলস ব্যবহার করা হয়:</p>
+  <ul>
+    <li><strong>ডাউন পেমেন্ট:</strong> প্রাথমিক জমা</li>
+    <li><strong>হায়ার রেট:</strong> সুদের হার</li>
+    <li><strong>মেয়াদ:</strong> কিস্তির সংখ্যা</li>
+    <li><strong>কিস্তির পরিমাণ:</strong> প্রতি কিস্তিতে পরিশোধযোগ্য অংক</li>
+    <li><strong>স্বয়ংক্রিয় ইনস্টলমেন্ট শিডিউল:</strong> কিস্তির তারিখ ও পরিমাণ স্বয়ংক্রিয়ভাবে তৈরি</li>
+  </ul>
+
+  <div class="warning-box">
+    <div class="warning-box-title">&#9888; হায়ার সেলস সতর্কতা</div>
+    <p style="margin-bottom:0">হায়ার সেলসে ইনস্টলমেন্ট ডিউ ডেট পার হলে সিস্টেম স্বয়ংক্রিয়ভাবে <strong>OverdueInstallment</strong> নোটিফিকেশন তৈরি করে। নোটিফিকেশন বেল আইকনে লাইভ আপডেট দেখা যাবে (৩০ সেকেন্ড পোলিং)।</p>
+  </div>
+
+  <h2>৪.৩ রিটার্ন ও রিপ্লেসমেন্ট</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ধরন</th>
+        <th>বর্ণনা</th>
+        <th>স্টক প্রভাব</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Sales Return</strong></td>
+        <td>গ্রাহক ফেরত দিলে — Credit Memo তৈরি</td>
+        <td>স্টক IN</td>
+      </tr>
+      <tr>
+        <td><strong>Purchase Return</strong></td>
+        <td>সরবরাহকারীকে ফেরত দিলে — Debit Note তৈরি</td>
+        <td>স্টক OUT</td>
+      </tr>
+      <tr>
+        <td><strong>Replacement Order</strong></td>
+        <td>ত্রুটিপূর্ণ পণ্য প্রতিস্থাপন</td>
+        <td>OUT + IN</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>৪.৪ স্টক ম্যানেজমেন্ট</h2>
+
+  <h3>স্টক ওভারভিউ</h3>
+  <ul>
+    <li><strong>Stock:</strong> সকল পণ্যের বর্তমান মজুত দেখুন</li>
+    <li><strong>Stock Details:</strong> গডাউন অনুযায়ী বিস্তারিত স্টক</li>
+    <li><strong>Transfer:</strong> এক গডাউন থেকে অন্য গডাউনে পণ্য স্থানান্তর</li>
+  </ul>
+
+  <h3>স্টক ট্রান্সফার প্রক্রিয়া</h3>
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">স্টক ট্রান্সফার</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Inventory → Transfer</strong> এ যান</li>
+        <li><strong>+ Add New</strong> ক্লিক করুন</li>
+        <li><strong>From Godown</strong> (উৎস) ও <strong>To Godown</strong> (গন্তব্য) নির্বাচন</li>
+        <li>পণ্য ও পরিমাণ যোগ করুন</li>
+        <li><strong>Shipping Status:</strong> Pending → In-Transit → Delivered</li>
+        <li><strong>Save</strong> ক্লিক করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <div class="info-box-title">&#128666; ট্রান্সফার ডিলে সতর্কতা</div>
+    <p style="margin-bottom:0">কোনো ট্রান্সফার ৩ দিনের বেশি <strong>In-Transit</strong> অবস্থায় থাকলে সিস্টেম স্বয়ংক্রিয়ভাবে <strong>TransferDelay</strong> নোটিফিকেশন তৈরি করে।</p>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 5: ACCOUNT MANAGEMENT ========== -->
+<div class="content-page page-break">
+  <h1>৫. অ্যাকাউন্ট ম্যানেজমেন্ট</h1>
+
+  <h2>৫.১ খরচ ও আয়</h2>
+
+  <h3>Expense/Income Head</h3>
+  <p>খরচ ও আয়ের খাত প্রথমে তৈরি করতে হবে (যেমন: ভাড়া, বিদ্যুৎ, পরিবহন, সেলস কমিশন)।</p>
+
+  <h3>খরচ (Expense)</h3>
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">খরচ এন্ট্রি করা</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Account → Expense</strong> এ যান</li>
+        <li><strong>+ Add New</strong> ক্লিক করুন</li>
+        <li><strong>খাত (Head)</strong> নির্বাচন করুন</li>
+        <li><strong>পরিমাণ, তারিখ</strong> দিন</li>
+        <li><strong>পেমেন্ট অপশন</strong> ও <strong>ব্যাংক</strong> নির্বাচন (প্রযোজ্য ক্ষেত্রে)</li>
+        <li>বিবরণ লিখুন ও <strong>Save</strong> করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <h3>আয় (Income)</h3>
+  <p>একই প্রক্রিয়ায় <strong>Account → Income</strong> থেকে আয়ের এন্ট্রি করুন।</p>
+
+  <h2>৫.২ ক্যাশ কালেকশন ও ডেলিভারি</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>মডিউল</th>
+        <th>উদ্দেশ্য</th>
+        <th>সম্পর্ক</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Cash Collection</strong></td>
+        <td>গ্রাহকের কাছ থেকে টাকা আদায়</td>
+        <td>গ্রাহক → ব্যাংক/ক্যাশ</td>
+      </tr>
+      <tr>
+        <td><strong>Cash Delivery</strong></td>
+        <td>সরবরাহকারীকে টাকা প্রদান</td>
+        <td>ব্যাংক/ক্যাশ → সরবরাহকারী</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>৫.৩ ব্যাংক ট্রান্জেকশন</h2>
+  <p><strong>Bank Transaction</strong> মডিউলে ব্যাংক অ্যাকাউন্টের সকল লেনদেন রেকর্ড করা হয়:</p>
+  <ul>
+    <li><strong>Deposit:</strong> ব্যাংকে জমা</li>
+    <li><strong>Withdraw:</strong> ব্যাংক থেকে উত্তোলন</li>
+    <li><strong>Transfer:</strong> ব্যাংক থেকে ব্যাংকে স্থানান্তর</li>
+  </ul>
+
+  <div class="success-box">
+    <div class="success-box-title">&#9989; স্বয়ংক্রিয় ব্যালেন্স আপডেট</div>
+    <p style="margin-bottom:0">প্রতিটি ব্যাংক ট্রানজেকশনের পর <strong>Running Balance</strong> স্বয়ংক্রিয়ভাবে আপডেট হয়। ব্যাংক অ্যাকাউন্টের <strong>Current Balance</strong> সর্বদা সঠিক থাকে।</p>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 6: SMS SERVICE ========== -->
+<div class="content-page page-break">
+  <h1>৬. SMS সার্ভিস</h1>
+
+  <h2>৬.১ SMS কনফিগারেশন ও বিলিং</h2>
+  <p>SMS সার্ভিস মডিউলের মাধ্যমে গ্রাহক, সরবরাহকারী ও কর্মীদের কাছে বার্তা পাঠানো যায়:</p>
+
+  <div class="module-grid">
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#2563eb"></span> SMS Service Setting</div>
+      <div class="module-card-body">
+        API URL, API Key, Sender ID কনফিগার করুন
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#16a34a"></span> Send SMS</div>
+      <div class="module-card-body">
+        একক বার্তা পাঠান — প্রাপক নম্বর ও বার্তা লিখুন
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#d97706"></span> Send Bulk SMS</div>
+      <div class="module-card-body">
+        একসাথে একাধিক প্রাপককে বার্তা পাঠান
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#dc2626"></span> SMS Inbox</div>
+      <div class="module-card-body">
+        আগত বার্তাসমূহ দেখুন
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#7c3aed"></span> SMS Bill</div>
+      <div class="module-card-body">
+        মাসিক SMS বিল দেখুন ও পেমেন্ট করুন
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#0891b2"></span> SMS Report</div>
+      <div class="module-card-body">
+        পাঠানো SMS-এর রিপোর্ট দেখুন
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 7: ACCOUNTING REPORT ========== -->
+<div class="content-page page-break">
+  <h1>৭. অ্যাকাউন্টিং রিপোর্ট</h1>
+
+  <h2>৭.১ চার্ট অফ অ্যাকাউন্টস ও লেজার</h2>
+  <p><strong>Chart of Accounts</strong> হলো হিসাব ব্যবস্থার ভিত্তি। সকল অ্যাকাউন্ট এখানে সংজ্ঞায়িত:</p>
+  <ul>
+    <li><strong>ক্লাসিফিকেশন:</strong> Asset, Liability, Income, Expense, Equity</li>
+    <li><strong>হায়ারার্কি:</strong> প্যারেন্ট-চাইল্ড অ্যাকাউন্ট স্ট্রাকচার</li>
+    <li><strong>ওপেনিং ব্যালেন্স:</strong> Dr/Cr টাইপ সহ</li>
+    <li><strong>স্বয়ংক্রিয় কোড:</strong> COA-XXXXX</li>
+  </ul>
+
+  <h3>লেজার এন্ট্রি (Ledger Entry)</h3>
+  <p><strong>ডাবল-এন্ট্রি সিস্টেম:</strong> প্রতিটি লেনদেনে ডেবিট ও ক্রেডিট এন্ট্রি থাকে:</p>
+  <ul>
+    <li>স্বয়ংক্রিয় কোড: LED-XXXXX</li>
+    <li>রেফারেন্স টাইপ: SalesOrder, PurchaseOrder, Expense, Income, CashCollection, CashDelivery, BankTransaction, Manual</li>
+    <li>ডেবিট ও ক্রেডিট সবসময় সমান হতে হবে</li>
+  </ul>
+
+  <div class="danger-box">
+    <div class="danger-box-title">&#9888; ব্যালেন্স মিসম্যাচ সতর্কতা</div>
+    <p style="margin-bottom:0">লেজারে ডেবিট-ক্রেডিট ব্যালেন্স মিলে না (০.০১ টাকার বেশি পার্থক্য) হলে সিস্টেম স্বয়ংক্রিয়ভাবে <strong>BalanceMismatch</strong> নোটিফিকেশন তৈরি করে।</p>
+  </div>
+
+  <h2>৭.২ ট্রায়াল ব্যালেন্স ও পিএল</h2>
+
+  <h3>Cash In Hand</h3>
+  <p>বর্তমান নগদ অবস্থা দেখুন — সকল ক্যাশ কালেকশন ও ডেলিভারির নেট ব্যালেন্স।</p>
+
+  <h3>Trial Balance</h3>
+  <p>নির্দিষ্ট তারিখ পর্যন্ত সকল অ্যাকাউন্টের ডেবিট-ক্রেডিট সারসংক্ষেপ। ডেবিট ও ক্রেডিট কলামের সমষ্টি সমান হতে হবে।</p>
+
+  <h3>Profit and Loss Account</h3>
+  <p>নির্দিষ্ট সময়ের আয়-ব্যয়ের বিশ্লেষণ:
+    <ul>
+      <li>মোট আয় (Income)</li>
+      <li>মোট ব্যয় (Expense)</li>
+      <li>নেট লাভ/ক্ষতি</li>
+    </ul>
+  </p>
+
+  <h2>৭.৩ ব্যালেন্স শিট ও পিরিয়ড ক্লোজ</h2>
+
+  <h3>Balance Sheet</h3>
+  <p>নির্দিষ্ট তারিখে ব্যবসায়ের আর্থিক অবস্থার সারসংক্ষেপ:
+    <ul>
+      <li><strong>Asset:</strong> সম্পদের মোট মূল্য</li>
+      <li><strong>Liability:</strong> দায়ের মোট পরিমাণ</li>
+      <li><strong>Equity:</strong> মালিকানা অংশ</li>
+    </ul>
+  </p>
+
+  <h3>Period Close (মাসিক হিসাব বন্ধ)</h3>
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">পিরিয়ড ক্লোজ করা</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Accounting Report → Balance Sheet & Period Close</strong> এ যান</li>
+        <li>মাস ও বছর নির্বাচন করুন</li>
+        <li>ব্যালেন্স শিট যাচাই করুন</li>
+        <li><strong>Close Period</strong> বাটনে ক্লিক করুন</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="danger-box">
+    <div class="danger-box-title">&#128274; পিরিয়ড লক</div>
+    <p style="margin-bottom:0">একবার পিরিয়ড ক্লোজ করলে সেই মাসের কোনো লেনদেন পরিবর্তন করা যাবে না। সিস্টেম <strong>checkPeriodClose</strong> ফাংশন দিয়ে লক করা মাসের মিউটেশন রোধ করে। পিরিয়ড ক্লোজের আগে সকল লেনদেন যাচাই করুন।</p>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 8: REPORTING ========== -->
+<div class="content-page page-break">
+  <h1>৮. রিপোর্টিং সিস্টেম</h1>
+  <p>IMS v2.0 তে ব্যবসায়ের সকল দিকের জন্য বিস্তারিত রিপোর্ট রয়েছে।</p>
+
+  <h2>৮.১ বেসিক রিপোর্ট</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>রিপোর্ট</th>
+        <th>বর্ণনা</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Employee Information</td><td>কর্মীদের সম্পূর্ণ তথ্য</td></tr>
+      <tr><td>Product Information</td><td>পণ্যের মাস্টার ডেটা রিপোর্ট</td></tr>
+      <tr><td>Stock Details Report</td><td>গডাউন অনুযায়ী স্টকের বিস্তারিত</td></tr>
+      <tr><td>Stock Summary Report</td><td>স্টকের সারসংক্ষেপ</td></tr>
+      <tr><td>Stock Ledger</td><td>পণ্যের IN/OUT লেজার</td></tr>
+      <tr><td>Stock Quantity Report</td><td>পরিমাণ অনুযায়ী স্টক</td></tr>
+      <tr><td>Stock Forcasting (Product Wise)</td><td>পণ্য অনুযায়ী স্টক পূর্বাভাস</td></tr>
+      <tr><td>Stock Forcasting (Concern Wise)</td><td>কোম্পানি অনুযায়ী স্টক পূর্বাভাস</td></tr>
+    </tbody>
+  </table>
+
+  <h2>৮.২ পারচেজ রিপোর্ট</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>রিপোর্ট</th>
+        <th>বর্ণনা</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Supplier Ledger</td><td>সরবরাহকারীর হিসাব বই</td></tr>
+      <tr><td>Daily Purchase Report</td><td>দৈনিক ক্রয় প্রতিবেদন</td></tr>
+      <tr><td>Suppliers Wise Purchase</td><td>সরবরাহকারী অনুযায়ী ক্রয়</td></tr>
+      <tr><td>Supplier Cash Delivery</td><td>সরবরাহকারীকে প্রদানকৃত নগদ</td></tr>
+      <tr><td>Suppliers Due Report</td><td>সরবরাহকারীর বকেয়া</td></tr>
+      <tr><td>Model Wise Purchase</td><td>মডেল অনুযায়ী ক্রয়</td></tr>
+      <tr><td>VAT Report</td><td>VAT সংক্রান্ত প্রতিবেদন</td></tr>
+    </tbody>
+  </table>
+
+  <h2>৮.৩ সেলস রিপোর্ট</h2>
+  <ul>
+    <li><strong>Daily Sales Report:</strong> দৈনিক বিক্রয় প্রতিবেদন</li>
+    <li><strong>Replacement Report:</strong> প্রতিস্থাপন প্রতিবেদন</li>
+    <li><strong>Model Wise Sales:</strong> মডেল অনুযায়ী বিক্রয়</li>
+  </ul>
+
+  <h2>৮.৪ হায়ার সেলস রিপোর্ট</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>রিপোর্ট</th>
+        <th>বর্ণনা</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Installment Collection</td><td>কিস্তি আদায় প্রতিবেদন</td></tr>
+      <tr><td>Upcoming Installment</td><td>আসন্ন কিস্তির তালিকা</td></tr>
+      <tr><td>Defaulting Customer</td><td>খেলাপি গ্রাহকের তালিকা</td></tr>
+      <tr><td>Default Customer Summary</td><td>খেলাপি গ্রাহকের সারসংক্ষেপ</td></tr>
+      <tr><td>Hire Account Details</td><td>হায়ার অ্যাকাউন্টের বিস্তারিত</td></tr>
+    </tbody>
+  </table>
+
+  <h2>৮.৫ SR রিপোর্ট</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>রিপোর্ট</th>
+        <th>বর্ণনা</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>SR Wise Sales Report</td><td>SR অনুযায়ী বিক্রয়</td></tr>
+      <tr><td>SR Wise Sales Details</td><td>SR অনুযায়ী বিক্রয়ের বিস্তারিত</td></tr>
+      <tr><td>SR Wise Customer Due</td><td>SR অনুযায়ী গ্রাহক বকেয়া</td></tr>
+      <tr><td>SR Wise Customer Sales Summary</td><td>SR অনুযায়ী গ্রাহক বিক্রয় সারসংক্ষেপ</td></tr>
+      <tr><td>SR Visit Report</td><td>SR ভিজিট রিপোর্ট</td></tr>
+      <tr><td>SR Wise Customer Status</td><td>SR অনুযায়ী গ্রাহক অবস্থা</td></tr>
+      <tr><td>SR Wise Cash Collection</td><td>SR অনুযায়ী নগদ আদায়</td></tr>
+      <tr><td>SR Commission Report</td><td>SR কমিশন রিপোর্ট</td></tr>
+    </tbody>
+  </table>
+
+  <h2>৮.৬ গ্রাহক ভিত্তিক রিপোর্ট</h2>
+  <ul>
+    <li><strong>Customer Wise Sales Report:</strong> গ্রাহক অনুযায়ী বিক্রয়</li>
+    <li><strong>Category Wise Customer Due:</strong> ক্যাটাগরি অনুযায়ী গ্রাহক বকেয়া</li>
+    <li><strong>Customer Ledger Report:</strong> গ্রাহক লেজার</li>
+    <li><strong>Customer Due Report [Date Wise]:</strong> তারিখ অনুযায়ী গ্রাহক বকেয়া</li>
+    <li><strong>Customer Cash Collection:</strong> গ্রাহক থেকে আদায়কৃত নগদ</li>
+    <li><strong>Customer Ledger Summary:</strong> গ্রাহক লেজার সারসংক্ষেপ</li>
+  </ul>
+
+  <h2>৮.৭ ম্যানেজমেন্ট রিপোর্ট</h2>
+  <ul>
+    <li><strong>Expense Report:</strong> ব্যয় প্রতিবেদন</li>
+    <li><strong>Product Wise Benefit Report:</strong> পণ্য অনুযায়ী লাভের হিসাব</li>
+    <li><strong>Income Report:</strong> আয় প্রতিবেদন</li>
+    <li><strong>Adjustment Report:</strong> সমন্বয় প্রতিবেদন</li>
+    <li><strong>Transaction Summary Report:</strong> লেনদেনের সারসংক্ষেপ</li>
+    <li><strong>Monthly Transaction Report:</strong> মাসিক লেনদেন প্রতিবেদন</li>
+    <li><strong>Showroom Analysis Report:</strong> শোরুম বিশ্লেষণ</li>
+    <li><strong>Advance Search:</strong> উন্নত অনুসন্ধান</li>
+  </ul>
+
+  <h2>৮.৮ ব্যাংক রিপোর্ট</h2>
+  <ul>
+    <li><strong>Bank Transaction Report:</strong> ব্যাংক লেনদেন প্রতিবেদন</li>
+    <li><strong>Bank Ledger:</strong> ব্যাংক হিসাব বই</li>
+    <li><strong>Transfer Report:</strong> স্থানান্তর প্রতিবেদন</li>
+  </ul>
+</div>
+
+<!-- ========== CHAPTER 9: FINANCIAL AUDIT ========== -->
+<div class="content-page page-break">
+  <h1>৯. ফিন্যান্সিয়াল অডিট</h1>
+
+  <h2>৯.১ অডিট ও ডেটা ইন্টিগ্রিটি</h2>
+  <p>ফিন্যান্সিয়াল অডিট মডিউল সিস্টেমের ডেটা সততা ও নিরাপত্তা নিশ্চিত করে:</p>
+
+  <h3>অডিট ট্রেইল (Audit Trail)</h3>
+  <p>সিস্টেমে প্রতিটি অপারেশনের লগ স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়:</p>
+  <ul>
+    <li><strong>CREATE:</strong> নতুন রেকর্ড তৈরি</li>
+    <li><strong>UPDATE:</strong> বিদ্যমান রেকর্ড পরিবর্তন</li>
+    <li><strong>DELETE:</strong> রেকর্ড মুছে ফেলা</li>
+    <li><strong>LOGIN / LOGOUT:</strong> ব্যবহারকারী লগইন/লগআউট</li>
+    <li><strong>EXPORT:</strong> ডেটা এক্সপোর্ট</li>
+    <li><strong>IMPORT:</strong> ডেটা ইমপোর্ট</li>
+  </ul>
+
+  <h3>ডেটা ইন্টিগ্রিটি চেক</h3>
+  <p>সিস্টেম স্বয়ংক্রিয়ভাবে নিম্নলিখিত সমস্যা সনাক্ত করে:</p>
+  <div class="module-grid">
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#dc2626"></span> LowStock</div>
+      <div class="module-card-body">পণ্যের মজুত রিঅর্ডার লেভেলের নিচে</div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#dc2626"></span> BalanceMismatch</div>
+      <div class="module-card-body">লেজারে ডেবিট-ক্রেডিট অসমতা</div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#d97706"></span> OverdueInstallment</div>
+      <div class="module-card-body">কিস্তির নির্ধারিত তারিখ পার</div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#d97706"></span> CreditLimitExceeded</div>
+      <div class="module-card-body">গ্রাহকের বকেয়া ক্রেডিট লিমিট অতিক্রম</div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#d97706"></span> TransferDelay</div>
+      <div class="module-card-body">স্টক ট্রান্সফার ৩ দিনের বেশি In-Transit</div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-title"><span class="dot" style="background:#2563eb"></span> PeriodClose</div>
+      <div class="module-card-body">মাসিক হিসাব বন্ধের সতর্কতা</div>
+    </div>
+  </div>
+
+  <h3>নোটিফিকেশন সিস্টেম</h3>
+  <p>সিস্টেমের হেডার বারে বেল আইকনে ক্লিক করলে নোটিফিকেশন দেখা যাবে:</p>
+  <ul>
+    <li><strong>সিভিয়ারিটি ফিল্টার:</strong> All / Critical / Warning ট্যাব</li>
+    <li><strong>স্বয়ংক্রিয় আপডেট:</strong> ৩০ সেকেন্ড অন্তর পোলিং</li>
+    <li><strong>রিড/আনরিড:</strong> নোটিফিকেশন পড়া হয়েছে কিনা চিহ্নিত</li>
+    <li><strong>নেভিগেশন:</strong> নোটিফিকেশনে ক্লিক করলে সংশ্লিষ্ট মডিউলে যায়</li>
+  </ul>
+</div>
+
+<!-- ========== CHAPTER 10: SYSTEM SETTINGS ========== -->
+<div class="content-page page-break">
+  <h1>১০. সিস্টেম সেটিংস</h1>
+
+  <h2>১০.১ কনফিগারেশন</h2>
+
+  <h3>কোম্পানি সেটিংস (Company Settings)</h3>
+  <p>কোম্পানির সাধারণ তথ্য কনফিগার করুন — নাম, ঠিকানা, ফোন, ইমেইল, লোগো।</p>
+
+  <h3>ইনভয়েস টেমপ্লেট (Invoice Templates)</h3>
+  <p>সেলস ইনভয়েস, পারচেজ অর্ডার, কিস্তি রশিদ ইত্যাদির প্রিন্ট টেমপ্লেট কাস্টমাইজ করুন।</p>
+
+  <h3>নম্বর ফরম্যাট (Number Formats)</h3>
+  <p>স্বয়ংক্রিয় কোড জেনারেশনের ফরম্যাট নির্ধারণ:</p>
+  <table>
+    <thead>
+      <tr>
+        <th>মডিউল</th>
+        <th>ফরম্যাট</th>
+        <th>উদাহরণ</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>কাস্টমার</td><td>CUS-XXXXX</td><td>CUS-00001</td></tr>
+      <tr><td>সরবরাহকারী</td><td>SUP-XXXXX</td><td>SUP-00001</td></tr>
+      <tr><td>কর্মী</td><td>EMP-XXXXX</td><td>EMP-00001</td></tr>
+      <tr><td>পারচেজ অর্ডার</td><td>PUR-XXXXX</td><td>PUR-00001</td></tr>
+      <tr><td>সেলস অর্ডার</td><td>SO-XXXXX</td><td>SO-00001</td></tr>
+      <tr><td>চার্ট অফ অ্যাকাউন্টস</td><td>COA-XXXXX</td><td>COA-00001</td></tr>
+      <tr><td>লেজার এন্ট্রি</td><td>LED-XXXXX</td><td>LED-00001</td></tr>
+    </tbody>
+  </table>
+
+  <div class="info-box">
+    <div class="info-box-title">&#128274; অটো-কোড ইমিউটেবল</div>
+    <p style="margin-bottom:0">স্বয়ংক্রিয়ভাবে তৈরি কোডগুলো <strong>পরিবর্তন করা যায় না</strong> (immutable)। এটি ডেটা ইন্টিগ্রিটি ও রেফারেন্স সঠিকতা নিশ্চিত করে। জিরো-প্যাডিং সহ কোডগুলো সর্বদা নির্দিষ্ট দৈর্ঘ্যের হবে।</p>
+  </div>
+
+  <h2>১০.২ অডিট ট্রেইল ও পারফরম্যান্স</h2>
+
+  <h3>অডিট ট্রেইল ভিউয়ার (Audit Trail Viewer)</h3>
+  <p><strong>System Settings → Audit Trail Viewer</strong> থেকে সিস্টেমের সকল অডিট লগ দেখুন:</p>
+  <ul>
+    <li>অ্যাকশন অনুযায়ী ফিল্টার (CREATE, UPDATE, DELETE, LOGIN, EXPORT)</li>
+    <li>মডিউল অনুযায়ী ফিল্টার</li>
+    <li>ব্যবহারকারী অনুযায়ী ফিল্টার</li>
+    <li>তারিখ সীমা নির্ধারণ</li>
+    <li>PDF/CSV এক্সপোর্ট</li>
+  </ul>
+
+  <h3>পারফরম্যান্স ও ক্যাশ (Performance & Cache)</h3>
+  <p>সিস্টেমের পারফরম্যান্স মনিটরিং ও ক্যাশ ম্যানেজমেন্ট।</p>
+</div>
+
+<!-- ========== CHAPTER 11: EXPORT/IMPORT ========== -->
+<div class="content-page page-break">
+  <h1>১১. পিডিএফ/CSV এক্সপোর্ট ও ইমপোর্ট</h1>
+
+  <h2>১১.১ PDF এক্সপোর্ট</h2>
+  <p>প্রতিটি ডেটা টেবিল ও রিপোর্ট থেকে PDF ডাউনলোড করা যায়:</p>
+
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">PDF এক্সপোর্ট করা</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li>যেকোনো ডেটা টেবিল বা রিপোর্ট পেজে যান</li>
+        <li>টুলবারে <strong>Export PDF</strong> বাটনে ক্লিক করুন</li>
+        <li>PDF স্বয়ংক্রিয়ভাবে ডাউনলোড হবে</li>
+      </ol>
+    </div>
+  </div>
+
+  <h3>PDF ফিচারসমূহ:</h3>
+  <ul>
+    <li><strong>A4 ল্যান্ডস্কেপ:</strong> সকল PDF A4 ল্যান্ডস্কেপ ফরম্যাটে</li>
+    <li><strong>কর্পোরেট হেডার:</strong> নেভি ব্লু হেডার বার, VoltERP লোগো, রিপোর্ট শিরোনাম, তারিখ-সময়</li>
+    <li><strong>বিকল্প সারি:</strong> হালকা নীল ব্যাকগ্রাউন্ড সহ পর্যায়ক্রমিক সারি</li>
+    <li><strong>পেজ X of Y:</strong> দুই-পাস ফুটার সিস্টেম</li>
+    <li><strong>সারসংক্ষেপ সারি:</strong> সবুজ হাইলাইটেড সামারি রো</li>
+    <li><strong>VAT অডিটর ব্যাজ:</strong> VAT মাস্কিং সক্রিয় থাকলে ব্যাজ দেখায়</li>
+  </ul>
+
+  <h2>১১.২ CSV এক্সপোর্ট/ইমপোর্ট</h2>
+
+  <h3>CSV এক্সপোর্ট</h3>
+  <ul>
+    <li><strong>UTF-8 BOM:</strong> ৳ চিহ্ন সঠিকভাবে দেখানোর জন্য BOM যুক্ত</li>
+    <li><strong>RFC 4180:</strong> স্ট্যান্ডার্ড CSV ফরম্যাট</li>
+    <li><strong>সংখ্যাত্মক মান:</strong> উদ্ধৃতি ছাড়া</li>
+  </ul>
+
+  <h3>CSV ইমপোর্ট</h3>
+  <div class="step-card">
+    <div class="step-header">
+      <span class="step-number">১</span>
+      <span class="step-title">CSV থেকে ডেটা ইমপোর্ট</span>
+    </div>
+    <div class="step-body">
+      <ol>
+        <li><strong>Import CSV</strong> বাটনে ক্লিক করুন</li>
+        <li>CSV ফাইল সিলেক্ট করুন</li>
+        <li>সিস্টেম স্বয়ংক্রিয়ভাবে:
+          <ul>
+            <li>BOM সরিয়ে ফেলবে</li>
+            <li>হেডার ভ্যালিডেশন করবে</li>
+            <li>ব্যাচে (১০টি করে) ডেটা ইনসার্ট করবে</li>
+            <li>ত্রুটি থাকলে ফিল্ড-লেভেল এরর রিপোর্ট দেখাবে</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>১১.৩ VAT অডিটর মাস্কিং</h2>
+  <p>VAT Auditor রোলের ব্যবহারকারীদের জন্য সংবেদনশীল আর্থিক তথ্য মাস্ক করা হয়:</p>
+
+  <div class="warning-box">
+    <div class="warning-box-title">&#128274; VAT অডিটর মাস্কিং</div>
+    <p style="margin-bottom:0">নিম্নলিখিত ক্ষেত্রগুলো <strong>maskForVatAuditor()</strong> দ্বারা মাস্ক করা হয় (**** হিসেবে দেখানো হয়):</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ক্যাটাগরি</th>
+        <th>মাস্কড ফিল্ড</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>পণ্য</td><td>costPrice, wholesalePrice, dealerPrice, openingStock</td></tr>
+      <tr><td>পারচেজ</td><td>rate, discountPercent, discountAmount, vatAmount, total</td></tr>
+      <tr><td>সেলস</td><td>rate, discountPercent, discountAmount, vatAmount</td></tr>
+      <tr><td>হায়ার সেলস</td><td>hireRate, balanceAmount, installmentAmount</td></tr>
+      <tr><td>রিটার্ন</td><td>rate, discountAmount, vatAmount, total</td></tr>
+      <tr><td>স্টক</td><td>quantity (ট্রান্সফার), reference</td></tr>
+    </tbody>
+  </table>
+
+  <div class="success-box">
+    <div class="success-box-title">&#9989; স্বয়ংক্রিয় মাস্কিং</div>
+    <p style="margin-bottom:0">মাস্কিং স্বয়ংক্রিয়ভাবে সকল জায়গায় প্রয়োগ হয় — স্ক্রিন ডিসপ্লে, PDF এক্সপোর্ট, এবং CSV এক্সপোর্টে। VAT Auditor কখনো সংবেদনশীল কোস্ট/হোলসেল/ড্যামেজ মান দেখতে পাবেন না।</p>
+  </div>
+</div>
+
+<!-- ========== CHAPTER 12: MOBILE RESPONSIVENESS ========== -->
+<div class="content-page page-break">
+  <h1>১২. মোবাইল রেসপন্সিভনেস</h1>
+
+  <h2>১২.১ মোবাইল ব্যবহার নির্দেশিকা</h2>
+  <p>Electronics Mart IMS v2.0 সম্পূর্ণভাবে মোবাইল রেসপন্সিভ। ট্যাবলেট ও স্মার্টফোনে ব্যবহার করার জন্য বিশেষ ফিচার:</p>
+
+  <h3>সাইডবার নেভিগেশন</h3>
+  <ul>
+    <li><strong>ডেস্কটপ:</strong> সাইডবার স্থায়ীভাবে দেখা যায়</li>
+    <li><strong>মোবাইল (৭৬৮px এর কম):</strong> হ্যামবার্গার আইকন (&#9776;) ক্লিক করলে সাইডবার ওভারলে হিসেবে খোলে</li>
+    <li>সাইডবারে স্লাইড-ইন এনিমেশন</li>
+    <li>বাইরে ক্লিক করলে সাইডবার বন্ধ হয়</li>
+  </ul>
+
+  <h3>টেবিল স্ক্রলিং</h3>
+  <p>মোবাইলে ডেটা টেবিল অনুভূমিকভাবে স্ক্রল করা যায়। টেবিলের ন্যূনতম প্রস্থ ৬০০px রাখা হয়েছে যাতে সকল কলাম পড়ার উপযোগী থাকে।</p>
+
+  <h3>টাচ-ফ্রেন্ডলি ইন্টারফেস</h3>
+  <ul>
+    <li>ন্যূনতম টাচ টার্গেট ৪৪px</li>
+    <li>অ্যাকশন বাটন (Edit/Delete) মোবাইলে আইকন-অনলি মোডে</li>
+    <li>ফর্ম ডায়ালগ স্ক্রিনের প্রস্থের সাথে মানানসই</li>
+    <li>নোটিফিকেশন পপওভার মোবাইলে পুরো প্রস্থে</li>
+  </ul>
+
+  <h3>KPI কার্ড</h3>
+  <p>ড্যাশবোর্ডের KPI কার্ড রেসপন্সিভ গ্রিডে সাজানো:</p>
+  <ul>
+    <li><strong>মোবাইল:</strong> ১ কলাম</li>
+    <li><strong>স্মার্টফোন ল্যান্ডস্কেপ:</strong> ২ কলাম</li>
+    <li><strong>ডেস্কটপ:</strong> ৪ কলাম</li>
+  </ul>
+
+  <div class="section-divider"></div>
+
+  <h2>কীবোর্ড শর্টকাট</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>শর্টকাট</th>
+        <th>কাজ</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>বর্তমান ফর্ম সেভ</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>ডায়ালগ/মডাল বন্ধ</td></tr>
+      <tr><td><kbd>Tab</kbd></td><td>পরবর্তী ফিল্ডে যান</td></tr>
+    </tbody>
+  </table>
+
+  <div class="section-divider"></div>
+
+  <h2>সাধারণ সমস্যা ও সমাধান</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>সমস্যা</th>
+        <th>সমাধান</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>লগইন হচ্ছে না</td>
+        <td>ইউজারনেম/পাসওয়ার্ড সঠিক আছে কিনা যাচাই করুন। ব্রাউজার ক্যাশ ক্লিয়ার করুন।</td>
+      </tr>
+      <tr>
+        <td>কোনো মডিউলে প্রবেশ করতে পারছি না</td>
+        <td>আপনার রোলের অ্যাক্সেস পারমিশন যাচাই করুন। SR/Dealer কিছু মডিউলে প্রবেশ করতে পারবেন না।</td>
+      </tr>
+      <tr>
+        <td>PDF এক্সপোর্ট কাজ করছে না</td>
+        <td>পপ-আপ ব্লকার নিস্ক্রিয় করুন। ব্রাউজারে ডাউনলোড অনুমতি দিন।</td>
+      </tr>
+      <tr>
+        <td>কিছু মান **** দেখাচ্ছে</td>
+        <td>আপনি VAT Auditor রোলে লগইন করেছেন। সংবেদনশীল আর্থিক তথ্য মাস্ক করা হয়েছে।</td>
+      </tr>
+      <tr>
+        <td>পিরিয়ড ক্লোজের পর ডেটা পরিবর্তন হচ্ছে না</td>
+        <td>এটি স্বাভাবিক — পিরিয়ড ক্লোজের পর সেই মাসের ডেটা লক হয়ে যায়।</td>
+      </tr>
+      <tr>
+        <td>নোটিফিকেশন আপডেট হচ্ছে না</td>
+        <td>বেল আইকনে ক্লিক করুন — ৩০ সেকেন্ড অন্তর স্বয়ংক্রিয় আপডেট হয়।</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="page-footer">
+    Electronics Mart IMS v2.0 — ব্যবহার নির্দেশিকা &copy; ২০২৫ | সর্বস্বত্ব সংরক্ষিত
+  </div>
+</div>
+
+</body>
+</html>
