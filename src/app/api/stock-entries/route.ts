@@ -70,6 +70,26 @@ export async function POST(request: NextRequest) {
     const periodLock = await checkPeriodClose(new Date(date));
     if (periodLock) return periodLock;
 
+    // Negative stock prevention: check current stock before OUT
+    if (type === 'OUT') {
+      const qty = Number(quantity);
+      const inTotal = await db.stockEntry.aggregate({
+        where: { productId, type: 'IN', isActive: true },
+        _sum: { quantity: true },
+      });
+      const outTotal = await db.stockEntry.aggregate({
+        where: { productId, type: 'OUT', isActive: true },
+        _sum: { quantity: true },
+      });
+      const currentStock = (inTotal._sum.quantity || 0) - (outTotal._sum.quantity || 0);
+      if (currentStock - qty < 0) {
+        return NextResponse.json(
+          { error: `Insufficient stock. Current: ${currentStock}, Requested: ${qty}. Stock cannot go below 0.` },
+          { status: 400 }
+        );
+      }
+    }
+
     const entry = await db.stockEntry.create({
       data: {
         productId,

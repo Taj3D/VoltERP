@@ -613,6 +613,13 @@ function LoginPage() {
 // GENERIC MODULE PAGE - Data-driven CRUD
 // ============================================================
 
+function singularize(word: string): string {
+  if (word.endsWith("ies")) return word.slice(0, -3) + "y";
+  if (word.endsWith("ses") || word.endsWith("xes") || word.endsWith("zes")) return word.slice(0, -2);
+  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
+
 function GenericModulePage({ title, apiPath, columns, formFields }: {
   title: string; apiPath: string; columns: ColumnDef[]; formFields: FieldDef[];
 }) {
@@ -776,7 +783,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
           <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Import CSV</span></Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export CSV</span></Button>
           <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export PDF</span></Button>
-          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Create new {title.endsWith("ies") ? title.slice(0, -3) + "y" : title.slice(0, -1)}</span></Button>
+          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Create new {singularize(title)}</span></Button>
         </div>
       </div>
 
@@ -890,7 +897,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editItem ? "Edit" : "Create"} {title.endsWith("ies") ? title.slice(0, -3) + "y" : title.slice(0, -1)}</DialogTitle>
+            <DialogTitle>{editItem ? "Edit" : "Create"} {singularize(title)}</DialogTitle>
             <DialogDescription>{editItem ? "Update the details below" : "Fill in the details below"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -5609,7 +5616,7 @@ function AppLayout() {
     if (currentPage === "balance-sheet") return <BalanceSheetPeriodClosePage initialTab="balance-sheet" />;
     // GROUP 1: Investment & Asset Balances — dedicated InvestmentGroupPage component
     const investmentGroupKeys = new Set(["investment-heads", "investment", "fixed-asset", "current-asset", "liability-receive", "liability-pay", "liability-report"]);
-    if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage initialTab={currentPage} />;
+    if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage key={currentPage} initialTab={currentPage} />;
 
     // GROUP 2: Basic Foundation Modules — dedicated BasicModulesGroupPage component
     const basicModuleKeys = new Set(["companies", "categories", "colors", "brands", "units", "departments", "godowns", "segments", "capacities", "sr-targets", "payment-options", "card-types", "card-type-setup"]);
@@ -5621,11 +5628,11 @@ function AppLayout() {
 
     // GROUP 5: Financial Auditing, Automated Ledgers & Data Integrity — dedicated FinancialAuditGroupPage component
     const financialAuditKeys = new Set(["dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity"]);
-    if (financialAuditKeys.has(currentPage)) return <FinancialAuditGroupPage initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
+    if (financialAuditKeys.has(currentPage)) return <FinancialAuditGroupPage key={currentPage} initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
 
     // GROUP 6: Core Performance Configurations & System Settings — dedicated components
     const systemSettingsKeys = new Set(["company-settings", "invoice-templates", "number-formats", "performance-cache"]);
-    if (systemSettingsKeys.has(currentPage)) return <SystemSettingsGroupPage initialTab={currentPage} />;
+    if (systemSettingsKeys.has(currentPage)) return <SystemSettingsGroupPage key={currentPage} initialTab={currentPage} />;
     if (currentPage === "audit-trail") return <AuditTrailViewer />;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
@@ -5645,7 +5652,7 @@ function AppLayout() {
       "product-wise-benefit", "income-report", "adjustment-report", "transaction-summary",
       "monthly-transaction", "showroom-analysis", "bank-ledger-report", "transfer-report",
     ]);
-    if (misReportKeys.has(currentPage)) return <MISReportEngine />;
+    if (misReportKeys.has(currentPage)) return <MISReportEngine key={currentPage} initialReport={currentPage} />;
 
     // Customer & Supplier Ledger - dedicated page with aging buckets
     const customerLedgerKeys = new Set(["customer-ledger-report"]);

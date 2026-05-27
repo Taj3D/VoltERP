@@ -1514,7 +1514,14 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
   const isVatAuditor = auth.user?.role === "vat_auditor";
   const userRole = auth.user?.role || "admin";
 
-  const [activeTab, setActiveTab] = useState(initialTab || "company");
+  // Map sidebar keys to internal tab values
+  const tabMap: Record<string, string> = {
+    "company-settings": "company",
+    "invoice-templates": "templates",
+    "number-formats": "formats",
+    "performance-cache": "performance",
+  };
+  const [activeTab, setActiveTab] = useState(tabMap[initialTab || ""] || initialTab || "company");
 
   // RBAC: SR and Dealer blocked
   if (userRole === "sr" || userRole === "dealer") {

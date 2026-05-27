@@ -9,8 +9,34 @@ export async function GET(request: NextRequest) {
     const items = await db.bank.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      include: {
+        bankTransactions: {
+          where: { isActive: true },
+          select: { type: true, amount: true },
+        },
+      },
     });
-    return NextResponse.json(items);
+    // Calculate currentBalance dynamically: openingBalance + deposits - withdrawals
+    const computed = items.map(bank => {
+      const depositTotal = bank.bankTransactions
+        .filter((t: any) => t.type === 'Deposit')
+        .reduce((sum: number, t: any) => sum + t.amount, 0);
+      const withdrawTotal = bank.bankTransactions
+        .filter((t: any) => t.type === 'Withdraw' || t.type === 'Transfer')
+        .reduce((sum: number, t: any) => sum + t.amount, 0);
+      const computedBalance = bank.openingBalance + depositTotal - withdrawTotal;
+      // Use computed balance; if it differs from stored, update the record
+      const { bankTransactions, ...bankData } = bank;
+      return { ...bankData, currentBalance: computedBalance };
+    });
+    // Background: sync any stale currentBalance values
+    computed.forEach(async (bank) => {
+      const original = items.find(b => b.id === bank.id);
+      if (original && Math.abs(original.currentBalance - bank.currentBalance) > 0.01) {
+        await db.bank.update({ where: { id: bank.id }, data: { currentBalance: bank.currentBalance } }).catch(() => {});
+      }
+    });
+    return NextResponse.json(computed);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch banks' }, { status: 500 });
   }

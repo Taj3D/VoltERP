@@ -192,7 +192,15 @@ export default function FinancialAuditGroupPage({
   const isSR = authSR || userRole === "sr";
   const isDealer = authDealer || userRole === "dealer";
 
-  const [activeTab, setActiveTab] = useState(initialTab);
+  // Map sidebar keys to internal tab values
+  const tabMap: Record<string, string> = {
+    "dashboard-kpi": "kpi",
+    "ledger-auto-post": "ledger-auto-post",
+    "inventory-aging": "inventory-aging",
+    "product-lifecycle": "product-lifecycle",
+    "notifications-integrity": "notifications-integrity",
+  };
+  const [activeTab, setActiveTab] = useState(tabMap[initialTab] || initialTab || "kpi");
 
   // ─── Tab 1: Dashboard KPI State ───
   const [kpiData, setKpiData] = useState<any>(null);

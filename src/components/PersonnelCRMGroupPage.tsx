@@ -247,7 +247,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "status", label: "Status", type: "text" },
       { key: "baseSalary", label: "Base Salary", type: "currency" },
       { key: "phone", label: "Phone", type: "text" },
-      { key: "isActive", label: "Status", type: "boolean" },
+      { key: "isActive", label: "Active", type: "boolean" },
     ],
     formFields: [
       // Section 1: Employment Details
@@ -979,7 +979,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         </div>
         {canMutate && (
           <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-            <Plus className="h-4 w-4 mr-1" /> Add {config.label.slice(0, -1)}
+            <Plus className="h-4 w-4 mr-1" /> Add {singularize(config.label)}
           </Button>
         )}
         {/* SR can create customers too */}
@@ -1235,9 +1235,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className={`${config.dialogWidth || "max-w-lg"} max-h-[85vh] overflow-y-auto`}>
           <DialogHeader>
-            <DialogTitle>{editingItem ? `Edit ${config.label.slice(0, -1)}` : `New ${config.label.slice(0, -1)}`}</DialogTitle>
+            <DialogTitle>{editingItem ? `Edit ${singularize(config.label)}` : `New ${singularize(config.label)}`}</DialogTitle>
             <DialogDescription>
-              {editingItem ? `Update ${config.label.slice(0, -1).toLowerCase()} details` : `Create a new ${config.label.slice(0, -1).toLowerCase()}`}
+              {editingItem ? `Update ${singularize(config.label).toLowerCase()} details` : `Create a new ${singularize(config.label).toLowerCase()}`}
             </DialogDescription>
           </DialogHeader>
           {/* Leave Balance Cards inside dialog */}
@@ -1257,7 +1257,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this {config.label.slice(0, -1).toLowerCase()}? This action cannot be undone.</DialogDescription>
+            <DialogDescription>Are you sure you want to delete this {singularize(config.label).toLowerCase()}? This action cannot be undone.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
@@ -1272,6 +1272,13 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
+
+function singularize(word: string): string {
+  if (word.endsWith("ies")) return word.slice(0, -3) + "y";
+  if (word.endsWith("ses") || word.endsWith("xes") || word.endsWith("zes")) return word.slice(0, -2);
+  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  return word;
+}
 
 export default function PersonnelCRMGroupPage({ activeModule }: { activeModule?: string }) {
   const auth = useAuth();

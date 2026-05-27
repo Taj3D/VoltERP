@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     const [confirmedSales, allIncomes, confirmedPurchases, allExpenses] = await Promise.all([
       db.salesOrder.findMany({
         where: salesWhere,
-        select: { grandTotal: true, date: true },
+        include: { lines: { include: { product: { select: { costPrice: true } } } } },
       }),
       db.income.findMany({
         where: incomeWhere,
@@ -74,8 +74,14 @@ export async function GET(request: NextRequest) {
     const totalIncome = allIncomes.reduce((sum, i) => sum + i.amount, 0);
     const revenue = salesRevenue + totalIncome;
 
-    // COGS = Sum of confirmed Purchase Orders
-    const costOfGoods = confirmedPurchases.reduce((sum, p) => sum + p.grandTotal, 0);
+    // COGS = Sum of (quantity × costPrice) for all sold items, not total purchase order amounts
+    // This uses the actual cost price from the product at time of sale
+    const costOfGoods = confirmedSales.reduce((sum, so) => {
+      return sum + so.lines.reduce((lineSum, line) => {
+        const costPrice = line.product?.costPrice || 0;
+        return lineSum + (line.quantity * costPrice);
+      }, 0);
+    }, 0);
 
     // Gross Profit = Net Revenue - COGS
     const grossProfit = revenue - costOfGoods;
@@ -146,12 +152,17 @@ export async function GET(request: NextRequest) {
           return id.getFullYear() === year && id.getMonth() === month;
         })
         .reduce((sum, inc) => sum + inc.amount, 0);
-      const monthCOGS = confirmedPurchases
-        .filter((p) => {
-          const pd = new Date(p.date);
-          return pd.getFullYear() === year && pd.getMonth() === month;
+      const monthCOGS = confirmedSales
+        .filter((s) => {
+          const sd = new Date(s.date);
+          return sd.getFullYear() === year && sd.getMonth() === month;
         })
-        .reduce((sum, p) => sum + p.grandTotal, 0);
+        .reduce((sum, so) => {
+          return sum + so.lines.reduce((lineSum, line) => {
+            const costPrice = line.product?.costPrice || 0;
+            return lineSum + (line.quantity * costPrice);
+          }, 0);
+        }, 0);
       const monthExpenses = allExpenses
         .filter((e) => {
           const ed = new Date(e.date);

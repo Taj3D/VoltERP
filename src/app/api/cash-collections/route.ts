@@ -104,7 +104,19 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Create LedgerEntry: account = customer.name, credit = amount
+        // Create balanced LedgerEntry pair: Dr: Cash/Bank, Cr: Customer
+        const cashAccountName = cashCollection.bank?.bankName || 'Cash in Hand';
+        await tx.ledgerEntry.create({
+          data: {
+            date: transactionDate,
+            account: cashAccountName,
+            particulars: 'Cash Collection from customer',
+            debit: effectiveAmount,
+            credit: 0,
+            reference: collectionCode,
+            referenceType: 'CashCollection',
+          },
+        });
         await tx.ledgerEntry.create({
           data: {
             date: transactionDate,
@@ -113,6 +125,7 @@ export async function POST(request: NextRequest) {
             credit: effectiveAmount,
             debit: 0,
             reference: collectionCode,
+            referenceType: 'CashCollection',
           },
         });
       }

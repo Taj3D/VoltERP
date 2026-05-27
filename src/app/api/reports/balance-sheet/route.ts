@@ -189,14 +189,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Equity: Net profit from P&L — FIX BS-003: Use notIn for status filters
-    const [confirmedSales, allIncomes, confirmedPurchases, allExpenses] = await Promise.all([
-      db.salesOrder.aggregate({
+    // COGS uses actual product costPrice from sales order lines, not purchase order totals
+    const [confirmedSalesWithLines, allIncomes, allExpenses] = await Promise.all([
+      db.salesOrder.findMany({
         where: {
           status: { notIn: ['Draft', 'Cancelled'] },
           isActive: true,
           ...(asOf ? { date: { lte: asOfDate } } : {}),
         },
-        _sum: { grandTotal: true },
+        include: { lines: { include: { product: { select: { costPrice: true } } } } },
       }),
       db.income.aggregate({
         where: {
@@ -205,14 +206,6 @@ export async function GET(request: NextRequest) {
           ...(asOf ? { date: { lte: asOfDate } } : {}),
         },
         _sum: { amount: true },
-      }),
-      db.purchaseOrder.aggregate({
-        where: {
-          status: { notIn: ['Draft', 'Cancelled'] },
-          isActive: true,
-          ...(asOf ? { date: { lte: asOfDate } } : {}),
-        },
-        _sum: { grandTotal: true },
       }),
       db.expense.aggregate({
         where: {
@@ -224,8 +217,13 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    const revenue = (confirmedSales._sum.grandTotal || 0) + (allIncomes._sum.amount || 0);
-    const costOfGoods = confirmedPurchases._sum.grandTotal || 0;
+    const revenue = confirmedSalesWithLines.reduce((sum, s) => sum + s.grandTotal, 0) + (allIncomes._sum.amount || 0);
+    const costOfGoods = confirmedSalesWithLines.reduce((sum, so) => {
+      return sum + so.lines.reduce((lineSum, line) => {
+        const costPrice = line.product?.costPrice || 0;
+        return lineSum + (line.quantity * costPrice);
+      }, 0);
+    }, 0);
     const operatingExpenses = allExpenses._sum.amount || 0;
     const equity = revenue - costOfGoods - operatingExpenses;
 

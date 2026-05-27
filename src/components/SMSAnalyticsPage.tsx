@@ -5,7 +5,8 @@ import {
   Send, DollarSign, Coins, CheckCircle, Clock, XCircle,
   AlertTriangle, Banknote, Search, RefreshCw, Download,
   Upload, FileDown, Plus, MessageSquare, Settings,
-  Phone, FileText, CreditCard, Activity, BarChart3
+  Phone, FileText, CreditCard, Activity, BarChart3,
+  Pencil, Trash2
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
 import {
@@ -132,6 +135,12 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [smsMessage, setSmsMessage] = useState("");
   const [smsSending, setSmsSending] = useState(false);
 
+  // SMS Settings form state
+  const [settingsDialog, setSettingsDialog] = useState(false);
+  const [settingsEdit, setSettingsEdit] = useState<any>(null);
+  const [settingsForm, setSettingsForm] = useState({ apiUrl: "", apiKey: "", senderId: "", isActive: true });
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
   // ============================================================
   // DATA LOADING
   // ============================================================
@@ -167,6 +176,61 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadReport(); }, [loadReport]);
+
+  // SMS Settings: open create dialog
+  const openSettingsCreate = () => {
+    setSettingsEdit(null);
+    setSettingsForm({ apiUrl: "", apiKey: "", senderId: "", isActive: true });
+    setSettingsDialog(true);
+  };
+
+  // SMS Settings: open edit dialog
+  const openSettingsEdit = (s: any) => {
+    setSettingsEdit(s);
+    setSettingsForm({ apiUrl: s.apiUrl || "", apiKey: s.apiKey || "", senderId: s.senderId || "", isActive: s.isActive ?? true });
+    setSettingsDialog(true);
+  };
+
+  // SMS Settings: save handler
+  const saveSettings = async () => {
+    if (!settingsForm.apiUrl || !settingsForm.apiKey || !settingsForm.senderId) {
+      toast({ title: "Validation Error", description: "API URL, API Key, and Sender ID are required", variant: "destructive" });
+      return;
+    }
+    setSettingsSaving(true);
+    try {
+      if (settingsEdit) {
+        await apiFetch(`/api/sms-settings/${settingsEdit.id}`, {
+          method: "PUT",
+          body: JSON.stringify(settingsForm),
+        });
+        toast({ title: "Settings Updated", description: "SMS configuration updated successfully" });
+      } else {
+        await apiFetch("/api/sms-settings", {
+          method: "POST",
+          body: JSON.stringify(settingsForm),
+        });
+        toast({ title: "Settings Created", description: "SMS configuration created successfully" });
+      }
+      setSettingsDialog(false);
+      loadData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  // SMS Settings: delete handler
+  const deleteSettings = async (id: string) => {
+    try {
+      await apiFetch(`/api/sms-settings/${id}`, { method: "DELETE" });
+      toast({ title: "Settings Deleted", description: "SMS configuration deleted" });
+      loadData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
 
   // ============================================================
   // COMPUTED KPIs
@@ -946,6 +1010,21 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <FileDown className="w-4 h-4 mr-1" />
                   Export PDF
                 </Button>
+                <label className="cursor-pointer">
+                  <Button variant="outline" size="sm" asChild><span><Upload className="w-4 h-4 mr-1" /> Import CSV</span></Button>
+                  <input type="file" accept=".csv" className="hidden" onChange={() => {
+                    importFromCSV({ apiPath: "/api/sms-bills", formFields: [
+                      { key: "period", label: "Period", type: "text" },
+                      { key: "totalSms", label: "Total SMS", type: "number" },
+                      { key: "totalCost", label: "Total Cost", type: "number" },
+                      { key: "paidAmount", label: "Paid Amount", type: "number" },
+                      { key: "status", label: "Status", type: "text" },
+                    ] }).then(result => {
+                      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+                      loadData();
+                    });
+                  }} />
+                </label>
               </div>
             </CardContent>
           </Card>
@@ -1282,11 +1361,16 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
+              <div className="flex items-center justify-end mb-4">
+                <Button onClick={openSettingsCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+                  <Plus className="h-4 w-4 mr-1" /> New Configuration
+                </Button>
+              </div>
               {smsSettings.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <Settings className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p className="text-lg font-medium text-slate-900 dark:text-white">No SMS Settings Configured</p>
-                  <p className="text-sm mt-1">Configure your SMS API provider settings to start sending messages.</p>
+                  <p className="text-sm mt-1">Click "New Configuration" to set up your SMS API provider.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1296,9 +1380,17 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                         <h4 className="font-medium text-slate-900 dark:text-white">
                           {setting.name || `Configuration #${idx + 1}`}
                         </h4>
-                        <Badge className={setting.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400"}>
-                          {setting.isActive ? "Active" : "Inactive"}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={setting.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400"}>
+                            {setting.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openSettingsEdit(setting)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => deleteSettings(setting.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-1">
@@ -1340,6 +1432,42 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               )}
             </CardContent>
           </Card>
+
+          {/* Settings Form Dialog */}
+          <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{settingsEdit ? "Edit SMS Configuration" : "New SMS Configuration"}</DialogTitle>
+                <DialogDescription>
+                  {settingsEdit ? "Update your SMS API provider settings." : "Configure your SMS API provider to start sending messages."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="settings-api-url">API URL <span className="text-red-500">*</span></Label>
+                  <Input id="settings-api-url" placeholder="https://api.sms-provider.com/send" value={settingsForm.apiUrl} onChange={e => setSettingsForm({ ...settingsForm, apiUrl: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="settings-api-key">API Key <span className="text-red-500">*</span></Label>
+                  <Input id="settings-api-key" placeholder="Enter API key" type="password" value={settingsForm.apiKey} onChange={e => setSettingsForm({ ...settingsForm, apiKey: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="settings-sender-id">Sender ID <span className="text-red-500">*</span></Label>
+                  <Input id="settings-sender-id" placeholder="e.g. EMART" value={settingsForm.senderId} onChange={e => setSettingsForm({ ...settingsForm, senderId: e.target.value })} />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch id="settings-active" checked={settingsForm.isActive} onCheckedChange={v => setSettingsForm({ ...settingsForm, isActive: v })} />
+                  <Label htmlFor="settings-active">Active</Label>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSettingsDialog(false)}>Cancel</Button>
+                <Button onClick={saveSettings} disabled={settingsSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+                  {settingsSaving ? "Saving..." : settingsEdit ? "Update" : "Create"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Additional Settings Info */}
           <Card>

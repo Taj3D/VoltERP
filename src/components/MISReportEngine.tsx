@@ -124,14 +124,20 @@ const REPORT_CATEGORIES: Record<ReportCategoryKey, ReportCategory> = {
     apiType: "management",
     subtypes: [
       { value: "expense-report", label: "Expense Report" },
-      { value: "management-report", label: "Management Report" },
+      { value: "product-wise-benefit", label: "Product Wise Benefit Report" },
+      { value: "income-report", label: "Income Report" },
+      { value: "adjustment-report", label: "Adjustment Report" },
+      { value: "transaction-summary", label: "Transaction Summary Report" },
+      { value: "monthly-transaction", label: "Monthly Transaction Report" },
+      { value: "showroom-analysis", label: "Showroom Analysis Report" },
     ],
   },
   bank: {
     apiType: "bank",
     subtypes: [
       { value: "bank-transaction-report", label: "Bank Transaction Report" },
-      { value: "bank-balance-report", label: "Bank Balance Report" },
+      { value: "bank-ledger-report", label: "Bank Ledger" },
+      { value: "transfer-report", label: "Transfer Report" },
     ],
   },
   "advance-search": {
@@ -140,6 +146,67 @@ const REPORT_CATEGORIES: Record<ReportCategoryKey, ReportCategory> = {
       { value: "advance-search", label: "Advance Search" },
     ],
   },
+};
+
+// Map sidebar report keys to (category, subtype) pairs
+const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype: string }> = {
+  // Basic Report
+  "employee-information-report": { category: "basic", subtype: "employee-information" },
+  "product-information-report": { category: "basic", subtype: "product-information" },
+  "stock-details-report": { category: "basic", subtype: "stock-details" },
+  "stock-summary-report": { category: "basic", subtype: "stock-summary" },
+  "stock-ledger-report": { category: "basic", subtype: "stock-ledger" },
+  "stock-qty-report": { category: "basic", subtype: "stock-qty" },
+  "stock-forecast-product": { category: "basic", subtype: "stock-forecast-product" },
+  "stock-forecast-concern": { category: "basic", subtype: "stock-forecast-concern" },
+  // Purchase Report
+  "supplier-ledger-report": { category: "purchase", subtype: "supplier-ledger" },
+  "daily-purchase-report": { category: "purchase", subtype: "daily-purchase" },
+  "supplier-wise-purchase": { category: "purchase", subtype: "supplier-wise-purchase" },
+  "supplier-cash-delivery-report": { category: "purchase", subtype: "supplier-cash-delivery" },
+  "supplier-due-report": { category: "purchase", subtype: "supplier-due" },
+  "model-wise-purchase": { category: "purchase", subtype: "model-wise-purchase" },
+  "vat-report": { category: "purchase", subtype: "vat-report" },
+  // Sales Report
+  "daily-sales-report": { category: "sales", subtype: "daily-sales" },
+  "replacement-report": { category: "sales", subtype: "replacement-report" },
+  "model-wise-sales": { category: "sales", subtype: "model-wise-sales" },
+  // Hire Sales Report
+  "installment-collection": { category: "hire-sales", subtype: "installment-collection" },
+  "upcoming-installment": { category: "hire-sales", subtype: "upcoming-installment" },
+  "defaulting-customer": { category: "hire-sales", subtype: "defaulting-customer" },
+  "default-customer-summary": { category: "hire-sales", subtype: "default-customer-summary" },
+  "hire-account-details": { category: "hire-sales", subtype: "hire-account-details" },
+  // SR Report
+  "sr-wise-sales-report": { category: "sr", subtype: "sr-wise-sales" },
+  "sr-wise-sales-details": { category: "sr", subtype: "sr-wise-sales-details" },
+  "sr-wise-customer-due": { category: "sr", subtype: "sr-wise-customer-due" },
+  "sr-wise-customer-summary": { category: "sr", subtype: "sr-wise-customer-summary" },
+  "sr-visit-report": { category: "sr", subtype: "sr-visit-report" },
+  "sr-wise-customer-status": { category: "sr", subtype: "sr-wise-customer-status" },
+  "sr-wise-cash-collection": { category: "sr", subtype: "sr-wise-cash-collection" },
+  "sr-commission-report": { category: "sr", subtype: "sr-commission-report" },
+  // Customer Wise Report
+  "customer-wise-sales": { category: "customer-wise", subtype: "customer-wise-sales" },
+  "category-wise-customer-due": { category: "customer-wise", subtype: "category-wise-customer-due" },
+  "customer-ledger-report": { category: "customer-wise", subtype: "customer-ledger" },
+  "customer-due-report": { category: "customer-wise", subtype: "customer-due-report" },
+  "customer-cash-collection": { category: "customer-wise", subtype: "customer-cash-collection" },
+  "customer-ledger-summary": { category: "customer-wise", subtype: "customer-ledger-summary" },
+  // Management Report
+  "expense-report": { category: "management", subtype: "expense-report" },
+  "product-wise-benefit": { category: "management", subtype: "product-wise-benefit" },
+  "income-report": { category: "management", subtype: "income-report" },
+  "adjustment-report": { category: "management", subtype: "adjustment-report" },
+  "transaction-summary": { category: "management", subtype: "transaction-summary" },
+  "monthly-transaction": { category: "management", subtype: "monthly-transaction" },
+  "showroom-analysis": { category: "management", subtype: "showroom-analysis" },
+  // Bank Report
+  "bank-transaction-report": { category: "bank", subtype: "bank-transaction-report" },
+  "bank-ledger-report": { category: "bank", subtype: "bank-ledger-report" },
+  "transfer-report": { category: "bank", subtype: "transfer-report" },
+  // Advance Search
+  "advance-search": { category: "advance-search", subtype: "advance-search" },
 };
 
 // ============================================================
@@ -279,13 +346,20 @@ async function apiFetch(path: string, opts?: RequestInit) {
 // COMPONENT
 // ============================================================
 
-export default function MISReportEngine() {
+interface MISReportEngineProps {
+  initialReport?: string;
+}
+
+export default function MISReportEngine({ initialReport }: MISReportEngineProps = {}) {
   const { toast } = useToast();
   const { isVatAuditor, isSR, isDealer, user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- Resolve initial tab and subtype from sidebar key ---
+  const resolved = initialReport ? SIDEBAR_REPORT_MAP[initialReport] : null;
+
   // --- Active tab ---
-  const [activeTab, setActiveTab] = useState<ReportCategoryKey>("basic");
+  const [activeTab, setActiveTab] = useState<ReportCategoryKey>(resolved ? resolved.category : "basic");
 
   // --- Filter state ---
   const today = new Date();
@@ -294,7 +368,7 @@ export default function MISReportEngine() {
     monthStart.toISOString().split("T")[0]
   );
   const [toDate, setToDate] = useState(today.toISOString().split("T")[0]);
-  const [subtype, setSubtype] = useState("");
+  const [subtype, setSubtype] = useState(resolved ? resolved.subtype : "");
   const [entityFilter, setEntityFilter] = useState("");
   const [keyword, setKeyword] = useState("");
   const [groupBy, setGroupBy] = useState("");
@@ -321,6 +395,16 @@ export default function MISReportEngine() {
 
   // --- Derived: current category config ---
   const currentCategory = REPORT_CATEGORIES[activeTab];
+
+  // --- Sync activeTab and subtype when initialReport prop changes (sidebar navigation) ---
+  useEffect(() => {
+    if (!initialReport) return;
+    const mapped = SIDEBAR_REPORT_MAP[initialReport];
+    if (mapped) {
+      if (mapped.category !== activeTab) setActiveTab(mapped.category);
+      setSubtype(mapped.subtype);
+    }
+  }, [initialReport]);
 
   // --- Set default subtype when tab changes ---
   useEffect(() => {

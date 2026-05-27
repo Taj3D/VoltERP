@@ -140,7 +140,8 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Create LedgerEntry: account = supplier.name, debit = amount
+        // Create balanced LedgerEntry pair: Dr: Supplier, Cr: Cash/Bank
+        const cashAccountName = cashDelivery.bank?.bankName || 'Cash in Hand';
         await tx.ledgerEntry.create({
           data: {
             date: transactionDate,
@@ -149,6 +150,18 @@ export async function POST(request: NextRequest) {
             debit: effectiveAmount,
             credit: 0,
             reference: deliveryCode,
+            referenceType: 'CashDelivery',
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            date: transactionDate,
+            account: cashAccountName,
+            particulars: 'Cash Delivery to supplier',
+            debit: 0,
+            credit: effectiveAmount,
+            reference: deliveryCode,
+            referenceType: 'CashDelivery',
           },
         });
       }

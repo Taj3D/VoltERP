@@ -504,7 +504,7 @@ export default function CashCollectionsDeliveriesPage() {
             onClick={() => openCreate(activeTab === "collections" ? "collection" : "delivery")}
             disabled={activeTab === "deliveries" && isSR}
           >
-            <Plus className="w-4 h-4 mr-1" />Create
+            <Plus className="w-4 h-4 mr-1" />{activeTab === "collections" ? "Record Collection" : "Record Delivery"}
           </Button>
         </div>
       </div>
@@ -714,7 +714,7 @@ export default function CashCollectionsDeliveriesPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editItem ? "Edit" : "Create"} {formType === "collection" ? "Cash Collection" : "Cash Delivery"}
+              {editItem ? "Edit" : formType === "collection" ? "Record Collection" : "Record Delivery"} {formType === "collection" ? "Cash Collection" : "Cash Delivery"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -865,7 +865,7 @@ export default function CashCollectionsDeliveriesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
             <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
-              {saving ? "Saving..." : editItem ? "Update" : "Create"}
+              {saving ? "Saving..." : editItem ? "Update" : formType === "collection" ? "Record Collection" : "Record Delivery"}
             </Button>
           </DialogFooter>
         </DialogContent>

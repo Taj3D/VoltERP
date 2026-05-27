@@ -957,6 +957,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={custOSearch} setSearch={setCustOSearch} onRefresh={loadCustomerOrdersheets} loading={custOLoading}
           onExportCSV={() => doExportCSV("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })))}
           onExportPDF={() => doExportPDF("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })))}
+          onImportCSV={() => doImportCSV("/api/order-sheets", [], loadCustomerOrdersheets)}
           canCreate={isAdmin || isSR} onCreate={openCustOCreate} createLabel="Add Ordersheet" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -1209,6 +1210,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={poSearch} setSearch={setPoSearch} onRefresh={loadPurchaseOrders} loading={poLoading}
           onExportCSV={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—" })), poMaskedCols)}
           onExportPDF={() => doExportPDF("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—" })), poMaskedCols)}
+          onImportCSV={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)}
           canCreate={isAdmin} onCreate={openPoCreate} createLabel="Add PO" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -1419,9 +1421,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "godownName", label: "Godown", type: "text" },
     { key: "subTotal", label: "Sub-Total", type: "currency" },
     { key: "discount", label: "Discount", type: "currency" },
-    { key: "vat", label: "VAT", type: "currency" },
+    { key: "vatAmount", label: "VAT", type: "currency" },
     { key: "grandTotal", label: "Grand Total", type: "currency" },
-    { key: "paymentOption", label: "Payment", type: "text" },
+    { key: "paymentOptionName", label: "Payment", type: "text" },
     { key: "status", label: "Status", type: "text" },
   ];
 
@@ -1446,7 +1448,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   };
 
   const openSoEdit = (item: any) => {
-    setSoForm({ customerId: item.customerId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercent || 0, paymentOption: item.paymentOption || "Cash", notes: item.notes || "" });
+    setSoForm({ customerId: item.customerId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, paymentOption: item.paymentOption?.name || "Cash", notes: item.notes || "" });
     setSoLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSoEdit(item);
     setSoDialog(true);
@@ -1470,7 +1472,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const discountAmt = Number(soForm.discount) || 0;
       const vatAmt = (subTotal - discountAmt) * (Number(soForm.vatPercent) || 0) / 100;
       const grandTotal = subTotal - discountAmt + vatAmt;
-      const payload = { ...soForm, lines: linesPayload, subTotal, discount: discountAmt, vat: vatAmt, grandTotal };
+      const payload = { ...soForm, lines: linesPayload, subTotal, discount: discountAmt, vatAmount: vatAmt, vatPercentage: soForm.vatPercent, grandTotal };
       if (soEdit) { await apiFetch(`/api/sales-orders/${soEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Sales Order updated" }); }
       else { await apiFetch("/api/sales-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Sales Order created" }); }
       setSoDialog(false); loadSalesOrders();
@@ -1496,8 +1498,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(soStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
         </div>
         <Toolbar search={soSearch} setSearch={setSoSearch} onRefresh={loadSalesOrders} loading={soLoading}
-          onExportCSV={() => doExportCSV("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
-          onExportPDF={() => doExportPDF("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
+          onExportCSV={() => doExportCSV("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
+          onExportPDF={() => doExportPDF("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
+          onImportCSV={() => doImportCSV("/api/sales-orders", [], loadSalesOrders)}
           canCreate={isAdmin || isSR} onCreate={openSoCreate} createLabel="Add SO" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -1522,9 +1525,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
                       <TableCell className="text-xs">{fmtCurrency(item.subTotal)}</TableCell>
                       <TableCell className="text-xs">{fmtCurrency(item.discount)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.vat)}</TableCell>
+                      <TableCell className="text-xs">{fmtCurrency(item.vatAmount)}</TableCell>
                       <TableCell className="text-xs">{fmtCurrency(item.grandTotal)}</TableCell>
-                      <TableCell className="text-xs">{item.paymentOption || "Cash"}</TableCell>
+                      <TableCell className="text-xs">{item.paymentOption?.name || "Cash"}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -1664,6 +1667,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={hsSearch} setSearch={setHsSearch} onRefresh={loadHireSales} loading={hsLoading}
           onExportCSV={() => doExportCSV("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balance", "installmentAmt"])}
           onExportPDF={() => doExportPDF("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balance", "installmentAmt"])}
+          onImportCSV={() => doImportCSV("/api/hire-sales", [], loadHireSales)}
           canCreate={isAdmin || isSR} onCreate={openHsCreate} createLabel="Add Hire Sale" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -1885,6 +1889,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={srSearch} setSearch={setSrSearch} onRefresh={loadSalesReturns} loading={srLoading}
           onExportCSV={() => doExportCSV("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
           onExportPDF={() => doExportPDF("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
+          onImportCSV={() => doImportCSV("/api/sales-returns", [], loadSalesReturns)}
           canCreate={isAdmin || isSR} onCreate={openSrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -2094,6 +2099,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={prSearch} setSearch={setPrSearch} onRefresh={loadPurchaseReturns} loading={prLoading}
           onExportCSV={() => doExportCSV("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
           onExportPDF={() => doExportPDF("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
+          onImportCSV={() => doImportCSV("/api/purchase-returns", [], loadPurchaseReturns)}
           canCreate={isAdmin} onCreate={openPrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -2267,6 +2273,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={rplSearch} setSearch={setRplSearch} onRefresh={loadReplacements} loading={rplLoading}
           onExportCSV={() => doExportCSV("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onExportPDF={() => doExportPDF("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
+          onImportCSV={() => doImportCSV("/api/replacements", [], loadReplacements)}
           canCreate={isAdmin} onCreate={openRplCreate} createLabel="Add Replacement" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
@@ -2354,6 +2361,52 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="In Stock">In Stock</SelectItem><SelectItem value="Low Stock">Low Stock</SelectItem><SelectItem value="Out of Stock">Out of Stock</SelectItem></SelectContent>
         </Select>
+        <Button variant="outline" size="sm" onClick={() => {
+          const stockExportCols: ExportColumnDef[] = [
+            { key: "productName", label: "Product", type: "text" },
+            { key: "category", label: "Category", type: "text" },
+            { key: "godown", label: "Godown", type: "text" },
+            { key: "currentStock", label: "Qty", type: "number" },
+            { key: "stockValue", label: "Value", type: "currency" },
+            { key: "stockStatus", label: "Status", type: "text" },
+          ];
+          const stockExportData = stockData.filter((s: any) => {
+            if (stockFilterGodown !== "all" && s.godownId !== stockFilterGodown) return false;
+            if (stockFilterStatus !== "all" && s.stockStatus !== stockFilterStatus) return false;
+            return true;
+          }).map((s: any) => ({
+            productName: `${s.product?.productCode || ""} — ${s.product?.name || ""}`,
+            category: s.product?.category?.name || "—",
+            godown: s.godown?.name || "Main",
+            currentStock: s.currentStock || 0,
+            stockValue: s.stockValue || 0,
+            stockStatus: s.stockStatus || "In Stock",
+          }));
+          doExportCSV("Stock", stockExportCols, stockExportData, ["stockValue"]);
+        }}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+        <Button variant="outline" size="sm" onClick={() => {
+          const stockExportCols: ExportColumnDef[] = [
+            { key: "productName", label: "Product", type: "text" },
+            { key: "category", label: "Category", type: "text" },
+            { key: "godown", label: "Godown", type: "text" },
+            { key: "currentStock", label: "Qty", type: "number" },
+            { key: "stockValue", label: "Value", type: "currency" },
+            { key: "stockStatus", label: "Status", type: "text" },
+          ];
+          const stockExportData = stockData.filter((s: any) => {
+            if (stockFilterGodown !== "all" && s.godownId !== stockFilterGodown) return false;
+            if (stockFilterStatus !== "all" && s.stockStatus !== stockFilterStatus) return false;
+            return true;
+          }).map((s: any) => ({
+            productName: `${s.product?.productCode || ""} — ${s.product?.name || ""}`,
+            category: s.product?.category?.name || "—",
+            godown: s.godown?.name || "Main",
+            currentStock: s.currentStock || 0,
+            stockValue: s.stockValue || 0,
+            stockStatus: s.stockStatus || "In Stock",
+          }));
+          doExportPDF("Stock", stockExportCols, stockExportData, ["stockValue"]);
+        }}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
         <Button variant="ghost" size="sm" onClick={loadStock}><RefreshCw className={`h-4 w-4 ${stockLoading ? "animate-spin" : ""}`} /></Button>
       </div>
       <div className="border rounded-lg overflow-auto max-h-[70vh]">
@@ -2400,6 +2453,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <Input value={sdSearch} onChange={e => setSdSearch(e.target.value)} placeholder="Search entries..." className="pl-8" />
         </div>
+        <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+        <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
       </div>
       <div className="border rounded-lg overflow-auto max-h-[70vh]">
         <Table>
@@ -2433,6 +2488,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       <Toolbar search={trnSearch} setSearch={setTrnSearch} onRefresh={loadTransfers} loading={trnLoading}
         onExportCSV={() => doExportCSV("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData)}
         onExportPDF={() => doExportPDF("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData)}
+        onImportCSV={() => doImportCSV("/api/transfers", [], loadTransfers)}
         canCreate={isAdmin} onCreate={() => { setTrnForm({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" }); setTrnLines([{ productId: "", quantity: 1 }]); setTrnEdit(null); setTrnDialog(true); }} createLabel="New Transfer"
       />
       <div className="border rounded-lg overflow-auto max-h-[70vh]">

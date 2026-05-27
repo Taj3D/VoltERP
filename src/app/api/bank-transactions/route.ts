@@ -14,9 +14,31 @@ export async function GET(request: NextRequest) {
         bank: true,
         toBank: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { date: 'asc' },
     });
-    return NextResponse.json(items);
+
+    // Compute running balances per bank if any are 0
+    const bankBalanceMap: Record<string, number> = {};
+    const computed = items.map((txn: any) => {
+      if (!bankBalanceMap[txn.bankId]) {
+        bankBalanceMap[txn.bankId] = txn.bank?.openingBalance || 0;
+      }
+      if (txn.type === 'Deposit') {
+        bankBalanceMap[txn.bankId] += txn.amount;
+      } else if (txn.type === 'Withdraw' || txn.type === 'Transfer') {
+        bankBalanceMap[txn.bankId] -= txn.amount;
+      }
+      const runningBalance = bankBalanceMap[txn.bankId];
+      // Update stored runningBalance if stale
+      if (Math.abs(txn.runningBalance - runningBalance) > 0.01) {
+        db.bankTransaction.update({ where: { id: txn.id }, data: { runningBalance } }).catch(() => {});
+      }
+      return { ...txn, runningBalance };
+    });
+
+    // Return in desc order for display
+    computed.reverse();
+    return NextResponse.json(computed);
   } catch (error) {
     console.error('Error fetching bank transactions:', error);
     return NextResponse.json(
@@ -111,14 +133,25 @@ export async function POST(request: NextRequest) {
           include: { bank: true, toBank: true },
         });
 
-        // LedgerEntry: credit (with explicit debit: 0)
+        // LedgerEntry: balanced pair — Dr: Bank, Cr: Cash in Hand
         await tx.ledgerEntry.create({
           data: {
             date: transactionDate,
             account: bank.bankName,
+            debit: transactionAmount,
+            credit: 0,
+            reference: transactionCode,
+            referenceType: 'BankDeposit',
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            date: transactionDate,
+            account: 'Cash in Hand',
             debit: 0,
             credit: transactionAmount,
             reference: transactionCode,
+            referenceType: 'BankDeposit',
           },
         });
 
@@ -175,14 +208,25 @@ export async function POST(request: NextRequest) {
           include: { bank: true, toBank: true },
         });
 
-        // LedgerEntry: debit (with explicit credit: 0)
+        // LedgerEntry: balanced pair — Dr: Cash in Hand, Cr: Bank
+        await tx.ledgerEntry.create({
+          data: {
+            date: transactionDate,
+            account: 'Cash in Hand',
+            debit: transactionAmount,
+            credit: 0,
+            reference: transactionCode,
+            referenceType: 'BankWithdraw',
+          },
+        });
         await tx.ledgerEntry.create({
           data: {
             date: transactionDate,
             account: bank.bankName,
-            debit: transactionAmount,
-            credit: 0,
+            debit: 0,
+            credit: transactionAmount,
             reference: transactionCode,
+            referenceType: 'BankWithdraw',
           },
         });
 
@@ -285,7 +329,7 @@ export async function POST(request: NextRequest) {
           include: { bank: true, toBank: true },
         });
 
-        // LedgerEntry: debit from source (with explicit credit: 0)
+        // LedgerEntry: balanced pair — Dr: Source Bank, Cr: Target Bank
         await tx.ledgerEntry.create({
           data: {
             date: transactionDate,
@@ -293,6 +337,7 @@ export async function POST(request: NextRequest) {
             debit: transactionAmount,
             credit: 0,
             reference: transactionCode,
+            referenceType: 'BankTransfer',
           },
         });
 
@@ -304,6 +349,7 @@ export async function POST(request: NextRequest) {
             debit: 0,
             credit: transactionAmount,
             reference: transactionCode,
+            referenceType: 'BankTransfer',
           },
         });
 

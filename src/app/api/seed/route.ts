@@ -398,21 +398,21 @@ export async function POST() {
           data: {
             bankName: 'Dutch-Bangla Bank', branch: 'Dhanmondi Branch',
             accountNo: 'DBBL-1234567890', accountHolder: 'Electronics Mart IMS',
-            openingBalance: 500000,
+            openingBalance: 500000, currentBalance: 500000,
           },
         }),
         tx.bank.create({
           data: {
             bankName: 'BRAC Bank', branch: 'Gulshan Branch',
             accountNo: 'BRAC-9876543210', accountHolder: 'Electronics Mart IMS',
-            openingBalance: 350000,
+            openingBalance: 350000, currentBalance: 350000,
           },
         }),
         tx.bank.create({
           data: {
             bankName: 'City Bank', branch: 'Motijheel Branch',
             accountNo: 'CITY-5555666677', accountHolder: 'Electronics Mart IMS',
-            openingBalance: 200000,
+            openingBalance: 200000, currentBalance: 200000,
           },
         }),
       ]);
