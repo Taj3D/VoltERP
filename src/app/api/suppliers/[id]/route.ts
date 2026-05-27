@@ -87,18 +87,12 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       const record = await tx.supplier.findUnique({ where: { id } });
       if (!record) throw new Error('Not found');
 
-      // Check for active references
-      const [purchaseOrders, purchaseReturns, cashDeliveries] = await Promise.all([
-        tx.purchaseOrder.count({ where: { supplierId: id } }),
-        tx.purchaseReturn.count({ where: { supplierId: id } }),
-        tx.cashDelivery.count({ where: { supplierId: id } }),
-      ]);
-
-      if (purchaseOrders + purchaseReturns + cashDeliveries > 0) {
-        throw new Error(`Cannot delete: Supplier has ${purchaseOrders} purchase order(s), ${purchaseReturns} purchase return(s), ${cashDeliveries} cash deliver(ies)`);
+      if (!record.isActive) {
+        throw new Error('Supplier is already deleted');
       }
 
-      await tx.supplier.delete({ where: { id } });
+      // Soft delete the supplier
+      await tx.supplier.update({ where: { id }, data: { isActive: false } });
 
       await tx.auditLog.create({
         data: {
@@ -108,7 +102,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           recordLabel: `${record.supplierCode} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ supplierCode: record.supplierCode, name: record.name, hardDelete: true }),
+          details: JSON.stringify({ supplierCode: record.supplierCode, name: record.name, softDelete: true }),
         },
       });
 
@@ -116,7 +110,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     });
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    if (error?.message?.startsWith('Cannot delete')) {
+    if (error?.message?.startsWith('Cannot delete') || error?.message?.includes('already deleted')) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: 'Failed to delete supplier' }, { status: 500 });

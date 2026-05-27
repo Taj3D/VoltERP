@@ -196,22 +196,35 @@ export async function DELETE(
   try {
     const { id } = await params;
 
+    // Fetch existing record for validation, period lock, and audit
+    const existing = await db.purchaseOrder.findUnique({
+      where: { id },
+      select: { date: true, poNumber: true, isActive: true, status: true, grandTotal: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Purchase order not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!existing.isActive) {
+      return NextResponse.json(
+        { error: 'Purchase order is already deleted' },
+        { status: 400 }
+      );
+    }
+
     // Period-close lock check: use existing record's date
-    const existing = await db.purchaseOrder.findUnique({ where: { id }, select: { date: true } });
-    const periodLock = await checkPeriodClose(existing?.date || new Date());
+    const periodLock = await checkPeriodClose(existing.date || new Date());
     if (periodLock) return periodLock;
 
     await db.$transaction(async (tx) => {
-      // Get PO number for audit
-      const po = await tx.purchaseOrder.findUnique({ where: { id }, select: { poNumber: true } });
-
-      // Delete lines first (cascade should handle this, but be explicit)
-      await tx.purchaseOrderLine.deleteMany({
-        where: { purchaseOrderId: id },
-      });
-
-      await tx.purchaseOrder.delete({
+      // Soft delete the purchase order
+      await tx.purchaseOrder.update({
         where: { id },
+        data: { isActive: false },
       });
 
       // Audit log
@@ -220,7 +233,12 @@ export async function DELETE(
           action: 'DELETE',
           module: 'PurchaseOrders',
           recordId: id,
-          recordLabel: po?.poNumber || id,
+          recordLabel: existing.poNumber || id,
+          details: JSON.stringify({
+            softDelete: true,
+            previousStatus: existing.status,
+            previousGrandTotal: existing.grandTotal,
+          }),
         },
       });
     });

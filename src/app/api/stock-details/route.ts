@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 
 // GET /api/stock-details?productId=xxx - Return 7-source historical stock movement trails for a specific product
 // Query params: productId (required), from, to (optional date range)
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
 
-    const isVatAuditor = security.user?.role === 'vat_auditor';
+    const role = security.user?.role;
 
     // If no productId, return summary of all products with stock info
     if (!productId) {
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
         const stockMovements = stockMap.get(product.id) || 0;
         const currentStock = product.openingStock + stockMovements;
         const stockValue = currentStock * product.costPrice;
-        return {
+        return maskForVatAuditor({
           productId: product.id,
           productName: product.name,
           productCode: product.productCode,
@@ -66,10 +66,10 @@ export async function GET(request: NextRequest) {
           godown: product.godown?.name || 'Unassigned',
           currentStock,
           reorderLevel: product.reorderLevel,
-          costPrice: isVatAuditor ? 'N/A (Audit Mode)' : product.costPrice,
-          salePrice: isVatAuditor ? 'N/A (Audit Mode)' : product.salePrice,
-          stockValue: isVatAuditor ? 'N/A (Audit Mode)' : stockValue,
-        };
+          costPrice: product.costPrice,
+          salePrice: product.salePrice,
+          stockValue,
+        }, role, ['costPrice', 'salePrice', 'stockValue']);
       });
 
       return NextResponse.json({ products: summary });
@@ -209,8 +209,8 @@ export async function GET(request: NextRequest) {
       godownId: entry.godownId,
       notes: entry.notes,
       runningBalance: runningBalanceMap.get(entry.id) ?? null,
-      costPrice: isVatAuditor ? 'N/A (Audit Mode)' : product.costPrice,
-      lineValue: isVatAuditor ? 'N/A (Audit Mode)' : entry.quantity * product.costPrice,
+      costPrice: product.costPrice,
+      lineValue: entry.quantity * product.costPrice,
     }));
 
     // Movement count by source type
@@ -224,20 +224,26 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // Build the response
+    // Build the response with centralized VAT masking
+    const productInfo = maskForVatAuditor({
+      id: product.id,
+      name: product.name,
+      productCode: product.productCode,
+      category: product.category?.name || 'Uncategorized',
+      godown: product.godown?.name || 'Unassigned',
+      costPrice: product.costPrice,
+      salePrice: product.salePrice,
+      openingStock: product.openingStock,
+      reorderLevel: product.reorderLevel,
+    }, role, ['costPrice', 'salePrice']);
+
+    const maskedEntries = enrichedEntries.map((entry) =>
+      maskForVatAuditor(entry, role, ['costPrice', 'lineValue'])
+    );
+
     const response = {
-      product: {
-        id: product.id,
-        name: product.name,
-        productCode: product.productCode,
-        category: product.category?.name || 'Uncategorized',
-        godown: product.godown?.name || 'Unassigned',
-        costPrice: isVatAuditor ? 'N/A (Audit Mode)' : product.costPrice,
-        salePrice: isVatAuditor ? 'N/A (Audit Mode)' : product.salePrice,
-        openingStock: product.openingStock,
-        reorderLevel: product.reorderLevel,
-      },
-      entries: enrichedEntries,
+      product: productInfo,
+      entries: maskedEntries,
       summary: {
         totalIn,
         totalOut,

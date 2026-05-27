@@ -87,7 +87,18 @@ model Company {
   phone       String?
   email       String?
   logo        String?
-  brandLogo   String?       // Brand logo image (high-res)
+  brandLogo     String?       // Brand logo image (high-res)
+  mobile        String?       // Primary mobile number for invoices
+  website       String?       // Company website
+  vatNumber     String?       // VAT/Tax registration number
+  tradeLicense  String?       // Trade license number
+  invoicePrefix String?       // Prefix for invoice numbers (e.g., "EM")
+  thankYouMsg   String?       @default("Thank You Come Again.") // Customizable footer message
+  systemNote    String?       @default("This is a system generated invoice no need to seal & signature.") // System generation note
+  showBarcode   Boolean       @default(true)  // Whether to show barcode on invoices
+  showPayInWord Boolean       @default(true)  // Whether to show amount in words
+  logoWidth     Float         @default(30)    // Logo width in mm for PDF rendering
+  logoHeight    Float         @default(20)    // Logo height in mm for PDF rendering
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -1224,7 +1235,45 @@ model InvoiceTemplate {
   cssStyles         String?  // Custom CSS for the template
   paperSize         String   @default("A4")  // "A4", "Letter", "Legal"
   orientation       String   @default("Portrait")  // "Portrait", "Landscape"
-  defaultPrinter    String?  // Printer name/dimension config
+  defaultPrinter       String?  // Printer name/dimension config
+  // Header overrides
+  companyName          String?  // Override company name on invoice (if different from Company.name)
+  showLogo             Boolean  @default(true)  // Whether to show logo on invoice
+  showBrandLogo        Boolean  @default(false) // Whether to show brand logo
+  showMobile           Boolean  @default(true)  // Whether to show mobile on header
+  showAddress          Boolean  @default(true)  // Whether to show address on header
+  showVatNumber        Boolean  @default(false) // Whether to show VAT number
+  showTradeLicense     Boolean  @default(false) // Whether to show trade license
+  // Metadata grid fields
+  showCustomerCode     Boolean  @default(true)  // Show Customer Code field
+  showPrevDue          Boolean  @default(true)  // Show Previous Due field
+  showTotalDue         Boolean  @default(true)  // Show Total Due field
+  showRemindDate       Boolean  @default(true)  // Show Remind Date field
+  // Table columns
+  showModel            Boolean  @default(true)  // Show Model column
+  showColor            Boolean  @default(true)  // Show Color column
+  showDescription      Boolean  @default(true)  // Show Description column
+  showMRP              Boolean  @default(true)  // Show MRP column
+  showDiscountAmt      Boolean  @default(true)  // Show Discount Amount column
+  showUnitPrice        Boolean  @default(true)  // Show Unit Price column
+  // Summary section
+  showDiscountPct      Boolean  @default(true)  // Show Discount % row
+  showPPDiscount       Boolean  @default(true)  // Show PP Discount row
+  showAdjustment       Boolean  @default(true)  // Show Adjustment row
+  showDeliveryCost     Boolean  @default(true)  // Show Delivery Cost row
+  // Payment details
+  showPaymentDetails   Boolean  @default(true)  // Show Payment Details section
+  // Footer
+  showCustomerSignature Boolean @default(true)  // Show Customer's Signature
+  showPreparedBy        Boolean @default(true)  // Show Prepared By
+  showCheckedBy         Boolean @default(true)  // Show Checked By
+  showAuthorizedBy      Boolean @default(true)  // Show Authorized By
+  showPrintedBy         Boolean @default(true)  // Show Printed By
+  showSalesPerson       Boolean @default(true)  // Show Sales Person
+  showPrintDate         Boolean @default(true)  // Show Print Date
+  // Custom terms/notes
+  termsAndConditions    String?  // Custom terms & conditions text
+  customFooterNote      String?  // Custom footer note (overrides system note)
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

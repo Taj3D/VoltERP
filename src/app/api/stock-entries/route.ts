@@ -105,6 +105,19 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Audit log
+    await db.auditLog.create({
+      data: {
+        action: 'CREATE',
+        module: 'StockEntries',
+        recordId: entry.id,
+        recordLabel: `${entry.type}-${entry.productId}`,
+        userId: security.user?.id || 'system',
+        userName: security.user?.name || 'System',
+        details: JSON.stringify({ productId, type, quantity, reference, referenceType, date }),
+      },
+    });
+
     return NextResponse.json(entry, { status: 201 });
   } catch (error) {
     console.error('Error creating stock entry:', error);

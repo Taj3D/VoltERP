@@ -148,6 +148,8 @@ export async function POST(request: NextRequest) {
           module: 'Expenses',
           recordId: expense.id,
           recordLabel: expenseCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             expenseCode,
             headId,

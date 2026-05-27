@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Liabilities', 'GET');
@@ -21,14 +21,8 @@ export async function GET(request: NextRequest) {
     });
 
     // VAT Auditor masking
-    if (security.authorized && security.user.role === 'vat_auditor') {
-      return NextResponse.json(items.map(item => ({
-        ...item,
-        amount: 'N/A (Audit Mode)',
-      })));
-    }
-
-    return NextResponse.json(items);
+    const masked = items.map(item => maskForVatAuditor(item, security.user.role, ['amount']));
+    return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch liabilities' }, { status: 500 });
   }

@@ -38,6 +38,27 @@ export interface FieldDef {
   step?: string;
 }
 
+/** Company profile for dynamic branding in PDF header/footer */
+export interface CompanyProfile {
+  name: string;
+  address?: string;
+  phone?: string;
+  mobile?: string;
+  email?: string;
+  website?: string;
+  logo?: string;       // Base64 data URL
+  brandLogo?: string;  // Brand logo (high-res)
+  logoWidth?: number;  // mm (default 30)
+  logoHeight?: number; // mm (default 20)
+  vatNumber?: string;
+  tradeLicense?: string;
+  invoicePrefix?: string;
+  thankYouMsg?: string;
+  systemNote?: string;
+  showBarcode?: boolean;
+  showPayInWord?: boolean;
+}
+
 /** Summary row definition for PDF — appears after main table with distinct styling */
 export interface SummaryRow {
   cells: string[];
@@ -62,6 +83,8 @@ export interface PDFOptions {
   summaryRows?: SummaryRow[];
   /** Custom header callback — called on each page after the standard header is drawn */
   customHeader?: (doc: jsPDF, pageNumber: number, pageWidth: number, pageHeight: number) => void;
+  /** Optional company profile for dynamic branding in header/footer */
+  company?: CompanyProfile;
 }
 
 export interface CSVOptions {
@@ -211,29 +234,93 @@ function drawCorporateHeader(
   subtitle: string | undefined,
   isVatAuditor: boolean,
   pageWidth: number,
-  margin: number
+  margin: number,
+  company?: CompanyProfile
 ): number {
+  const companyName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+  const companyAddress = company?.address || "";
+  const companyMobile = company?.mobile || company?.phone || "";
   const headerHeight = 28;
 
   // Navy blue header bar
   doc.setFillColor(10, 22, 40);
   doc.rect(0, 0, pageWidth, headerHeight, "F");
 
+  // Calculate left offset for text (after logo if present)
+  let textStartX = margin;
+
+  // Company logo (if provided as base64 data URL)
+  if (company?.logo) {
+    const logoW = company.logoWidth || 30;
+    const logoH = company.logoHeight || 20;
+    const logoY = (headerHeight - logoH) / 2; // vertically centered in header
+    try {
+      const logoUrl = company.logo.startsWith("data:") ? company.logo : `data:image/png;base64,${company.logo}`;
+      doc.addImage(logoUrl, margin, logoY, logoW, logoH);
+    } catch {
+      // If logo rendering fails, skip it silently
+    }
+    textStartX = margin + logoW + 4; // 4mm gap after logo
+  }
+
+  // Brand logo on the right side (if provided)
+  if (company?.brandLogo) {
+    const brandW = company.logoWidth || 30;
+    const brandH = company.logoHeight || 20;
+    const brandY = (headerHeight - brandH) / 2;
+    try {
+      const brandUrl = company.brandLogo.startsWith("data:") ? company.brandLogo : `data:image/png;base64,${company.brandLogo}`;
+      doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
+    } catch {
+      // If brand logo fails, skip it
+    }
+  }
+
   // Company name
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
   doc.setFont("helvetica", "bold");
-  doc.text("VoltERP \u2014 Electronics Mart IMS", margin, 11);
+  doc.text(companyName, textStartX, 11);
+
+  // Company address (below name if provided)
+  let addressY = 15;
+  if (companyAddress) {
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(200, 210, 225); // slightly dimmer white
+    doc.text(companyAddress, textStartX, 15);
+    addressY = 19;
+  }
+
+  // Company mobile/phone (if available, after address)
+  if (companyMobile) {
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(220, 220, 230);
+    doc.text(`Mobile: ${companyMobile}`, textStartX, addressY);
+    addressY += 3;
+  }
+
+  // Company email (below address/mobile)
+  if (company?.email) {
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(200, 210, 225);
+    const emailY = companyMobile ? addressY + 3 : 19;
+    doc.text(company.email, textStartX, emailY);
+    addressY = companyMobile ? emailY + 3 : emailY + 4;
+  }
 
   // Report title
   doc.setFontSize(11);
   doc.setFont("helvetica", "normal");
-  doc.text(title, margin, 18);
+  doc.setTextColor(255, 255, 255);
+  doc.text(title, textStartX, addressY + 3);
 
   // Subtitle / period
   if (subtitle) {
     doc.setFontSize(9);
-    doc.text(subtitle, margin, 23);
+    doc.text(subtitle, textStartX, addressY + 8);
   }
 
   // Generation timestamp (right-aligned)
@@ -247,16 +334,51 @@ function drawCorporateHeader(
   const tsWidth = doc.getTextWidth(timestamp);
   doc.text(timestamp, pageWidth - margin - tsWidth, 11);
 
+  // Company phone/mobile (right-aligned, below timestamp)
+  if (companyMobile) {
+    doc.setFontSize(7);
+    doc.setTextColor(200, 210, 225);
+    const mobileWidth = doc.getTextWidth(companyMobile);
+    doc.text(companyMobile, pageWidth - margin - mobileWidth, 15);
+  } else if (company?.phone) {
+    doc.setFontSize(7);
+    doc.setTextColor(200, 210, 225);
+    const phoneWidth = doc.getTextWidth(company.phone);
+    doc.text(company.phone, pageWidth - margin - phoneWidth, 15);
+  }
+
+  // Company email (right-aligned, below phone)
+  if (company?.email) {
+    doc.setFontSize(7);
+    doc.setTextColor(200, 210, 225);
+    const emailWidth = doc.getTextWidth(company.email);
+    doc.text(company.email, pageWidth - margin - emailWidth, 19);
+  }
+
+  // VAT Number and Trade License (right-aligned, below email)
+  if (company?.vatNumber) {
+    doc.setFontSize(6);
+    doc.setTextColor(180, 190, 200);
+    const vatWidth = doc.getTextWidth(`VAT: ${company.vatNumber}`);
+    doc.text(`VAT: ${company.vatNumber}`, pageWidth - margin - vatWidth, 23);
+  }
+  if (company?.tradeLicense) {
+    doc.setFontSize(6);
+    doc.setTextColor(180, 190, 200);
+    const tradeWidth = doc.getTextWidth(`Trade License: ${company.tradeLicense}`);
+    doc.text(`Trade License: ${company.tradeLicense}`, pageWidth - margin - tradeWidth, 26);
+  }
+
   // VAT Auditor badge
   if (isVatAuditor) {
     doc.setFillColor(245, 158, 11); // amber-500
     const badgeText = "  VAT AUDITOR MODE  ";
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    const badgeWidth = doc.getTextWidth(badgeText) + 4;
-    doc.roundedRect(pageWidth - margin - badgeWidth, 15, badgeWidth, 7, 1, 1, "F");
     doc.setTextColor(255, 255, 255);
-    doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 20);
+    const badgeWidth = doc.getTextWidth(badgeText) + 4;
+    doc.roundedRect(pageWidth - margin - badgeWidth, 23, badgeWidth, 7, 1, 1, "F");
+    doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 28);
   }
 
   return headerHeight + 4; // 32mm start position for table
@@ -272,7 +394,8 @@ function drawFooter(
   totalPagesPlaceholder: string,
   pageWidth: number,
   pageHeight: number,
-  margin: number
+  margin: number,
+  company?: CompanyProfile
 ): void {
   const footerY = pageHeight - 8;
 
@@ -284,8 +407,9 @@ function drawFooter(
   doc.setFontSize(7);
   doc.setFont("helvetica", "normal");
 
-  // Left: copyright
-  doc.text("\u00A9 NextGen Digital Studio \u2014 Electronics Mart IMS", margin, footerY);
+  // Left: copyright — use company name when provided, fallback to default
+  const footerName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+  doc.text(`\u00A9 ${footerName}`, margin, footerY);
 
   // Right: page number (with placeholder for total)
   const pageText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
@@ -339,6 +463,7 @@ export function exportToPDF(options: PDFOptions): void {
     filename,
     summaryRows,
     customHeader,
+    company,
   } = options;
 
   try {
@@ -349,7 +474,7 @@ export function exportToPDF(options: PDFOptions): void {
     const vatMaskSet = new Set(vatMaskedColumns);
 
     // ── Corporate Header ──
-    const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
+    const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
 
     // ── Prepare Table Data ──
     const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
@@ -411,7 +536,7 @@ export function exportToPDF(options: PDFOptions): void {
       columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
         // Draw footer on every page
-        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
 
         // Call custom header callback if provided
         if (customHeader) {
@@ -429,8 +554,8 @@ export function exportToPDF(options: PDFOptions): void {
       let currentSummaryY: number;
       if (summaryStartY > pageHeight - 30) {
         doc.addPage();
-        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
-        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
         currentSummaryY = 36; // Below corporate header on new page
       } else {
         currentSummaryY = summaryStartY;
@@ -446,8 +571,8 @@ export function exportToPDF(options: PDFOptions): void {
         // Check if summary row fits on current page
         if (currentSummaryY > pageHeight - 25) {
           doc.addPage();
-          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin);
-          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
           currentSummaryY = 36; // Below corporate header
         }
 
@@ -468,7 +593,7 @@ export function exportToPDF(options: PDFOptions): void {
           },
           columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
           didDrawPage: (data: any) => {
-            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
           },
         });
 
@@ -505,7 +630,8 @@ export function exportToPDFSimple(
   headers: string[],
   rows: string[][],
   orientation: "landscape" | "portrait" = "landscape",
-  subtitle?: string
+  subtitle?: string,
+  company?: CompanyProfile
 ): void {
   try {
     const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
@@ -514,7 +640,7 @@ export function exportToPDFSimple(
     const margin = 14;
 
     // Corporate header
-    const tableStartY = drawCorporateHeader(doc, title, subtitle, false, pageWidth, margin);
+    const tableStartY = drawCorporateHeader(doc, title, subtitle, false, pageWidth, margin, company);
 
     const TOTAL_PLACEHOLDER = "{total}";
     const colWidths = calculateColumnWidths(headers.length, pageWidth, margin);
@@ -549,7 +675,7 @@ export function exportToPDFSimple(
       alternateRowStyles: { fillColor: [240, 244, 252] },
       columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
-        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin);
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
       },
     });
 

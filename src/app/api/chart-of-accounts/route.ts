@@ -109,6 +109,8 @@ export async function POST(request: NextRequest) {
           module: 'ChartOfAccounts',
           recordId: account.id,
           recordLabel: `${account.code} - ${account.name}`,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify(body),
         },
       });

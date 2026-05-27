@@ -1,6 +1,7 @@
 // ============================================================
 // INVOICE TEMPLATES API — CRUD + Auto-Seed
 // Group 6: Core Performance Configurations & System Settings
+// Supports 30+ toggle fields for dynamic invoice rendering
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -27,6 +28,56 @@ function containsProfitPlaceholders(html: string | null): boolean {
   return PROFIT_PLACEHOLDERS.some((p) => html.toLowerCase().includes(p.toLowerCase()));
 }
 
+// ── Toggle field definitions ──
+// Boolean fields that default to true (most toggles)
+const TOGGLE_TRUE_FIELDS = [
+  'showLogo', 'showMobile', 'showAddress',
+  'showCustomerCode', 'showPrevDue', 'showTotalDue', 'showRemindDate',
+  'showModel', 'showColor', 'showDescription', 'showMRP', 'showDiscountAmt', 'showUnitPrice',
+  'showDiscountPct', 'showPPDiscount', 'showAdjustment', 'showDeliveryCost',
+  'showPaymentDetails',
+  'showCustomerSignature', 'showPreparedBy', 'showCheckedBy', 'showAuthorizedBy',
+  'showPrintedBy', 'showSalesPerson', 'showPrintDate',
+] as const;
+
+// Boolean fields that default to false
+const TOGGLE_FALSE_FIELDS = [
+  'showBrandLogo', 'showVatNumber', 'showTradeLicense',
+] as const;
+
+// String fields that default to null
+const STRING_NULL_FIELDS = [
+  'companyName', 'termsAndConditions', 'customFooterNote',
+] as const;
+
+// All toggle boolean field names for destructuring
+const ALL_BOOLEAN_FIELDS = [...TOGGLE_TRUE_FIELDS, ...TOGGLE_FALSE_FIELDS] as const;
+
+// Helper: build toggle data from request body with proper defaults
+function extractToggleFields(body: Record<string, unknown>): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+
+  for (const field of TOGGLE_TRUE_FIELDS) {
+    if (body[field] !== undefined) {
+      data[field] = Boolean(body[field]);
+    }
+  }
+
+  for (const field of TOGGLE_FALSE_FIELDS) {
+    if (body[field] !== undefined) {
+      data[field] = Boolean(body[field]);
+    }
+  }
+
+  for (const field of STRING_NULL_FIELDS) {
+    if (body[field] !== undefined) {
+      data[field] = body[field] === null ? null : String(body[field]);
+    }
+  }
+
+  return data;
+}
+
 // Default templates to seed on first GET if table is empty
 const DEFAULT_TEMPLATES = [
   {
@@ -38,6 +89,44 @@ const DEFAULT_TEMPLATES = [
     footerHtml: '<p>Thank you for your purchase!</p><p>Terms: Payment due within 30 days.</p>',
     paperSize: 'A4',
     orientation: 'Portrait',
+    // Header overrides — Sales Invoice: all show* = true (except showBrandLogo, showVatNumber, showTradeLicense = false)
+    companyName: null,
+    showLogo: true,
+    showBrandLogo: false,
+    showMobile: true,
+    showAddress: true,
+    showVatNumber: false,
+    showTradeLicense: false,
+    // Metadata grid
+    showCustomerCode: true,
+    showPrevDue: true,
+    showTotalDue: true,
+    showRemindDate: true,
+    // Table columns
+    showModel: true,
+    showColor: true,
+    showDescription: true,
+    showMRP: true,
+    showDiscountAmt: true,
+    showUnitPrice: true,
+    // Summary section
+    showDiscountPct: true,
+    showPPDiscount: true,
+    showAdjustment: true,
+    showDeliveryCost: true,
+    // Payment details
+    showPaymentDetails: true,
+    // Footer signatures
+    showCustomerSignature: true,
+    showPreparedBy: true,
+    showCheckedBy: true,
+    showAuthorizedBy: true,
+    showPrintedBy: true,
+    showSalesPerson: true,
+    showPrintDate: true,
+    // Custom terms/notes
+    termsAndConditions: null,
+    customFooterNote: null,
   },
   {
     name: 'Purchase Invoice',
@@ -48,6 +137,44 @@ const DEFAULT_TEMPLATES = [
     footerHtml: '<p>Authorized by: {{companyName}}</p>',
     paperSize: 'A4',
     orientation: 'Portrait',
+    // Purchase Invoice: supplier-oriented — no customer fields, minimal signatures
+    companyName: null,
+    showLogo: true,
+    showBrandLogo: false,
+    showMobile: true,
+    showAddress: true,
+    showVatNumber: true,   // Purchase invoices often need VAT
+    showTradeLicense: false,
+    // Metadata grid — supplier-oriented
+    showCustomerCode: false,  // No customer code for purchase
+    showPrevDue: false,       // No previous due for purchase
+    showTotalDue: false,      // No total due for purchase
+    showRemindDate: false,    // No remind date for purchase
+    // Table columns
+    showModel: true,
+    showColor: true,
+    showDescription: true,
+    showMRP: false,           // MRP not relevant for purchase
+    showDiscountAmt: true,
+    showUnitPrice: true,
+    // Summary section
+    showDiscountPct: true,
+    showPPDiscount: false,    // PP discount not typical for purchase
+    showAdjustment: true,
+    showDeliveryCost: true,
+    // Payment details
+    showPaymentDetails: true,
+    // Footer — purchase has fewer signature requirements
+    showCustomerSignature: false,  // No customer signature for purchase
+    showPreparedBy: true,
+    showCheckedBy: true,
+    showAuthorizedBy: true,
+    showPrintedBy: true,
+    showSalesPerson: false,   // No sales person for purchase
+    showPrintDate: true,
+    // Custom terms/notes
+    termsAndConditions: 'Goods are subject to supplier terms and conditions.',
+    customFooterNote: null,
   },
   {
     name: 'Hire Receipt',
@@ -58,6 +185,44 @@ const DEFAULT_TEMPLATES = [
     footerHtml: '<p>Installment terms apply. Late payment charges may occur.</p>',
     paperSize: 'A4',
     orientation: 'Portrait',
+    // Hire Receipt: hire-specific fields
+    companyName: null,
+    showLogo: true,
+    showBrandLogo: false,
+    showMobile: true,
+    showAddress: true,
+    showVatNumber: false,
+    showTradeLicense: false,
+    // Metadata grid
+    showCustomerCode: true,
+    showPrevDue: true,       // Previous due important for hire
+    showTotalDue: true,      // Total due important for hire
+    showRemindDate: true,    // Remind date important for hire installments
+    // Table columns
+    showModel: true,
+    showColor: true,
+    showDescription: true,
+    showMRP: true,
+    showDiscountAmt: true,
+    showUnitPrice: true,
+    // Summary section
+    showDiscountPct: true,
+    showPPDiscount: false,   // PP discount not typical for hire
+    showAdjustment: true,
+    showDeliveryCost: false, // Delivery cost not typical for hire
+    // Payment details
+    showPaymentDetails: true,
+    // Footer — hire needs all signatures
+    showCustomerSignature: true,
+    showPreparedBy: true,
+    showCheckedBy: true,
+    showAuthorizedBy: true,
+    showPrintedBy: true,
+    showSalesPerson: true,
+    showPrintDate: true,
+    // Custom terms/notes
+    termsAndConditions: 'Hire purchase terms: Late payment charges may apply. Ownership transfers after full payment.',
+    customFooterNote: null,
   },
   {
     name: 'Email Notification',
@@ -68,6 +233,44 @@ const DEFAULT_TEMPLATES = [
     footerHtml: '<p>{{companyName}} | {{companyEmail}} | {{companyPhone}}</p>',
     paperSize: 'A4',
     orientation: 'Portrait',
+    // Email Notification: minimal toggles — no signatures, no barcode, no detailed columns
+    companyName: null,
+    showLogo: true,
+    showBrandLogo: false,
+    showMobile: true,
+    showAddress: true,
+    showVatNumber: false,
+    showTradeLicense: false,
+    // Metadata grid — minimal for email
+    showCustomerCode: false,
+    showPrevDue: false,
+    showTotalDue: false,
+    showRemindDate: false,
+    // Table columns — minimal for email
+    showModel: false,
+    showColor: false,
+    showDescription: true,   // Description still useful in email
+    showMRP: false,
+    showDiscountAmt: false,
+    showUnitPrice: false,
+    // Summary section — minimal for email
+    showDiscountPct: false,
+    showPPDiscount: false,
+    showAdjustment: false,
+    showDeliveryCost: false,
+    // Payment details — not for email
+    showPaymentDetails: false,
+    // Footer — no signatures for email notifications
+    showCustomerSignature: false,
+    showPreparedBy: false,
+    showCheckedBy: false,
+    showAuthorizedBy: false,
+    showPrintedBy: false,
+    showSalesPerson: false,
+    showPrintDate: false,
+    // Custom terms/notes
+    termsAndConditions: null,
+    customFooterNote: null,
   },
 ];
 
@@ -108,8 +311,8 @@ export async function GET(request: NextRequest) {
     });
 
     // VAT Auditor: mask bodyHtml that contains cost/profit placeholders
-    const masked = templates.map((t: any) => {
-      if (isVatAuditor && containsProfitPlaceholders(t.bodyHtml)) {
+    const masked = templates.map((t: Record<string, unknown>) => {
+      if (isVatAuditor && containsProfitPlaceholders(t.bodyHtml as string | null)) {
         return { ...t, bodyHtml: '<!-- Content masked for Audit Mode -->' };
       }
       return t;
@@ -129,7 +332,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, templateType, subject, headerHtml, bodyHtml, footerHtml, cssStyles, paperSize, orientation, defaultPrinter, isActive } = body;
+    const {
+      name, templateType, subject, headerHtml, bodyHtml, footerHtml,
+      cssStyles, paperSize, orientation, defaultPrinter, isActive,
+    } = body;
 
     if (!name) {
       return NextResponse.json(
@@ -139,6 +345,9 @@ export async function POST(request: NextRequest) {
     }
 
     const code = await generateTemplateCode();
+
+    // Extract toggle fields with proper defaults
+    const toggleData = extractToggleFields(body);
 
     const template = await db.invoiceTemplate.create({
       data: {
@@ -154,6 +363,8 @@ export async function POST(request: NextRequest) {
         orientation: orientation || 'Portrait',
         defaultPrinter: defaultPrinter || null,
         isActive: isActive !== undefined ? isActive : true,
+        // Toggle fields — use extracted values with schema-level defaults as fallback
+        ...toggleData,
       },
     });
 
@@ -184,7 +395,10 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { id, name, templateType, subject, headerHtml, bodyHtml, footerHtml, cssStyles, paperSize, orientation, defaultPrinter, isActive } = body;
+    const {
+      id, name, templateType, subject, headerHtml, bodyHtml, footerHtml,
+      cssStyles, paperSize, orientation, defaultPrinter, isActive,
+    } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -202,6 +416,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const updateData: Record<string, unknown> = {};
+
+    // Core fields
     if (name !== undefined) updateData.name = name;
     if (templateType !== undefined) updateData.templateType = templateType;
     if (subject !== undefined) updateData.subject = subject;
@@ -213,6 +429,20 @@ export async function PUT(request: NextRequest) {
     if (orientation !== undefined) updateData.orientation = orientation;
     if (defaultPrinter !== undefined) updateData.defaultPrinter = defaultPrinter;
     if (isActive !== undefined) updateData.isActive = isActive;
+
+    // Toggle fields
+    for (const field of ALL_BOOLEAN_FIELDS) {
+      if (body[field] !== undefined) {
+        updateData[field] = Boolean(body[field]);
+      }
+    }
+
+    // String nullable fields
+    for (const field of STRING_NULL_FIELDS) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field] === null ? null : String(body[field]);
+      }
+    }
 
     const template = await db.invoiceTemplate.update({
       where: { id },

@@ -123,7 +123,7 @@ export async function DELETE(
       return record;
     });
 
-    return NextResponse.json({ message: 'Card type setup deleted successfully' });
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting card type setup:', error);
     return NextResponse.json(

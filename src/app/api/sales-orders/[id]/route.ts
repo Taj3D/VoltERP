@@ -189,28 +189,52 @@ export async function DELETE(
   try {
     const { id } = await params;
 
+    // Fetch existing record for validation, period lock, and audit
+    const existing = await db.salesOrder.findUnique({
+      where: { id },
+      select: { date: true, invoiceNo: true, isActive: true, status: true, grandTotal: true, paymentOptionId: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Sales order not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!existing.isActive) {
+      return NextResponse.json(
+        { error: 'Sales order is already deleted' },
+        { status: 400 }
+      );
+    }
+
     // Period-close lock check: use existing record's date
-    const existing = await db.salesOrder.findUnique({ where: { id }, select: { date: true } });
-    const periodLock = await checkPeriodClose(existing?.date || new Date());
+    const periodLock = await checkPeriodClose(existing.date || new Date());
     if (periodLock) return periodLock;
 
     await db.$transaction(async (tx) => {
-      const so = await tx.salesOrder.findUnique({ where: { id }, select: { invoiceNo: true } });
-
-      await tx.salesOrderLine.deleteMany({
-        where: { salesOrderId: id },
-      });
-
-      await tx.salesOrder.delete({
+      // Soft delete the sales order
+      await tx.salesOrder.update({
         where: { id },
+        data: { isActive: false },
       });
+
+      // NOTE: SalesOrder does not have a direct bankId field, so bank balance
+      // reversal cannot be applied here. Bank impact is handled at the
+      // CashCollection/CashDelivery level where bankId is available.
 
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
           module: 'SalesOrders',
           recordId: id,
-          recordLabel: so?.invoiceNo || id,
+          recordLabel: existing.invoiceNo || id,
+          details: JSON.stringify({
+            softDelete: true,
+            previousStatus: existing.status,
+            previousGrandTotal: existing.grandTotal,
+          }),
         },
       });
     });

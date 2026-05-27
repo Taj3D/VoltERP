@@ -145,7 +145,7 @@ export async function DELETE(
       return record;
     });
 
-    return NextResponse.json({ message: 'SR target deleted successfully' });
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting SR target:', error);
     return NextResponse.json(

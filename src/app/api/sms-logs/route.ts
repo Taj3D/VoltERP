@@ -21,15 +21,24 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    const { recipient, message, status, sentAt, cost, isActive } = body;
+
+    if (!recipient || !message) {
+      return NextResponse.json(
+        { error: 'Missing required fields: recipient, message' },
+        { status: 400 }
+      );
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.smsLog.create({
         data: {
-          recipient: body.recipient,
-          message: body.message,
-          status: body.status || 'Pending',
-          sentAt: body.sentAt ? new Date(body.sentAt) : new Date(),
-          cost: body.cost ?? 0,
-          isActive: body.isActive ?? true,
+          recipient,
+          message,
+          status: status || 'Pending',
+          sentAt: sentAt ? new Date(sentAt) : new Date(),
+          cost: cost ?? 0,
+          isActive: isActive ?? true,
         },
       });
 

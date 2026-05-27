@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Liabilities', 'GET');
@@ -13,11 +13,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
     if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    if (security.user.role === 'vat_auditor') {
-      return NextResponse.json({ ...item, amount: 'N/A (Audit Mode)' });
-    }
-
-    return NextResponse.json(item);
+    const masked = maskForVatAuditor(item, security.user.role, ['amount']);
+    return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
   }

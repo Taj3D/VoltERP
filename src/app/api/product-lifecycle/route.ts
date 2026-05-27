@@ -5,7 +5,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditor, type UserRole } from '@/lib/api-security';
 
 // Inline code generator for ProductSerialTracking
 async function generateCode(model: string, prefix: string): Promise<string> {
@@ -19,11 +19,6 @@ async function generateCode(model: string, prefix: string): Promise<string> {
   return `${prefix}${String(num + 1).padStart(5, '0')}`;
 }
 
-function maskForVat(value: any, isVatAuditor: boolean): any {
-  if (!isVatAuditor) return value;
-  return 'N/A (Audit Mode)';
-}
-
 // GET /api/product-lifecycle
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Stock', 'GET');
@@ -32,7 +27,6 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
-    const isVatAuditor = userRole === 'vat_auditor';
 
     // Dealer: view-only (can access)
     // SR: can view
@@ -43,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     // Lookup by serial or IMEI
     if (action === 'lookup') {
-      return await lookupSerialIMEI(searchParams, isVatAuditor);
+      return await lookupSerialIMEI(searchParams, userRole);
     }
 
     // List tracking records with filters
@@ -90,15 +84,13 @@ export async function GET(request: NextRequest) {
           },
         });
 
-        return {
+        return maskForVatAuditor({
           ...record,
           productCode: product?.productCode || 'N/A',
           productName: product?.name || 'N/A',
-          costPrice: isVatAuditor
-            ? maskForVat(product?.costPrice, true)
-            : product?.costPrice || 0,
+          costPrice: product?.costPrice || 0,
           salePrice: product?.salePrice || 0,
-        };
+        }, userRole, ['costPrice', 'salePrice']);
       })
     );
 
@@ -112,7 +104,7 @@ export async function GET(request: NextRequest) {
 // Lookup a specific serial/IMEI and return full lifecycle history
 async function lookupSerialIMEI(
   searchParams: URLSearchParams,
-  isVatAuditor: boolean
+  userRole: string
 ) {
   const serial = searchParams.get('serial');
   const imei = searchParams.get('imei');
@@ -197,15 +189,15 @@ async function lookupSerialIMEI(
   });
 
   return NextResponse.json({
-    tracking: {
+    tracking: maskForVatAuditor({
       ...record,
       productCode: product?.productCode || 'N/A',
       productName: product?.name || 'N/A',
-      costPrice: isVatAuditor ? maskForVat(product?.costPrice, true) : product?.costPrice || 0,
+      costPrice: product?.costPrice || 0,
       salePrice: product?.salePrice || 0,
       category: product?.category?.name || 'N/A',
       brand: product?.brand?.name || 'N/A',
-    },
+    }, userRole, ['costPrice', 'salePrice']),
     lifecycle: allRecords.map((r: any) => ({
       ...r,
       status: r.status,

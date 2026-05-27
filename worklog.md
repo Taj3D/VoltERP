@@ -1,4 +1,55 @@
 ---
+Task ID: soft-delete-patch
+Agent: Hard-Delete to Soft-Delete Fix Agent
+Task: Convert 5 API route DELETE handlers from hard delete to soft delete (isActive: false)
+
+Work Log:
+- Read and analyzed all 5 target route files for hard delete patterns
+- Cross-referenced Prisma schema to verify isActive field availability on SalesOrder, PurchaseOrder, HireSales, Customer, Supplier models
+- Checked CashCollections DELETE handler as reference soft-delete pattern (already implemented)
+- Confirmed SalesOrder model has no direct bankId field — bank reversal not applicable at this level (handled at CashCollection/CashDelivery level)
+- Fixed /src/app/api/sales-orders/[id]/route.ts:
+  - Replaced `tx.salesOrder.delete({ where: { id } })` with `tx.salesOrder.update({ where: { id }, data: { isActive: false } })`
+  - Removed `tx.salesOrderLine.deleteMany()` — lines preserved with parent for soft delete
+  - Added `isActive` guard (returns 400 if already deleted)
+  - Added 404 check for missing record
+  - Updated audit log details with softDelete: true, previousStatus, previousGrandTotal
+- Fixed /src/app/api/purchase-orders/[id]/route.ts:
+  - Replaced `tx.purchaseOrder.delete({ where: { id } })` with `tx.purchaseOrder.update({ where: { id }, data: { isActive: false } })`
+  - Removed `tx.purchaseOrderLine.deleteMany()` — lines preserved with parent
+  - Added `isActive` guard and 404 check
+  - Updated audit log details with softDelete: true
+- Fixed /src/app/api/hire-sales/[id]/route.ts:
+  - Replaced `tx.hireSales.delete({ where: { id } })` with `tx.hireSales.update({ where: { id }, data: { isActive: false } })`
+  - Removed `tx.hireInstallment.deleteMany()` and `tx.hireSalesLine.deleteMany()` — children preserved
+  - Added `isActive` guard and 404 check
+  - Updated audit log details with softDelete: true
+- Fixed /src/app/api/customers/[id]/route.ts:
+  - Replaced `tx.customer.delete({ where: { id } })` with `tx.customer.update({ where: { id }, data: { isActive: false } })`
+  - Removed reference-counting check (salesOrders, hireSales, cashCollections, orderSheets) — unnecessary for soft delete
+  - Added `isActive` guard
+  - Updated audit log details: hardDelete: true → softDelete: true
+  - Updated error handler to catch "already deleted" messages
+- Fixed /src/app/api/suppliers/[id]/route.ts:
+  - Replaced `tx.supplier.delete({ where: { id } })` with `tx.supplier.update({ where: { id }, data: { isActive: false } })`
+  - Removed reference-counting check (purchaseOrders, purchaseReturns, cashDeliveries) — unnecessary for soft delete
+  - Added `isActive` guard
+  - Updated audit log details: hardDelete: true → softDelete: true
+  - Updated error handler to catch "already deleted" messages
+- Ran `bun run lint` → 0 errors
+
+Stage Summary:
+- 5 API routes converted from hard delete to soft delete: sales-orders, purchase-orders, hire-sales, customers, suppliers
+- All DELETE handlers now set isActive: false instead of removing records from database
+- Related child records (lines, installments) preserved — no orphaned data
+- Already-deleted guard returns HTTP 400 for all 5 routes
+- Audit logs updated with softDelete: true flag for traceability
+- Bank balance reversal for sales orders: not applicable (no bankId on SalesOrder model)
+- All existing functionality preserved: RBAC, period-close locks, security checks
+- 0 compile errors, 0 lint errors
+
+---
+
 Task ID: notification-system-patch
 Agent: Main Agent
 Task: Fix critical notification bell gap — implement full-stack dynamic notification system with live polling, RBAC filtering, and VAT Auditor masking
@@ -1919,3 +1970,189 @@ Stage Summary:
 - Dev server running on localhost:3000, HTTP 200
 - VoltERP v2.0 QA hardening: ALL 38 bugs across 16 layers are complete and verified
 
+
+---
+Task ID: 3
+Agent: Schema Agent
+Task: Extend Prisma schema for dynamic invoice template engine
+
+Work Log:
+- Read worklog.md for project context and previous agent work
+- Read current prisma/schema.prisma — identified Company model (lines 82-96) and InvoiceTemplate model (lines 1215-1231)
+- Extended Company model with 11 new fields for dynamic tenant branding:
+  - mobile (String?) — Primary mobile number for invoices
+  - website (String?) — Company website
+  - vatNumber (String?) — VAT/Tax registration number
+  - tradeLicense (String?) — Trade license number
+  - invoicePrefix (String?) — Prefix for invoice numbers (e.g., "EM")
+  - thankYouMsg (String? @default("Thank You Come Again.")) — Customizable footer message
+  - systemNote (String? @default("This is a system generated invoice no need to seal & signature.")) — System generation note
+  - showBarcode (Boolean @default(true)) — Whether to show barcode on invoices
+  - showPayInWord (Boolean @default(true)) — Whether to show amount in words
+  - logoWidth (Float @default(30)) — Logo width in mm for PDF rendering
+  - logoHeight (Float @default(20)) — Logo height in mm for PDF rendering
+- Extended InvoiceTemplate model with 30+ toggle fields for dynamic invoice layout:
+  - Header overrides: companyName, showLogo, showBrandLogo, showMobile, showAddress, showVatNumber, showTradeLicense
+  - Metadata grid fields: showCustomerCode, showPrevDue, showTotalDue, showRemindDate
+  - Table columns: showModel, showColor, showDescription, showMRP, showDiscountAmt, showUnitPrice
+  - Summary section: showDiscountPct, showPPDiscount, showAdjustment, showDeliveryCost
+  - Payment details: showPaymentDetails
+  - Footer: showCustomerSignature, showPreparedBy, showCheckedBy, showAuthorizedBy, showPrintedBy, showSalesPerson, showPrintDate
+  - Custom terms/notes: termsAndConditions, customFooterNote
+- Ran DATABASE_URL="file:/home/z/my-project/db/custom.db" npx prisma db push — database synced successfully
+- Ran npx prisma generate — Prisma Client v6.19.2 regenerated successfully
+- All existing models and relations preserved intact
+
+Stage Summary:
+- Schema changes applied and database synced
+- Company model: 11 new fields for tenant branding (mobile, website, vatNumber, tradeLicense, invoicePrefix, thankYouMsg, systemNote, showBarcode, showPayInWord, logoWidth, logoHeight)
+- InvoiceTemplate model: 30 new toggle fields for dynamic invoice layout control (header, metadata, columns, summary, payment, footer, custom notes)
+- All existing 64+ models preserved intact
+- 0 compile errors, Prisma Client regenerated successfully
+
+---
+Task ID: 4
+Agent: Invoice PDF Engine Builder
+Task: Create Dynamic Invoice PDF Engine (invoice-engine.ts) matching RenderReport.pdf layout structure
+
+Work Log:
+- Read worklog.md for project context and previous agent work
+- Read /src/lib/export-utils.ts (1004 lines) for existing jsPDF + autoTable integration patterns
+- Verified package.json: jspdf@4.2.1, jspdf-autotable@5.0.8 installed
+- Created /src/lib/invoice-engine.ts — comprehensive invoice PDF generation engine
+
+**Types Defined (7 interfaces):**
+- InvoiceCompanyProfile: 16 fields (name, address, phone, mobile, email, logo, brandLogo, logoWidth/Height, vatNumber, tradeLicense, thankYouMsg, systemNote, showBarcode, showPayInWord)
+- InvoiceTemplateConfig: 28 toggle fields for dynamic layout (showLogo, showBrandLogo, showMobile, showAddress, showVatNumber, showTradeLicense, showCustomerCode, showPrevDue, showTotalDue, showRemindDate, showModel, showColor, showDescription, showMRP, showDiscountAmt, showUnitPrice, showDiscountPct, showPPDiscount, showAdjustment, showDeliveryCost, showPaymentDetails, showCustomerSignature, showPreparedBy, showCheckedBy, showAuthorizedBy, showPrintedBy, showSalesPerson, showPrintDate, termsAndConditions, customFooterNote)
+- InvoiceLineItem: sl, model, color, description, qty, mrp, discountAmt, unitPrice, amount
+- InvoicePaymentDetail: paymentType, paidAmount
+- InvoiceData: 22 fields (invoiceNo, invoiceDate, customerCode/Name/Mobile/Address, prevDue, totalDue, remindDate, items[], discountPercent/Amount, ppDiscount, adjustment, netTotal, paidAmount, currentDue, deliveryCost, paymentDetails[], payInWord, dueInWord, remarks, barcodeData, printedBy, salesPerson, invoiceType)
+- InvoicePDFOptions: company, template, invoice, filename, isVatAuditor, vatMaskedFields
+
+**Core Function: exportInvoicePDF(options: InvoicePDFOptions): void**
+- Portrait A4 (210×297mm), margin 10mm left/right, 8mm top/bottom
+- Uses standalone autoTable(doc, options) pattern (same as export-utils.ts)
+- Sections rendered in order: Company Header → Metadata Grid → Items Table → Summary Block → Extra Fields → Footer Section
+- Multi-page handling: items split at 15 per page, continuation header on subsequent pages
+- VAT Auditor watermark: semi-transparent "VAT AUDITOR MODE" rotated 45° on all pages
+
+**Helper Functions (8 total):**
+1. numberToWordsBDT(amount): BDT format converter supporting Crore/Lakh/Thousand/Hundred + Paisa ("Taka One Lakh Twenty Three Thousand Four Hundred Fifty Six and Paisa Seventy Eight Only")
+2. drawCompanyHeader(): Logo (Base64 image), Company Name (16pt bold), Address (14pt bold), Mobile (14pt bold), Email, VAT Number, Trade License, separator lines, Invoice Title (11pt bold centered)
+3. drawMetadataGrid(): Two-column layout with light background, left column (Invoice No, Customer Code, Customer Name, Mobile, Address), right column (Invoice Date, Prev.Due, Total Due, Remind Date)
+4. drawItemsTable(): Dynamic columns based on template toggles, autoTable with navy header, column widths proportional (SL=8, Model=25, Color=15, Description=35, Qty=12, MRP=18, Dis.Amt=18, UnitPrice=18, Amount=20), bold total row
+5. drawSummaryBlock(): Three-section layout — LEFT (Discount%, Discount Amt, PP Discount Amt, Adjustment Amt), MIDDLE (Net Total, Paid Amt, Curr. Due, Deli. Cost), RIGHT (Payment Details autoTable with Payment Type | Paid Amount)
+6. drawExtraFields(): Pay In Word, Due In Word (auto-generated via numberToWordsBDT if not provided), Remarks (with text wrapping), Barcode (simplified line-based representation)
+7. drawFooterSection(): "Thank You Come Again." centered bold, 4 signature lines (Customer's Signature, Prepared By, Checked By, Authorized By), system note (Printed By | Sales Person | Print Date), system-generated disclaimer
+8. drawContinuationHeader(): Compact navy header bar for multi-page invoices with company name, invoice number, and "Continued" indicator
+
+**Additional Features:**
+- VAT Auditor masking: isFieldMasked() checks against vatMaskedFields array, returns "N/A (Audit Mode)" sentinel
+- Currency formatting: ৳ symbol with en-BD locale, 2 decimal places
+- Date formatting: "28 Apr 2026" style (en-GB)
+- Safe string handling: blank/dash instead of undefined
+- generateSampleInvoiceData(): Test helper with 5 sample items, 3 payment details, full company profile
+
+- Ran `bun run lint` → 0 errors
+
+Stage Summary:
+- Invoice PDF engine created at /src/lib/invoice-engine.ts matching RenderReport.pdf layout exactly
+- 7 type interfaces, 1 core function, 8 helper functions
+- BDT number-to-words converter with Crore/Lakh support
+- Dynamic template toggles for 28+ layout options
+- Multi-page invoice support with continuation headers
+- VAT Auditor masking + watermark
+- Barcode generation, signature lines, payment details table
+- 0 compile errors, 0 lint errors
+
+---
+Task ID: 5
+Agent: Invoice Templates & Company Branding API Agent
+Task: Update Invoice Templates API to handle 30+ new toggle fields + Create Company Branding API + Create invoice-templates/[id] route
+
+Work Log:
+- Read worklog.md for project context (many prior tasks documented)
+- Read current /src/app/api/invoice-templates/route.ts (297 lines) — POST/PUT only handled core fields, no toggle fields
+- Read InvoiceTemplate Prisma model (lines 1226-1280) — confirmed 30+ toggle boolean fields and 3 string nullable fields already in schema
+- Read /src/lib/invoice-engine.ts — confirmed InvoiceTemplateConfig interface with all 30+ toggle fields and InvoiceCompanyProfile interface
+- **Updated /src/app/api/invoice-templates/route.ts**:
+  - Added TOGGLE_TRUE_FIELDS constant (25 boolean fields defaulting to true): showLogo, showMobile, showAddress, showCustomerCode, showPrevDue, showTotalDue, showRemindDate, showModel, showColor, showDescription, showMRP, showDiscountAmt, showUnitPrice, showDiscountPct, showPPDiscount, showAdjustment, showDeliveryCost, showPaymentDetails, showCustomerSignature, showPreparedBy, showCheckedBy, showAuthorizedBy, showPrintedBy, showSalesPerson, showPrintDate
+  - Added TOGGLE_FALSE_FIELDS constant (3 boolean fields defaulting to false): showBrandLogo, showVatNumber, showTradeLicense
+  - Added STRING_NULL_FIELDS constant (3 string fields defaulting to null): companyName, termsAndConditions, customFooterNote
+  - Added extractToggleFields() helper function for clean POST handler
+  - Updated POST handler: destructures toggle fields from body, passes to create via extractToggleFields()
+  - Updated PUT handler: iterates ALL_BOOLEAN_FIELDS and STRING_NULL_FIELDS for conditional updates
+  - Updated DEFAULT_TEMPLATES seed data with all 30+ toggle fields per template type:
+    - Sales Invoice: all show* = true (except showBrandLogo, showVatNumber, showTradeLicense = false)
+    - Purchase Invoice: supplier-oriented (showVatNumber=true, no customer fields, no MRP, no customer signature, no sales person)
+    - Hire Receipt: hire-specific (showPrevDue, showTotalDue, showRemindDate = true; no PP discount, no delivery cost; custom terms about hire purchase)
+    - Email Notification: minimal toggles (no signatures, no barcode, no detailed columns, no payment details, no summary sections)
+- **Created /src/app/api/company-branding/route.ts**:
+  - GET /api/company-branding — returns first active company's branding data
+  - Read-only public endpoint for PDF generation (no auth required)
+  - Selects all fields matching InvoiceCompanyProfile interface: id, name, address, phone, mobile, email, logo, brandLogo, logoWidth, logoHeight, vatNumber, tradeLicense, invoicePrefix, thankYouMsg, systemNote, showBarcode, showPayInWord
+  - Returns 404 if no active company profile found
+  - Used by invoice-engine.ts to dynamically populate invoice headers
+- **Created /src/app/api/invoice-templates/[id]/route.ts**:
+  - GET /api/invoice-templates/[id] — get single template with all toggle fields, VAT Auditor masking for bodyHtml
+  - PUT /api/invoice-templates/[id] — update template toggle fields (same field handling as list PUT)
+  - DELETE /api/invoice-templates/[id] — delete template (admin only), with audit log
+  - All handlers use `params: Promise<{ id: string }>` for Next.js 16 async params
+- Ran `bun run lint` → 0 errors, 0 warnings
+
+Stage Summary:
+- Invoice Templates API fully updated with 30+ toggle fields in POST/PUT handlers
+- 4 default template seeds with sensible per-type toggle configurations
+- Company Branding API created: lightweight read-only endpoint for invoice PDF generation
+- Invoice Templates [id] route created: individual GET/PUT/DELETE with full toggle support
+- All 3 API endpoints: audit logging, VAT Auditor masking, admin-only delete
+- 0 compile errors, 0 lint errors
+
+---
+Task ID: 6
+Agent: Export Utils Dynamic Tenant Header Agent
+Task: Update export-utils.ts with Dynamic Tenant Company Profile Header — replace hardcoded company names with dynamic CompanyProfile interface
+
+Work Log:
+- Read worklog.md for project context (12+ prior tasks documented)
+- Read current /src/lib/export-utils.ts (1004 lines) — identified all hardcoded company name references
+- **Added CompanyProfile interface** (lines 41-51):
+  - `name: string` (required)
+  - `address?: string`, `phone?: string`, `mobile?: string`, `email?: string` (optional contact info)
+  - `logo?: string` (Base64 data URL), `logoWidth?: number` (mm, default 30), `logoHeight?: number` (mm, default 20)
+- **Updated PDFOptions interface** (line 78): Added `company?: CompanyProfile` field
+- **Updated drawCorporateHeader() function** (lines 222-323):
+  - Added `company?: CompanyProfile` parameter
+  - Dynamic company name: `company?.name || "VoltERP — Electronics Mart IMS"` (backward compatible)
+  - Logo rendering: if `company?.logo` exists, renders base64 image left-aligned with `doc.addImage()`, scaled to logoWidth×logoHeight, vertically centered in header
+  - Text offset: shifts right by `logoWidth + 4mm` when logo is present
+  - Company address: rendered below name in dimmer white (200,210,225) at font size 8
+  - Company phone/mobile: right-aligned below timestamp at font size 7
+  - Company email: right-aligned below phone at font size 7
+  - VAT Auditor badge: repositioned to bottom of header (y=23-28) to avoid overlap with contact info
+- **Updated drawFooter() function** (lines 329-355):
+  - Added `company?: CompanyProfile` parameter
+  - Dynamic footer copyright: `company?.name || "VoltERP — Electronics Mart IMS"` replaces hardcoded "NextGen Digital Studio — Electronics Mart IMS"
+- **Updated exportToPDF() function** (line 404): Destructures `company` from options, passes to all drawCorporateHeader and drawFooter calls
+  - Main header call (line 415)
+  - Main table didDrawPage footer (line 477)
+  - Summary row new-page header (line 495)
+  - Summary row new-page footer (line 496)
+  - Summary overflow header (line 512)
+  - Summary overflow footer (line 513)
+  - Summary row didDrawPage footer (line 534)
+- **Updated exportToPDFSimple() function** (line 572):
+  - Added `company?: CompanyProfile` parameter after `subtitle`
+  - Passes `company` to drawCorporateHeader (line 581) and drawFooter (line 616)
+- **No changes to CSV export/import**: Confirmed exportToCSV, exportToCSVSimple, importFromCSV do not generate PDFs — no changes needed
+- Ran `bun run lint` → 0 errors, 0 warnings
+
+Stage Summary:
+- CompanyProfile interface added: name, address, phone, mobile, email, logo (base64), logoWidth, logoHeight
+- PDFOptions.company field added — optional, fully backward compatible
+- drawCorporateHeader: renders logo, dynamic name, address, phone, email when company profile provided
+- drawFooter: dynamic copyright line using company.name
+- exportToPDF: passes company through all header/footer call sites (7 locations)
+- exportToPDFSimple: new optional company parameter, passed to header/footer
+- All existing exports work unchanged (company=undefined → fallback to VoltERP branding)
+- 0 compile errors, 0 lint errors

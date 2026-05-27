@@ -162,6 +162,8 @@ export async function POST(request: NextRequest) {
             module: 'BankTransactions',
             recordId: bankTransaction.id,
             recordLabel: transactionCode,
+            userId: security.user.id,
+            userName: security.user.name,
             details: JSON.stringify({
               type: 'Deposit',
               bankId,
@@ -237,6 +239,8 @@ export async function POST(request: NextRequest) {
             module: 'BankTransactions',
             recordId: bankTransaction.id,
             recordLabel: transactionCode,
+            userId: security.user.id,
+            userName: security.user.name,
             details: JSON.stringify({
               type: 'Withdraw',
               bankId,
@@ -360,6 +364,8 @@ export async function POST(request: NextRequest) {
             module: 'BankTransactions',
             recordId: sourceTransaction.id,
             recordLabel: transactionCode,
+            userId: security.user.id,
+            userName: security.user.name,
             details: JSON.stringify({
               type: 'Transfer',
               sourceBankId: bankId,

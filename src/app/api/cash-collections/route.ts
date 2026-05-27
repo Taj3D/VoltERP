@@ -155,6 +155,8 @@ export async function POST(request: NextRequest) {
           module: 'CashCollections',
           recordId: cashCollection.id,
           recordLabel: collectionCode,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             collectionCode,
             customerId,

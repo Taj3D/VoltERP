@@ -64,16 +64,25 @@ export async function POST(req: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await req.json();
+    const { action, module, recordId, recordLabel, userId, userName, details, ip } = body;
+
+    if (!action || !module) {
+      return NextResponse.json(
+        { error: 'Missing required fields: action, module' },
+        { status: 400 }
+      );
+    }
+
     const log = await db.auditLog.create({
       data: {
-        action: body.action,
-        module: body.module,
-        recordId: body.recordId,
-        recordLabel: body.recordLabel,
-        userId: body.userId,
-        userName: body.userName,
-        details: body.details,
-        ip: body.ip,
+        action,
+        module,
+        recordId,
+        recordLabel,
+        userId: userId || security.user?.id || 'system',
+        userName: userName || security.user?.name || 'System',
+        details,
+        ip,
       },
     });
     return NextResponse.json(log, { status: 201 });

@@ -223,24 +223,35 @@ export async function DELETE(
   try {
     const { id } = await params;
 
+    // Fetch existing record for validation, period lock, and audit
+    const existing = await db.hireSales.findUnique({
+      where: { id },
+      select: { date: true, invoiceNo: true, isActive: true, status: true, grandTotal: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Hire sale not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!existing.isActive) {
+      return NextResponse.json(
+        { error: 'Hire sale is already deleted' },
+        { status: 400 }
+      );
+    }
+
     // Period-close lock check: use existing record's date
-    const existing = await db.hireSales.findUnique({ where: { id }, select: { date: true } });
-    const periodLock = await checkPeriodClose(existing?.date || new Date());
+    const periodLock = await checkPeriodClose(existing.date || new Date());
     if (periodLock) return periodLock;
 
     await db.$transaction(async (tx) => {
-      const hs = await tx.hireSales.findUnique({ where: { id }, select: { invoiceNo: true } });
-
-      await tx.hireInstallment.deleteMany({
-        where: { hireSalesId: id },
-      });
-
-      await tx.hireSalesLine.deleteMany({
-        where: { hireSalesId: id },
-      });
-
-      await tx.hireSales.delete({
+      // Soft delete the hire sale
+      await tx.hireSales.update({
         where: { id },
+        data: { isActive: false },
       });
 
       await tx.auditLog.create({
@@ -248,7 +259,12 @@ export async function DELETE(
           action: 'DELETE',
           module: 'HireSales',
           recordId: id,
-          recordLabel: hs?.invoiceNo || id,
+          recordLabel: existing.invoiceNo || id,
+          details: JSON.stringify({
+            softDelete: true,
+            previousStatus: existing.status,
+            previousGrandTotal: existing.grandTotal,
+          }),
         },
       });
     });

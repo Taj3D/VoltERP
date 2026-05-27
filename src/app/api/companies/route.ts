@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
-    const imgError = validateImageFields(body, ['brandLogo']);
+    const imgError = validateImageFields(body, ['logo', 'brandLogo']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       // Auto-generate code
@@ -38,7 +38,19 @@ export async function POST(request: NextRequest) {
           address: body.address || null,
           phone: body.phone || null,
           email: body.email || null,
+          logo: body.logo || null,
           brandLogo: body.brandLogo || null,
+          mobile: body.mobile || null,
+          website: body.website || null,
+          vatNumber: body.vatNumber || null,
+          tradeLicense: body.tradeLicense || null,
+          invoicePrefix: body.invoicePrefix || null,
+          thankYouMsg: body.thankYouMsg || null,
+          systemNote: body.systemNote || null,
+          showBarcode: body.showBarcode !== undefined ? body.showBarcode : true,
+          showPayInWord: body.showPayInWord !== undefined ? body.showPayInWord : true,
+          logoWidth: body.logoWidth ? parseFloat(String(body.logoWidth)) : 30,
+          logoHeight: body.logoHeight ? parseFloat(String(body.logoHeight)) : 20,
           isActive: body.isActive ?? true,
         },
       });

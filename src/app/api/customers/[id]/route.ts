@@ -102,19 +102,12 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       const record = await tx.customer.findUnique({ where: { id } });
       if (!record) throw new Error('Not found');
 
-      // Check for active references
-      const [salesOrders, hireSales, cashCollections, orderSheets] = await Promise.all([
-        tx.salesOrder.count({ where: { customerId: id } }),
-        tx.hireSales.count({ where: { customerId: id } }),
-        tx.cashCollection.count({ where: { customerId: id } }),
-        tx.orderSheet.count({ where: { customerId: id } }),
-      ]);
-
-      if (salesOrders + hireSales + cashCollections + orderSheets > 0) {
-        throw new Error(`Cannot delete: Customer has ${salesOrders} sales order(s), ${hireSales} hire sale(s), ${cashCollections} cash collection(s), ${orderSheets} order sheet(s)`);
+      if (!record.isActive) {
+        throw new Error('Customer is already deleted');
       }
 
-      await tx.customer.delete({ where: { id } });
+      // Soft delete the customer
+      await tx.customer.update({ where: { id }, data: { isActive: false } });
 
       await tx.auditLog.create({
         data: {
@@ -124,7 +117,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
           recordLabel: `${record.customerCode} - ${record.name}`,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ customerCode: record.customerCode, name: record.name, hardDelete: true }),
+          details: JSON.stringify({ customerCode: record.customerCode, name: record.name, softDelete: true }),
         },
       });
 
@@ -132,7 +125,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     });
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    if (error?.message?.startsWith('Cannot delete')) {
+    if (error?.message?.startsWith('Cannot delete') || error?.message?.includes('already deleted')) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: 'Failed to delete customer' }, { status: 500 });

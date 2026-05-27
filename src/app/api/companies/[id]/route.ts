@@ -26,18 +26,30 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
-    const imgError = validateImageFields(body, ['brandLogo']);
+    const imgError = validateImageFields(body, ['logo', 'brandLogo']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       const record = await tx.company.update({
         where: { id },
         data: {
-          name: body.name,
-          address: body.address !== undefined ? (body.address || null) : undefined,
-          phone: body.phone !== undefined ? (body.phone || null) : undefined,
-          email: body.email !== undefined ? (body.email || null) : undefined,
-          brandLogo: body.brandLogo !== undefined ? (body.brandLogo || null) : undefined,
-          isActive: body.isActive !== undefined ? body.isActive : undefined,
+          ...(body.name !== undefined && { name: body.name }),
+          ...(body.address !== undefined && { address: body.address || null }),
+          ...(body.phone !== undefined && { phone: body.phone || null }),
+          ...(body.email !== undefined && { email: body.email || null }),
+          ...(body.logo !== undefined && { logo: body.logo || null }),
+          ...(body.brandLogo !== undefined && { brandLogo: body.brandLogo || null }),
+          ...(body.mobile !== undefined && { mobile: body.mobile || null }),
+          ...(body.website !== undefined && { website: body.website || null }),
+          ...(body.vatNumber !== undefined && { vatNumber: body.vatNumber || null }),
+          ...(body.tradeLicense !== undefined && { tradeLicense: body.tradeLicense || null }),
+          ...(body.invoicePrefix !== undefined && { invoicePrefix: body.invoicePrefix || null }),
+          ...(body.thankYouMsg !== undefined && { thankYouMsg: body.thankYouMsg || null }),
+          ...(body.systemNote !== undefined && { systemNote: body.systemNote || null }),
+          ...(body.showBarcode !== undefined && { showBarcode: body.showBarcode }),
+          ...(body.showPayInWord !== undefined && { showPayInWord: body.showPayInWord }),
+          ...(body.logoWidth !== undefined && { logoWidth: parseFloat(String(body.logoWidth)) || 30 }),
+          ...(body.logoHeight !== undefined && { logoHeight: parseFloat(String(body.logoHeight)) || 20 }),
+          ...(body.isActive !== undefined && { isActive: body.isActive }),
         },
       });
 

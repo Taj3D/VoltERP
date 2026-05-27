@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Assets', 'GET');
@@ -21,14 +21,8 @@ export async function GET(request: NextRequest) {
     });
 
     // VAT Auditor masking
-    if (security.authorized && security.user.role === 'vat_auditor') {
-      return NextResponse.json(items.map(item => ({
-        ...item,
-        amount: 'N/A (Audit Mode)',
-      })));
-    }
-
-    return NextResponse.json(items);
+    const masked = items.map(item => maskForVatAuditor(item, security.user.role, ['amount']));
+    return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch assets' }, { status: 500 });
   }
@@ -65,8 +59,8 @@ export async function POST(request: NextRequest) {
           module: 'Assets',
           recordId: record.id,
           recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
-          userId: security.authorized ? security.user.id : 'system',
-          userName: security.authorized ? security.user.name : 'System',
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, category: record.assetCategory, date: record.date }),
         },
       });

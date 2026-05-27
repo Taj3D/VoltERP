@@ -21,13 +21,27 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const item = await db.$transaction(async (tx) => {
-      return tx.expenseIncomeHead.create({
+      const record = await tx.expenseIncomeHead.create({
         data: {
           name: body.name,
           type: body.type,
           isActive: body.isActive ?? true,
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'ExpenseIncomeHeads',
+          recordId: record.id,
+          recordLabel: record.name || record.id,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({ name: record.name, type: record.type }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {

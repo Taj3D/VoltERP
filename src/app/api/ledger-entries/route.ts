@@ -150,6 +150,8 @@ export async function POST(request: NextRequest) {
           module: 'LedgerEntries',
           recordId: ledgerEntry.id,
           recordLabel: ledgerEntry.entryCode,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
           details: JSON.stringify(body),
         },
       });
