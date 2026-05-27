@@ -7,12 +7,14 @@
 // ============================================================
 
 import { jsPDF } from "jspdf";
-import { applyPlugin } from "jspdf-autotable";
+import { autoTable } from "jspdf-autotable";
 import Papa from "papaparse";
 
-// Register autoTable plugin on jsPDF prototype (required for jspdf-autotable v5)
-// This MUST happen before any jsPDF instance is created
-applyPlugin(jsPDF);
+// NOTE: We use the standalone autoTable(doc, options) function instead of the
+// applyPlugin(jsPDF) + doc.autoTable() pattern. The applyPlugin approach patches
+// jsPDF.API but breaks in Next.js webpack/turbopack because the bundled jsPDF
+// constructor may be a different reference than the one applyPlugin receives.
+// The standalone autoTable() function works directly with the doc instance.
 
 // ============================================================
 // TYPES
@@ -382,7 +384,7 @@ export function exportToPDF(options: PDFOptions): void {
     // We use {total} as placeholder; second pass will fix it
     const TOTAL_PLACEHOLDER = "{total}";
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       head: [headers],
       body,
       startY: tableStartY,
@@ -432,7 +434,7 @@ export function exportToPDF(options: PDFOptions): void {
           currentSummaryY = 36; // Below corporate header
         }
 
-        (doc as any).autoTable({
+        autoTable(doc, {
           body: [summaryRow.cells],
           startY: currentSummaryY,
           margin: { left: margin, right: margin, bottom: 18 },
@@ -507,7 +509,7 @@ export function exportToPDFSimple(
       };
     });
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       head: [headers],
       body: rows,
       startY: tableStartY,

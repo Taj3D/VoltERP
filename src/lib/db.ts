@@ -12,17 +12,17 @@ if (globalForPrisma.prisma && typeof (globalForPrisma.prisma as any).auditLog ==
 export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: ['query'],
+    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   })
 
-// Enable SQLite WAL mode for better concurrent read/write performance
-db.$executeRawUnsafe('PRAGMA journal_mode=WAL').catch(() => {
+// SQLite performance pragmas
+// Note: PRAGMA journal_mode=WAL returns a result, so we use $queryRawUnsafe
+// Other PRAGMAs don't return results, so $executeRawUnsafe is fine
+db.$queryRawUnsafe('PRAGMA journal_mode=WAL').catch(() => {
   // WAL mode may not be supported in all environments
 })
-
-// Optimize SQLite performance pragmas
 db.$executeRawUnsafe('PRAGMA synchronous=NORMAL').catch(() => {})
-db.$executeRawUnsafe('PRAGMA cache_size=-64000').catch(() => {}) // 64MB cache
+db.$executeRawUnsafe('PRAGMA cache_size=-16000').catch(() => {}) // 16MB cache
 db.$executeRawUnsafe('PRAGMA foreign_keys=ON').catch(() => {})
 db.$executeRawUnsafe('PRAGMA temp_store=MEMORY').catch(() => {})
 

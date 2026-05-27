@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
   experimental: {
     webpackMemoryOptimizations: true,
+    optimizePackageImports: [
+      "lucide-react",
+      "recharts",
+      "@radix-ui/react-icons",
+      "date-fns",
+    ],
   },
   allowedDevOrigins: [
     "http://21.0.11.89:3000",
