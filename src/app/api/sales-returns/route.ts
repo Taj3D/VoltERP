@@ -197,6 +197,8 @@ export async function POST(request: NextRequest) {
           module: 'SalesReturns',
           recordId: salesReturn.id,
           recordLabel: returnNo,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             salesOrderId,
             customerId,

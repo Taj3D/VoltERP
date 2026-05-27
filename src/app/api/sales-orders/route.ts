@@ -226,6 +226,8 @@ export async function POST(request: NextRequest) {
           module: 'SalesOrders',
           recordId: salesOrder.id,
           recordLabel: invoiceNo,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({ customerId, grandTotal, lineCount: processedLines.length }),
         },
       });

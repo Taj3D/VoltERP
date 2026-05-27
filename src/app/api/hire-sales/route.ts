@@ -241,6 +241,8 @@ export async function POST(request: NextRequest) {
           module: 'HireSales',
           recordId: hireSale.id,
           recordLabel: invoiceNo,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({ customerId, grandTotal, duration, installmentAmount: calcInstallment }),
         },
       });

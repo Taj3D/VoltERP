@@ -228,6 +228,8 @@ export async function POST(request: NextRequest) {
           module: 'PurchaseReturns',
           recordId: purchaseReturn.id,
           recordLabel: returnNo,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             purchaseOrderId,
             supplierId,

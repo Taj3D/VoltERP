@@ -112,8 +112,8 @@ export async function POST(request: NextRequest) {
         module: 'StockEntries',
         recordId: entry.id,
         recordLabel: `${entry.type}-${entry.productId}`,
-        userId: security.user?.id || 'system',
-        userName: security.user?.name || 'System',
+        userId: security.user.id,
+        userName: security.user.name,
         details: JSON.stringify({ productId, type, quantity, reference, referenceType, date }),
       },
     });
