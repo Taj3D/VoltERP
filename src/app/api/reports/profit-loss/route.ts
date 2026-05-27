@@ -14,19 +14,16 @@ export async function GET(request: NextRequest) {
 
     // Build date filters
     const dateFilterSO: Record<string, Date> = {};
-    const dateFilterPO: Record<string, Date> = {};
     const dateFilterIncome: Record<string, unknown> = {};
     const dateFilterExpense: Record<string, unknown> = {};
 
     if (from) {
       dateFilterSO.gte = new Date(from);
-      dateFilterPO.gte = new Date(from);
       dateFilterIncome.date = { gte: new Date(from) };
       dateFilterExpense.date = { gte: new Date(from) };
     }
     if (to) {
       dateFilterSO.lte = new Date(to);
-      dateFilterPO.lte = new Date(to);
       if (dateFilterIncome.date) {
         (dateFilterIncome.date as Record<string, Date>).lte = new Date(to);
       } else {
@@ -43,14 +40,11 @@ export async function GET(request: NextRequest) {
     const salesWhere: Record<string, unknown> = { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true };
     if (from || to) salesWhere.date = dateFilterSO;
 
-    const purchaseWhere: Record<string, unknown> = { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true };
-    if (from || to) purchaseWhere.date = dateFilterPO;
-
     // Income and expenses: include Approved status (already filtered by isActive)
     const incomeWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...dateFilterIncome };
     const expenseWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...dateFilterExpense };
 
-    const [confirmedSales, allIncomes, confirmedPurchases, allExpenses] = await Promise.all([
+    const [confirmedSales, allIncomes, allExpenses] = await Promise.all([
       db.salesOrder.findMany({
         where: salesWhere,
         include: { lines: { include: { product: { select: { costPrice: true } } } } },
@@ -58,10 +52,6 @@ export async function GET(request: NextRequest) {
       db.income.findMany({
         where: incomeWhere,
         include: { head: true, paymentOption: true },
-      }),
-      db.purchaseOrder.findMany({
-        where: purchaseWhere,
-        select: { grandTotal: true, date: true },
       }),
       db.expense.findMany({
         where: expenseWhere,

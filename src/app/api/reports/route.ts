@@ -198,8 +198,8 @@ async function getTransactionSummary(_searchParams: URLSearchParams) {
     totalBankDepositAgg,
     totalBankWithdrawalAgg,
   ] = await Promise.all([
-    db.salesOrder.aggregate({ where: { status: { in: ['Confirmed', 'Delivered'] } }, _sum: { grandTotal: true }, _count: true }),
-    db.purchaseOrder.aggregate({ where: { status: { in: ['Confirmed', 'Received'] } }, _sum: { grandTotal: true }, _count: true }),
+    db.salesOrder.aggregate({ where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true }, _sum: { grandTotal: true }, _count: true }),
+    db.purchaseOrder.aggregate({ where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true }, _sum: { grandTotal: true }, _count: true }),
     db.expense.aggregate({ where: { isActive: true }, _sum: { amount: true }, _count: true }),
     db.income.aggregate({ where: { isActive: true }, _sum: { amount: true }, _count: true }),
     db.cashCollection.aggregate({ where: { isActive: true }, _sum: { amount: true }, _count: true }),
@@ -254,11 +254,11 @@ async function getMonthlyTransaction(searchParams: URLSearchParams) {
   // Fetch all relevant transactions within date range
   const [salesOrders, purchaseOrders, expenses, incomes] = await Promise.all([
     db.salesOrder.findMany({
-      where: { date: { gte: startDate }, status: { in: ['Confirmed', 'Delivered'] } },
+      where: { date: { gte: startDate }, status: { notIn: ['Draft', 'Cancelled'] }, isActive: true },
       select: { date: true, grandTotal: true },
     }),
     db.purchaseOrder.findMany({
-      where: { date: { gte: startDate }, status: { in: ['Confirmed', 'Received'] } },
+      where: { date: { gte: startDate }, status: { notIn: ['Draft', 'Cancelled'] }, isActive: true },
       select: { date: true, grandTotal: true },
     }),
     db.expense.findMany({

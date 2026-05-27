@@ -135,13 +135,31 @@ export async function PUT(
         },
       });
 
-      // If status is Approved and (bankId or amount changed), create a new LedgerEntry
+      // If status is Approved and (bankId or amount changed), create balanced ledger pair
       const bankOrAmountChanged =
         newBankId !== oldBankId || newAmount !== oldAmount;
       const statusChanged = newStatus !== oldStatus;
 
       if ((newStatus === 'Approved' && bankOrAmountChanged) ||
           (statusChanged && newStatus === 'Approved')) {
+        // Get cash/bank account name for the debit entry
+        const bankRecord = newBankId
+          ? await tx.bank.findUnique({ where: { id: newBankId }, select: { bankName: true } })
+          : null;
+        const cashAccountName = bankRecord?.bankName || 'Cash in Hand';
+        // Dr: Cash/Bank
+        await tx.ledgerEntry.create({
+          data: {
+            date: updated.date,
+            account: cashAccountName,
+            particulars: 'Cash Collection from customer (updated)',
+            debit: newAmount,
+            credit: 0,
+            reference: existing.collectionCode,
+            referenceType: 'CashCollection',
+          },
+        });
+        // Cr: Customer
         await tx.ledgerEntry.create({
           data: {
             date: updated.date,
@@ -150,6 +168,7 @@ export async function PUT(
             credit: newAmount,
             debit: 0,
             reference: existing.collectionCode,
+            referenceType: 'CashCollection',
           },
         });
       }

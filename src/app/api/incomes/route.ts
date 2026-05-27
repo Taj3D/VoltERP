@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Create LedgerEntry (credit for income)
+      // Create LedgerEntry (credit for income head)
       await tx.ledgerEntry.create({
         data: {
           date: transactionDate,
@@ -113,6 +113,23 @@ export async function POST(request: NextRequest) {
           debit: 0,
           credit: parseFloat(String(amount)),
           reference: incomeCode,
+          referenceType: 'Income',
+        },
+      });
+
+      // Create LedgerEntry (debit for cash/bank — double-entry counterpart)
+      const cashAccountName = effectiveBankId
+        ? (await tx.bank.findUnique({ where: { id: effectiveBankId } }))?.bankName || 'Bank'
+        : 'Cash in Hand';
+      await tx.ledgerEntry.create({
+        data: {
+          date: transactionDate,
+          account: cashAccountName,
+          particulars: `Received for income: ${head?.name || 'Unknown'}`,
+          debit: parseFloat(String(amount)),
+          credit: 0,
+          reference: incomeCode,
+          referenceType: 'Income',
         },
       });
 

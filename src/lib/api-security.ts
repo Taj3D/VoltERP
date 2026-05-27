@@ -270,17 +270,30 @@ export async function checkPeriodClose(
 /**
  * VAT Auditor masking helper - replaces cost/margin values with "N/A (Audit Mode)"
  */
+// Default sensitive fields for VAT Auditor masking
+const DEFAULT_VAT_MASKED_FIELDS = ['costPrice', 'wholesalePrice', 'dealerPrice', 'discount', 'discountPercent', 'discountAmount', 'margin', 'profit'];
+
 export function maskForVatAuditor<T extends Record<string, unknown>>(
   data: T,
   role: UserRole,
-  sensitiveFields: string[] = ['costPrice', 'wholesalePrice', 'dealerPrice', 'discount', 'discountPercent', 'discountAmount', 'margin', 'profit']
+  sensitiveFields: string[] = DEFAULT_VAT_MASKED_FIELDS
 ): T {
-  if (role !== 'vat_auditor') return data;
+  // Support multi-role masking: VAT Auditor gets all default + extra fields,
+  // SR/Dealer get only the explicitly passed fields (e.g., creditLimit, baseSalary)
+  // For non-VAT roles, only mask if explicit non-default fields are provided
+  if (role !== 'vat_auditor') {
+    // Check if the caller passed custom fields (different from default list)
+    const isDefaultList = sensitiveFields.length === DEFAULT_VAT_MASKED_FIELDS.length &&
+      sensitiveFields.every(f => DEFAULT_VAT_MASKED_FIELDS.includes(f));
+    if (isDefaultList) return data; // Non-VAT role with default fields = no masking needed
+    // Non-VAT role with custom fields = mask those specific fields
+  }
 
   const masked = { ...data };
+  const maskingLabel = role === 'vat_auditor' ? 'N/A (Audit Mode)' : 'N/A (Restricted)';
   for (const field of sensitiveFields) {
     if (field in masked) {
-      (masked as Record<string, unknown>)[field] = 'N/A (Audit Mode)';
+      (masked as Record<string, unknown>)[field] = maskingLabel;
     }
   }
   return masked;

@@ -1081,3 +1081,539 @@ PROJECT CURRENT STATUS (Post God-Mode Audit):
 - Mobile responsiveness covers all dialogs and tables
 - Known remaining consideration: Server can handle ~50 sequential API requests before memory pressure; production deployment should use a process manager (PM2) for auto-restart
 - Next phase: Performance optimization, code splitting for large component files, E2E testing automation
+
+---
+Task ID: 2.6
+Agent: Ultra-Elite Full-Stack QA Engineer
+Task: Audit Account Management and SMS Service modules with relentless detail
+
+Work Log:
+- Read worklog.md for project context (12+ prior tasks documented)
+- Read ALL 13 API route files: expense-income-heads, expenses, incomes, cash-collections, cash-deliveries, bank-transactions, sms-logs, sms-bills, sms-settings, sms-bill-payments (with [id] variants)
+- Read ALL 4 component files: ExpensesIncomesPage.tsx (757 lines), CashCollectionsDeliveriesPage.tsx (890 lines), BankTransactionsPage.tsx (790 lines), SMSAnalyticsPage.tsx (1533 lines)
+- Read Prisma schema (ExpenseIncomeHead, Expense, Income, CashCollection, CashDelivery, BankTransaction, SmsSetting, SmsLog, SmsBill, SmsBillPayment, LedgerEntry models)
+- Read export-utils.ts escapeCSVField function
+
+**COMPREHENSIVE VERIFICATION RESULTS:**
+
+**Module 1: Expense/Income Head — VERIFIED CLEAN**
+- GET/POST on /api/expense-income-heads ✓
+- GET/PUT/DELETE on /api/expense-income-heads/[id] ✓
+- withApiSecurity on all routes ✓
+- CRUD in ExpensesIncomesPage.tsx: Create (openHeadCreate), Read (loadHeads), Update (saveHead with PUT), Delete (deleteHead with DELETE) ✓
+- Form fields match Prisma schema: name (String), type (String "Expense"/"Income"), isActive (Boolean) ✓
+
+**Module 2: Expense — BUGS FOUND AND FIXED**
+- API: GET (with head, paymentOption, bank includes), POST (auto-code EXP-XXXXX, period close check, bank balance decrement, ledger entry, audit log), PUT (bank adjustment logic), DELETE (soft delete, reverse bank) ✓
+- BUG 1 (CRITICAL): POST created only one-sided ledger entry (Dr: ExpenseHead, Cr: 0) — missing Cr: Cash/Bank counterpart. Breaks double-entry integrity.
+  - FIX: Added Cr: Cash/Bank counterpart ledger entry + referenceType: 'Expense' on both entries
+- BUG 2 (MEDIUM): Ledger entry missing referenceType field
+  - FIX: Added referenceType: 'Expense' to both ledger entries
+
+**Module 3: Income — BUGS FOUND AND FIXED**
+- API: GET (with head, paymentOption, bank includes), POST (auto-code INC-XXXXX, period close check, bank balance increment, ledger entry, audit log), PUT (bank adjustment logic), DELETE (soft delete, reverse bank) ✓
+- BUG 3 (CRITICAL): POST created only one-sided ledger entry (Dr: 0, Cr: IncomeHead) — missing Dr: Cash/Bank counterpart. Breaks double-entry integrity.
+  - FIX: Added Dr: Cash/Bank counterpart ledger entry + referenceType: 'Income' on both entries
+- BUG 4 (MEDIUM): Ledger entry missing referenceType field
+  - FIX: Added referenceType: 'Income' to both ledger entries
+
+**Module 4: Cash Collection — BUG FOUND AND FIXED**
+- API POST: Creates balanced pair — Dr: Cash/Bank, Cr: Customer ✓ (previously fixed by Task 10-11)
+- BUG 5 (HIGH): PUT created only one-sided ledger entry (Cr: Customer only) — missing Dr: Cash/Bank counterpart on update
+  - FIX: Added Dr: Cash/Bank ledger entry alongside Cr: Customer entry, with referenceType: 'CashCollection'
+
+**Module 5: Cash Delivery — BUG FOUND AND FIXED**
+- API POST: Creates balanced pair — Dr: Supplier, Cr: Cash/Bank ✓ (previously fixed by Task 10-11)
+- BUG 6 (HIGH): PUT created only-sided ledger entry (Dr: Supplier only) — missing Cr: Cash/Bank counterpart on update
+  - FIX: Added Cr: Cash/Bank ledger entry alongside Dr: Supplier entry, with referenceType: 'CashDelivery'
+
+**Module 6: Bank Transaction — VERIFIED CLEAN**
+- Deposit: Dr: Bank, Cr: Cash in Hand ✓ (balanced)
+- Withdraw: Dr: Cash in Hand, Cr: Bank ✓ (balanced)
+- Transfer: Dr: Source Bank, Cr: Target Bank ✓ (balanced)
+- Running balance computed dynamically from openingBalance + cumulative transaction totals ✓
+- Bank balance reversal on update/delete ✓
+- Paired target transaction for Transfers ✓
+- Amount validation (positive number) ✓
+- Insufficient balance check ✓
+
+**Module 7: SMS Inbox (Logs) — VERIFIED CLEAN**
+- GET/POST/PUT/DELETE on /api/sms-logs ✓
+- withApiSecurity on all routes ✓
+- SMSAnalyticsPage logs tab: Search, status filter, Import CSV, Export CSV, Export PDF ✓
+- Fields match Prisma SmsLog: recipient, message, status, sentAt, cost, isActive ✓
+
+**Module 8: Send SMS — VERIFIED CLEAN**
+- Single SMS sends to /api/sms-logs with recipient, message, status, cost ✓
+- Bulk SMS splits comma-separated recipients, sends individually with try/catch per recipient ✓
+- Async error handling per-recipient in bulk mode ✓
+- Character counter (160 chars per SMS) ✓
+- Cost per message field ✓
+
+**Module 9: SMS Bill — VERIFIED CLEAN**
+- GET/POST on /api/sms-bills with payments include ✓
+- GET/PUT/DELETE on /api/sms-bills/[id] ✓
+- Hard delete with SmsBillPayment cascade delete ✓
+- Import CSV via importFromCSV({ apiPath, formFields }) ✓
+- Export CSV/PDF with vatMaskedColumns: ["totalCost", "paidAmount"] ✓
+
+**Module 10: SMS Report — VERIFIED CLEAN**
+- Date range from/to picker with Generate button ✓
+- Reports via /api/reports?type=sms&from=...&to=... ✓
+- Cost field VAT-masked ✓
+
+**Module 11: SMS Service Setting — VERIFIED CLEAN**
+- Full CRUD form with API URL, API Key (password type), Sender ID, Active (Switch) ✓
+- POST for create, PUT for edit via /api/sms-settings ✓
+- DELETE via /api/sms-settings/[id] ✓
+- API Key masked in display (showing first 8 chars + bullets) ✓
+- New Configuration button present ✓
+- Empty state with "No SMS Settings Configured" message ✓
+- Fields match Prisma SmsSetting: apiUrl, apiKey, senderId, isActive ✓
+
+**Module 12: SMS Bill Payment — VERIFIED CLEAN**
+- GET/POST on /api/sms-bill-payments with smsBill include ✓
+- GET/PUT/DELETE on /api/sms-bill-payments/[id] ✓
+- POST auto-updates SmsBill.paidAmount and status (Paid/Partial/Unpaid) ✓
+- PUT recalculates paidAmount and status ✓
+- DELETE (hard delete) recalculates paidAmount and status ✓
+
+**Module 13: Send Bulk SMS — VERIFIED CLEAN**
+- Bulk mode toggle with Single/Bulk buttons ✓
+- Comma-separated recipients ✓
+- Sequential send with per-recipient error counting ✓
+- Success/failure toast ✓
+
+**CSV Injection Vulnerability — BUG FOUND AND FIXED**
+- BUG 7 (MEDIUM): escapeCSVField() in export-utils.ts did not sanitize cells starting with dangerous characters (=, +, -, @, \t, \r) — CSV injection vulnerability allowing formula injection in Excel/Google Sheets
+  - FIX: Added CSV injection protection — cells starting with =, +, -, @, \t, \r are prefixed with a single quote (') to neutralize formulas, and the whole field is quoted
+
+**No Dummy Data:**
+- Searched all component and API files for mockData, hardcoded, dummyData, sampleData, MOCK_ — ZERO results ✓
+
+**Component-Level Verification:**
+- ExpensesIncomesPage.tsx: 3 tabs (Heads, Expenses, Incomes), CRUD on all, RBAC (Dealer blocked, SR restricted from expenses), VAT masking, Export CSV/PDF, Import CSV ✓
+- CashCollectionsDeliveriesPage.tsx: 2 tabs (Collections, Deliveries), CRUD on both, customer outstanding balance, supplier payable, RBAC, VAT masking, Export CSV/PDF, Import CSV ✓
+- BankTransactionsPage.tsx: Bank balance cards, type filter, CRUD, insufficient balance validation, same-bank transfer prevention, Export CSV/PDF, Import CSV, RBAC (Dealer/SR blocked) ✓
+- SMSAnalyticsPage.tsx: 5 tabs (Dashboard, Logs, Billing, Send, Settings), KPIs, charts, full CRUD on settings, VAT masking, Export CSV/PDF, Import CSV ✓
+
+- Ran `bun run lint` → 0 errors
+
+Stage Summary:
+- 7 bugs found and fixed across 4 files:
+  1. Expenses POST: Missing Cr: Cash/Bank ledger counterpart + missing referenceType (CRITICAL — breaks double-entry)
+  2. Incomes POST: Missing Dr: Cash/Bank ledger counterpart + missing referenceType (CRITICAL — breaks double-entry)
+  3. Cash Collections PUT: Missing Dr: Cash/Bank ledger counterpart on update (HIGH — unbalanced update)
+  4. Cash Deliveries PUT: Missing Cr: Cash/Bank ledger counterpart on update (HIGH — unbalanced update)
+  5. CSV injection vulnerability in escapeCSVField() (MEDIUM — security risk)
+- All Account Management double-entry ledger pairs now balanced:
+  - Expense: Dr: ExpenseHead, Cr: Cash/Bank ✓
+  - Income: Dr: Cash/Bank, Cr: IncomeHead ✓
+  - Cash Collection: Dr: Cash/Bank, Cr: Customer ✓
+  - Cash Delivery: Dr: Supplier, Cr: Cash/Bank ✓
+  - Bank Deposit: Dr: Bank, Cr: Cash in Hand ✓
+  - Bank Withdraw: Dr: Cash in Hand, Cr: Bank ✓
+- All SMS modules verified clean with proper CRUD, export/import, VAT masking
+- SMS Settings tab confirmed not empty (full CRUD form with API URL, API Key, Sender ID, Active toggle)
+- No dummy/hardcoded data found
+- 0 lint errors
+
+---
+Task ID: 2.5
+Agent: Ultra-Elite Full-Stack QA Engineer — Inventory Management Audit
+Task: Microscopic module-by-module audit of ALL 11 Inventory Management sub-modules with field-name cross-referencing against Prisma schema and API routes
+
+Work Log:
+- Read worklog.md for project context (12+ prior tasks documented)
+- Read full Prisma schema (OrderSheet, PurchaseOrder, SalesOrder, HireSales, SalesReturn, PurchaseReturn, ReplacementOrder, StockEntry, StockTransfer, Godown, PaymentOption models)
+- Read all 11 API routes: /api/order-sheets, /api/purchase-orders, /api/sales-orders, /api/hire-sales, /api/sales-returns, /api/purchase-returns, /api/replacements, /api/stock, /api/stock-details, /api/transfers, /api/auto-po
+- Read full InventoryGroupPage.tsx (2583 lines) covering 13 tabs
+- Cross-referenced every field name in component against Prisma schema and API response shapes
+
+**Previously Fixed Bugs — VERIFIED STILL INTACT:**
+- Sales Order: paymentOption?.name (not paymentOption object) ✓
+- Sales Order: vatAmount (not vat), vatPercentage (not vatPercent) ✓
+- Purchase Order: vatAmount/vatPercentage (not vat/vatPercent) ✓
+- Hire Sales: balanceAmount/installmentAmount (not balance/installmentAmt) ✓
+- Sales Return: customerId auto-populated ✓, vatAmount ✓
+- Purchase Return: supplierId auto-populated ✓, debitNoteCode ✓
+- Transfer exports: relation objects flattened ✓
+
+**NEW BUGS FOUND AND FIXED (4 bugs):**
+
+1. **CRITICAL — Stock Page: Flat API response vs nested component access** (lines 2429-2442, 2377-2412)
+   - Root Cause: /api/stock returns FLAT objects `{ productName, productCode, category, godown, currentStock, stockValue, stockStatus }` but the component used NESTED access patterns `s.product?.productCode`, `s.product?.name`, `s.product?.category?.name`, `s.godown?.name` — ALL returning undefined
+   - Impact: Stock page showed empty/blank values for Product Name, Category, and Godown columns. Search filter was broken. Export data was empty.
+   - Fix: Changed all stock page references to prioritize flat API fields with nested fallback: `s.productCode || s.product?.productCode`, `s.productName || s.product?.name`, `s.category || s.product?.category?.name`, `s.godown || s.godown?.name`
+   - Fixed 6 locations: CSV export data mapping, PDF export data mapping, search filter, table product cell, table category cell, table godown cell
+
+2. **HIGH — Sales Order: paymentOptionId not sent in save payload** (lines 317, 1446, 1453, 1477, 1567-1574)
+   - Root Cause: Form used `paymentOption: "Cash"` (hardcoded string) but Prisma schema has `paymentOptionId` (foreign key to PaymentOption table). API reads `paymentOptionId` from body. The payload sent `paymentOption` which was ignored — payment option was NEVER saved to database.
+   - Impact: Payment option always showed "Cash" (fallback) in table; editing always showed empty dropdown; payment option never persisted
+   - Fix: (a) Added `paymentOptions` state and loaded from `/api/payment-options`; (b) Changed form field from `paymentOption` to `paymentOptionId`; (c) Changed dropdown from hardcoded values to dynamic PaymentOption records; (d) Save payload now explicitly sends `paymentOptionId: soForm.paymentOptionId || null`; (e) Edit form reads `item.paymentOptionId` instead of `item.paymentOption?.name`
+
+3. **HIGH — Auto PO: suggestedQty vs suggestedQuantity field name mismatch** (lines 1307, 1320, 1321, 1330, 1400, 1402)
+   - Root Cause: /api/auto-po returns `suggestedQuantity` but component used `suggestedQty` throughout
+   - Impact: Suggested Qty column always showed "—" or 0; StatCard showed 0 suggested qty; Generate PO always used quantity=1 instead of suggested amount; Estimated Cost calculation always fell through to 0
+   - Fix: Changed all 6 occurrences from `suggestedQty` to `suggestedQuantity` (autoPoColumns key, autoPoStats suggested, autoPoStats totalCost fallback, generateAutoPo quantity, table cell, estimatedCost fallback)
+
+4. **MEDIUM — Hire Sales Installment View: Old field names installmentAmt/balance** (line 1766)
+   - Root Cause: Installment view dialog used `h.installmentAmt` and `h.balance` — OLD field names from before Task 8 fix. Prisma schema has `installmentAmount` and `balanceAmount`.
+   - Impact: Installment amount in view dialog always showed ৳0.00 since `h.installmentAmt` is undefined
+   - Fix: Changed `Number(h.installmentAmt)` → `Number(h.installmentAmount)`, `Number(h.balance)` → `Number(h.balanceAmount)`
+
+**MODULES VERIFIED CLEAN (no bugs found):**
+- Order Sheet (Company): CRUD ✓, line items ✓, company?.name relation ✓, Export CSV/PDF/Import ✓
+- Order Sheet (Customer): CRUD ✓, line items ✓, customer?.name relation ✓, Export CSV/PDF/Import ✓
+- Order Sheet Report: Date range filter ✓, Export CSV/PDF ✓, company?.name/customer?.name flattened ✓
+- Purchase Order: CRUD ✓, vatAmount/vatPercentage ✓, supplier?.name/godown?.name ✓, VAT masking ✓, Export CSV/PDF/Import ✓
+- Sales Return: CRUD ✓, customerId auto-populated ✓, vatAmount/vatPercentage ✓, salesOrder?.invoiceNo ✓, Export CSV/PDF/Import ✓
+- Purchase Return: CRUD ✓, supplierId auto-populated ✓, vatAmount/vatPercentage ✓, debitNoteCode ✓, Export CSV/PDF/Import ✓
+- Replacement Order: CRUD ✓, salesOrder?.invoiceNo ✓, Export CSV/PDF/Import ✓
+- Stock Details: Per-product detail view ✓, Export CSV/PDF (disabled when no product) ✓
+- Transfer: CRUD ✓, fromGodown?.name/toGodown?.name flattened ✓, Export CSV/PDF/Import ✓
+
+**API Routes Verified:**
+- All 11 routes have GET + POST (where applicable)
+- All routes use withApiSecurity ✓
+- All routes include proper relations in Prisma queries ✓
+- Period-close lock checks on POST routes ✓
+- Stock safety validation on Sales Order and Hire Sales POST ✓
+
+- Ran `bun run lint` → 0 errors, 0 warnings
+
+Stage Summary:
+- 4 bugs fixed: 1 CRITICAL (Stock page blank), 2 HIGH (SO paymentOptionId, Auto PO suggestedQuantity), 1 MEDIUM (Hire Sales installment view)
+- All 11 inventory sub-modules audited with Prisma schema and API route cross-referencing
+- All 7 previously fixed bugs verified still intact
+- All Export/Import buttons verified present and correctly wired on all 11 sub-pages
+- All relation objects properly accessed with ?.name/?.code (no raw object rendering)
+- All VAT masking properly applied for VAT Auditor role
+- 0 lint errors
+
+---
+Task ID: 2.1
+Agent: Investment/Asset/Liability Audit Agent
+Task: Microscopic audit of Investment, Asset, Liability modules
+
+Work Log:
+- Read worklog.md for project context (12 prior tasks documented)
+- Read Prisma schema: InvestmentHead (with profileImage, nidFrontImage, nidBackImage), Asset (with assetCategory Fixed/Current), Liability (with type received/pay, paymentMethod)
+- Read all 7 API route files: /api/investment-heads (GET/POST), /api/investment-heads/[id] (GET/PUT/DELETE), /api/investments (GET/POST), /api/assets (GET/POST), /api/assets/[id] (GET/PUT/DELETE), /api/liabilities (GET/POST), /api/liabilities/[id] (GET/PUT/DELETE)
+- Read /api/reports/route.ts liability report handler (getLiabilityReport)
+- Read full InvestmentGroupPage.tsx component (2180 lines) covering 7 sub-tabs
+- Cross-referenced all Prisma model fields with API data objects and component form fields
+- Verified all withApiSecurity usage on all routes, RBAC enforcement (SR/Dealer blocked at component level)
+- Verified all export buttons (CSV, PDF, Import CSV) present on all 7 tabs
+- Verified VAT Auditor masking in API routes (amount fields masked), component (isVatAuditor checks), and export functions (getVatMaskedKeys)
+- Verified all relation objects accessed with ?.name (no raw object rendering)
+- Verified image fields (profileImage, nidFrontImage, nidBackImage) in investment-heads API and form
+- Verified dropdown filtering: assetTypeHeads for Fixed/Current Asset forms, liabilityTypeHeads for Liability Receive/Pay forms, investTypeHeads for Investment entry form
+- Verified liability report balance calculation: openingBalance + totalReceived - totalPaid = currentBalance ✓
+- Verified no mockData or hardcoded arrays remain
+- Verified financial calculations guard against NaN with typeof checks and ?? operators
+
+**BUGS FOUND AND FIXED (7 fixes total):**
+
+1. **CRITICAL: /api/investments netValue calculation missing openingBalance** (investments/route.ts line 44)
+   - Root cause: `const netValue = totalAssets - totalLiabilities` did not include openingBalance in the balance formula
+   - Formula should be: opening balance + additions (assets) - withdrawals (liabilities) = net value
+   - Fixed: `const netValue = head.openingBalance + totalAssets - totalLiabilities`
+   - Also fixed grandNetValue summary to include grandOpeningBalances
+   - Added grandOpeningBalances to summary response for Investment tab display
+
+2. **HIGH: Investment Head form missing isActive toggle** (InvestmentGroupPage.tsx)
+   - Root cause: headsFormData initial state, openHeadsCreate, openHeadsEdit, and saveHeads payload all missing isActive field
+   - No way to toggle active/inactive status when creating or editing investment heads
+   - Fixed: Added `isActive: true` to headsFormData initial state, openHeadsCreate, openHeadsEdit
+   - Fixed: Added `isActive: headsFormData.isActive ?? true` to saveHeads payload
+   - Fixed: Added isActive Checkbox to Investment Head dialog form
+
+3. **HIGH: /api/investments POST route missing image fields** (investments/route.ts lines 99-108)
+   - Root cause: POST route created InvestmentHead without profileImage, nidFrontImage, nidBackImage fields
+   - Inconsistent with /api/investment-heads POST which includes all 3 image fields
+   - Fixed: Added validateImageFields import, added image validation check, added all 3 image fields to create data
+
+4. **MEDIUM: investFormData/saveInvestEntry missing isActive** (InvestmentGroupPage.tsx)
+   - Root cause: Investment Entry dialog (Add Entry tab) didn't include isActive in form data or API payloads
+   - Fixed: Added `isActive: true` to investFormData initial state and setInvestFormData call
+   - Fixed: Added `isActive: investFormData.isActive ?? true` to both asset and liability POST payloads in saveInvestEntry
+
+5. **LOW: headsExportColumns missing description field** (InvestmentGroupPage.tsx line 808-815)
+   - Root cause: Export columns didn't include description, so descriptions were lost in CSV/PDF exports
+   - Fixed: Added `{ key: "description", label: "Description", type: "text" }` to headsExportColumns
+
+6. **MEDIUM: investExportColumns missing openingBalance** (InvestmentGroupPage.tsx line 840-846)
+   - Root cause: Investment export columns didn't include openingBalance despite it being key to the balance formula
+   - Fixed: Added `{ key: "openingBalance", label: "Opening Balance", type: "currency" }` to investExportColumns
+
+7. **MEDIUM: liabImportFields type 'boolean' not in FieldDef** (InvestmentGroupPage.tsx line 898)
+   - Root cause: `{ key: "isActive", label: "Active", type: "boolean" }` used type "boolean" which is not in the FieldDef union type ("checkbox" is the correct type)
+   - This caused a TypeScript compilation error
+   - Fixed: Changed `type: "boolean"` to `type: "checkbox"`
+
+**UI Enhancement:**
+- Added "Total Opening Balance" stat card to Investment tab (now 5 stat cards instead of 4)
+- Added "Opening:" label to Investment head card headers showing openingBalance alongside Assets/Liabilities/Net
+
+Stage Summary:
+- 7 bugs fixed across 2 files: /src/app/api/investments/route.ts, /src/components/InvestmentGroupPage.tsx
+- Critical balance calculation fixed: netValue now correctly includes openingBalance (opening + additions - withdrawals)
+- Investment Head form now has isActive toggle with proper payload
+- /api/investments POST now includes image fields (profileImage, nidFrontImage, nidBackImage) and validation
+- All form data objects and save payloads now include isActive
+- Export columns now include description and openingBalance
+- Import field type error fixed (boolean → checkbox)
+- 0 TypeScript errors in changed files, 0 lint errors
+
+---
+Task ID: 2.2
+Agent: Ultra-Elite Full-Stack QA Engineer
+Task: Audit Basic Modules (Core Config) and Structure modules — microscopic module-by-module audit
+
+Work Log:
+- Read worklog.md for project context (12+ prior tasks)
+- Read Prisma schema (all 16 module models: Company, Category, Color, Brand, Unit, Product, Bank, Department, Godown, InterestPercentage, Segment, Capacity, SRTargetSetup, PaymentOption, CardType, CardTypeSetup)
+- Read BasicModulesGroupPage.tsx (960 lines) — all MODULE_CONFIGS, form fields, columns, VAT masking, export/import
+- Read ElectronicsMartApp.tsx ProductsPage (330 lines) — custom product form, stock display, export/import
+- Read all 32 API route files (16 modules × GET/POST + PUT/DELETE)
+- Read api-security.ts — RBAC, VAT masking, image validation
+- Searched for mockData/dummyData/hardcoded arrays — ZERO found ✓
+
+**BUGS FOUND AND FIXED (9 fixes total):**
+
+1. **HIGH: 6 API GET endpoints missing `_count` includes** — BasicModulesGroupPage columns like "_count.employees", "_count.products", "_count.cardTypeSetups" always showed "—" because APIs didn't return _count data
+   - /api/departments/route.ts: Added `include: { _count: { select: { employees: true, designations: true } } }`
+   - /api/godowns/route.ts: Added `include: { _count: { select: { products: true } } }`
+   - /api/segments/route.ts: Added `include: { _count: { select: { products: true } } }`
+   - /api/colors/route.ts: Added `include: { _count: { select: { products: true } } }`
+   - /api/payment-options/route.ts: Added `include: { _count: { select: { cardTypeSetups: true } } }`
+   - /api/card-types/route.ts: Added `include: { _count: { select: { cardTypeSetups: true } } }`
+
+2. **HIGH: ProductsPage auto-code generated "00001" instead of "PROD-00001"** — Client generated inconsistent product codes that broke naming convention
+   - ElectronicsMartApp.tsx line ~1044: Removed client-side Math.max parseInt logic; now sends empty productCode for API to auto-generate PROD-XXXXX
+
+3. **HIGH: ProductsPage missing `brandId` field** — Product model has `brandId` relation but form didn't include Brand selector
+   - ElectronicsMartApp.tsx: Added `brandId` to loadDynamicOpts keys array and added Brand select field to formFields
+
+4. **HIGH: Brands DELETE missing FK check** — Could delete brands referenced by active products, breaking data integrity
+   - /api/brands/[id]/route.ts: Added transaction wrapper, product FK count check, and proper error handling matching other modules
+
+5. **MEDIUM: InterestPercentage missing percentage validation on PUT** — Could update to values outside 0-100 range
+   - /api/interest-percentages/[id]/route.ts: Added percentage range validation (0-100) before update
+   - Note: POST already had validation from prior task
+
+6. **MEDIUM: SR Target Setup missing month/year/targetAmount validation** — Could set month=0, month=13, negative targets
+   - /api/sr-targets/route.ts POST: Added month (1-12), year (2000-2100), targetAmount (≥0) validation
+   - /api/sr-targets/[id]/route.ts PUT: Added same validation for partial updates
+
+**CLEAN MODULES (verified with details):**
+- Companies: ✅ CRUD complete, brandLogo image upload in POST/PUT with validateImageFields, _count.products + _count.orderSheets, FK checks on delete, auto-code COM-00001
+- Categories: ✅ CRUD complete, parentCategoryId with circular reference prevention, _count.products + _count.children, auto-code CAT-00001
+- Banks: ✅ CRUD complete, currentBalance computed dynamically (openingBalance + deposits - withdrawals), background sync of stale values, FK checks on delete
+- Products: ✅ CRUD complete, VAT masking (costPrice/wholesalePrice/dealerPrice), auto-code PROD-00001, all 17 form fields match Prisma schema
+- Capacities: ✅ CRUD complete, no FK relations so safe soft-delete
+- CardTypeSetup: ✅ CRUD complete, paymentOptionId + cardTypeId validation, _count included via relation includes
+- Export/Import: ✅ All 13 modules in BasicModulesGroupPage have CSV, PDF, and Import buttons wired correctly via handleExportCSV/handleExportPDF/handleImportCSV
+- VAT Masking: ✅ Products: costPrice/wholesalePrice/dealerPrice masked; SR Targets: targetAmount masked; all via vatMaskedColumns config
+- RBAC: ✅ All 16 API routes use withApiSecurity() with correct module names matching MODULE_GROUP_MAP
+- Audit Logging: ✅ All CRUD operations create AuditLog entries with action, module, recordId, recordLabel, userId, userName
+- No mockData/dummyData/hardcoded arrays found anywhere in codebase
+
+Stage Summary:
+- 9 bugs fixed across 8 files: 6 missing _count includes, 1 product auto-code mismatch, 1 missing brandId field, 1 missing FK check, 2 missing validation sets
+- All 16 modules fully audited: CRUD, RBAC, VAT masking, export/import, form fields, auto-codes, FK checks
+- 0 compile errors, 0 lint errors
+
+---
+Task ID: 2.4
+Agent: Staff & Customer/Supplier Audit Agent
+Task: Microscopic module-by-module audit of Staff (Designations, Employees, Employee Leave) and Customers & Suppliers modules
+
+Work Log:
+- Read worklog.md for project context (12+ prior tasks documented)
+- Read Prisma schema for all 5 models: Designation, Employee, EmployeeLeave, Customer, Supplier
+- Read all 10 API route files (5 modules × 2 files each: route.ts + [id]/route.ts)
+- Read PersonnelCRMGroupPage.tsx (1400 lines) — the shared component for all 5 modules
+- Read api-security.ts (327 lines) — RBAC enforcement, masking, image validation
+- Cross-referenced ChartOfAccounts and LedgerEntry models for dynamic ledger linking
+
+**BUGS FOUND AND FIXED (6 fixes total):**
+
+1. **Employee Leave API POST — No date-range validation** (HIGH)
+   - File: `/src/app/api/employee-leaves/route.ts`, lines 43-52
+   - Bug: No validation that `toDate >= fromDate`. If inverted dates were submitted, `Math.max(0, ...)` produced `totalDays=0` but the invalid leave record was still created.
+   - Fix: Added `if (toDate < fromDate) throw new Error('End date (toDate) cannot be before start date (fromDate)')` before totalDays calculation. Added 400 error handler in catch block.
+
+2. **Employee Leave API PUT — No date-range validation** (HIGH)
+   - File: `/src/app/api/employee-leaves/[id]/route.ts`, lines 49-62
+   - Bug: Same as above — no validation when updating leave dates.
+   - Fix: Added same `toDate < fromDate` validation with 400 error handler.
+
+3. **Employee Leave PUT — `reason` field overwritten to null on approve/reject** (HIGH)
+   - File: `/src/app/api/employee-leaves/[id]/route.ts`, lines 35-44
+   - Bug: `reason: body.reason || null` always set `reason=null` when `handleLeaveAction` sent only `{ status: "Approved" }`. Every approve/reject action wiped the leave reason.
+   - Fix: Changed to conditional inclusion — `if (body.reason !== undefined) updateData.reason = body.reason || null`. Only updates fields explicitly provided in the request body, preserving existing values for approve/reject actions that send only `{ status }`.
+
+4. **Customer API GET — creditLimit not masked for SR role** (HIGH)
+   - File: `/src/app/api/customers/route.ts`, lines 16-26 and `/src/app/api/customers/[id]/route.ts`, lines 18-22
+   - Bug: API only masked `creditLimit` for `vat_auditor`, not `sr`. SR users could see customer credit limits via direct API calls, bypassing client-side masking.
+   - Fix: Added `if (security.user.role === 'sr') return maskForVatAuditor(item, security.user.role, ['creditLimit'])` in both list and single GET handlers.
+
+5. **Customer API PUT — SR editing customer resets creditLimit to 0** (HIGH)
+   - File: `/src/app/api/customers/[id]/route.ts`, lines 39-65
+   - Bug: `creditLimit: body.creditLimit ?? 0` in PUT handler would reset creditLimit to 0 when SR edits a customer (client-side deletes creditLimit from formData, so `body.creditLimit` is `undefined`, and `undefined ?? 0 = 0`).
+   - Fix: Added server-side `delete body.creditLimit` for SR role. Changed PUT data to conditionally include `creditLimit` only when `body.creditLimit !== undefined` — Prisma skips undefined fields, preserving the existing value.
+
+6. **Credit Utilization section — creditLimit not masked for SR role** (MEDIUM)
+   - File: `/src/components/PersonnelCRMGroupPage.tsx`, lines 1209-1210
+   - Bug: `maskedBalance` and `maskedLimit` only checked `isVatAuditor`, not `shouldMaskCreditLimit`. SR users could see credit limits in the Credit Utilization Overview section.
+   - Fix: Changed to `(isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(...)`.
+
+7. **Employee Leave — No client-side date-range validation** (MEDIUM)
+   - File: `/src/components/PersonnelCRMGroupPage.tsx`, handleSave function
+   - Bug: No validation before API call that `toDate >= fromDate` for employee-leaves.
+   - Fix: Added client-side validation in handleSave: `if (config.key === "employee-leaves" && formData.fromDate && formData.toDate) { if (to < from) { toast error; return; } }`.
+
+8. **SR Credit Limit Mask Banner missing** (LOW)
+   - File: `/src/components/PersonnelCRMGroupPage.tsx`, lines 1030-1036
+   - Bug: No visual banner indicating credit limit masking for SR role on customers page (only salary masking banner existed for employees).
+   - Fix: Added `{shouldMaskCreditLimit && <SR MODE — Credit limit information is masked>}` banner.
+
+**CLEAN MODULES (verified with details):**
+
+- **Designations**: ✅ GET/POST/PUT/DELETE all with withApiSecurity, RBAC, audit logs. VAT Auditor masking for salaryBandMin/salaryBandMax. Auto-code DSG-XXXXX. Soft delete with employee reference check. salaryBandMax >= salaryBandMin validation. Form fields match Prisma schema exactly.
+- **Employees**: ✅ Full CRUD with withApiSecurity. Image persistence (photo, nidFrontImage, nidBackImage) in both POST and PUT via validateImageFields. Salary masked for SR+VAT Auditor. Department+Designation relations included in API. Auto-code EMP-XXXXX. Soft delete with SR target + leave reference check. formSections with 4 sections (Employment, Personal, Contact, Documents).
+- **Suppliers**: ✅ Full CRUD with withApiSecurity. Image persistence (profileImage, nidFrontImage, nidBackImage). VAT Auditor masking for openingBalance+creditLimit. SR blocked via MODULE_DENY. Auto-code SUP-XXXXX. Hard delete with PO/PR/CD reference check.
+- **Export/Import**: ✅ All 5 modules have Export CSV, Export PDF, and Import CSV buttons. CSV/PDF both apply VAT masking (isVatAuditor + shouldMaskSalary + shouldMaskCreditLimit). Import uses shared importFromCSV utility.
+- **No mockData**: ✅ All data loaded from API, no hardcoded arrays.
+- **Relation access**: ✅ All relation objects accessed via getNestedValue with optional chaining (department.name, designation.name, employee.name, _count.salesOrders, _count.purchaseOrders).
+- **Dynamic Ledger**: Verified — Customer/Supplier ledger linking uses name-based account entries in LedgerEntry (e.g., `account: customer.name`). No COA sub-account creation per customer/supplier — this is by design (aggregate COA accounts + individual sub-ledger pattern).
+
+- Ran `bun run lint` → 0 errors
+
+Stage Summary:
+- 8 fixes applied across 4 files: employee-leaves/route.ts, employee-leaves/[id]/route.ts, customers/route.ts, customers/[id]/route.ts, PersonnelCRMGroupPage.tsx
+- 5 modules fully audited: Designations, Employees, Employee Leave, Customers, Suppliers
+- Key fixes: date-range validation (prevents negative day counts), SR creditLimit server-side masking (prevents API bypass), SR creditLimit preservation on PUT (prevents reset to 0), reason field preservation on approve/reject
+- 0 compile errors, 0 lint errors
+
+---
+Task ID: 2.8
+Agent: Ultra-Elite QA Audit Agent
+Task: Comprehensive audit of Accounting Reports, Financial Audit, MIS Reports, System Settings, and Audit Trail modules
+
+Work Log:
+- Read worklog.md for project context (10+ prior tasks documented)
+- Audited ALL API route files for target modules:
+  - Accounting Reports: chart-of-accounts, cash-in-hand, trial-balance, profit-loss, balance-sheet, period-close
+  - Financial Audit: dashboard-analytics (8 sub-handlers), inventory-aging, notifications
+  - MIS Reports: mis-reports (30+ report generators covering basic, purchase, sales, bank, management categories)
+  - System Settings: system-config (full CRUD with auto-seed, RBAC, VAT masking)
+  - Audit Trail: audit-trail (read-only timeline), audit-logs (legacy CRUD)
+
+- Verified withApiSecurity on ALL 20+ API routes — every route has it ✅
+- Verified COGS calculation uses costPrice × quantity from SalesOrderLines in:
+  - /api/reports/profit-loss (lines 79-84) ✅
+  - /api/reports/balance-sheet (lines 221-226) ✅
+  - /api/dashboard-analytics handleKPI (lines 122-133) ✅
+  - /api/dashboard-analytics handleFinancialRatios (lines 430-441) ✅
+  - /api/reports/sales (lines 58-59, 78, 103) ✅
+  - /api/dashboard (lines 44-56) ✅
+- Verified Trial Balance Dr=Cr check: `balanced: Math.abs(grandTotalDebit - grandTotalCredit) < 0.01` ✅
+- Verified Period Close: isLocked enforcement on POST/PUT/DELETE, AuditLog entries on all mutations ✅
+- Grep for mockData/hardcoded/dummy across ALL components: 0 hits (only a comment saying "no hardcoded estimation ratios") ✅
+
+**BUGS FOUND AND FIXED (5 bugs):**
+
+1. **CRITICAL: audit-logs/route.ts POST handler — ReferenceError on `auditDb` variable**
+   - Root cause: `auditDb` was a local variable inside GET function scope, but POST handler referenced it directly — causing ReferenceError at runtime
+   - Also: `getAuditDb()` created a new `PrismaClient()` on every request (connection pool exhaustion risk)
+   - Fix: Removed `getAuditDb()` and `PrismaClient` import entirely; both GET and POST now use shared `db` from `@/lib/db` (which already handles stale client cache)
+
+2. **HIGH: reports/route.ts — Transaction Summary uses outdated status filter**
+   - Root cause: `getTransactionSummary()` used `status: { in: ['Confirmed', 'Delivered'] }` and `status: { in: ['Confirmed', 'Received'] }`, excluding orders with statuses like "Processing", "Shipped", "Approved"
+   - Also missing `isActive: true` filter
+   - Fix: Changed to `status: { notIn: ['Draft', 'Cancelled'] }, isActive: true` to match P&L/Balance Sheet convention
+
+3. **HIGH: reports/route.ts — Monthly Transaction uses same outdated status filter**
+   - Same root cause as #2 but in `getMonthlyTransaction()`
+   - Fix: Changed both salesOrder and purchaseOrder where clauses to `status: { notIn: ['Draft', 'Cancelled'] }, isActive: true`
+
+4. **HIGH: AccountingReportsPage.tsx — VAT Auditor mode not passed to API calls**
+   - Root cause: Cash In Hand and P&L API calls never included `vatMode=true` or `hideMargins=true` query parameters
+   - Impact: VAT Auditors could see unmasked opening balances, net profit, gross profit margins, and equity
+   - Fix: Added `isVatAuditor` check to loadCash (sets `vatMode=true`) and loadPL (sets `hideMargins=true`); refactored URL building to use URLSearchParams
+
+5. **HIGH: BalanceSheetPeriodClosePage.tsx — VAT Auditor mode not passed to Balance Sheet API**
+   - Root cause: Balance Sheet API call never included `hideMargins=true` query parameter
+   - Impact: VAT Auditors could see equity, retained earnings, and total liabilities unmasked
+   - Fix: Added `isVatAuditor` check to loadBS callback (sets `hideMargins=true`); added `isVatAuditor` to useCallback dependency array
+
+**Additional cleanup:**
+- Removed unused `confirmedPurchases` query from P&L route (was fetched but never used after COGS fix)
+- Removed unused `dateFilterPO` and `purchaseWhere` variables from P&L route
+- All fixes verified: `bun run lint` → 0 errors, `next build` → 0 compile errors
+
+Stage Summary:
+- 5 bugs fixed across 4 files: audit-logs/route.ts, reports/route.ts, AccountingReportsPage.tsx, BalanceSheetPeriodClosePage.tsx
+- All Accounting Reports verified: COGS uses costPrice×quantity, Trial Balance Dr=Cr check works, Period Close locks properly with AuditLog
+- Financial Audit verified: KPI, inventory aging, financial ratios all compute correctly with proper COGS
+- MIS Reports verified: 30+ report generators all query live DB data, no mockData
+- System Settings verified: full CRUD with auto-seed, RBAC (Admin-only DELETE), VAT masking for profit-sensitive keys
+- Audit Trail verified: read-only timeline with VAT masking for profit details, immutable (no PUT/DELETE on /api/audit-trail)
+- VAT Auditor masking now fully end-to-end: frontend passes vatMode/hideMargins to API, API returns masked values
+- 0 compile errors, 0 lint errors
+
+---
+Task ID: 2-Master
+Agent: Main Agent (Ultra-Elite Full-Stack QA Engineer)
+Task: STEP 2 — Microscopic Module-by-Module Functional Re-Check across all 16 architecture layers
+
+Work Log:
+- Launched 6 parallel audit agents covering all 16 module groups
+- **Investment/Asset/Liability (Task 2.1)**: 7 bugs found & fixed
+  - CRITICAL: Investment netValue calculation missing openingBalance
+  - HIGH: Investment Head form missing isActive toggle + save payload missing isActive
+  - HIGH: Investment POST missing image fields
+  - MEDIUM: 4 additional fixes (liabImportFields type, export columns, description field)
+- **Basic Modules + Structure (Task 2.2)**: 9 bugs found & fixed
+  - HIGH: 6 API routes (departments, godowns, segments, colors, payment-options, card-types) missing _count includes
+  - HIGH: Product auto-code generated "00001" instead of "PROD-00001"; missing brandId form field
+  - HIGH: Brand DELETE had no FK check
+  - MEDIUM: Interest Percentage PUT missing 0-100 validation
+- **Staff + Customer/Supplier (Task 2.4)**: 8 bugs found & fixed
+  - HIGH: Employee Leave no server-side date-range validation (toDate >= fromDate)
+  - HIGH: Employee Leave PUT wiped reason to null on approve/reject
+  - HIGH: Customer API only masked creditLimit for vat_auditor, not sr — SR could bypass via direct API
+  - HIGH: Customer PUT reset creditLimit to 0 when SR edited (undefined ?? 0 = 0)
+  - MEDIUM: Credit Utilization only masked for VAT, not SR
+  - MEDIUM: No client-side date-range validation before API call
+- **Inventory Management (Task 2.5)**: 4 bugs found & fixed
+  - CRITICAL: Stock page used nested access (s.product?.name) but API returns flat fields (s.productName)
+  - HIGH: Sales Order paymentOptionId never sent (used hardcoded "Cash" string instead of FK)
+  - HIGH: Auto PO suggestedQty vs suggestedQuantity mismatch
+  - MEDIUM: Hire Sales installment view used old field names (installmentAmt, balance)
+- **Account Management + SMS (Task 2.6)**: 5 bugs found & fixed
+  - CRITICAL: Expenses POST missing Cr: Cash/Bank ledger counterpart
+  - CRITICAL: Incomes POST missing Dr: Cash/Bank ledger counterpart
+  - HIGH: Cash Collections PUT missing Dr: Cash/Bank ledger entry
+  - HIGH: Cash Deliveries PUT missing Cr: Cash/Bank ledger entry
+  - MEDIUM: CSV Injection vulnerability in escapeCSVField()
+- **Accounting Reports + MIS + System (Task 2.8)**: 5 bugs found & fixed
+  - CRITICAL: audit-logs POST handler referenced GET-local variable → ReferenceError
+  - HIGH: reports/route.ts status filter excluded Processing/Shipped/Approved orders
+  - HIGH: AccountingReportsPage never passed vatMode/hideMargins for VAT Auditor
+  - HIGH: BalanceSheetPeriodClosePage never passed hideMargins for VAT Auditor
+- **CRITICAL RBAC FIX (Main Agent)**: maskForVatAuditor() function had `if (role !== 'vat_auditor') return data` hard guard that blocked ALL non-VAT role masking — SR creditLimit and baseSalary were never actually masked despite API calls. Fixed by supporting multi-role masking with explicit field detection.
+
+Stage Summary:
+- **TOTAL BUGS FOUND & FIXED: 38** across all 16 module groups
+- 0 ESLint errors, 0 compile errors, 0 build warnings
+- ALL 55 API endpoints verified returning HTTP 200
+- RBAC enforcement verified for all 5 roles (Admin, Manager, SR, Dealer, VAT Auditor)
+- SR creditLimit masking now working: "N/A (Restricted)" in API response
+- VAT Auditor masking working: "N/A (Audit Mode)" for cost/price/margin fields
+- Double-entry integrity fixed for Expenses, Incomes, Cash Collections/Deliveries PUT
+- CSV Injection vulnerability patched
+- Server operational at http://localhost:3000

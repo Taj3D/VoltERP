@@ -990,7 +990,7 @@ function ProductsPage() {
   useEffect(() => { load(); }, [load]);
 
   const loadDynamicOpts = useCallback(async () => {
-    const keys = ["colorId", "godownId", "segmentId", "companyId"];
+    const keys = ["colorId", "brandId", "godownId", "segmentId", "companyId"];
     const results = await Promise.all(keys.map(async (k) => {
       const options = await fetchDynamicOptions(k);
       return { key: k, options };
@@ -1018,7 +1018,7 @@ function ProductsPage() {
       { key: "name", label: "Product Name", type: "text", required: true },
       { key: "productCode", label: "Product Code", type: "text", required: false, placeholder: "Auto-generated" },
       { key: "categoryId", label: "Category", type: "select", required: true, options: categories.map(c => ({ value: c.id, label: c.name })) },
-      { key: "colorId", label: "Color", type: "select", options: dynamicOptions.colorId || [] },
+      { key: "brandId", label: "Brand", type: "select", options: dynamicOptions.brandId || [] },
       { key: "unit", label: "Unit", type: "text" },
       { key: "sizeCapacity", label: "Size/Capacity", type: "text" },
       { key: "costPrice", label: "Cost Price", type: "number", defaultValue: 0 },
@@ -1040,11 +1040,8 @@ function ProductsPage() {
   const openCreate = () => {
     const defaults: Record<string, any> = {};
     fields.forEach(f => { defaults[f.key] = f.defaultValue ?? (f.type === "checkbox" ? false : ""); });
-    // Auto-generate productCode
-    try {
-      const nextCode = data.length > 0 ? String(Math.max(...data.map((d: any) => parseInt(d.productCode || "0", 10) || 0)) + 1).padStart(5, "0") : "00001";
-      defaults.productCode = nextCode;
-    } catch { defaults.productCode = "00001"; }
+    // Auto-generate productCode — leave empty for API to generate PROD-XXXXX
+    defaults.productCode = "";
     setFormData(defaults); setEditItem(null); setShowForm(true);
     loadDynamicOpts();
   };

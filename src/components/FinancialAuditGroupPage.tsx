@@ -392,13 +392,14 @@ export default function FinancialAuditGroupPage({
     const totalExpenses = kpiData.totalExpenses || 0;
     const totalIncome = kpiData.totalIncome || 0;
     const stockValue = kpiData.stockValue || 0;
-    const grossProfit = totalRevenue - stockValue;
+    const cogs = kpiData.cogs || 0;
+    const grossProfit = kpiData.grossProfit !== undefined ? kpiData.grossProfit : (totalRevenue - cogs);
     const netProfit = kpiData.netProfit || 0;
     const bankBalance = kpiData.cashBalance || 0;
 
-    // Receivables & Payables — use actual API data if available, otherwise estimate
-    const totalReceivables = kpiData.totalReceivables || Math.round(totalRevenue * 0.6);
-    const totalPayables = kpiData.totalPayables || Math.round(totalPurchases * 0.7);
+    // Use actual API data for receivables/payables (no hardcoded estimation ratios)
+    const totalReceivables = kpiData.totalReceivables || 0;
+    const totalPayables = kpiData.totalPayables || 0;
 
     const lowStockCount = kpiData.lowStockProducts?.length || 0;
     const pendingOrders = (kpiData.pendingOrders?.pendingPOCount || 0) + (kpiData.pendingOrders?.pendingSOCount || 0);
@@ -462,16 +463,17 @@ export default function FinancialAuditGroupPage({
     const exp = kpiData.totalExpenses || 0;
     const purch = kpiData.totalPurchases || 0;
     const stock = kpiData.stockValue || 0;
+    const cogs = kpiData.cogs || 0;
     const bank = kpiData.cashBalance || 0;
-    const receivables = kpiData.totalReceivables || Math.round(rev * 0.6);
-    const payables = kpiData.totalPayables || Math.round(purch * 0.7);
+    const receivables = kpiData.totalReceivables || 0;
+    const payables = kpiData.totalPayables || 0;
 
     const currentAssets = bank + stock + receivables;
     const currentLiabilities = payables + exp;
     const currentRatio = currentLiabilities > 0 ? (currentAssets / currentLiabilities) : 0;
     const quickRatio = currentLiabilities > 0 ? ((currentAssets - stock) / currentLiabilities) : 0;
-    const debtToEquity = (currentAssets + bank) > 0 ? (currentLiabilities / (currentAssets + bank)) : 0;
-    const grossMargin = rev > 0 ? ((rev - stock) / rev * 100) : 0;
+    const debtToEquity = (currentAssets + bank) > 0 ? (currentLiabilities / (currentAssets + bank - stock)) : 0;
+    const grossMargin = rev > 0 ? ((rev - cogs) / rev * 100) : 0;
     const netMargin = rev > 0 ? (kpiData.netProfit / rev * 100) : 0;
     const inventoryTurnover = stock > 0 ? (purch / stock) : 0;
     const receivableDays = rev > 0 ? (receivables / rev * 365) : 0;

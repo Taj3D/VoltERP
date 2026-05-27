@@ -587,6 +587,15 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     if (shouldMaskCreditLimit && editingItem) {
       delete formData.creditLimit;
     }
+    // Employee Leave: validate date range (toDate >= fromDate)
+    if (config.key === "employee-leaves" && formData.fromDate && formData.toDate) {
+      const from = new Date(formData.fromDate);
+      const to = new Date(formData.toDate);
+      if (to < from) {
+        toast({ title: "Validation Error", description: "End date cannot be before start date", variant: "destructive" });
+        return;
+      }
+    }
     setSaving(true);
     try {
       if (editingItem) {
@@ -1018,6 +1027,14 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         </div>
       )}
 
+      {/* SR Credit Limit Mask Banner */}
+      {shouldMaskCreditLimit && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+          <Shield className="h-4 w-4 text-amber-600" />
+          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">SR MODE — Credit limit information is masked</span>
+        </div>
+      )}
+
       {/* Data Table */}
       <Card className="border-slate-200 dark:border-slate-700">
         <CardContent className="p-0">
@@ -1197,8 +1214,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                     let textColor = "text-emerald-600";
                     if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
                     else if (pct > 80) { barColor = "bg-amber-500"; textColor = "text-amber-600"; }
-                    const maskedBalance = isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(balance);
-                    const maskedLimit = isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(limit);
+                    const maskedBalance = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(balance);
+                    const maskedLimit = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(limit);
                     return (
                       <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <TableCell className="text-xs font-medium whitespace-nowrap">{item.name}</TableCell>

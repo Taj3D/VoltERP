@@ -117,13 +117,17 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
   const loadCash = useCallback(async () => {
     setCashLoading(true);
     try {
-      let url = "/api/reports/cash-in-hand";
-      if (cashFrom || cashTo) url += `?${cashFrom ? `from=${cashFrom}` : ""}${cashFrom && cashTo ? "&" : ""}${cashTo ? `to=${cashTo}` : ""}`;
+      const params = new URLSearchParams();
+      if (cashFrom) params.set('from', cashFrom);
+      if (cashTo) params.set('to', cashTo);
+      if (isVatAuditor) params.set('vatMode', 'true');
+      const qs = params.toString();
+      const url = `/api/reports/cash-in-hand${qs ? '?' + qs : ''}`;
       const res = await apiFetch(url);
       setCashData(res);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setCashLoading(false); }
-  }, [toast, cashFrom, cashTo]);
+  }, [toast, cashFrom, cashTo, isVatAuditor]);
 
   // Load Trial Balance
   const loadTB = useCallback(async () => {
@@ -141,13 +145,17 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
   const loadPL = useCallback(async () => {
     setPlLoading(true);
     try {
-      let url = "/api/reports/profit-loss";
-      if (plFrom || plTo) url += `?${plFrom ? `from=${plFrom}` : ""}${plFrom && plTo ? "&" : ""}${plTo ? `to=${plTo}` : ""}`;
+      const params = new URLSearchParams();
+      if (plFrom) params.set('from', plFrom);
+      if (plTo) params.set('to', plTo);
+      if (isVatAuditor) params.set('hideMargins', 'true');
+      const qs = params.toString();
+      const url = `/api/reports/profit-loss${qs ? '?' + qs : ''}`;
       const res = await apiFetch(url);
       setPlData(res);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setPlLoading(false); }
-  }, [toast, plFrom, plTo]);
+  }, [toast, plFrom, plTo, isVatAuditor]);
 
   useEffect(() => { loadCash(); }, [loadCash]);
   useEffect(() => { if (activeTab === "trial") loadTB(); }, [activeTab, loadTB]);

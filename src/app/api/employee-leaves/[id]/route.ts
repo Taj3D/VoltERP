@@ -33,13 +33,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const item = await db.$transaction(async (tx) => {
       // If approving, set approvedBy and approvedAt
       const updateData: Record<string, any> = {
-        employeeId: body.employeeId,
-        leaveType: body.leaveType,
-        fromDate: body.fromDate ? new Date(body.fromDate) : undefined,
-        toDate: body.toDate ? new Date(body.toDate) : undefined,
-        reason: body.reason || null,
         status: body.status,
       };
+
+      // Only update fields that are explicitly provided (preserve existing values for approve/reject actions)
+      if (body.employeeId !== undefined) updateData.employeeId = body.employeeId;
+      if (body.leaveType !== undefined) updateData.leaveType = body.leaveType;
+      if (body.fromDate !== undefined) updateData.fromDate = body.fromDate ? new Date(body.fromDate) : undefined;
+      if (body.toDate !== undefined) updateData.toDate = body.toDate ? new Date(body.toDate) : undefined;
+      if (body.reason !== undefined) updateData.reason = body.reason || null;
 
       if (body.status === 'Approved' || body.status === 'Rejected') {
         updateData.approvedBy = security.user?.name || security.user?.email || 'Unknown';
@@ -50,6 +52,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.fromDate && body.toDate) {
         const fromDate = new Date(body.fromDate);
         const toDate = new Date(body.toDate);
+
+        // Validate date range: toDate must be >= fromDate
+        if (toDate < fromDate) {
+          throw new Error('End date (toDate) cannot be before start date (fromDate)');
+        }
+
         const diffMs = toDate.getTime() - fromDate.getTime();
         updateData.totalDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
       }
@@ -75,7 +83,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return record;
     });
     return NextResponse.json(item);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.includes('cannot be before')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: 'Failed to update employee leave' }, { status: 500 });
   }
 }

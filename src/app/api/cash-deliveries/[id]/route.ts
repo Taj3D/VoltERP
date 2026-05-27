@@ -184,13 +184,19 @@ export async function PUT(
         },
       });
 
-      // If status is Approved and (bankId or amount changed), create a new LedgerEntry
+      // If status is Approved and (bankId or amount changed), create balanced ledger pair
       const bankOrAmountChanged =
         newBankId !== oldBankId || newAmount !== oldAmount;
       const statusChanged = newStatus !== oldStatus;
 
       if ((newStatus === 'Approved' && bankOrAmountChanged) ||
           (statusChanged && newStatus === 'Approved')) {
+        // Get cash/bank account name for the credit entry
+        const bankRecord = newBankId
+          ? await tx.bank.findUnique({ where: { id: newBankId }, select: { bankName: true } })
+          : null;
+        const cashAccountName = bankRecord?.bankName || 'Cash in Hand';
+        // Dr: Supplier
         await tx.ledgerEntry.create({
           data: {
             date: updated.date,
@@ -199,6 +205,19 @@ export async function PUT(
             debit: newAmount,
             credit: 0,
             reference: existing.deliveryCode,
+            referenceType: 'CashDelivery',
+          },
+        });
+        // Cr: Cash/Bank
+        await tx.ledgerEntry.create({
+          data: {
+            date: updated.date,
+            account: cashAccountName,
+            particulars: 'Cash Delivery to supplier (updated)',
+            debit: 0,
+            credit: newAmount,
+            reference: existing.deliveryCode,
+            referenceType: 'CashDelivery',
           },
         });
       }

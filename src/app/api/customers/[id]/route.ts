@@ -17,7 +17,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const masked = security.user.role === 'vat_auditor'
       ? maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit'])
-      : item;
+      : security.user.role === 'sr'
+        ? maskForVatAuditor(item, security.user.role, ['creditLimit'])
+        : item;
 
     return NextResponse.json(masked);
   } catch (error) {
@@ -33,26 +35,39 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const body = await request.json();
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
+
+    // SR role cannot modify creditLimit — strip it from the payload server-side
+    // so that ?? 0 doesn't reset it to 0 when SR edits a customer
+    if (security.user.role === 'sr' && 'creditLimit' in body) {
+      delete body.creditLimit;
+    }
+
+    // Build update data — only include creditLimit if provided (and not stripped for SR)
+    const updateData: Record<string, any> = {
+      customerCode: body.customerCode,
+      name: body.name,
+      phone: body.phone || null,
+      email: body.email || null,
+      address: body.address || null,
+      area: body.area || null,
+      reference: body.reference || null,
+      openingBalance: body.openingBalance ?? 0,
+      openingBalanceType: body.openingBalanceType || 'Dr',
+      customerType: body.customerType || 'Regular',
+      profileImage: body.profileImage || null,
+      nidFrontImage: body.nidFrontImage || null,
+      nidBackImage: body.nidBackImage || null,
+      isActive: body.isActive ?? true,
+    };
+    // Only update creditLimit if provided in body (preserves existing value when SR edits)
+    if (body.creditLimit !== undefined) {
+      updateData.creditLimit = body.creditLimit;
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.customer.update({
         where: { id },
-        data: {
-          customerCode: body.customerCode,
-          name: body.name,
-          phone: body.phone || null,
-          email: body.email || null,
-          address: body.address || null,
-          area: body.area || null,
-          reference: body.reference || null,
-          openingBalance: body.openingBalance ?? 0,
-          openingBalanceType: body.openingBalanceType || 'Dr',
-          creditLimit: body.creditLimit ?? 0,
-          customerType: body.customerType || 'Regular',
-          profileImage: body.profileImage || null,
-          nidFrontImage: body.nidFrontImage || null,
-          nidBackImage: body.nidBackImage || null,
-          isActive: body.isActive ?? true,
-        },
+        data: updateData,
         include: {
           _count: { select: { salesOrders: true, hireSales: true, cashCollections: true, orderSheets: true } },
         },

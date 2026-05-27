@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
     const items = await db.paymentOption.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      include: {
+        _count: { select: { cardTypeSetups: true } },
+      },
     });
     return NextResponse.json(items);
   } catch (error) {

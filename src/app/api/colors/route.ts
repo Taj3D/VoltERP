@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
     const items = await db.color.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      include: {
+        _count: { select: { products: true } },
+      },
     });
     return NextResponse.json(items);
   } catch (error) {

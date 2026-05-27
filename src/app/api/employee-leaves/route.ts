@@ -42,6 +42,12 @@ export async function POST(request: NextRequest) {
       // Calculate total days
       const fromDate = body.fromDate ? new Date(body.fromDate) : new Date();
       const toDate = body.toDate ? new Date(body.toDate) : new Date();
+
+      // Validate date range: toDate must be >= fromDate
+      if (toDate < fromDate) {
+        throw new Error('End date (toDate) cannot be before start date (fromDate)');
+      }
+
       const diffMs = toDate.getTime() - fromDate.getTime();
       const totalDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
 
@@ -74,7 +80,10 @@ export async function POST(request: NextRequest) {
       return record;
     });
     return NextResponse.json(item, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.includes('cannot be before')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: 'Failed to create employee leave' }, { status: 500 });
   }
 }

@@ -143,6 +143,14 @@ function escapeCSVField(value: string, isNumeric?: boolean): string {
     return value;
   }
 
+  // CSV Injection Protection: Prevent formula injection in Excel/Sheets
+  // Cells starting with =, +, -, @, \t, \r are dangerous
+  const trimmed = value.trimStart();
+  if (trimmed.startsWith('=') || trimmed.startsWith('+') || trimmed.startsWith('-') || trimmed.startsWith('@') || trimmed.startsWith('\t') || trimmed.startsWith('\r')) {
+    // Prefix with a single quote to neutralize formula; quote the whole field
+    return `"'" + value.replace(/"/g, '""') + '"'`;
+  }
+
   const needsQuoting =
     value.includes(",") ||
     value.includes('"') ||

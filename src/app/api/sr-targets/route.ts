@@ -39,6 +39,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate month (1-12) and year
+    if (month < 1 || month > 12) {
+      return NextResponse.json(
+        { error: 'Month must be between 1 and 12' },
+        { status: 400 }
+      );
+    }
+    if (year < 2000 || year > 2100) {
+      return NextResponse.json(
+        { error: 'Year must be between 2000 and 2100' },
+        { status: 400 }
+      );
+    }
+    if (targetAmount < 0) {
+      return NextResponse.json(
+        { error: 'Target amount must be a positive number' },
+        { status: 400 }
+      );
+    }
+
     const result = await db.$transaction(async (tx) => {
       const target = await tx.sRTargetSetup.create({
         data: {

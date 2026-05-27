@@ -170,7 +170,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [headsSaving, setHeadsSaving] = useState(false);
   const [expandedHeads, setExpandedHeads] = useState<Set<string>>(new Set());
   const [headsFormData, setHeadsFormData] = useState<Record<string, any>>({
-    name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "",
+    name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", isActive: true,
   });
 
   // ─── Investment (Detailed) State ───
@@ -181,7 +181,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [investForm, setInvestForm] = useState(false);
   const [investFormData, setInvestFormData] = useState<Record<string, any>>({
     investmentHeadId: "", entryType: "asset", date: new Date().toISOString().split("T")[0],
-    amount: 0, assetCategory: "Fixed", description: "",
+    amount: 0, assetCategory: "Fixed", description: "", isActive: true,
   });
 
   // ─── Assets State ───
@@ -492,7 +492,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   // ============================================================
 
   const openHeadsCreate = () => {
-    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", profileImage: null, nidFrontImage: null, nidBackImage: null });
+    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", profileImage: null, nidFrontImage: null, nidBackImage: null, isActive: true });
     setHeadsEdit(null);
     setHeadsForm(true);
   };
@@ -507,6 +507,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       profileImage: item.profileImage || null,
       nidFrontImage: item.nidFrontImage || null,
       nidBackImage: item.nidBackImage || null,
+      isActive: item.isActive ?? true,
     });
     setHeadsEdit(item);
     setHeadsForm(true);
@@ -528,6 +529,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         profileImage: headsFormData.profileImage || null,
         nidFrontImage: headsFormData.nidFrontImage || null,
         nidBackImage: headsFormData.nidBackImage || null,
+        isActive: headsFormData.isActive ?? true,
       };
       if (headsEdit) {
         await apiFetch(`/api/investment-heads/${headsEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
@@ -738,6 +740,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             amount: Number(investFormData.amount) || 0,
             assetCategory: investFormData.assetCategory || "Fixed",
             description: investFormData.description || null,
+            isActive: investFormData.isActive ?? true,
           }),
         });
       } else {
@@ -750,6 +753,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             type: "received",
             paymentMethod: "Cash",
             description: investFormData.description || null,
+            isActive: investFormData.isActive ?? true,
           }),
         });
       }
@@ -811,6 +815,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "type", label: "Type", type: "text" },
     { key: "openingBalance", label: "Opening Balance", type: "currency" },
     { key: "openingType", label: "Opening Type", type: "text" },
+    { key: "description", label: "Description", type: "text" },
     { key: "isActive", label: "Status", type: "boolean" },
   ];
 
@@ -835,6 +840,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const investExportColumns: ExportColumnDef[] = [
     { key: "code", label: "Code", type: "text" },
     { key: "name", label: "Head Name", type: "text" },
+    { key: "openingBalance", label: "Opening Balance", type: "currency" },
     { key: "totalAssets", label: "Total Assets", type: "currency" },
     { key: "totalLiabilities", label: "Total Liabilities", type: "currency" },
     { key: "netValue", label: "Net Value", type: "currency" },
@@ -889,7 +895,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "type", label: "Type", type: "select", options: [{ value: "received", label: "Received" }, { value: "pay", label: "Pay" }] },
     { key: "paymentMethod", label: "Payment Method", type: "select", options: [{ value: "Cash", label: "Cash" }, { value: "Bank Transfer", label: "Bank Transfer" }, { value: "Cheque", label: "Cheque" }] },
     { key: "description", label: "Description", type: "textarea" },
-    { key: "isActive", label: "Active", type: "boolean" },
+    { key: "isActive", label: "Active", type: "checkbox" },
   ];
 
   const handleImportCSV = (apiPath: string, fields: ExportFieldDef[], reloadFn: () => void) => {
@@ -1091,8 +1097,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="investment">
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
             <StatCard label="Total Investment Heads" value={investSummary?.totalHeads ?? investments.length} icon={Landmark} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+            <StatCard label="Total Opening Balance" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandOpeningBalances ?? 0)} icon={Banknote} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
             <StatCard label="Total Invested Amount" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandTotalAssets ?? 0)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
             <StatCard label="Total Returns" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandTotalLiabilities ?? 0)} icon={TrendingUp} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
             <StatCard label="Net Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandNetValue ?? 0)} icon={CheckCircle} color="text-cyan-600" bg="bg-cyan-50 dark:bg-cyan-900/30" />
@@ -1109,7 +1116,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => {
               setInvestFormData({
                 investmentHeadId: "", entryType: "asset", date: new Date().toISOString().split("T")[0],
-                amount: 0, assetCategory: "Fixed", description: "",
+                amount: 0, assetCategory: "Fixed", description: "", isActive: true,
               });
               setInvestForm(true);
             }} disabled={isVatAuditor}>
@@ -1140,6 +1147,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         </div>
                       </div>
                       <div className="flex items-center gap-4 text-xs">
+                        <span>Opening: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.openingBalance)}</span></span>
                         <span>Assets: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.totalAssets)}</span></span>
                         <span>Liabilities: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.totalLiabilities)}</span></span>
                         <span>Net: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.netValue)}</span></span>
@@ -1766,6 +1774,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <div>
               <Label htmlFor="head-description">Description</Label>
               <Textarea id="head-description" value={headsFormData.description} onChange={(e) => setHeadsFormData({ ...headsFormData, description: e.target.value })} placeholder="Optional description" rows={3} />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox id="head-active" checked={headsFormData.isActive} onCheckedChange={(v) => setHeadsFormData({ ...headsFormData, isActive: !!v })} />
+              <Label htmlFor="head-active">Active</Label>
             </div>
             {/* Document Uploads Section */}
             <div className="pt-2">

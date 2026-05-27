@@ -56,7 +56,37 @@ export async function GET(request: NextRequest) {
       return sum + (Number(line.quantity) * Number(costPrice));
     }, 0);
 
+    const grossProfit = totalRevenue - cogs;
     const netProfit = totalRevenue + totalIncome - cogs - totalExpenses;
+
+    // FIX: Compute totalReceivables and totalPayables for KPI accuracy
+    const [salesAgg, collectionsAgg, returnsAgg, purchasesAgg, deliveriesAgg, purchaseReturnsAgg, custOpenDrAgg, custOpenCrAgg, suppOpenCrAgg, suppOpenDrAgg] = await Promise.all([
+      db.salesOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true }, _sum: { grandTotal: true } }),
+      db.cashCollection.aggregate({ where: { isActive: true }, _sum: { amount: true } }),
+      db.salesReturn.aggregate({ where: { isActive: true }, _sum: { grandTotal: true } }),
+      db.purchaseOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true }, _sum: { grandTotal: true } }),
+      db.cashDelivery.aggregate({ where: { isActive: true }, _sum: { amount: true } }),
+      db.purchaseReturn.aggregate({ where: { isActive: true }, _sum: { grandTotal: true } }),
+      db.customer.aggregate({ where: { openingBalanceType: 'Dr', isActive: true }, _sum: { openingBalance: true } }),
+      db.customer.aggregate({ where: { openingBalanceType: 'Cr', isActive: true }, _sum: { openingBalance: true } }),
+      db.supplier.aggregate({ where: { openingBalanceType: 'Cr', isActive: true }, _sum: { openingBalance: true } }),
+      db.supplier.aggregate({ where: { openingBalanceType: 'Dr', isActive: true }, _sum: { openingBalance: true } }),
+    ]);
+
+    const totalReceivables = Math.max(0,
+      Number(custOpenDrAgg._sum.openingBalance || 0) +
+      Number(salesAgg._sum.grandTotal || 0) -
+      Number(collectionsAgg._sum.amount || 0) -
+      Number(returnsAgg._sum.grandTotal || 0) -
+      Number(custOpenCrAgg._sum.openingBalance || 0)
+    );
+    const totalPayables = Math.max(0,
+      Number(suppOpenCrAgg._sum.openingBalance || 0) +
+      Number(purchasesAgg._sum.grandTotal || 0) -
+      Number(deliveriesAgg._sum.amount || 0) -
+      Number(purchaseReturnsAgg._sum.grandTotal || 0) -
+      Number(suppOpenDrAgg._sum.openingBalance || 0)
+    );
 
     // FIX 1: Compute stock value as SUM(costPrice * openingStock) per product
     // If total stock is 0, inventory value should be 0
@@ -261,6 +291,10 @@ export async function GET(request: NextRequest) {
       totalIncome: isVatAuditor ? 'N/A (Audit Mode)' : totalIncome,
       totalPurchases: isVatAuditor ? 'N/A (Audit Mode)' : totalPurchases,
       netProfit: isVatAuditor ? 'N/A (Audit Mode)' : netProfit,
+      cogs: isVatAuditor ? 'N/A (Audit Mode)' : cogs,
+      grossProfit: isVatAuditor ? 'N/A (Audit Mode)' : grossProfit,
+      totalReceivables: isVatAuditor ? 'N/A (Audit Mode)' : totalReceivables,
+      totalPayables: isVatAuditor ? 'N/A (Audit Mode)' : totalPayables,
       stockValue: isVatAuditor ? 'N/A (Audit Mode)' : stockValue,
       cashBalance: isVatAuditor ? 'N/A (Audit Mode)' : (bankBalance._sum.currentBalance || 0),
       recentActivities,

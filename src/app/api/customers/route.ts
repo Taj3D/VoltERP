@@ -14,9 +14,13 @@ export async function GET(request: NextRequest) {
     });
 
     // VAT Auditor: mask credit limits and opening balances (sensitive margins)
+    // SR: mask creditLimit (should not see customer credit limits)
     const maskedItems = items.map(item => {
       if (security.user.role === 'vat_auditor') {
         return maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit']);
+      }
+      if (security.user.role === 'sr') {
+        return maskForVatAuditor(item, security.user.role, ['creditLimit']);
       }
       return item;
     });

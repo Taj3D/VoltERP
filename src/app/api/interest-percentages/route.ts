@@ -21,6 +21,13 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    // Validate percentage range
+    if (body.percentage === undefined || body.percentage === null || body.percentage < 0 || body.percentage > 100) {
+      return NextResponse.json(
+        { error: 'Percentage must be between 0 and 100' },
+        { status: 400 }
+      );
+    }
     const item = await db.$transaction(async (tx) => {
       const record = await tx.interestPercentage.create({
         data: {

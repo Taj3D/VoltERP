@@ -43,25 +43,40 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!security.authorized) return security.response;
   try {
     const { id } = await params;
-    const record = await db.brand.update({
-      where: { id },
-      data: { isActive: false },
-    });
+    await db.$transaction(async (tx) => {
+      const record = await tx.brand.findUnique({ where: { id } });
+      if (!record) throw new Error('Not found');
 
-    await db.auditLog.create({
-      data: {
-        action: 'DELETE',
-        module: 'Brands',
-        recordId: record.id,
-        recordLabel: record.name || record.code,
-        userId: security.user?.id || 'system',
-        userName: security.user?.name || 'System',
-        details: JSON.stringify({ code: record.code, softDelete: true }),
-      },
-    });
+      // FK check: Check if brand is referenced by active products
+      const activeProducts = await tx.product.count({ where: { brandId: id, isActive: true } });
+      if (activeProducts > 0) {
+        throw new Error(`Cannot delete: Brand is referenced by ${activeProducts} active product(s)`);
+      }
 
+      await tx.brand.update({
+        where: { id },
+        data: { isActive: false },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'Brands',
+          recordId: record.id,
+          recordLabel: record.name || record.code,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
+          details: JSON.stringify({ code: record.code, softDelete: true }),
+        },
+      });
+
+      return record;
+    });
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.startsWith('Cannot delete')) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: 'Failed to delete brand' }, { status: 500 });
   }
 }

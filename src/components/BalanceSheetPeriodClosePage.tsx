@@ -114,13 +114,16 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
   const loadBS = useCallback(async () => {
     setBsLoading(true);
     try {
-      let url = "/api/reports/balance-sheet";
-      if (bsAsOf) url += `?asOf=${bsAsOf}`;
+      const params = new URLSearchParams();
+      if (bsAsOf) params.set('asOf', bsAsOf);
+      if (isVatAuditor) params.set('hideMargins', 'true');
+      const qs = params.toString();
+      const url = `/api/reports/balance-sheet${qs ? '?' + qs : ''}`;
       const res = await apiFetch(url);
       setBsData(res);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setBsLoading(false); }
-  }, [toast, bsAsOf]);
+  }, [toast, bsAsOf, isVatAuditor]);
 
   // Load Period Close
   const loadPeriods = useCallback(async () => {

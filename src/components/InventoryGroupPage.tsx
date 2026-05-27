@@ -247,6 +247,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [godowns, setGodowns] = useState<any[]>([]);
+  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
 
   const loadDropdowns = useCallback(async () => {
     try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch {}
@@ -254,6 +255,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch {}
     try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch {}
     try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch {}
+    try { const r = await apiFetch("/api/payment-options"); setPaymentOptions(Array.isArray(r) ? r : []); } catch {}
   }, []);
 
   useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
@@ -312,7 +314,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [soEdit, setSoEdit] = useState<any>(null);
   const [soSaving, setSoSaving] = useState(false);
   const [soDelete, setSoDelete] = useState<any>(null);
-  const [soForm, setSoForm] = useState<Record<string, any>>({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOption: "Cash", notes: "" });
+  const [soForm, setSoForm] = useState<Record<string, any>>({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
   const [soLines, setSoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
 
   // ─── Hire Sales State ───
@@ -1302,7 +1304,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "category", label: "Category", type: "text" },
     { key: "currentStock", label: "Current Stock", type: "number" },
     { key: "reorderLevel", label: "Reorder Level", type: "number" },
-    { key: "suggestedQty", label: "Suggested Qty", type: "number" },
+    { key: "suggestedQuantity", label: "Suggested Qty", type: "number" },
     { key: "costPrice", label: "Cost Price", type: "currency" },
     { key: "estimatedCost", label: "Estimated Cost", type: "currency" },
   ];
@@ -1315,8 +1317,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
 
   const autoPoStats = useMemo(() => ({
     total: autoPoData.length,
-    suggested: autoPoData.reduce((s: number, o: any) => s + (Number(o.suggestedQty) || 0), 0),
-    totalCost: autoPoData.reduce((s: number, o: any) => s + (Number(o.estimatedCost) || Number(o.suggestedQty) * Number(o.costPrice) || 0), 0),
+    suggested: autoPoData.reduce((s: number, o: any) => s + (Number(o.suggestedQuantity) || 0), 0),
+    totalCost: autoPoData.reduce((s: number, o: any) => s + (Number(o.estimatedCost) || Number(o.suggestedQuantity) * Number(o.costPrice) || 0), 0),
     belowReorder: autoPoData.filter((o: any) => (Number(o.currentStock) || 0) <= (Number(o.reorderLevel) || 0)).length,
   }), [autoPoData]);
 
@@ -1325,7 +1327,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     try {
       const selectedItems = autoPoData.filter((o: any) => autoPoSelected.has(o.productId || o.id));
       if (selectedItems.length === 0) { toast({ title: "Error", description: "Select at least one product", variant: "destructive" }); setAutoPoGenerating(false); return; }
-      const lines = selectedItems.map((item: any) => ({ productId: item.productId || item.id, quantity: item.suggestedQty || 1, rate: item.costPrice || 0, discountPercent: 0 }));
+      const lines = selectedItems.map((item: any) => ({ productId: item.productId || item.id, quantity: item.suggestedQuantity || 1, rate: item.costPrice || 0, discountPercent: 0 }));
       const subTotal = lines.reduce((s: number, l: any) => s + l.quantity * l.rate, 0);
       const payload = { supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, notes: "Auto-generated PO", lines, subTotal, vatAmount: 0, vatPercentage: 0, grandTotal: subTotal };
       await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) });
@@ -1395,9 +1397,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                         <TableCell className="text-xs">{item.category || item.product?.category?.name || "—"}</TableCell>
                         <TableCell className="text-xs">{item.currentStock ?? "—"}</TableCell>
                         <TableCell className="text-xs">{item.reorderLevel ?? "—"}</TableCell>
-                        <TableCell className="text-xs">{item.suggestedQty ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{item.suggestedQuantity ?? "—"}</TableCell>
                         <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.costPrice)}</TableCell>
-                        <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.estimatedCost || (Number(item.suggestedQty) || 0) * (Number(item.costPrice) || 0))}</TableCell>
+                        <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.estimatedCost || (Number(item.suggestedQuantity) || 0) * (Number(item.costPrice) || 0))}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -1441,14 +1443,14 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   }), [soData]);
 
   const openSoCreate = () => {
-    setSoForm({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOption: "Cash", notes: "" });
+    setSoForm({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
     setSoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSoEdit(null);
     setSoDialog(true);
   };
 
   const openSoEdit = (item: any) => {
-    setSoForm({ customerId: item.customerId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, paymentOption: item.paymentOption?.name || "Cash", notes: item.notes || "" });
+    setSoForm({ customerId: item.customerId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, paymentOptionId: item.paymentOptionId || "", notes: item.notes || "" });
     setSoLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSoEdit(item);
     setSoDialog(true);
@@ -1472,7 +1474,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const discountAmt = Number(soForm.discount) || 0;
       const vatAmt = (subTotal - discountAmt) * (Number(soForm.vatPercent) || 0) / 100;
       const grandTotal = subTotal - discountAmt + vatAmt;
-      const payload = { ...soForm, lines: linesPayload, subTotal, discount: discountAmt, vatAmount: vatAmt, vatPercentage: soForm.vatPercent, grandTotal };
+      const payload = { ...soForm, lines: linesPayload, subTotal, discount: discountAmt, vatAmount: vatAmt, vatPercentage: soForm.vatPercent, paymentOptionId: soForm.paymentOptionId || null, grandTotal };
       if (soEdit) { await apiFetch(`/api/sales-orders/${soEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Sales Order updated" }); }
       else { await apiFetch("/api/sales-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Sales Order created" }); }
       setSoDialog(false); loadSalesOrders();
@@ -1563,9 +1565,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <div><Label className="text-sm font-medium">Discount (৳)</Label><Input type="number" min={0} step="0.01" value={soForm.discount || 0} onChange={e => setSoForm(p => ({ ...p, discount: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={soForm.vatPercent || 0} onChange={e => setSoForm(p => ({ ...p, vatPercent: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">Payment Option</Label>
-                  <Select value={soForm.paymentOption || "Cash"} onValueChange={v => setSoForm(p => ({ ...p, paymentOption: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Credit">Credit</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Bank Transfer">Bank Transfer</SelectItem></SelectContent>
+                  <Select value={soForm.paymentOptionId || "_none"} onValueChange={v => setSoForm(p => ({ ...p, paymentOptionId: v === "_none" ? "" : v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select Payment" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">None</SelectItem>
+                      {paymentOptions.map((po: any) => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}
+                    </SelectContent>
                   </Select></div>
               </div>
               <div><Label className="text-sm font-medium">Notes</Label><Textarea value={soForm.notes || ""} onChange={e => setSoForm(p => ({ ...p, notes: e.target.value }))} rows={2} /></div>
@@ -1758,7 +1763,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                     const h = hsViewInstallments;
                     if (!h) return null;
                     const dur = Number(h.duration) || 12;
-                    const instAmt = Number(h.installmentAmt) || (dur > 0 ? (Number(h.balance) || 0) / dur : 0);
+                    const instAmt = Number(h.installmentAmount) || (dur > 0 ? (Number(h.balanceAmount) || 0) / dur : 0);
                     const installments = h.installments || [];
                     const rows = [];
                     for (let i = 1; i <= dur; i++) {
@@ -2379,9 +2384,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             if (stockFilterStatus !== "all" && s.stockStatus !== stockFilterStatus) return false;
             return true;
           }).map((s: any) => ({
-            productName: `${s.product?.productCode || ""} — ${s.product?.name || ""}`,
-            category: s.product?.category?.name || "—",
-            godown: s.godown?.name || "Main",
+            productName: `${s.productCode || s.product?.productCode || ""} — ${s.productName || s.product?.name || ""}`,
+            category: s.category || s.product?.category?.name || "—",
+            godown: s.godown || s.godown?.name || "Main",
             currentStock: s.currentStock || 0,
             stockValue: s.stockValue || 0,
             stockStatus: s.stockStatus || "In Stock",
@@ -2402,9 +2407,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             if (stockFilterStatus !== "all" && s.stockStatus !== stockFilterStatus) return false;
             return true;
           }).map((s: any) => ({
-            productName: `${s.product?.productCode || ""} — ${s.product?.name || ""}`,
-            category: s.product?.category?.name || "—",
-            godown: s.godown?.name || "Main",
+            productName: `${s.productCode || s.product?.productCode || ""} — ${s.productName || s.product?.name || ""}`,
+            category: s.category || s.product?.category?.name || "—",
+            godown: s.godown || s.godown?.name || "Main",
             currentStock: s.currentStock || 0,
             stockValue: s.stockValue || 0,
             stockStatus: s.stockStatus || "In Stock",
@@ -2426,15 +2431,15 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <TableBody>
             {stockLoading ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
             stockData.filter((s: any) => {
-              if (stockSearch) { const q = stockSearch.toLowerCase(); if (!(s.product?.name || "").toLowerCase().includes(q) && !(s.product?.productCode || "").toLowerCase().includes(q)) return false; }
+              if (stockSearch) { const q = stockSearch.toLowerCase(); if (!(s.productName || s.product?.name || "").toLowerCase().includes(q) && !(s.productCode || s.product?.productCode || "").toLowerCase().includes(q)) return false; }
               if (stockFilterGodown !== "all" && s.godownId !== stockFilterGodown) return false;
               if (stockFilterStatus !== "all" && s.stockStatus !== stockFilterStatus) return false;
               return true;
             }).map((s: any, i: number) => (
               <TableRow key={i}>
-                <TableCell className="text-xs font-medium">{s.product?.productCode} — {s.product?.name}</TableCell>
-                <TableCell className="text-xs">{s.product?.category?.name || "—"}</TableCell>
-                <TableCell className="text-xs">{s.godown?.name || "Main"}</TableCell>
+                <TableCell className="text-xs font-medium">{s.productCode || s.product?.productCode || ""} — {s.productName || s.product?.name || ""}</TableCell>
+                <TableCell className="text-xs">{s.category || s.product?.category?.name || "—"}</TableCell>
+                <TableCell className="text-xs">{s.godown || s.godown?.name || "Main"}</TableCell>
                 <TableCell className="text-xs text-right font-medium">{Number(s.currentStock || 0).toLocaleString()}</TableCell>
                 <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.stockValue || 0)}</TableCell>
                 <TableCell className="text-xs"><StockStatusBadge status={s.stockStatus || "In Stock"} /></TableCell>

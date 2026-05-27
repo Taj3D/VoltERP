@@ -47,6 +47,26 @@ export async function PUT(
     const body = await request.json();
     const { employeeId, month, year, targetAmount, isActive } = body;
 
+    // Validate month and year if provided
+    if (month !== undefined && (month < 1 || month > 12)) {
+      return NextResponse.json(
+        { error: 'Month must be between 1 and 12' },
+        { status: 400 }
+      );
+    }
+    if (year !== undefined && (year < 2000 || year > 2100)) {
+      return NextResponse.json(
+        { error: 'Year must be between 2000 and 2100' },
+        { status: 400 }
+      );
+    }
+    if (targetAmount !== undefined && targetAmount < 0) {
+      return NextResponse.json(
+        { error: 'Target amount must be a positive number' },
+        { status: 400 }
+      );
+    }
+
     const result = await db.$transaction(async (tx) => {
       const target = await tx.sRTargetSetup.update({
         where: { id },

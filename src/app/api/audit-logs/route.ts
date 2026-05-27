@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { PrismaClient } from "@prisma/client";
 import { withApiSecurity } from '@/lib/api-security';
-
-function getAuditDb() {
-  if (typeof (db as any).auditLog !== "undefined") return db;
-  // Cached PrismaClient is stale, create fresh one
-  return new PrismaClient();
-}
 
 export async function GET(req: NextRequest) {
   const security = await withApiSecurity(req, 'AuditLogs', 'GET');
   if (!security.authorized) return security.response;
   try {
-    const auditDb = getAuditDb();
     const url = new URL(req.url);
     const moduleFilter = url.searchParams.get("module");
     const action = url.searchParams.get("action");
@@ -34,22 +26,22 @@ export async function GET(req: NextRequest) {
     }
 
     const [logs, total] = await Promise.all([
-      auditDb.auditLog.findMany({
+      db.auditLog.findMany({
         where,
         orderBy: { createdAt: "desc" },
         take: limit,
         skip: offset,
       }),
-      auditDb.auditLog.count({ where }),
+      db.auditLog.count({ where }),
     ]);
 
     // Get unique modules and actions for filters
-    const modules = await auditDb.auditLog.findMany({
+    const modules = await db.auditLog.findMany({
       select: { module: true },
       distinct: ["module"],
       orderBy: { module: "asc" },
     });
-    const actions = await auditDb.auditLog.findMany({
+    const actions = await db.auditLog.findMany({
       select: { action: true },
       distinct: ["action"],
       orderBy: { action: "asc" },
@@ -72,7 +64,7 @@ export async function POST(req: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await req.json();
-    const log = await auditDb.auditLog.create({
+    const log = await db.auditLog.create({
       data: {
         action: body.action,
         module: body.module,

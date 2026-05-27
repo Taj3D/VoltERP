@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, validateImageFields } from '@/lib/api-security';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'InvestmentHeads', 'GET');
@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
         const payLiabilities = head.liabilities
           .filter((l) => l.type === 'pay')
           .reduce((sum, l) => sum + l.amount, 0);
-        const netValue = totalAssets - totalLiabilities;
+        // Balance formula: opening balance + additions (assets) - withdrawals (liabilities)
+        const netValue = head.openingBalance + totalAssets - totalLiabilities;
 
         return {
           ...head,
@@ -57,12 +58,14 @@ export async function GET(request: NextRequest) {
 
       const grandTotalAssets = isVatAuditor ? 'N/A (Audit Mode)' : enriched.reduce((sum, h) => sum + (typeof h.totalAssets === 'number' ? h.totalAssets : 0), 0);
       const grandTotalLiabilities = isVatAuditor ? 'N/A (Audit Mode)' : enriched.reduce((sum, h) => sum + (typeof h.totalLiabilities === 'number' ? h.totalLiabilities : 0), 0);
-      const grandNetValue = isVatAuditor ? 'N/A (Audit Mode)' : enriched.reduce((sum, h) => sum + (typeof h.netValue === 'number' ? h.netValue : 0), 0);
+      const grandOpeningBalances = isVatAuditor ? 'N/A (Audit Mode)' : investmentHeads.reduce((sum, h) => sum + h.openingBalance, 0);
+      const grandNetValue = isVatAuditor ? 'N/A (Audit Mode)' : (typeof grandOpeningBalances === 'number' ? grandOpeningBalances : 0) + (typeof grandTotalAssets === 'number' ? grandTotalAssets : 0) - (typeof grandTotalLiabilities === 'number' ? grandTotalLiabilities : 0);
 
       return NextResponse.json({
         investmentHeads: enriched,
         summary: {
           totalHeads: enriched.length,
+          grandOpeningBalances,
           grandTotalAssets,
           grandTotalLiabilities,
           grandNetValue,
@@ -92,6 +95,8 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       const count = await tx.investmentHead.count();
       const code = `INV-${String(count + 1).padStart(5, '0')}`;
@@ -104,6 +109,9 @@ export async function POST(request: NextRequest) {
           type: body.type || 'Investment',
           openingBalance: body.openingBalance ?? 0,
           openingType: body.openingType || '',
+          profileImage: body.profileImage || null,
+          nidFrontImage: body.nidFrontImage || null,
+          nidBackImage: body.nidBackImage || null,
           isActive: body.isActive ?? true,
         },
       });
