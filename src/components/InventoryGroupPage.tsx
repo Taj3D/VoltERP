@@ -6,7 +6,7 @@ import {
   FileDown, Shield, X, CheckCircle, ClipboardList, ShoppingCart,
   FileBarChart, Receipt, DollarSign, RotateCcw, ArrowLeftRight,
   Package, BarChart3, Truck, AlertTriangle, Ban, PackageCheck,
-  Calculator, ArrowRightLeft, Eye, TrendingUp, Clock,
+  Calculator, ArrowRightLeft, Eye, TrendingUp, Clock, Printer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -1488,6 +1489,82 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
+  const handlePrintInvoice = async (soId: string, invoiceNo?: string) => {
+    try {
+      toast({ title: "Generating Invoice", description: "Fetching data..." });
+      const [companyProfile, so] = await Promise.all([
+        apiFetch("/api/company-branding"),
+        apiFetch(`/api/sales-orders/${soId}?include=lines,customer,paymentOption`),
+      ]);
+      const customer = so.customer || {};
+      const paymentOption = so.paymentOption || {};
+      const items: InvoiceLineItem[] = (so.lines || []).map((line: any, idx: number) => {
+        const qty = Number(line.quantity) || 0;
+        const rate = Number(line.rate) || 0;
+        const discPct = Number(line.discountPercent) || 0;
+        const discAmt = qty * rate * (discPct / 100);
+        const total = qty * rate - discAmt;
+        return {
+          sl: idx + 1,
+          model: line.product?.name || "—",
+          color: line.product?.color || "",
+          description: line.product?.name || "—",
+          qty,
+          mrp: rate,
+          discountAmt: discAmt,
+          rate,
+          total,
+        };
+      });
+      const subTotal = items.reduce((s, i) => s + i.qty * i.mrp, 0);
+      const discountAmount = Number(so.discount) || 0;
+      const discountPercent = subTotal > 0 ? (discountAmount / subTotal) * 100 : 0;
+      const invoiceData: InvoiceData = {
+        invoiceNo: invoiceNo || so.invoiceNo || `INV-${String(so.id).padStart(5, "0")}`,
+        invoiceDate: so.date ? new Date(so.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+        customerCode: customer.customerCode || "—",
+        customerName: customer.name || "—",
+        customerMobile: customer.phone || "—",
+        customerAddress: customer.address || "",
+        items,
+        discountAmount,
+        discountPercent: Math.round(discountPercent * 100) / 100,
+        netTotal: Number(so.grandTotal) || 0,
+        paidAmount: Number(so.grandTotal) || 0,
+        currentDue: 0,
+        paymentDetails: [{ method: paymentOption.name || "Cash", amount: Number(so.grandTotal) || 0 }],
+        invoiceType: "Sales Invoice",
+        barcodeData: so.invoiceNo || "",
+        printedBy: auth.user?.displayName || auth.user?.name || "Admin",
+        salesPerson: "System",
+      };
+      const templateConfig: InvoiceTemplateConfig = {
+        showCompanyLogo: true,
+        showBarcode: true,
+        showQRCode: false,
+        showWatermark: false,
+        showTermsAndConditions: false,
+        showBankDetails: false,
+        showCustomerDetails: true,
+        showProductImage: false,
+        showDiscountColumn: true,
+        showVATColumn: false,
+        showAmountInWords: true,
+        showSignatureLine: false,
+        showFooterNote: true,
+      };
+      exportInvoicePDF({
+        data: invoiceData,
+        company: companyProfile,
+        template: templateConfig,
+        filename: `Invoice_${invoiceData.invoiceNo}.pdf`,
+      });
+      toast({ title: "Invoice Generated", description: `${invoiceData.invoiceNo} PDF generated successfully` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to generate invoice", variant: "destructive" });
+    }
+  };
+
   const renderSalesOrder = () => {
     if (isDealer) return <AccessDenied message="Dealers cannot access Sales Orders." />;
     return (
@@ -1533,6 +1610,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => handlePrintInvoice(item.id, item.invoiceNo)} className="h-7 w-7 p-0 text-blue-500" title="Print Invoice"><Printer className="h-3 w-3" /></Button>
                           {(isAdmin || isSR) && <Button variant="ghost" size="sm" onClick={() => openSoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>}
                           {isAdmin && <Button variant="ghost" size="sm" onClick={() => setSoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
                         </div>

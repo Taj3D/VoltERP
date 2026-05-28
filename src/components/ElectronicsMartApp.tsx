@@ -1591,9 +1591,8 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
 
   const exportPDF = () => {
     if (data.length === 0) return;
-    const headers = Object.keys(data[0]).filter(k => k !== "id");
-    const rows = data.map((row: any) => headers.map(h => String(row[h] ?? "—")));
-    try { exportToPDFSimple(title, headers, rows, "portrait", `Period: ${dateFrom} to ${dateTo}`); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    const dynamicColumns = Object.keys(data[0]).filter(k => k !== "id").map(k => ({ key: k, label: k }));
+    try { exportToPDF({ title, columns: dynamicColumns, data: data, orientation: "portrait", subtitle: `Period: ${dateFrom} to ${dateTo}` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportCSVReport = () => {

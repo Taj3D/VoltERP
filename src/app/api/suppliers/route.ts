@@ -33,6 +33,12 @@ export async function POST(request: NextRequest) {
   // SR: blocked from creating suppliers (handled by MODULE_DENY in api-security)
   try {
     const body = await request.json();
+    if (body.batchMode && Array.isArray(body.data)) {
+      const results = await db.$transaction(body.data.map((record: any) =>
+        db.supplier.create({ data: record })
+      ));
+      return NextResponse.json({ success: true, count: results.length, data: results });
+    }
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {

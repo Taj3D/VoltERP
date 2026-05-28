@@ -36,6 +36,12 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    if (body.batchMode && Array.isArray(body.data)) {
+      const results = await db.$transaction(body.data.map((record: any) =>
+        db.customer.create({ data: record })
+      ));
+      return NextResponse.json({ success: true, count: results.length, data: results });
+    }
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
