@@ -6,7 +6,7 @@ import {
   AlertTriangle, Banknote, Search, RefreshCw, Download,
   Upload, FileDown, Plus, MessageSquare, Settings,
   Phone, FileText, CreditCard, Activity, BarChart3,
-  Pencil, Trash2
+  Pencil, Trash2, Shield, Lock
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -21,13 +21,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
 import {
   exportToPDF,
   exportToCSV,
-  exportToPDFSimple,
-  exportToCSVSimple,
   importFromCSV,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
@@ -36,16 +35,42 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@
 // UTILITY FUNCTIONS
 // ============================================================
 
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const fmtCurrency = (v: any) => {
+  const num = Number(v);
+  if (isNaN(num) || v === null || v === undefined) return "—";
+  return `৳${bdCurrencyFmt.format(num)}`;
+};
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return fmtCurrency(v);
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return Number(v).toLocaleString("en-BD", { maximumFractionDigits: 2 });
+  if (type === "number") {
+    const num = Number(v);
+    if (isNaN(num)) return "—";
+    return bdCurrencyFmt.format(num);
+  }
+  return String(v);
+};
+
+const fmtEmpty = (v: any) => {
+  if (v === null || v === undefined || v === '') return '—';
   return String(v);
 };
 
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+// SMS Character Bounds Computation (Client-side mirror)
+const computeClientSmsSegments = (message: string) => {
+  const charCount = message.length;
+  const isUnicode = /[^\x00-\x7F]/.test(message);
+  const charsPerSegment = isUnicode ? 70 : 160;
+  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
+  return { charCount, isUnicode, segmentCount, charsPerSegment };
+};
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -93,6 +118,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   // Auth state
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const isVatAuditor = authUser?.role === "vat_auditor";
+  const isAdmin = authUser?.role === "admin";
+  const isSR = authUser?.role === "sr";
+  const isDealer = authUser?.role === "dealer";
 
   useEffect(() => {
     try {
@@ -133,14 +161,38 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [smsRecipient, setSmsRecipient] = useState("");
   const [smsBulkRecipients, setSmsBulkRecipients] = useState("");
   const [smsMessage, setSmsMessage] = useState("");
-  const [smsCostPerMessage, setSmsCostPerMessage] = useState(0.5);
+  const [campaignName, setCampaignName] = useState("");
   const [smsSending, setSmsSending] = useState(false);
 
   // SMS Settings form state
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [settingsEdit, setSettingsEdit] = useState<any>(null);
-  const [settingsForm, setSettingsForm] = useState({ apiUrl: "", apiKey: "", senderId: "", isActive: true });
+  const [settingsForm, setSettingsForm] = useState({
+    apiUrl: "", apiKey: "", senderId: "", maskingName: "", maskingRegId: "",
+    gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true
+  });
   const [settingsSaving, setSettingsSaving] = useState(false);
+
+  // Bill Payment dialog state
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [paymentBillId, setPaymentBillId] = useState("");
+  const [paymentForm, setPaymentForm] = useState({ amount: 0, date: new Date().toISOString().split("T")[0], method: "Cash", reference: "", notes: "" });
+  const [paymentSaving, setPaymentSaving] = useState(false);
+
+  // Bill Create dialog state
+  const [billDialog, setBillDialog] = useState(false);
+  const [billEdit, setBillEdit] = useState<any>(null);
+  const [billForm, setBillForm] = useState({ period: "", totalSms: 0, totalSegments: 0, totalCost: 0, paidAmount: 0, status: "Unpaid" });
+  const [billSaving, setBillSaving] = useState(false);
+
+  // Delete confirmation dialog
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: string } | null>(null);
+
+  // Get cost per segment from active settings
+  const activeSetting = smsSettings.find((s: any) => s.isActive);
+  const costPerSegment = activeSetting?.ratePerSms || 0.5;
+  const unicodeCostPerSegment = activeSetting?.unicodeRate || 0.8;
 
   // ============================================================
   // DATA LOADING
@@ -181,14 +233,28 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   // SMS Settings: open create dialog
   const openSettingsCreate = () => {
     setSettingsEdit(null);
-    setSettingsForm({ apiUrl: "", apiKey: "", senderId: "", isActive: true });
+    setSettingsForm({
+      apiUrl: "", apiKey: "", senderId: "", maskingName: "", maskingRegId: "",
+      gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true
+    });
     setSettingsDialog(true);
   };
 
   // SMS Settings: open edit dialog
   const openSettingsEdit = (s: any) => {
     setSettingsEdit(s);
-    setSettingsForm({ apiUrl: s.apiUrl || "", apiKey: s.apiKey || "", senderId: s.senderId || "", isActive: s.isActive ?? true });
+    setSettingsForm({
+      apiUrl: s.apiUrl || "",
+      apiKey: s.apiKey || "",
+      senderId: s.senderId || "",
+      maskingName: s.maskingName || "",
+      maskingRegId: s.maskingRegId || "",
+      gatewayName: s.gatewayName || "",
+      ratePerSms: s.ratePerSms ?? 0.5,
+      unicodeRate: s.unicodeRate ?? 0.8,
+      setupCost: s.setupCost ?? 0,
+      isActive: s.isActive ?? true,
+    });
     setSettingsDialog(true);
   };
 
@@ -196,6 +262,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const saveSettings = async () => {
     if (!settingsForm.apiUrl || !settingsForm.apiKey || !settingsForm.senderId) {
       toast({ title: "Validation Error", description: "API URL, API Key, and Sender ID are required", variant: "destructive" });
+      return;
+    }
+    if (!isAdmin) {
+      toast({ title: "Access Denied", description: "Only administrators can modify SMS gateway settings", variant: "destructive" });
       return;
     }
     setSettingsSaving(true);
@@ -224,12 +294,132 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   // SMS Settings: delete handler
   const deleteSettings = async (id: string) => {
+    if (!isAdmin) {
+      toast({ title: "Access Denied", description: "Only administrators can delete SMS gateway settings", variant: "destructive" });
+      return;
+    }
     try {
       await apiFetch(`/api/sms-settings/${id}`, { method: "DELETE" });
       toast({ title: "Settings Deleted", description: "SMS configuration deleted" });
       loadData();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // Bill: open create dialog
+  const openBillCreate = () => {
+    setBillEdit(null);
+    setBillForm({ period: "", totalSms: 0, totalSegments: 0, totalCost: 0, paidAmount: 0, status: "Unpaid" });
+    setBillDialog(true);
+  };
+
+  // Bill: open edit dialog
+  const openBillEdit = (b: any) => {
+    setBillEdit(b);
+    setBillForm({
+      period: b.period || "",
+      totalSms: b.totalSms ?? 0,
+      totalSegments: b.totalSegments ?? 0,
+      totalCost: b.totalCost ?? 0,
+      paidAmount: b.paidAmount ?? 0,
+      status: b.status || "Unpaid",
+    });
+    setBillDialog(true);
+  };
+
+  // Bill: save handler
+  const saveBill = async () => {
+    if (!billForm.period) {
+      toast({ title: "Validation Error", description: "Period is required", variant: "destructive" });
+      return;
+    }
+    setBillSaving(true);
+    try {
+      const outstanding = Number(billForm.totalCost) - Number(billForm.paidAmount);
+      const autoStatus = outstanding <= 0 ? "Paid" : Number(billForm.paidAmount) > 0 ? "Partial" : "Unpaid";
+      const payload = { ...billForm, outstanding, status: autoStatus };
+      if (billEdit) {
+        await apiFetch(`/api/sms-bills/${billEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+        toast({ title: "Bill Updated", description: "SMS bill updated successfully" });
+      } else {
+        await apiFetch("/api/sms-bills", { method: "POST", body: JSON.stringify(payload) });
+        toast({ title: "Bill Created", description: "SMS bill created successfully" });
+      }
+      setBillDialog(false);
+      loadData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setBillSaving(false);
+    }
+  };
+
+  // Bill: delete handler
+  const deleteBill = async (id: string) => {
+    if (!isAdmin) {
+      toast({ title: "Access Denied", description: "Only administrators can delete SMS bills", variant: "destructive" });
+      return;
+    }
+    try {
+      await apiFetch(`/api/sms-bills/${id}`, { method: "DELETE" });
+      toast({ title: "Bill Deleted", description: "SMS bill deleted" });
+      loadData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // Payment: open dialog
+  const openPaymentDialog = (billId: string) => {
+    setPaymentBillId(billId);
+    setPaymentForm({ amount: 0, date: new Date().toISOString().split("T")[0], method: "Cash", reference: "", notes: "" });
+    setPaymentDialog(true);
+  };
+
+  // Payment: save handler
+  const savePayment = async () => {
+    if (!paymentForm.amount || paymentForm.amount <= 0) {
+      toast({ title: "Validation Error", description: "Payment amount must be greater than 0", variant: "destructive" });
+      return;
+    }
+    setPaymentSaving(true);
+    try {
+      await apiFetch("/api/sms-bill-payments", {
+        method: "POST",
+        body: JSON.stringify({
+          smsBillId: paymentBillId,
+          amount: paymentForm.amount,
+          date: paymentForm.date,
+          method: paymentForm.method || null,
+          reference: paymentForm.reference || null,
+          notes: paymentForm.notes || null,
+        }),
+      });
+      toast({ title: "Payment Recorded", description: "SMS bill payment recorded successfully" });
+      setPaymentDialog(false);
+      loadData();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
+
+  // Delete confirmation handler
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      if (deleteTarget.type === "settings") {
+        await deleteSettings(deleteTarget.id);
+      } else if (deleteTarget.type === "bill") {
+        await deleteBill(deleteTarget.id);
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setDeleteDialog(false);
+      setDeleteTarget(null);
     }
   };
 
@@ -248,7 +438,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const unpaidBills = smsBills.filter((b: any) => b.status === "Unpaid").length;
   const outstandingAmount = smsBills
     .filter((b: any) => b.status !== "Paid")
-    .reduce((sum: number, b: any) => sum + (Number(b.totalCost) || 0) - (Number(b.paidAmount) || 0), 0);
+    .reduce((sum: number, b: any) => sum + (Number(b.outstanding) || (Number(b.totalCost) || 0) - (Number(b.paidAmount) || 0)), 0);
 
   // ============================================================
   // FILTERED DATA
@@ -261,7 +451,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       result = result.filter((log: any) =>
         log.recipient?.toLowerCase().includes(s) ||
         log.message?.toLowerCase().includes(s) ||
-        log.status?.toLowerCase().includes(s)
+        log.status?.toLowerCase().includes(s) ||
+        log.campaignName?.toLowerCase().includes(s)
       );
     }
     if (logStatusFilter !== "all") {
@@ -333,39 +524,31 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             recipient: smsRecipient.trim(),
             message: smsMessage.trim(),
             status: "Pending",
-            cost: smsCostPerMessage,
           }),
         });
         toast({ title: "SMS Sent", description: `Message queued for ${smsRecipient}` });
       } else {
-        const recipients = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
-        let successCount = 0;
-        let failCount = 0;
-        for (const recipient of recipients) {
-          try {
-            await apiFetch("/api/sms-logs", {
-              method: "POST",
-              body: JSON.stringify({
-                recipient,
-                message: smsMessage.trim(),
-                status: "Pending",
-                cost: smsCostPerMessage,
-              }),
-            });
-            successCount++;
-          } catch {
-            failCount++;
-          }
-        }
+        // Bulk SMS with batchMode API
+        const recipientsList = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
+        await apiFetch("/api/sms-logs", {
+          method: "POST",
+          body: JSON.stringify({
+            batchMode: true,
+            recipients: recipientsList,
+            message: smsMessage.trim(),
+            campaignName: campaignName || undefined,
+            status: "Pending",
+          }),
+        });
         toast({
           title: "Bulk SMS Complete",
-          description: `Sent: ${successCount}, Failed: ${failCount}`,
-          variant: failCount > 0 ? "destructive" : "default",
+          description: `Campaign queued for ${recipientsList.length} recipient(s)`,
         });
       }
       setSmsRecipient("");
       setSmsBulkRecipients("");
       setSmsMessage("");
+      setCampaignName("");
       loadData();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -381,16 +564,22 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const smsLogColumns: ExportColumnDef[] = [
     { key: "recipient", label: "Recipient", type: "text" },
     { key: "message", label: "Message", type: "text" },
+    { key: "charCount", label: "Chars", type: "number" },
+    { key: "smsSegmentCount", label: "Segments", type: "number" },
+    { key: "isUnicode", label: "Unicode", type: "boolean" },
     { key: "status", label: "Status", type: "text" },
     { key: "sentAt", label: "Sent At", type: "date" },
     { key: "cost", label: "Cost", type: "currency" },
+    { key: "campaignName", label: "Campaign", type: "text" },
   ];
 
   const smsBillColumns: ExportColumnDef[] = [
     { key: "period", label: "Period", type: "text" },
     { key: "totalSms", label: "Total SMS", type: "number" },
+    { key: "totalSegments", label: "Total Segments", type: "number" },
     { key: "totalCost", label: "Total Cost", type: "currency" },
     { key: "paidAmount", label: "Paid", type: "currency" },
+    { key: "outstanding", label: "Outstanding", type: "currency" },
     { key: "status", label: "Status", type: "text" },
   ];
 
@@ -421,6 +610,12 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         isVatAuditor,
         vatMaskedColumns: ["cost"],
         filename: "sms-logs",
+        financialFooter: {
+          preparedBy: authUser?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: authUser?.displayName || authUser?.email || "",
+        },
       });
       toast({ title: "Exported", description: "SMS Logs exported to PDF" });
     } catch (e: any) {
@@ -435,7 +630,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         columns: smsBillColumns,
         data: filteredBills,
         isVatAuditor,
-        vatMaskedColumns: ["totalCost", "paidAmount"],
+        vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
         filename: "sms-bills",
       });
       toast({ title: "Exported", description: "SMS Bills exported to CSV" });
@@ -453,10 +648,82 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         columns: smsBillColumns,
         data: filteredBills,
         isVatAuditor,
-        vatMaskedColumns: ["totalCost", "paidAmount"],
+        vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
         filename: "sms-bills",
+        financialFooter: {
+          preparedBy: authUser?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: authUser?.displayName || authUser?.email || "",
+        },
       });
       toast({ title: "Exported", description: "SMS Bills exported to PDF" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // SMS Report PDF export
+  const handleExportReportPDF = () => {
+    try {
+      const reportColumns: ExportColumnDef[] = [
+        { key: "date", label: "Date", type: "date" },
+        { key: "totalSent", label: "Total Sent", type: "number" },
+        { key: "delivered", label: "Delivered", type: "number" },
+        { key: "failed", label: "Failed", type: "number" },
+        { key: "cost", label: "Cost", type: "currency" },
+      ];
+      exportToPDF({
+        title: "SMS Report",
+        subtitle: `Period: ${reportFrom} to ${reportTo}`,
+        orientation: "landscape",
+        columns: reportColumns,
+        data: smsReport,
+        isVatAuditor,
+        vatMaskedColumns: ["cost"],
+        filename: "sms-report",
+        financialFooter: {
+          preparedBy: authUser?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: authUser?.displayName || authUser?.email || "",
+        },
+      });
+      toast({ title: "Exported", description: "SMS Report exported to PDF" });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // SMS Settings PDF export
+  const handleExportSettingsPDF = () => {
+    try {
+      const settingsColumns: ExportColumnDef[] = [
+        { key: "apiUrl", label: "API URL", type: "text" },
+        { key: "senderId", label: "Sender ID", type: "text" },
+        { key: "gatewayName", label: "Gateway", type: "text" },
+        { key: "ratePerSms", label: "Rate/SMS", type: "currency" },
+        { key: "unicodeRate", label: "Unicode Rate", type: "currency" },
+        { key: "setupCost", label: "Setup Cost", type: "currency" },
+        { key: "isActive", label: "Status", type: "boolean" },
+      ];
+      exportToPDF({
+        title: "SMS Settings Report",
+        subtitle: "Gateway Configuration Summary",
+        orientation: "landscape",
+        columns: settingsColumns,
+        data: smsSettings,
+        isVatAuditor,
+        vatMaskedColumns: ["ratePerSms", "unicodeRate", "setupCost"],
+        filename: "sms-settings",
+        financialFooter: {
+          preparedBy: authUser?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: authUser?.displayName || authUser?.email || "",
+        },
+      });
+      toast({ title: "Exported", description: "SMS Settings exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -468,6 +735,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       { key: "message", label: "Message", type: "textarea", required: true },
       { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Delivered", label: "Delivered" }, { value: "Failed", label: "Failed" }] },
       { key: "cost", label: "Cost", type: "number" },
+      { key: "campaignName", label: "Campaign", type: "text" },
     ];
     importFromCSV({
       apiPath: "/api/sms-logs",
@@ -488,6 +756,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       formFields: [
         { key: "period", label: "Period", type: "text" },
         { key: "totalSms", label: "Total SMS", type: "number" },
+        { key: "totalSegments", label: "Total Segments", type: "number" },
         { key: "totalCost", label: "Total Cost", type: "number" },
         { key: "paidAmount", label: "Paid Amount", type: "number" },
         { key: "status", label: "Status", type: "text" },
@@ -589,16 +858,37 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   ];
 
   // ============================================================
-  // CHARACTER COUNTER
+  // CHARACTER COUNTER (SMS Segments Computation)
   // ============================================================
 
-  const charCount = smsMessage.length;
-  const maxChars = 160;
-  const smsCount = Math.ceil(charCount / maxChars) || 1;
+  const { charCount, isUnicode, segmentCount, charsPerSegment } = computeClientSmsSegments(smsMessage);
+  const estimatedCostPerSegment = isUnicode ? unicodeCostPerSegment : costPerSegment;
 
   // ============================================================
   // RENDER
   // ============================================================
+
+  // ─── DEALER: Access Restricted (after all hooks) ───
+  if (isDealer) {
+    return (
+      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-3 w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <Lock className="w-8 h-8 text-red-600 dark:text-red-400" />
+            </div>
+            <CardTitle className="text-xl text-red-600 dark:text-red-400">Access Restricted</CardTitle>
+          </CardHeader>
+          <CardContent className="text-center">
+            <p className="text-muted-foreground">
+              The SMS Analytics module is not available for Dealer accounts.
+              Please contact your administrator for access.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="page-enter space-y-4">
@@ -606,7 +896,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Cost/profit fields masked for audit compliance.</span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">
+            Carrier costs, balance rates, API tokens, and billing statements masked for audit compliance.
+          </span>
         </div>
       )}
 
@@ -635,18 +927,24 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             <MessageSquare className="w-4 h-4" />
             SMS Log
           </TabsTrigger>
-          <TabsTrigger value="billing" className="flex items-center gap-1">
-            <CreditCard className="w-4 h-4" />
-            SMS Billing
-          </TabsTrigger>
+          {/* Hide Billing tab for SR */}
+          {!isSR && (
+            <TabsTrigger value="billing" className="flex items-center gap-1">
+              <CreditCard className="w-4 h-4" />
+              SMS Billing
+            </TabsTrigger>
+          )}
           <TabsTrigger value="send" className="flex items-center gap-1">
             <Send className="w-4 h-4" />
             Send SMS
           </TabsTrigger>
-          <TabsTrigger value="settings" className="flex items-center gap-1">
-            <Settings className="w-4 h-4" />
-            Settings
-          </TabsTrigger>
+          {/* Hide Settings tab for SR */}
+          {!isSR && (
+            <TabsTrigger value="settings" className="flex items-center gap-1">
+              <Settings className="w-4 h-4" />
+              Settings
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ============================================================
@@ -664,7 +962,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <div>
                     <p className="text-xs text-muted-foreground">{kpi.label}</p>
                     <p className="text-lg font-bold text-slate-900 dark:text-white">
-                      {typeof kpi.value === "number" ? kpi.value.toLocaleString() : kpi.value}
+                      {typeof kpi.value === "number" ? fmt(kpi.value, "number") : kpi.value}
                     </p>
                   </div>
                 </CardContent>
@@ -786,6 +1084,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <RefreshCw className="w-4 h-4 mr-1" />
                   Generate
                 </Button>
+                <Button variant="outline" size="sm" onClick={handleExportReportPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
+                </Button>
               </div>
 
               {smsReport.length > 0 ? (
@@ -837,7 +1139,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search by recipient, message, status..."
+                    placeholder="Search by recipient, message, status, campaign..."
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
                     className="pl-10"
@@ -892,21 +1194,25 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>Recipient</TableHead>
                       <TableHead>Message</TableHead>
+                      <TableHead className="text-center">Chars</TableHead>
+                      <TableHead className="text-center">Segments</TableHead>
+                      <TableHead className="text-center">Type</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Sent At</TableHead>
                       <TableHead className="text-right">Cost</TableHead>
+                      <TableHead>Campaign</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center">
+                        <TableCell colSpan={10} className="h-24 text-center">
                           <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
                         </TableCell>
                       </TableRow>
                     ) : filteredLogs.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                           No SMS logs found
                         </TableCell>
                       </TableRow>
@@ -923,6 +1229,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           <TableCell className="max-w-[300px] truncate text-slate-900 dark:text-white">
                             {log.message || "—"}
                           </TableCell>
+                          <TableCell className="text-center text-slate-900 dark:text-white">
+                            {log.charCount ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-center text-slate-900 dark:text-white">
+                            {log.smsSegmentCount ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge className={log.isUnicode
+                              ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                              : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
+                            }>
+                              {log.isUnicode ? "Unicode" : "Standard"}
+                            </Badge>
+                          </TableCell>
                           <TableCell>
                             <Badge className={statusColor(log.status)}>
                               {log.status || "Unknown"}
@@ -933,6 +1253,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </TableCell>
                           <TableCell className="text-right font-mono text-slate-900 dark:text-white">
                             {isVatAuditor ? "N/A (Audit Mode)" : fmt(log.cost, "currency")}
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            {fmtEmpty(log.campaignName)}
                           </TableCell>
                         </TableRow>
                       ))
@@ -950,8 +1273,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         </TabsContent>
 
         {/* ============================================================
-            SMS BILLING TAB
+            SMS BILLING TAB (Hidden for SR)
             ============================================================ */}
+        {!isSR && (
         <TabsContent value="billing" className="space-y-4">
           {/* Billing Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1000,7 +1324,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 <div>
                   <p className="text-xs text-muted-foreground">Outstanding</p>
                   <p className="text-lg font-bold text-slate-900 dark:text-white">
-                    {isVatAuditor ? "N/A" : fmt(outstandingAmount, "currency")}
+                    {isVatAuditor ? "N/A (Audit Mode)" : fmt(outstandingAmount, "currency")}
                   </p>
                 </div>
               </CardContent>
@@ -1023,6 +1347,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   </SelectContent>
                 </Select>
                 <Separator orientation="vertical" className="h-8" />
+                <Button variant="outline" size="sm" onClick={openBillCreate}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  New Bill
+                </Button>
                 <Button variant="outline" size="sm" onClick={handleExportBillCSV}>
                   <Download className="w-4 h-4 mr-1" />
                   Export CSV
@@ -1055,37 +1383,42 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     <TableRow className="bg-muted/50">
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>Period</TableHead>
-                      <TableHead>Total SMS</TableHead>
+                      <TableHead className="text-center">Total SMS</TableHead>
+                      <TableHead className="text-center">Total Segments</TableHead>
                       <TableHead className="text-right">Total Cost</TableHead>
                       <TableHead className="text-right">Paid</TableHead>
                       <TableHead className="text-right">Outstanding</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead className="text-center">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center">
+                        <TableCell colSpan={9} className="h-24 text-center">
                           <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
                         </TableCell>
                       </TableRow>
                     ) : filteredBills.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                           No SMS bills found
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredBills.map((bill: any, idx: number) => {
-                        const outstanding = (Number(bill.totalCost) || 0) - (Number(bill.paidAmount) || 0);
+                        const outstanding = Number(bill.outstanding) || (Number(bill.totalCost) || 0) - (Number(bill.paidAmount) || 0);
                         return (
                           <TableRow key={bill.id || idx} className="data-table-row hover:bg-muted/50">
                             <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
                             <TableCell className="font-medium text-slate-900 dark:text-white">
                               {bill.period || "—"}
                             </TableCell>
-                            <TableCell className="text-slate-900 dark:text-white">
+                            <TableCell className="text-center text-slate-900 dark:text-white">
                               {bill.totalSms ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-center text-slate-900 dark:text-white">
+                              {bill.totalSegments ?? "—"}
                             </TableCell>
                             <TableCell className="text-right font-mono text-slate-900 dark:text-white">
                               {isVatAuditor ? "N/A (Audit Mode)" : fmt(bill.totalCost, "currency")}
@@ -1100,6 +1433,34 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                               <Badge className={billStatusColor(bill.status)}>
                                 {bill.status || "Unknown"}
                               </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openBillEdit(bill)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openPaymentDialog(bill.id)}>
+                                  <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
+                                </Button>
+                                {isAdmin ? (
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget({ type: "bill", id: bill.id }); setDeleteDialog(true); }}>
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span>
+                                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-300 cursor-not-allowed" disabled>
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Only administrators can delete bills</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );
@@ -1129,13 +1490,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Method</TableHead>
+                      <TableHead>Reference</TableHead>
                       <TableHead>Notes</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {smsBillPayments.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                           No payment records found
                         </TableCell>
                       </TableRow>
@@ -1153,10 +1515,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                             {fmtDate(payment.date)}
                           </TableCell>
                           <TableCell className="text-slate-900 dark:text-white">
-                            {payment.method || "—"}
+                            {fmtEmpty(payment.method)}
                           </TableCell>
                           <TableCell className="text-slate-900 dark:text-white">
-                            {payment.notes || "—"}
+                            {fmtEmpty(payment.reference)}
+                          </TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            {fmtEmpty(payment.notes)}
                           </TableCell>
                         </TableRow>
                       ))
@@ -1166,7 +1531,115 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </div>
             </CardContent>
           </Card>
+
+          {/* Bill Create/Edit Dialog */}
+          <Dialog open={billDialog} onOpenChange={setBillDialog}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{billEdit ? "Edit SMS Bill" : "New SMS Bill"}</DialogTitle>
+                <DialogDescription>
+                  {billEdit ? "Update the SMS billing record." : "Create a new SMS billing record."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="bill-period">Period <span className="text-red-500">*</span></Label>
+                  <Input id="bill-period" placeholder="e.g. January 2025" value={billForm.period} onChange={e => setBillForm({ ...billForm, period: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="bill-total-sms">Total SMS</Label>
+                    <Input id="bill-total-sms" type="number" min="0" value={billForm.totalSms} onChange={e => setBillForm({ ...billForm, totalSms: Number(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bill-total-segments">Total Segments</Label>
+                    <Input id="bill-total-segments" type="number" min="0" value={billForm.totalSegments} onChange={e => setBillForm({ ...billForm, totalSegments: Number(e.target.value) || 0 })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="bill-total-cost">Total Cost (৳)</Label>
+                    <Input id="bill-total-cost" type="number" step="0.01" min="0" value={billForm.totalCost} onChange={e => setBillForm({ ...billForm, totalCost: Number(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="bill-paid-amount">Paid Amount (৳)</Label>
+                    <Input id="bill-paid-amount" type="number" step="0.01" min="0" value={billForm.paidAmount} onChange={e => setBillForm({ ...billForm, paidAmount: Number(e.target.value) || 0 })} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bill-status">Status</Label>
+                  <Select value={billForm.status} onValueChange={v => setBillForm({ ...billForm, status: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Unpaid">Unpaid</SelectItem>
+                      <SelectItem value="Partial">Partial</SelectItem>
+                      <SelectItem value="Paid">Paid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBillDialog(false)}>Cancel</Button>
+                <Button onClick={saveBill} disabled={billSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+                  {billSaving ? "Saving..." : billEdit ? "Update" : "Create"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Payment Dialog */}
+          <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Record Payment</DialogTitle>
+                <DialogDescription>
+                  Record a payment for this SMS bill.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="payment-amount">Amount (৳) <span className="text-red-500">*</span></Label>
+                  <Input id="payment-amount" type="number" step="0.01" min="0" value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) || 0 })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="payment-date">Date <span className="text-red-500">*</span></Label>
+                  <Input id="payment-date" type="date" value={paymentForm.date} onChange={e => setPaymentForm({ ...paymentForm, date: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="payment-method">Method</Label>
+                  <Select value={paymentForm.method} onValueChange={v => setPaymentForm({ ...paymentForm, method: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="Mobile Banking">Mobile Banking</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="payment-reference">Reference</Label>
+                  <Input id="payment-reference" placeholder="Payment reference / transaction ID" value={paymentForm.reference} onChange={e => setPaymentForm({ ...paymentForm, reference: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="payment-notes">Notes</Label>
+                  <Input id="payment-notes" placeholder="Optional notes" value={paymentForm.notes} onChange={e => setPaymentForm({ ...paymentForm, notes: e.target.value })} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPaymentDialog(false)}>Cancel</Button>
+                <Button onClick={savePayment} disabled={paymentSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+                  {paymentSaving ? "Saving..." : "Record Payment"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
+        )}
 
         {/* ============================================================
             SEND SMS TAB
@@ -1182,27 +1655,29 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {/* Mode Toggle */}
-                <div className="flex gap-2">
-                  <Button
-                    variant={sendMode === "single" ? "default" : "outline"}
-                    size="sm"
-                    className={sendMode === "single" ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : ""}
-                    onClick={() => setSendMode("single")}
-                  >
-                    <Phone className="w-4 h-4 mr-1" />
-                    Single
-                  </Button>
-                  <Button
-                    variant={sendMode === "bulk" ? "default" : "outline"}
-                    size="sm"
-                    className={sendMode === "bulk" ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : ""}
-                    onClick={() => setSendMode("bulk")}
-                  >
-                    <MessageSquare className="w-4 h-4 mr-1" />
-                    Bulk
-                  </Button>
-                </div>
+                {/* Mode Toggle — hidden for SR (SR can only send single) */}
+                {!isSR && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant={sendMode === "single" ? "default" : "outline"}
+                      size="sm"
+                      className={sendMode === "single" ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : ""}
+                      onClick={() => setSendMode("single")}
+                    >
+                      <Phone className="w-4 h-4 mr-1" />
+                      Single
+                    </Button>
+                    <Button
+                      variant={sendMode === "bulk" ? "default" : "outline"}
+                      size="sm"
+                      className={sendMode === "bulk" ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : ""}
+                      onClick={() => setSendMode("bulk")}
+                    >
+                      <MessageSquare className="w-4 h-4 mr-1" />
+                      Bulk
+                    </Button>
+                  </div>
+                )}
 
                 {/* Recipient Input */}
                 {sendMode === "single" ? (
@@ -1233,6 +1708,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   </div>
                 )}
 
+                {/* Campaign Name (Bulk only) */}
+                {sendMode === "bulk" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-900 dark:text-white">
+                      Campaign Name
+                    </Label>
+                    <Input
+                      placeholder="e.g. New Year Promo"
+                      value={campaignName}
+                      onChange={(e) => setCampaignName(e.target.value)}
+                    />
+                  </div>
+                )}
+
                 {/* Message Input */}
                 <div className="space-y-1.5">
                   <Label className="text-slate-900 dark:text-white">
@@ -1243,36 +1732,31 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     value={smsMessage}
                     onChange={(e) => setSmsMessage(e.target.value)}
                     className="min-h-[120px]"
-                    maxLength={maxChars * 5}
+                    maxLength={charsPerSegment * 5}
                   />
-                  <div className="flex items-center justify-between text-xs">
-                    <span className={`${
-                      charCount > maxChars ? "text-red-500" : "text-muted-foreground"
-                    }`}>
-                      {charCount} / {maxChars} characters
-                    </span>
-                    <span className="text-muted-foreground">
-                      {smsCount} SMS part(s)
-                    </span>
+                  <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                    <div className="flex items-center gap-3">
+                      <span className={`${
+                        charCount > charsPerSegment ? "text-red-500" : "text-muted-foreground"
+                      }`}>
+                        {charCount} / {charsPerSegment} characters
+                      </span>
+                      <Badge className={isUnicode
+                        ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-xs"
+                        : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 text-xs"
+                      }>
+                        {isUnicode ? "Unicode" : "Standard"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground">
+                        {segmentCount} SMS
+                      </span>
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        Est. cost: {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(segmentCount * estimatedCostPerSegment)}
+                      </span>
+                    </div>
                   </div>
-                </div>
-
-                {/* Cost per SMS */}
-                <div className="space-y-1.5">
-                  <Label className="text-slate-900 dark:text-white">
-                    Cost per SMS (৳)
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={smsCostPerMessage}
-                    onChange={(e) => setSmsCostPerMessage(Number(e.target.value) || 0)}
-                    className="w-32"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Estimated total: {fmt(smsCostPerMessage * (sendMode === "single" ? 1 : smsBulkRecipients.split(",").filter(r => r.trim()).length) * smsCount, "currency")}
-                  </p>
                 </div>
 
                 {/* Send Button */}
@@ -1309,7 +1793,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 <CardContent className="p-4 space-y-3">
                   <div className="flex justify-between items-center py-2 border-b border-border">
                     <span className="text-sm text-muted-foreground">Total SMS Sent</span>
-                    <span className="font-bold text-slate-900 dark:text-white">{totalSent.toLocaleString()}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{fmt(totalSent, "number")}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-border">
                     <span className="text-sm text-muted-foreground">Total Cost</span>
@@ -1331,6 +1815,44 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Active Settings Summary */}
+              {activeSetting && (
+                <Card>
+                  <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+                    <CardTitle className="text-white text-sm flex items-center gap-2">
+                      <Settings className="w-4 h-4" />
+                      Active Configuration
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex justify-between items-center py-2 border-b border-border">
+                      <span className="text-sm text-muted-foreground">Gateway</span>
+                      <span className="font-medium text-slate-900 dark:text-white">{fmtEmpty(activeSetting.gatewayName)}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-border">
+                      <span className="text-sm text-muted-foreground">Sender ID</span>
+                      <span className="font-medium text-slate-900 dark:text-white">{activeSetting.senderId || "—"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-border">
+                      <span className="text-sm text-muted-foreground">Rate/SMS</span>
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        {isVatAuditor ? "N/A (Audit Mode)" : fmt(activeSetting.ratePerSms, "currency")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-border">
+                      <span className="text-sm text-muted-foreground">Unicode Rate</span>
+                      <span className="font-medium text-slate-900 dark:text-white">
+                        {isVatAuditor ? "N/A (Audit Mode)" : fmt(activeSetting.unicodeRate, "currency")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-sm text-muted-foreground">Masking</span>
+                      <span className="font-medium text-slate-900 dark:text-white">{fmtEmpty(activeSetting.maskingName)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Recent SMS */}
               <Card>
@@ -1378,8 +1900,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         </TabsContent>
 
         {/* ============================================================
-            SETTINGS TAB
+            SETTINGS TAB (Hidden for SR)
             ============================================================ */}
+        {!isSR && (
         <TabsContent value="settings" className="space-y-4">
           <Card>
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
@@ -1389,9 +1912,28 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="flex items-center justify-end mb-4">
-                <Button onClick={openSettingsCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-                  <Plus className="h-4 w-4 mr-1" /> New Configuration
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                {isAdmin ? (
+                  <Button onClick={openSettingsCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+                    <Plus className="h-4 w-4 mr-1" /> New Configuration
+                  </Button>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] opacity-50 cursor-not-allowed" disabled>
+                          <Plus className="h-4 w-4 mr-1" /> New Configuration
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Only administrators can modify SMS gateway settings</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                <Button variant="outline" size="sm" onClick={handleExportSettingsPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
                 </Button>
               </div>
               {smsSettings.length === 0 ? (
@@ -1406,21 +1948,52 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     <div key={setting.id || idx} className="p-4 rounded-lg border bg-muted/30 space-y-3">
                       <div className="flex items-center justify-between">
                         <h4 className="font-medium text-slate-900 dark:text-white">
-                          {setting.name || `Configuration #${idx + 1}`}
+                          {setting.gatewayName || setting.name || `Configuration #${idx + 1}`}
                         </h4>
                         <div className="flex items-center gap-2">
                           <Badge className={setting.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400"}>
                             {setting.isActive ? "Active" : "Inactive"}
                           </Badge>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openSettingsEdit(setting)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => deleteSettings(setting.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {isAdmin ? (
+                            <>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openSettingsEdit(setting)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget({ type: "settings", id: setting.id }); setDeleteDialog(true); }}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>
+                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 cursor-not-allowed" disabled>
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Only administrators can modify SMS gateway settings</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>
+                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-300 cursor-not-allowed" disabled>
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Only administrators can delete SMS gateway settings</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">API URL</Label>
                           <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
@@ -1433,7 +2006,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           <Label className="text-xs text-muted-foreground">API Key</Label>
                           <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
                             <code className="text-sm text-slate-900 dark:text-white">
-                              {setting.apiKey ? `${setting.apiKey.substring(0, 8)}${"•".repeat(16)}` : "—"}
+                              {isAdmin
+                                ? (setting.apiKey ? `${setting.apiKey.substring(0, 8)}${"•".repeat(16)}` : "—")
+                                : "••••••••"
+                              }
                             </code>
                           </div>
                         </div>
@@ -1446,10 +2022,50 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Status</Label>
+                          <Label className="text-xs text-muted-foreground">Gateway</Label>
                           <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
-                            <span className={`text-sm font-medium ${setting.isActive ? "text-emerald-600 dark:text-emerald-400" : "text-gray-500"}`}>
-                              {setting.isActive ? "Active" : "Inactive"}
+                            <span className="text-sm text-slate-900 dark:text-white">
+                              {fmtEmpty(setting.gatewayName)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Masking Name</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className="text-sm text-slate-900 dark:text-white">
+                              {fmtEmpty(setting.maskingName)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Masking Reg ID</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className="text-sm text-slate-900 dark:text-white">
+                              {fmtEmpty(setting.maskingRegId)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Rate/SMS (৳)</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className="text-sm font-mono text-slate-900 dark:text-white">
+                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(setting.ratePerSms, "currency")}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Unicode Rate (৳)</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className="text-sm font-mono text-slate-900 dark:text-white">
+                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(setting.unicodeRate, "currency")}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Setup Cost (৳)</Label>
+                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
+                            <span className="text-sm font-mono text-slate-900 dark:text-white">
+                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(setting.setupCost, "currency")}
                             </span>
                           </div>
                         </div>
@@ -1463,7 +2079,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
           {/* Settings Form Dialog */}
           <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{settingsEdit ? "Edit SMS Configuration" : "New SMS Configuration"}</DialogTitle>
                 <DialogDescription>
@@ -1471,17 +2087,49 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
-                <div className="space-y-2">
-                  <Label htmlFor="settings-api-url">API URL <span className="text-red-500">*</span></Label>
-                  <Input id="settings-api-url" placeholder="https://api.sms-provider.com/send" value={settingsForm.apiUrl} onChange={e => setSettingsForm({ ...settingsForm, apiUrl: e.target.value })} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-api-url">API URL <span className="text-red-500">*</span></Label>
+                    <Input id="settings-api-url" placeholder="https://api.sms-provider.com/send" value={settingsForm.apiUrl} onChange={e => setSettingsForm({ ...settingsForm, apiUrl: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-api-key">API Key <span className="text-red-500">*</span></Label>
+                    <Input id="settings-api-key" placeholder="Enter API key" type="password" value={settingsForm.apiKey} onChange={e => setSettingsForm({ ...settingsForm, apiKey: e.target.value })} />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="settings-api-key">API Key <span className="text-red-500">*</span></Label>
-                  <Input id="settings-api-key" placeholder="Enter API key" type="password" value={settingsForm.apiKey} onChange={e => setSettingsForm({ ...settingsForm, apiKey: e.target.value })} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-sender-id">Sender ID <span className="text-red-500">*</span></Label>
+                    <Input id="settings-sender-id" placeholder="e.g. EMART" value={settingsForm.senderId} onChange={e => setSettingsForm({ ...settingsForm, senderId: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-gateway-name">Gateway Name</Label>
+                    <Input id="settings-gateway-name" placeholder="e.g., BulkSMSBD, Infobip" value={settingsForm.gatewayName} onChange={e => setSettingsForm({ ...settingsForm, gatewayName: e.target.value })} />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="settings-sender-id">Sender ID <span className="text-red-500">*</span></Label>
-                  <Input id="settings-sender-id" placeholder="e.g. EMART" value={settingsForm.senderId} onChange={e => setSettingsForm({ ...settingsForm, senderId: e.target.value })} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-masking-name">Masking Name</Label>
+                    <Input id="settings-masking-name" placeholder="Registered masking name" value={settingsForm.maskingName} onChange={e => setSettingsForm({ ...settingsForm, maskingName: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-masking-reg-id">Masking Registration ID</Label>
+                    <Input id="settings-masking-reg-id" placeholder="Masking registration ID" value={settingsForm.maskingRegId} onChange={e => setSettingsForm({ ...settingsForm, maskingRegId: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-rate-per-sms">Rate/SMS (৳) <span className="text-red-500">*</span></Label>
+                    <Input id="settings-rate-per-sms" type="number" step="0.01" min="0" value={settingsForm.ratePerSms} onChange={e => setSettingsForm({ ...settingsForm, ratePerSms: Number(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-unicode-rate">Unicode Rate (৳) <span className="text-red-500">*</span></Label>
+                    <Input id="settings-unicode-rate" type="number" step="0.01" min="0" value={settingsForm.unicodeRate} onChange={e => setSettingsForm({ ...settingsForm, unicodeRate: Number(e.target.value) || 0 })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-setup-cost">Setup Cost (৳)</Label>
+                    <Input id="settings-setup-cost" type="number" step="0.01" min="0" value={settingsForm.setupCost} onChange={e => setSettingsForm({ ...settingsForm, setupCost: Number(e.target.value) || 0 })} />
+                  </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Switch id="settings-active" checked={settingsForm.isActive} onCheckedChange={v => setSettingsForm({ ...settingsForm, isActive: v })} />
@@ -1516,6 +2164,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <p>Only one active SMS provider configuration can be used at a time.</p>
                 </div>
                 <div className="flex items-start gap-2">
+                  <Shield className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                  <p>Only administrators can create, edit, or delete SMS gateway configurations. Managers can review settings but cannot modify them.</p>
+                </div>
+                <div className="flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
                   <p>API keys are partially masked for security. Contact your administrator for full access.</p>
                 </div>
@@ -1523,11 +2175,37 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
                   <p>Failed messages are retried up to 3 times before being marked as permanently failed.</p>
                 </div>
+                <div className="flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                  <p>Unicode messages (Bangla, emoji, etc.) have a 70-character limit per segment, while standard messages have 160 characters per segment.</p>
+                </div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
+        )}
       </Tabs>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Confirm Deletion
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this record? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setDeleteDialog(false); setDeleteTarget(null); }}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

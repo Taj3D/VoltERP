@@ -97,7 +97,7 @@ const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
   sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -105,8 +105,8 @@ const MODULE_DENY: Record<UserRole, string[]> = {
 const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
   vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
 };
 
@@ -509,4 +509,119 @@ export function formatFinancialField(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'string' && value.trim() === '') return '—';
   return String(value);
+}
+
+// ============================================================
+// STAGE 11: SMS MODULE SECURITY UTILITIES
+// ============================================================
+
+/**
+ * SMS module fields that VAT Auditor must NOT see values for.
+ * Covers carrier costs, balance top-up rates, API token characters,
+ * billing statements, and gateway credentials.
+ */
+export const SMS_VAT_MASKED_FIELDS = [
+  'cost',
+  'ratePerSms',
+  'unicodeRate',
+  'setupCost',
+  'apiKey',
+  'totalCost',
+  'paidAmount',
+  'outstanding',
+  'amount',
+];
+
+/**
+ * maskForVatAuditorSms - Convenience wrapper for SMS module masking.
+ * Applies SMS_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+ * Masks carrier costs, balance top-up rates, API token characters,
+ * and billing statements to "N/A (Audit Mode)".
+ */
+export function maskForVatAuditorSms<T extends Record<string, unknown>>(
+  data: T,
+  role: UserRole
+): T {
+  if (role !== 'vat_auditor') return data;
+  return maskForVatAuditor(data, role, SMS_VAT_MASKED_FIELDS);
+}
+
+/**
+ * maskSmsArray - Apply VAT Auditor masking to an array of SMS records,
+ * including nested relation objects (smsBill, etc.).
+ */
+export function maskSmsArray<T extends Record<string, unknown>>(
+  items: T[],
+  role: UserRole,
+  extraFields?: string[]
+): T[] {
+  if (role !== 'vat_auditor') return items;
+  const fields = extraFields
+    ? [...SMS_VAT_MASKED_FIELDS, ...extraFields]
+    : SMS_VAT_MASKED_FIELDS;
+  return items.map((item) => {
+    let masked = maskForVatAuditor(item, role, fields);
+    // Mask nested smsBill object
+    if (masked.smsBill && typeof masked.smsBill === 'object') {
+      masked = {
+        ...masked,
+        smsBill: maskForVatAuditor(
+          masked.smsBill as Record<string, unknown>,
+          role,
+          ['totalCost', 'paidAmount', 'outstanding']
+        ),
+      };
+    }
+    // Mask nested payments array
+    if (Array.isArray(masked.payments)) {
+      masked = {
+        ...masked,
+        payments: (masked.payments as Record<string, unknown>[]).map((p) =>
+          maskForVatAuditor(p, role, ['amount'])
+        ),
+      };
+    }
+    return masked;
+  });
+}
+
+/**
+ * checkSmsSettingsWritePermission - Only Administrators (admin) can update
+ * sensitive Gateway API Keys, Secret tokens, and carrier configurations.
+ * Managers can review summaries but cannot modify gateway settings.
+ * SR and Dealer are already blocked by WRITE_DENY.
+ *
+ * Returns a 403 response if the role is not admin for SmsSettings mutations, or null if allowed.
+ */
+export function checkSmsSettingsWritePermission(role: UserRole): NextResponse | null {
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Access denied. Only Administrators can modify SMS Gateway API Keys, Secret tokens, and carrier configurations. Your role (${role}) can review but cannot edit settings.`,
+      },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
+/**
+ * computeSmsSegments - Safely computes the number of SMS segments based on
+ * character count and Unicode detection.
+ * Standard SMS: 160 characters per segment
+ * Unicode SMS: 70 characters per segment (for Bangla/emoji text)
+ */
+export function computeSmsSegments(message: string): {
+  charCount: number;
+  isUnicode: boolean;
+  segmentCount: number;
+  charsPerSegment: number;
+} {
+  const charCount = message.length;
+  // Detect Unicode: Bangla Unicode range (U+0980–U+09FF), CJK, emoji, etc.
+  const unicodeRegex = /[^\x00-\x7F]/;
+  const isUnicode = unicodeRegex.test(message);
+  const charsPerSegment = isUnicode ? 70 : 160;
+  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
+  return { charCount, isUnicode, segmentCount, charsPerSegment };
 }

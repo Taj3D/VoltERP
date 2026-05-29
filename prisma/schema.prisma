@@ -116,6 +116,9 @@ model Company {
   cashCollections    CashCollection[]
   cashDeliveries     CashDelivery[]
   bankTransactions   BankTransaction[]
+  smsSettings        SmsSetting[]
+  smsLogs            SmsLog[]
+  smsBills           SmsBill[]
 }
 
 model Category {
@@ -1025,37 +1028,66 @@ model BankTransaction {
 // ============================================================
 
 model SmsSetting {
-  id        String   @id @default(cuid())
-  apiUrl    String
-  apiKey    String
-  senderId  String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  apiUrl          String
+  apiKey          String
+  senderId        String
+  maskingName     String?  // Registered masking sender name
+  maskingRegId    String?  // Masking registration tracking ID
+  gatewayName     String?  // Carrier/gateway provider name (e.g., "BulkSMSBD", "Infobip")
+  ratePerSms      Float    @default(0)  // Per-SMS cost in BDT
+  unicodeRate     Float    @default(0)  // Per-Unicode-SMS cost in BDT
+  setupCost       Float    @default(0)  // Gateway one-time setup cost
+  companyId       String?  // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model SmsLog {
-  id          String   @id @default(cuid())
-  recipient   String
-  message     String
-  status      String   @default("Pending")
-  sentAt      DateTime @default(now())
-  cost        Float    @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  recipient        String
+  message          String
+  charCount        Int      @default(0)  // Character count of the message
+  smsSegmentCount  Int      @default(1)  // Number of SMS segments (ceil(charCount/160) or ceil(charCount/70) for Unicode)
+  isUnicode        Boolean  @default(false)  // Whether message contains Unicode/Bangla characters
+  status           String   @default("Pending")  // "Pending", "Sent", "Delivered", "Failed"
+  gatewayResponse  String?  // Raw response from SMS gateway
+  sentAt           DateTime @default(now())
+  cost             Float    @default(0)
+  campaignName     String?  // Name of the bulk campaign (if part of one)
+  companyId        String?  // Multi-tenant isolation
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  company          Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@index([sentAt])
 }
 
 model SmsBill {
-  id          String          @id @default(cuid())
-  period      String
-  totalSms    Int             @default(0)
-  totalCost   Float           @default(0)
-  paidAmount  Float           @default(0)
-  status      String          @default("Unpaid")
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  payments    SmsBillPayment[]
+  id              String          @id @default(cuid())
+  period          String
+  totalSms        Int             @default(0)
+  totalSegments   Int             @default(0)  // Total SMS segments billed
+  totalCost       Float           @default(0)
+  paidAmount      Float           @default(0)
+  outstanding     Float           @default(0)  // totalCost - paidAmount
+  status          String          @default("Unpaid")  // "Unpaid", "Partial", "Paid"
+  companyId       String?         // Multi-tenant isolation
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  company         Company?        @relation(fields: [companyId], references: [id])
+  payments        SmsBillPayment[]
+
+  @@index([companyId])
+  @@index([status])
 }
 
 model SmsBillPayment {
@@ -1063,11 +1095,14 @@ model SmsBillPayment {
   smsBillId String
   amount    Float
   date      DateTime
-  method    String?
+  method    String?  // "Cash", "Bank Transfer", "Mobile Banking", "Cheque"
+  reference String?  // Payment reference/transaction ID
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   smsBill   SmsBill  @relation(fields: [smsBillId], references: [id])
+
+  @@index([smsBillId])
 }
 
 // ============================================================
