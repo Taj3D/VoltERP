@@ -75,6 +75,13 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   // Dashboard
   Dashboard: 'dashboard',
   DashboardAnalytics: 'dashboard',
+  // Audit & Integrity (Stage 13)
+  AuditDashboard: 'audit-integrity',
+  LedgerAutoPost: 'audit-integrity',
+  InventoryAging: 'audit-integrity',
+  DataIntegrityLog: 'audit-integrity',
+  Notifications: 'audit-integrity',
+  ProductLifecycle: 'audit-integrity',
   // System Configuration (Group 6)
   SystemConfig: 'system-config',
   InvoiceTemplates: 'system-config',
@@ -90,18 +97,18 @@ const MODULE_GROUP_MAP: Record<string, string> = {
 // Group-level access per role (mirrors frontend ROLE_ACCESS)
 const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
   admin: ['*'],
-  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'system-config', 'report'],
+  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'audit-integrity', 'system-config', 'report'],
   sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report'],
   dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report'],
-  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'system-config', 'audit', 'report'],
+  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report'],
 };
 
 // Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -782,4 +789,190 @@ export function computeSmsSegments(message: string): {
   const charsPerSegment = isUnicode ? 70 : 160;
   const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
   return { charCount, isUnicode, segmentCount, charsPerSegment };
+}
+
+// ============================================================
+// STAGE 13: AUDIT & INTEGRITY LAYER SECURITY UTILITIES
+// ============================================================
+
+/**
+ * Audit & Intelligence module fields that VAT Auditor must NOT see values for.
+ * Covers all dashboard KPI values, revenue charts, stock ledger value projections,
+ * aging capital costs, and operational ratio metrics.
+ */
+export const AUDIT_INTEGRITY_VAT_MASKED_FIELDS = [
+  'totalRevenue',
+  'totalExpenses',
+  'totalIncome',
+  'totalPurchases',
+  'netProfit',
+  'cogs',
+  'grossProfit',
+  'totalReceivables',
+  'totalPayables',
+  'stockValue',
+  'cashBalance',
+  'totalBankBalance',
+  'totalInventoryValue',
+  'totalAssets',
+  'totalLiabilities',
+  'totalEquity',
+  'workingCapital',
+  'assetTurnoverRatio',
+  'returnOnSales',
+  'currentRatio',
+  'debtToEquityRatio',
+  'grossProfitMargin',
+  'netProfitMargin',
+  'receivablesTurnover',
+  'payablesTurnover',
+  'inventoryTurnover',
+  'assetTurnover',
+  'quickRatio',
+  'totalOutstanding',
+  'current',
+  'days31to60',
+  'days61to90',
+  'days90plus',
+  'totalValue',
+  'averageAge',
+  'costPrice',
+  'salePrice',
+  'hireRate',
+  'installmentAmount',
+  'totalPaid',
+  'grandTotal',
+  'balanceAmount',
+  'totalRevenue',
+  'todaysSales',
+  'todaysPurchases',
+  'todaysCollections',
+  'monthToDateSales',
+  'monthToDatePurchases',
+  'amount',
+  'discrepancy',
+  'expectedValue',
+  'actualValue',
+];
+
+/**
+ * maskForVatAuditorAuditIntelligence - Convenience wrapper for audit & intelligence masking.
+ * Applies AUDIT_INTEGRITY_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+ * Masks all dashboard KPI values, revenue charts, stock ledger value projections,
+ * and aging capital costs to "N/A (Audit Mode)".
+ */
+export function maskForVatAuditorAuditIntelligence<T extends Record<string, unknown>>(
+  data: T,
+  role: UserRole
+): T {
+  if (role !== 'vat_auditor') return data;
+  return maskForVatAuditor(data, role, AUDIT_INTEGRITY_VAT_MASKED_FIELDS);
+}
+
+/**
+ * maskAuditIntelligenceArray - Apply VAT Auditor masking to an array of audit/intelligence records.
+ */
+export function maskAuditIntelligenceArray<T extends Record<string, unknown>>(
+  items: T[],
+  role: UserRole,
+  extraFields?: string[]
+): T[] {
+  if (role !== 'vat_auditor') return items;
+  const fields = extraFields
+    ? [...AUDIT_INTEGRITY_VAT_MASKED_FIELDS, ...extraFields]
+    : AUDIT_INTEGRITY_VAT_MASKED_FIELDS;
+  return items.map((item) => maskForVatAuditor(item, role, fields));
+}
+
+/**
+ * maskDashboardForVatAuditor - Deep recursive masking for dashboard KPI responses.
+ * Walks through the response object and masks all numeric monetary fields
+ * at every nesting level. This is used by the Dashboard and DashboardAnalytics routes.
+ */
+export function maskDashboardForVatAuditor(
+  data: Record<string, unknown>,
+  role: UserRole
+): Record<string, unknown> {
+  if (role !== 'vat_auditor') return data;
+
+  const masked = { ...data };
+  const monetaryKeys = new Set(AUDIT_INTEGRITY_VAT_MASKED_FIELDS);
+  // Also include accounting masked fields for comprehensive coverage
+  ACCOUNTING_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+  FINANCIAL_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+
+  function maskRecursive(obj: unknown): unknown {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'number') return 'N/A (Audit Mode)';
+    if (typeof obj === 'string') return obj; // string values stay
+    if (typeof obj === 'boolean') return obj;
+    if (Array.isArray(obj)) return obj.map(maskRecursive);
+    if (typeof obj === 'object') {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+        // Mask numeric values whose key is in the monetary set
+        if (monetaryKeys.has(key) && typeof value === 'number') {
+          result[key] = 'N/A (Audit Mode)';
+        } else if (typeof value === 'object' && value !== null) {
+          result[key] = maskRecursive(value);
+        } else {
+          result[key] = value;
+        }
+      }
+      return result;
+    }
+    return obj;
+  }
+
+  // Mask top-level monetary keys
+  for (const key of Object.keys(masked)) {
+    if (monetaryKeys.has(key) && typeof masked[key] === 'number') {
+      masked[key] = 'N/A (Audit Mode)';
+    } else if (typeof masked[key] === 'object' && masked[key] !== null && !Array.isArray(masked[key])) {
+      masked[key] = maskRecursive(masked[key]);
+    } else if (Array.isArray(masked[key])) {
+      masked[key] = (masked[key] as unknown[]).map(maskRecursive);
+    }
+  }
+
+  masked['vatAuditMode'] = true;
+  return masked;
+}
+
+/**
+ * checkAutoPostAdminPermission - Only Administrators (admin) can force manual
+ * triggers of the Ledger Auto-Post engine. Managers can view but cannot trigger.
+ * SR and Dealer are already blocked by MODULE_DENY.
+ *
+ * Returns a 403 response if the role is not admin, or null if allowed.
+ */
+export function checkAutoPostAdminPermission(role: UserRole): NextResponse | null {
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Auto-Post trigger denied. Only Administrators can manually trigger the Ledger Auto-Post engine. Your role (${role}) can view auto-post records but cannot trigger posting operations.`,
+      },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
+/**
+ * checkNotificationDismissPermission - Only Administrators (admin) can dismiss
+ * critical system notifications and integrity warnings. Managers can mark as read
+ * but cannot dismiss. SR and Dealer are already blocked by MODULE_DENY.
+ *
+ * Returns a 403 response if the role is not admin, or null if allowed.
+ */
+export function checkNotificationDismissPermission(role: UserRole): NextResponse | null {
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Dismiss denied. Only Administrators can dismiss critical system notifications and integrity warnings. Your role (${role}) can mark notifications as read but cannot dismiss them.`,
+      },
+      { status: 403 }
+    );
+  }
+  return null;
 }

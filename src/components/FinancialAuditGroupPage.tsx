@@ -37,27 +37,32 @@ import {
 import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
-import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
+import { Tooltip as UITooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
-  if (type === "number") return Number(v).toLocaleString("en-BD", { maximumFractionDigits: 2 });
+  if (type === "number") return bdCurrencyFmt.format(Number(v));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `৳${bdCurrencyFmt.format(Number(v))}`;
 };
+
+const AUDIT_MASK = "N/A (Audit Mode)";
 
 const fmtDate = (d: string | Date) =>
   d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -191,6 +196,8 @@ export default function FinancialAuditGroupPage({
   const userRole = authRole || propUserRole;
   const isSR = authSR || userRole === "sr";
   const isDealer = authDealer || userRole === "dealer";
+  const isAdmin = userRole === "admin";
+  const isManager = userRole === "manager";
 
   // Map sidebar keys to internal tab values
   const tabMap: Record<string, string> = {
@@ -248,6 +255,7 @@ export default function FinancialAuditGroupPage({
   const [notifTypeFilter, setNotifTypeFilter] = useState("");
   const [notifSeverityFilter, setNotifSeverityFilter] = useState("");
   const [notifReadFilter, setNotifReadFilter] = useState("");
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
 
   const [integrityRecords, setIntegrityRecords] = useState<any[]>([]);
   const [integrityStats, setIntegrityStats] = useState<any>(null);
@@ -353,12 +361,14 @@ export default function FinancialAuditGroupPage({
 
   const loadDropdowns = useCallback(async () => {
     try {
-      const [gRes, pRes] = await Promise.all([
+      const [gRes, pRes, cRes] = await Promise.all([
         apiFetch("/api/godowns"),
         apiFetch("/api/products?limit=200"),
+        apiFetch("/api/company-branding").catch(() => null),
       ]);
       setGodowns(Array.isArray(gRes) ? gRes : gRes.data || []);
       setProducts(Array.isArray(pRes) ? pRes : pRes.data || []);
+      if (cRes) setCompanyProfile(cRes);
     } catch {}
   }, []);
 
@@ -404,19 +414,21 @@ export default function FinancialAuditGroupPage({
     const lowStockCount = kpiData.lowStockProducts?.length || 0;
     const pendingOrders = (kpiData.pendingOrders?.pendingPOCount || 0) + (kpiData.pendingOrders?.pendingSOCount || 0);
 
-    const mask = (val: any) => (isVatAuditor ? "N/A (Audit Mode)" : val);
+    // VAT Auditor: mask ALL monetary values
+    const maskMoney = (val: any) => (isVatAuditor ? AUDIT_MASK : val);
+    const fmtMasked = (val: any) => isVatAuditor ? AUDIT_MASK : fmtCurrency(val);
 
     return [
-      { label: "Total Revenue", value: fmtCurrency(totalRevenue), icon: DollarSign, color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30" },
-      { label: "Total Purchases", value: fmtCurrency(totalPurchases), icon: ShoppingCart, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
-      { label: "Gross Profit", value: fmtCurrency(mask(grossProfit)), icon: TrendingUp, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
-      { label: "Net Profit", value: fmtCurrency(mask(netProfit)), icon: TrendingUp, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-100 dark:bg-teal-900/30" },
-      { label: "Total Expenses", value: fmtCurrency(totalExpenses), icon: TrendingDown, color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30" },
-      { label: "Total Incomes", value: fmtCurrency(totalIncome), icon: ArrowUpRight, color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30" },
-      { label: "Bank Balance", value: fmtCurrency(bankBalance), icon: Banknote, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
-      { label: "Total Receivables", value: fmtCurrency(totalReceivables), icon: ArrowDownRight, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30" },
-      { label: "Total Payables", value: fmtCurrency(totalPayables), icon: ArrowUpRight, color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30" },
-      { label: "Inventory Value", value: fmtCurrency(mask(stockValue)), icon: PackageCheck, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30" },
+      { label: "Total Revenue", value: fmtMasked(totalRevenue), icon: DollarSign, color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30" },
+      { label: "Total Purchases", value: fmtMasked(totalPurchases), icon: ShoppingCart, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
+      { label: "Gross Profit", value: fmtMasked(maskMoney(grossProfit)), icon: TrendingUp, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-100 dark:bg-emerald-900/30" },
+      { label: "Net Profit", value: fmtMasked(maskMoney(netProfit)), icon: TrendingUp, color: "text-teal-600 dark:text-teal-400", bg: "bg-teal-100 dark:bg-teal-900/30" },
+      { label: "Total Expenses", value: fmtMasked(totalExpenses), icon: TrendingDown, color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30" },
+      { label: "Total Incomes", value: fmtMasked(totalIncome), icon: ArrowUpRight, color: "text-green-600 dark:text-green-400", bg: "bg-green-100 dark:bg-green-900/30" },
+      { label: "Bank Balance", value: fmtMasked(bankBalance), icon: Banknote, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-100 dark:bg-blue-900/30" },
+      { label: "Total Receivables", value: fmtMasked(totalReceivables), icon: ArrowDownRight, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-100 dark:bg-orange-900/30" },
+      { label: "Total Payables", value: fmtMasked(totalPayables), icon: ArrowUpRight, color: "text-red-600 dark:text-red-400", bg: "bg-red-100 dark:bg-red-900/30" },
+      { label: "Inventory Value", value: fmtMasked(maskMoney(stockValue)), icon: PackageCheck, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-100 dark:bg-purple-900/30" },
       { label: "Low Stock Alerts", value: String(lowStockCount), icon: AlertTriangle, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-100 dark:bg-amber-900/30" },
       { label: "Pending Orders", value: String(pendingOrders), icon: Clock, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-100 dark:bg-cyan-900/30" },
     ];
@@ -479,7 +491,7 @@ export default function FinancialAuditGroupPage({
     const receivableDays = rev > 0 ? (receivables / rev * 365) : 0;
     const payableDays = purch > 0 ? (payables / purch * 365) : 0;
 
-    const mask = (val: any) => (isVatAuditor ? "N/A (Audit Mode)" : val);
+    const mask = (val: any) => (isVatAuditor ? AUDIT_MASK : val);
 
     return [
       { name: "Current Ratio", value: mask(currentRatio.toFixed(2)) },
@@ -510,7 +522,22 @@ export default function FinancialAuditGroupPage({
   const doExportPDF = (title: string, columns: ExportColumnDef[], data: any[], orientation: "landscape" | "portrait" = "landscape", extraMasked?: string[]) => {
     try {
       const maskedKeys = getVatMaskedKeys(columns, extraMasked);
-      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation });
+      const userName = authState.user?.displayName || authState.user?.name || "";
+      exportToPDF({
+        title,
+        columns,
+        data,
+        isVatAuditor,
+        vatMaskedColumns: maskedKeys,
+        orientation,
+        company: companyProfile || undefined,
+        financialFooter: {
+          preparedBy: userName,
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: userName || authState.user?.email || "",
+        },
+      });
       toast({ title: "Exported", description: `${title} exported to PDF` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -710,6 +737,7 @@ export default function FinancialAuditGroupPage({
       { key: "creditAccount", label: "Credit Account", type: "text" },
       { key: "amount", label: "Amount", type: "currency" },
       { key: "status", label: "Status", type: "text" },
+      { key: "postedBy", label: "Posted By", type: "text" },
       { key: "postedAt", label: "Posted At", type: "date" },
     ];
 
@@ -810,15 +838,48 @@ export default function FinancialAuditGroupPage({
       <div className="space-y-4">
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-2">
-          <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openPostSODialog}>
-            <ShoppingCart className="w-4 h-4 mr-1" /> Post Sales Order
-          </Button>
-          <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openPostPODialog}>
-            <Package className="w-4 h-4 mr-1" /> Post Purchase Order
-          </Button>
-          <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={runAllPending} disabled={ledgerActionLoading}>
-            <Play className="w-4 h-4 mr-1" /> {ledgerActionLoading ? "Running..." : "Run All Pending"}
-          </Button>
+          {isAdmin ? (
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openPostSODialog}>
+              <ShoppingCart className="w-4 h-4 mr-1" /> Post Sales Order
+            </Button>
+          ) : (
+            <UITooltip>
+              <TooltipTrigger asChild>
+                <span><Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" disabled>
+                  <ShoppingCart className="w-4 h-4 mr-1" /> Post Sales Order
+                </Button></span>
+              </TooltipTrigger>
+              <TooltipContent>Only administrators can post to ledger</TooltipContent>
+            </UITooltip>
+          )}
+          {isAdmin ? (
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openPostPODialog}>
+              <Package className="w-4 h-4 mr-1" /> Post Purchase Order
+            </Button>
+          ) : (
+            <UITooltip>
+              <TooltipTrigger asChild>
+                <span><Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" disabled>
+                  <Package className="w-4 h-4 mr-1" /> Post Purchase Order
+                </Button></span>
+              </TooltipTrigger>
+              <TooltipContent>Only administrators can post to ledger</TooltipContent>
+            </UITooltip>
+          )}
+          {isAdmin ? (
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={runAllPending} disabled={ledgerActionLoading}>
+              <Play className="w-4 h-4 mr-1" /> {ledgerActionLoading ? "Running..." : "Run All Pending"}
+            </Button>
+          ) : (
+            <UITooltip>
+              <TooltipTrigger asChild>
+                <span><Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" disabled>
+                  <Play className="w-4 h-4 mr-1" /> Run All Pending
+                </Button></span>
+              </TooltipTrigger>
+              <TooltipContent>Only administrators can run batch posting</TooltipContent>
+            </UITooltip>
+          )}
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => handleImportCSV("/api/ledger-auto-post", ledgerImportFields, loadLedger)}>
             <Upload className="w-3.5 h-3.5 mr-1" /> Import CSV
@@ -843,11 +904,11 @@ export default function FinancialAuditGroupPage({
               <div className="flex flex-wrap gap-6">
                 <div>
                   <p className="text-xs text-muted-foreground">Total Debits</p>
-                  <p className="text-lg font-bold text-green-600 dark:text-green-400">{fmtCurrency(ledgerVerification.totalDebits)}</p>
+                  <p className="text-lg font-bold text-green-600 dark:text-green-400">{isVatAuditor ? AUDIT_MASK : fmtCurrency(ledgerVerification.totalDebits)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Total Credits</p>
-                  <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{fmtCurrency(ledgerVerification.totalCredits)}</p>
+                  <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{isVatAuditor ? AUDIT_MASK : fmtCurrency(ledgerVerification.totalCredits)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Balance Status</p>
@@ -878,15 +939,16 @@ export default function FinancialAuditGroupPage({
                     <TableHead className="text-xs">Credit Account</TableHead>
                     <TableHead className="text-xs text-right">Amount</TableHead>
                     <TableHead className="text-xs">Status</TableHead>
+                    <TableHead className="text-xs">Posted By</TableHead>
                     <TableHead className="text-xs">Posted At</TableHead>
                     <TableHead className="text-xs">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ledgerLoading ? (
-                    <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
                   ) : ledgerRecords.length === 0 ? (
-                    <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No records found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No records found</TableCell></TableRow>
                   ) : ledgerRecords.map((r: any) => (
                     <TableRow key={r.id}>
                       <TableCell className="text-xs font-mono">{r.code}</TableCell>
@@ -894,8 +956,9 @@ export default function FinancialAuditGroupPage({
                       <TableCell className="text-xs font-mono">{r.sourceCode || "—"}</TableCell>
                       <TableCell className="text-xs">{r.debitAccount}</TableCell>
                       <TableCell className="text-xs">{r.creditAccount}</TableCell>
-                      <TableCell className="text-xs text-right font-mono">{fmtCurrency(r.amount)}</TableCell>
+                      <TableCell className="text-xs text-right font-mono">{isVatAuditor ? AUDIT_MASK : fmtCurrency(r.amount)}</TableCell>
                       <TableCell><Badge className={STATUS_BADGE[r.status] || "bg-gray-100 text-gray-700"}>{r.status}</Badge></TableCell>
+                      <TableCell className="text-xs">{r.postedBy || "—"}</TableCell>
                       <TableCell className="text-xs">{fmtDate(r.postedAt)}</TableCell>
                       <TableCell>
                         {r.status === "Posted" && (
@@ -1000,7 +1063,8 @@ export default function FinancialAuditGroupPage({
   // ============================================================
 
   const renderAgingTab = () => {
-    const maskCost = isVatAuditor || isDealer;
+    if (isSR || isDealer) return <ForbiddenPage module="Inventory Aging" />;
+    const maskCost = isVatAuditor;
 
     const agingExportColumns: ExportColumnDef[] = [
       { key: "productCode", label: "Product Code", type: "text" },
@@ -1153,6 +1217,8 @@ export default function FinancialAuditGroupPage({
   // ============================================================
 
   const renderLifecycleTab = () => {
+    if (isSR || isDealer) return <ForbiddenPage module="Product Lifecycle" />;
+
     const lifecycleExportColumns: ExportColumnDef[] = [
       { key: "code", label: "Code", type: "text" },
       { key: "productCode", label: "Product Code", type: "text" },
@@ -1161,6 +1227,8 @@ export default function FinancialAuditGroupPage({
       { key: "imeiNumber", label: "IMEI", type: "text" },
       { key: "status", label: "Status", type: "text" },
       { key: "godownName", label: "Godown", type: "text" },
+      { key: "costPrice", label: "Cost Price", type: "currency" },
+      { key: "salePrice", label: "Sale Price", type: "currency" },
       { key: "purchaseDate", label: "Purchase Date", type: "date" },
       { key: "saleDate", label: "Sale Date", type: "date" },
       { key: "warrantyExpiry", label: "Warranty Expiry", type: "date" },
@@ -1273,10 +1341,10 @@ export default function FinancialAuditGroupPage({
           <Button variant="outline" size="sm" onClick={() => handleImportCSV("/api/product-lifecycle", lifecycleImportFields, loadLifecycle)}>
             <Upload className="w-3.5 h-3.5 mr-1" /> Import CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Product Lifecycle", lifecycleExportColumns, lifecycleRecords, ["costPrice", "salePrice"])}>
             <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Product Lifecycle", lifecycleExportColumns, lifecycleRecords, "landscape", ["costPrice", "salePrice"])}>
             <FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF
           </Button>
         </div>
@@ -1296,7 +1364,9 @@ export default function FinancialAuditGroupPage({
                     <TableHead className="text-xs">Serial Number</TableHead>
                     <TableHead className="text-xs">IMEI</TableHead>
                     <TableHead className="text-xs">Status</TableHead>
-                    <TableHead className="text-xs">Godown</TableHead>
+                    <TableHead className="text-xs">Location</TableHead>
+                    <TableHead className="text-xs text-right">Cost Price</TableHead>
+                    <TableHead className="text-xs text-right">Sale Price</TableHead>
                     <TableHead className="text-xs">Purchase Date</TableHead>
                     <TableHead className="text-xs">Sale Date</TableHead>
                     <TableHead className="text-xs">Warranty Expiry</TableHead>
@@ -1305,9 +1375,9 @@ export default function FinancialAuditGroupPage({
                 </TableHeader>
                 <TableBody>
                   {lifecycleLoading ? (
-                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
                   ) : lifecycleRecords.length === 0 ? (
-                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No tracking records found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">No tracking records found</TableCell></TableRow>
                   ) : lifecycleRecords.map((r: any) => (
                     <TableRow key={r.id} className={selectedSerial?.id === r.id ? "bg-blue-50 dark:bg-blue-900/10" : ""}>
                       <TableCell className="text-xs font-mono">{r.code}</TableCell>
@@ -1316,6 +1386,8 @@ export default function FinancialAuditGroupPage({
                       <TableCell className="text-xs font-mono">{r.imeiNumber || "—"}</TableCell>
                       <TableCell><Badge className={STATUS_BADGE[r.status] || ""}>{r.status}</Badge></TableCell>
                       <TableCell className="text-xs">{r.godownName}</TableCell>
+                      <TableCell className="text-xs text-right font-mono">{isVatAuditor ? AUDIT_MASK : fmtCurrency(r.costPrice)}</TableCell>
+                      <TableCell className="text-xs text-right font-mono">{isVatAuditor ? AUDIT_MASK : fmtCurrency(r.salePrice)}</TableCell>
                       <TableCell className="text-xs">{fmtDate(r.purchaseDate)}</TableCell>
                       <TableCell className="text-xs">{fmtDate(r.saleDate)}</TableCell>
                       <TableCell className="text-xs">{fmtDate(r.warrantyExpiry)}</TableCell>
@@ -1414,6 +1486,14 @@ export default function FinancialAuditGroupPage({
   // ============================================================
 
   const renderNotificationsIntegrityTab = () => {
+    if (isSR || isDealer) return <ForbiddenPage module="Notifications & Integrity" />;
+
+    // VAT Auditor: mask monetary patterns in notification messages
+    const maskMessage = (msg: string) => {
+      if (!isVatAuditor || !msg) return msg;
+      return msg.replace(/৳[\d,.]+/g, AUDIT_MASK);
+    };
+
     // ─── 5a: Notification Engine ───
     const notifExportColumns: ExportColumnDef[] = [
       { key: "code", label: "Code", type: "text" },
@@ -1425,6 +1505,16 @@ export default function FinancialAuditGroupPage({
       { key: "referenceCode", label: "Reference", type: "text" },
       { key: "createdAt", label: "Created At", type: "date" },
     ];
+
+    const markAllRead = async () => {
+      try {
+        await apiFetch("/api/notifications", { method: "PUT", body: JSON.stringify({ action: "mark-all-read" }) });
+        toast({ title: "Done", description: "All notifications marked as read" });
+        loadNotifications();
+      } catch (e: any) {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
+    };
 
     const generateAlerts = async () => {
       try {
@@ -1510,9 +1600,26 @@ export default function FinancialAuditGroupPage({
 
           {/* Actions + Filters */}
           <div className="flex flex-wrap gap-2 items-end">
-            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={generateAlerts}>
-              <BellRing className="w-4 h-4 mr-1" /> Generate Alerts
+            {(isAdmin || isManager) ? (
+              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={generateAlerts}>
+                <BellRing className="w-4 h-4 mr-1" /> Generate Alerts
+              </Button>
+            ) : (
+              <UITooltip>
+                <TooltipTrigger asChild>
+                  <span><Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" disabled>
+                    <BellRing className="w-4 h-4 mr-1" /> Generate Alerts
+                  </Button></span>
+                </TooltipTrigger>
+                <TooltipContent>Only admin and manager can generate alerts</TooltipContent>
+              </UITooltip>
+            )}
+            <Button variant="outline" size="sm" onClick={markAllRead}>
+              <CheckCheck className="w-3.5 h-3.5 mr-1" /> Mark All Read
             </Button>
+            <Badge className="bg-amber-500 text-white h-8 px-3 flex items-center gap-1">
+              <Bell className="w-3 h-3" /> {notifStats?.unread || 0}
+            </Badge>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Notifications", notifExportColumns, notifRecords)}>
               <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
             </Button>
@@ -1587,7 +1694,7 @@ export default function FinancialAuditGroupPage({
                         <TableCell className="text-xs">{n.type}</TableCell>
                         <TableCell><Badge className={SEVERITY_BADGE[n.severity] || ""}>{n.severity}</Badge></TableCell>
                         <TableCell className="text-xs font-medium">{n.title}</TableCell>
-                        <TableCell className="text-xs max-w-[200px] truncate">{n.message}</TableCell>
+                        <TableCell className="text-xs max-w-[200px] truncate">{maskMessage(n.message)}</TableCell>
                         <TableCell className="text-xs">{n.module || "—"}</TableCell>
                         <TableCell className="text-xs font-mono">{n.referenceCode || "—"}</TableCell>
                         <TableCell className="text-xs">{fmtDate(n.createdAt)}</TableCell>
@@ -1598,9 +1705,20 @@ export default function FinancialAuditGroupPage({
                                 <CheckCheck className="w-3 h-3" />
                               </Button>
                             )}
-                            <Button variant="ghost" size="sm" className="h-6 text-xs text-red-500 hover:text-red-700" onClick={() => dismissNotif(n.id)}>
-                              <XCircle className="w-3 h-3" />
-                            </Button>
+                            {isAdmin ? (
+                              <Button variant="ghost" size="sm" className="h-6 text-xs text-red-500 hover:text-red-700" onClick={() => dismissNotif(n.id)}>
+                                <XCircle className="w-3 h-3" />
+                              </Button>
+                            ) : (
+                              <UITooltip>
+                                <TooltipTrigger asChild>
+                                  <span><Button variant="ghost" size="sm" className="h-6 text-xs text-red-500" disabled>
+                                    <XCircle className="w-3 h-3" />
+                                  </Button></span>
+                                </TooltipTrigger>
+                                <TooltipContent>Only administrators can dismiss notifications</TooltipContent>
+                              </UITooltip>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1638,10 +1756,10 @@ export default function FinancialAuditGroupPage({
               <span>Warning: {integrityStats?.warnings || 0}</span>
             </div>
             <div className="flex-1" />
-            <Button variant="outline" size="sm" onClick={() => doExportCSV("Data Integrity", integrityExportColumns, integrityRecords)}>
+            <Button variant="outline" size="sm" onClick={() => doExportCSV("Data Integrity", integrityExportColumns, integrityRecords, ["discrepancy", "expectedValue", "actualValue"])}>
               <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
             </Button>
-            <Button variant="outline" size="sm" onClick={() => doExportPDF("Data Integrity", integrityExportColumns, integrityRecords)}>
+            <Button variant="outline" size="sm" onClick={() => doExportPDF("Data Integrity", integrityExportColumns, integrityRecords, "landscape", ["discrepancy", "expectedValue", "actualValue"])}>
               <FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF
             </Button>
           </div>
@@ -1678,9 +1796,9 @@ export default function FinancialAuditGroupPage({
                         <TableCell className="text-xs">{r.checkType}</TableCell>
                         <TableCell><Badge className={STATUS_BADGE[r.status] || ""}>{r.status}</Badge></TableCell>
                         <TableCell className="text-xs">{r.module || "—"}</TableCell>
-                        <TableCell className="text-xs text-right font-mono">{fmtCurrency(r.discrepancy)}</TableCell>
-                        <TableCell className="text-xs text-right font-mono">{fmtCurrency(r.expectedValue)}</TableCell>
-                        <TableCell className="text-xs text-right font-mono">{fmtCurrency(r.actualValue)}</TableCell>
+                        <TableCell className="text-xs text-right font-mono">{isVatAuditor ? AUDIT_MASK : fmtCurrency(r.discrepancy)}</TableCell>
+                        <TableCell className="text-xs text-right font-mono">{isVatAuditor ? AUDIT_MASK : fmtCurrency(r.expectedValue)}</TableCell>
+                        <TableCell className="text-xs text-right font-mono">{isVatAuditor ? AUDIT_MASK : fmtCurrency(r.actualValue)}</TableCell>
                         <TableCell className="text-xs">{fmtDate(r.checkedAt)}</TableCell>
                         <TableCell>
                           {r.status === "Failed" && !r.resolvedAt && (
@@ -1736,7 +1854,7 @@ export default function FinancialAuditGroupPage({
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Internal cost prices, margins, and inventory values hidden. Only legal outward/inward invoice tax records shown.</span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">All monetary values, cost prices, margins, and financial ratios are masked. Only legal outward/inward invoice tax records shown.</span>
         </div>
       )}
 

@@ -1,16 +1,28 @@
 // ============================================================
 // DATA INTEGRITY API — Audit & Integrity Checks
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
+// STAGE 13: Full multi-tenant companyId isolation, safe financial
+// arithmetic, logUserActivity with Audit-Integrity-Sentinel module
+// token, VAT Auditor masking on discrepancy/expectedValue/actualValue,
+// RBAC enforcement.
 // ============================================================
 
-import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  maskForVatAuditor,
+  type UserRole,
+} from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
+import { db } from '@/lib/db';
 import { verifyLedgerBalance } from '@/lib/accounting-utils';
 
 // Inline code generator for DataIntegrityLog
 async function generateCode(model: string, prefix: string): Promise<string> {
-  const latest = await (db as any)[model].findFirst({
+  const latest = await (db as Record<string, { findFirst: (args: Record<string, unknown>) => Promise<{ code: string } | null> }>)[model].findFirst({
     where: { code: { startsWith: prefix } },
     orderBy: { code: 'desc' },
     select: { code: true },
@@ -20,22 +32,18 @@ async function generateCode(model: string, prefix: string): Promise<string> {
   return `${prefix}${String(num + 1).padStart(5, '0')}`;
 }
 
-function maskForVat(value: any, isVatAuditor: boolean): any {
-  if (!isVatAuditor) return value;
-  return 'N/A (Audit Mode)';
-}
-
 // GET /api/data-integrity — List integrity logs with filters
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'LedgerEntries', 'GET');
+  const security = await withApiSecurity(request, 'DataIntegrityLog', 'GET');
   if (!security.authorized) return security.response;
 
   try {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
-    const isVatAuditor = userRole === 'vat_auditor';
+    const companyId = security.user.companyId;
 
-    // SR and Dealer get 403
+    // SR and Dealer blocked via MODULE_DENY (enforced by withApiSecurity)
+    // Additional explicit check for safety
     if (userRole === 'sr' || userRole === 'dealer') {
       return NextResponse.json(
         { error: 'Access denied. SR and Dealer roles cannot access data integrity logs.' },
@@ -44,6 +52,11 @@ export async function GET(request: NextRequest) {
     }
 
     const where: Record<string, unknown> = {};
+
+    // Multi-tenant isolation: filter by companyId
+    if (companyId) {
+      where.companyId = companyId;
+    }
 
     const checkType = searchParams.get('checkType');
     const status = searchParams.get('status');
@@ -63,13 +76,10 @@ export async function GET(request: NextRequest) {
       db.dataIntegrityLog.count({ where }),
     ]);
 
-    // Mask amounts for VAT Auditor
-    const masked = logs.map((log: any) => ({
-      ...log,
-      discrepancy: isVatAuditor ? maskForVat(log.discrepancy, true) : log.discrepancy,
-      expectedValue: isVatAuditor ? maskForVat(log.expectedValue, true) : log.expectedValue,
-      actualValue: isVatAuditor ? maskForVat(log.actualValue, true) : log.actualValue,
-    }));
+    // VAT Auditor masking — mask discrepancy, expectedValue, actualValue fields
+    const masked = logs.map((log: Record<string, unknown>) =>
+      maskForVatAuditor(log, userRole, ['discrepancy', 'expectedValue', 'actualValue'])
+    );
 
     return NextResponse.json({ logs: masked, total, limit, offset });
   } catch (error) {
@@ -80,14 +90,14 @@ export async function GET(request: NextRequest) {
 
 // POST /api/data-integrity — Run integrity checks
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'LedgerEntries', 'POST');
+  const security = await withApiSecurity(request, 'DataIntegrityLog', 'POST');
   if (!security.authorized) return security.response;
 
   try {
-    const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
 
-    // SR and Dealer get 403
+    // SR and Dealer blocked via MODULE_DENY (enforced by withApiSecurity)
+    // Additional explicit check for safety
     if (userRole === 'sr' || userRole === 'dealer') {
       return NextResponse.json(
         { error: 'Access denied. SR and Dealer roles cannot run integrity checks.' },
@@ -95,7 +105,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // VAT Auditor: read-only (cannot run checks)
+    // VAT Auditor: read-only (already enforced by withApiSecurity's vat_auditor write deny)
     if (userRole === 'vat_auditor') {
       return NextResponse.json(
         { error: 'Write access denied. VAT Auditor has read-only access.' },
@@ -103,6 +113,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
 
     if (action === 'run-check') {
@@ -120,13 +131,16 @@ export async function POST(request: NextRequest) {
 }
 
 async function runAllChecks(
-  security: { authorized: true; user: { id: string; email: string; name: string; role: string } }
+  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
 ) {
-  const results: any[] = [];
+  const companyId = security.user.companyId;
+  const results: Record<string, unknown>[] = [];
 
   try {
-    // 1. LedgerBalance: Verify total debits = total credits
-    const ledgerBalance = await verifyLedgerBalance();
+    // ============================================================
+    // 1. LedgerBalance: Verify total debits = total credits (company-scoped)
+    // ============================================================
+    const ledgerBalance = await verifyLedgerBalance({ companyId });
     const ledgerCode = await generateCode('dataIntegrityLog', 'DIL-');
 
     const ledgerLog = await db.dataIntegrityLog.create({
@@ -141,23 +155,29 @@ async function runAllChecks(
           difference: ledgerBalance.difference,
           entryCount: ledgerBalance.entryCount,
         }),
-        discrepancy: ledgerBalance.difference,
-        expectedValue: ledgerBalance.totalDebit,
-        actualValue: ledgerBalance.totalCredit,
+        discrepancy: safeFinancialRound(ledgerBalance.difference),
+        expectedValue: safeFinancialRound(ledgerBalance.totalDebit),
+        actualValue: safeFinancialRound(ledgerBalance.totalCredit),
+        companyId: companyId,
         checkedBy: security.user.name,
       },
     });
     results.push(ledgerLog);
 
-    // 2. StockReconciliation: For each product, verify openingStock = SUM(stock entries IN) - SUM(stock entries OUT)
+    // ============================================================
+    // 2. StockReconciliation: Verify openingStock = SUM(IN) - SUM(OUT) (company-scoped)
+    // ============================================================
+    const productWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) productWhere.companyId = companyId;
+
     const products = await db.product.findMany({
-      where: { isActive: true },
+      where: productWhere,
       select: { id: true, productCode: true, name: true, openingStock: true },
     });
 
     let stockDiscrepancies = 0;
     let stockTotalChecked = 0;
-    const stockDetails: any[] = [];
+    const stockDetails: Record<string, unknown>[] = [];
 
     for (const product of products) {
       const [inAgg, outAgg] = await Promise.all([
@@ -171,15 +191,16 @@ async function runAllChecks(
         }),
       ]);
 
+      // STAGE 13: Use safeFinancialSubtract for stock calculation
       const totalIn = inAgg._sum.quantity || 0;
       const totalOut = outAgg._sum.quantity || 0;
-      const calculatedStock = totalIn - totalOut;
-      const discrepancy = Math.abs(product.openingStock - calculatedStock);
+      const calculatedStock = safeFinancialSubtract(totalIn, totalOut);
+      const discrepancy = safeFinancialRound(Math.abs(safeFinancialSubtract(product.openingStock, calculatedStock)));
 
-      stockTotalChecked++;
+      stockTotalChecked = safeFinancialAdd(stockTotalChecked, 1);
 
       if (discrepancy > 0.01) {
-        stockDiscrepancies++;
+        stockDiscrepancies = safeFinancialAdd(stockDiscrepancies, 1);
         stockDetails.push({
           productId: product.id,
           productCode: product.productCode,
@@ -203,34 +224,42 @@ async function runAllChecks(
           discrepancies: stockDiscrepancies,
           items: stockDetails.slice(0, 50), // Limit stored details
         }),
-        discrepancy: stockDiscrepancies,
-        expectedValue: stockTotalChecked,
-        actualValue: stockTotalChecked - stockDiscrepancies,
+        discrepancy: safeFinancialRound(stockDiscrepancies),
+        expectedValue: safeFinancialRound(stockTotalChecked),
+        actualValue: safeFinancialSubtract(stockTotalChecked, stockDiscrepancies),
+        companyId: companyId,
         checkedBy: security.user.name,
       },
     });
     results.push(stockLog);
 
-    // 3. AccountConsistency: Verify each LedgerEntry has a valid accountId pointing to an active ChartOfAccount
+    // ============================================================
+    // 3. AccountConsistency: Verify each LedgerEntry has a valid
+    //    accountId pointing to an active ChartOfAccount (company-scoped)
+    // ============================================================
+    const ledgerEntryWhere: Record<string, unknown> = {
+      isActive: true,
+      accountId: { not: null },
+    };
+    if (companyId) ledgerEntryWhere.companyId = companyId;
+
     const ledgerEntriesWithoutAccount = await db.ledgerEntry.findMany({
-      where: {
-        isActive: true,
-        accountId: { not: null },
-      },
+      where: ledgerEntryWhere,
       select: { id: true, entryCode: true, accountId: true, account: true },
     });
 
     let invalidAccountEntries = 0;
-    const invalidAccountDetails: any[] = [];
+    const invalidAccountDetails: Record<string, unknown>[] = [];
 
     for (const entry of ledgerEntriesWithoutAccount) {
       if (entry.accountId) {
-        const coaExists = await db.chartOfAccount.findFirst({
-          where: { id: entry.accountId, isActive: true },
-        });
+        const coaWhere: Record<string, unknown> = { id: entry.accountId, isActive: true };
+        if (companyId) coaWhere.companyId = companyId;
+
+        const coaExists = await db.chartOfAccount.findFirst({ where: coaWhere });
 
         if (!coaExists) {
-          invalidAccountEntries++;
+          invalidAccountEntries = safeFinancialAdd(invalidAccountEntries, 1);
           invalidAccountDetails.push({
             entryId: entry.id,
             entryCode: entry.entryCode,
@@ -252,32 +281,51 @@ async function runAllChecks(
           invalidEntries: invalidAccountEntries,
           items: invalidAccountDetails.slice(0, 50),
         }),
-        discrepancy: invalidAccountEntries,
-        expectedValue: ledgerEntriesWithoutAccount.length,
-        actualValue: ledgerEntriesWithoutAccount.length - invalidAccountEntries,
+        discrepancy: safeFinancialRound(invalidAccountEntries),
+        expectedValue: safeFinancialRound(ledgerEntriesWithoutAccount.length),
+        actualValue: safeFinancialSubtract(ledgerEntriesWithoutAccount.length, invalidAccountEntries),
+        companyId: companyId,
         checkedBy: security.user.name,
       },
     });
     results.push(accountLog);
 
-    // 4. VATReconciliation: Verify VAT amounts on SO/PO match line-level VAT totals
+    // ============================================================
+    // 4. VATReconciliation: Verify VAT amounts on SO/PO match
+    //    line-level VAT totals (company-scoped via product relation)
+    // ============================================================
     let vatDiscrepancies = 0;
     let vatTotalChecked = 0;
-    const vatDetails: any[] = [];
+    const vatDetails: Record<string, unknown>[] = [];
 
-    // Check Sales Orders
+    // Check Sales Orders — filter products by companyId if available
+    // SalesOrder doesn't have companyId directly, so we check line-level products
     const salesOrders = await db.salesOrder.findMany({
       where: { isActive: true, vatAmount: { gt: 0 } },
-      include: { lines: true },
+      include: { lines: { include: { product: true } } },
     });
 
     for (const so of salesOrders) {
-      const lineVatTotal = so.lines.reduce((sum: number, line: any) => sum + (line.vatAmount || 0), 0);
-      const discrepancy = Math.abs(so.vatAmount - lineVatTotal);
+      // STAGE 13: If companyId is set, skip SOs whose products don't belong to this company
+      if (companyId && so.lines.length > 0) {
+        const hasCompanyProduct = so.lines.some((line: { product: { companyId: string | null } | null }) =>
+          line.product?.companyId === companyId || line.product?.companyId === null
+        );
+        if (!hasCompanyProduct) continue;
+      }
 
-      vatTotalChecked++;
+      const lineVatTotal = safeFinancialRound(
+        so.lines.reduce(
+          (sum: number, line: { vatAmount: number | null }) => safeFinancialAdd(sum, line.vatAmount || 0),
+          0
+        )
+      );
+      const discrepancy = safeFinancialRound(Math.abs(safeFinancialSubtract(so.vatAmount, lineVatTotal)));
+
+      vatTotalChecked = safeFinancialAdd(vatTotalChecked, 1);
+
       if (discrepancy > 0.01) {
-        vatDiscrepancies++;
+        vatDiscrepancies = safeFinancialAdd(vatDiscrepancies, 1);
         vatDetails.push({
           type: 'SalesOrder',
           code: so.invoiceNo,
@@ -291,16 +339,30 @@ async function runAllChecks(
     // Check Purchase Orders
     const purchaseOrders = await db.purchaseOrder.findMany({
       where: { isActive: true, vatAmount: { gt: 0 } },
-      include: { lines: true },
+      include: { lines: { include: { product: true } } },
     });
 
     for (const po of purchaseOrders) {
-      const lineVatTotal = po.lines.reduce((sum: number, line: any) => sum + (line.vatAmount || 0), 0);
-      const discrepancy = Math.abs(po.vatAmount - lineVatTotal);
+      // STAGE 13: If companyId is set, skip POs whose products don't belong to this company
+      if (companyId && po.lines.length > 0) {
+        const hasCompanyProduct = po.lines.some((line: { product: { companyId: string | null } | null }) =>
+          line.product?.companyId === companyId || line.product?.companyId === null
+        );
+        if (!hasCompanyProduct) continue;
+      }
 
-      vatTotalChecked++;
+      const lineVatTotal = safeFinancialRound(
+        po.lines.reduce(
+          (sum: number, line: { vatAmount: number | null }) => safeFinancialAdd(sum, line.vatAmount || 0),
+          0
+        )
+      );
+      const discrepancy = safeFinancialRound(Math.abs(safeFinancialSubtract(po.vatAmount, lineVatTotal)));
+
+      vatTotalChecked = safeFinancialAdd(vatTotalChecked, 1);
+
       if (discrepancy > 0.01) {
-        vatDiscrepancies++;
+        vatDiscrepancies = safeFinancialAdd(vatDiscrepancies, 1);
         vatDetails.push({
           type: 'PurchaseOrder',
           code: po.poNumber,
@@ -323,45 +385,58 @@ async function runAllChecks(
           discrepancies: vatDiscrepancies,
           items: vatDetails.slice(0, 50),
         }),
-        discrepancy: vatDiscrepancies,
-        expectedValue: vatTotalChecked,
-        actualValue: vatTotalChecked - vatDiscrepancies,
+        discrepancy: safeFinancialRound(vatDiscrepancies),
+        expectedValue: safeFinancialRound(vatTotalChecked),
+        actualValue: safeFinancialSubtract(vatTotalChecked, vatDiscrepancies),
+        companyId: companyId,
         checkedBy: security.user.name,
       },
     });
     results.push(vatLog);
 
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'CREATE',
-        module: 'DataIntegrity',
-        recordLabel: 'Run All Checks',
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          checksRun: results.length,
-          summary: {
-            ledgerBalance: ledgerBalance.balanced ? 'Passed' : 'Failed',
-            stockReconciliation: stockDiscrepancies === 0 ? 'Passed' : 'Warning',
-            accountConsistency: invalidAccountEntries === 0 ? 'Passed' : 'Failed',
-            vatReconciliation: vatDiscrepancies === 0 ? 'Passed' : 'Warning',
-          },
-        }),
-      },
+    // Activity log with Audit-Integrity-Sentinel module token
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Audit-Integrity-Sentinel',
+      recordLabel: 'Run All Checks',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        checksRun: results.length,
+        summary: {
+          ledgerBalance: ledgerBalance.balanced ? 'Passed' : 'Failed',
+          stockReconciliation: stockDiscrepancies === 0 ? 'Passed' : 'Warning',
+          accountConsistency: invalidAccountEntries === 0 ? 'Passed' : 'Failed',
+          vatReconciliation: vatDiscrepancies === 0 ? 'Passed' : 'Warning',
+        },
+      }),
     });
 
     return NextResponse.json({
       checks: results,
       summary: {
         totalChecks: results.length,
-        passed: results.filter((r: any) => r.status === 'Passed').length,
-        failed: results.filter((r: any) => r.status === 'Failed').length,
-        warnings: results.filter((r: any) => r.status === 'Warning').length,
+        passed: results.filter((r: Record<string, unknown>) => r.status === 'Passed').length,
+        failed: results.filter((r: Record<string, unknown>) => r.status === 'Failed').length,
+        warnings: results.filter((r: Record<string, unknown>) => r.status === 'Warning').length,
       },
     });
   } catch (error) {
     console.error('Data integrity run-check error:', error);
+
+    // Log failure via Audit-Integrity-Sentinel
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Audit-Integrity-Sentinel',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        action: 'run-check',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        checksCompletedBeforeFailure: results.length,
+      }),
+    });
+
     return NextResponse.json({ error: 'Failed to run integrity checks' }, { status: 500 });
   }
 }

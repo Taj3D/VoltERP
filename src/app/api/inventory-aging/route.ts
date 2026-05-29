@@ -1,18 +1,20 @@
 // ============================================================
 // INVENTORY AGING API — Age Bracket Calculation
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
+// STAGE 13: companyId isolation, safeFinancial arithmetic,
+//   Audit-Inventory-Aging token, maskDashboardForVatAuditor
 // ============================================================
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
-
-// Use 'Stock' module → maps to 'inventory' group, accessible by SR, Dealer, VAT Auditor
-
-function maskForVat(value: any, isVatAuditor: boolean): any {
-  if (!isVatAuditor) return value;
-  return 'N/A (Audit Mode)';
-}
+import {
+  withApiSecurity,
+  safeFinancialRound,
+  safeFinancialAdd,
+  maskDashboardForVatAuditor,
+  type UserRole,
+} from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
 // Age bracket definitions
 const AGE_BRACKETS = [
@@ -26,23 +28,34 @@ const AGE_BRACKETS = [
 
 // GET /api/inventory-aging
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Stock', 'GET');
+  const security = await withApiSecurity(request, 'InventoryAging', 'GET');
   if (!security.authorized) return security.response;
 
   try {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
+    const companyId = security.user.companyId;
     const isVatAuditor = userRole === 'vat_auditor';
+
+    // Log user activity with audit token
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Audit-Inventory-Aging',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: 'Inventory aging report accessed',
+    });
 
     const asOfDate = searchParams.get('asOf')
       ? new Date(searchParams.get('asOf') + 'T23:59:59.999Z')
       : new Date();
     const godownId = searchParams.get('godownId');
 
-    // Fetch all active products with stock > 0
+    // Fetch all active products with stock > 0, filtered by companyId
     const productWhere: Record<string, unknown> = {
       isActive: true,
       openingStock: { gt: 0 },
+      ...(companyId ? { companyId } : {}),
     };
     if (godownId) productWhere.godownId = godownId;
 
@@ -68,7 +81,7 @@ export async function GET(request: NextRequest) {
         let ageDays = 0;
         let earliestDate: Date | null = null;
 
-        // Find earliest IN stock entry
+        // Find earliest IN stock entry — productId already scoped by company-filtered product list
         const earliestEntry = await db.stockEntry.findFirst({
           where: {
             productId: product.id,
@@ -92,7 +105,8 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        const totalValue = product.openingStock * product.costPrice;
+        // Safe financial calculation for totalValue
+        const totalValue = safeFinancialRound(product.openingStock * product.costPrice);
 
         return {
           id: product.id,
@@ -101,28 +115,26 @@ export async function GET(request: NextRequest) {
           category: product.category?.name || 'N/A',
           brand: product.brand?.name || 'N/A',
           stock: product.openingStock,
-          costPrice: isVatAuditor ? maskForVat(product.costPrice, true) : product.costPrice,
-          totalValue: isVatAuditor ? maskForVat(totalValue, true) : totalValue,
+          costPrice: product.costPrice,
+          totalValue,
           ageDays,
           earliestEntryDate: earliestDate,
         };
       })
     );
 
-    // Group into age brackets
+    // Group into age brackets with safeFinancialAdd for aggregations
     const brackets = AGE_BRACKETS.map((bracket) => {
       const matching = agedProducts.filter(
         (p: any) => p.ageDays >= bracket.min && p.ageDays <= bracket.max
       );
       const count = matching.length;
 
-      // Calculate totalValue using original (unmasked) data
-      const totalValue = isVatAuditor
-        ? 'N/A (Audit Mode)' as any
-        : matching.reduce((sum: number, p: any) => {
-            const original = products.find((pr: any) => pr.id === p.id);
-            return sum + (original ? original.openingStock * original.costPrice : 0);
-          }, 0);
+      // Calculate totalValue using safeFinancialAdd reduce on original values
+      const totalValue = matching.reduce(
+        (sum: number, p: any) => safeFinancialAdd(sum, p.totalValue),
+        0
+      );
 
       return {
         label: bracket.label,
@@ -132,18 +144,19 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Summary
+    // Summary — use safeFinancialAdd for grand total
     const totalProducts = agedProducts.length;
-    const totalValue = isVatAuditor
-      ? 'N/A (Audit Mode)' as any
-      : products.reduce((sum: number, p: any) => sum + p.openingStock * p.costPrice, 0);
+    const totalValue = products.reduce(
+      (sum: number, p: any) => safeFinancialAdd(sum, safeFinancialRound(p.openingStock * p.costPrice)),
+      0
+    );
     const ages = agedProducts.map((p: any) => p.ageDays);
     const averageAge = ages.length > 0
       ? Math.round(ages.reduce((a: number, b: number) => a + b, 0) / ages.length)
       : 0;
     const oldestAge = ages.length > 0 ? Math.max(...ages) : 0;
 
-    return NextResponse.json({
+    const responseData = {
       brackets,
       summary: {
         totalProducts,
@@ -152,7 +165,15 @@ export async function GET(request: NextRequest) {
         oldestAge,
         asOfDate: asOfDate.toISOString().split('T')[0],
       },
-    });
+    };
+
+    // Apply deep recursive VAT Auditor masking for the entire response
+    const maskedResponse = maskDashboardForVatAuditor(
+      responseData as Record<string, unknown>,
+      userRole
+    );
+
+    return NextResponse.json(maskedResponse);
   } catch (error) {
     console.error('Inventory aging GET error:', error);
     return NextResponse.json({ error: 'Failed to calculate inventory aging' }, { status: 500 });

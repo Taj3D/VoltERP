@@ -122,6 +122,19 @@ model Company {
   chartOfAccounts    ChartOfAccount[]
   ledgerEntries      LedgerEntry[]
   periodCloses       PeriodClose[]
+  notifications      Notification[]
+  dataIntegrityLogs  DataIntegrityLog[]
+  ledgerAutoPosts    LedgerAutoPost[]
+  productSerialTrackings ProductSerialTracking[]
+  customers          Customer[]
+  suppliers          Supplier[]
+  salesOrders        SalesOrder[]
+  purchaseOrders     PurchaseOrder[]
+  hireSales          HireSales[]
+  salesReturns       SalesReturn[]
+  purchaseReturns    PurchaseReturn[]
+  srTargetSetups     SRTargetSetup[]
+  paymentOptions     PaymentOption[]
 }
 
 model Category {
@@ -255,26 +268,33 @@ model SRTargetSetup {
   month       Int
   year        Int
   targetAmount Float
+  companyId   String?  // Multi-tenant isolation
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   employee    Employee @relation(fields: [employeeId], references: [id])
+  company     Company? @relation(fields: [companyId], references: [id])
 
   @@index([employeeId])
+  @@index([companyId])
 }
 
 model PaymentOption {
   id            String          @id @default(cuid())
   name          String
+  companyId     String?         // Multi-tenant isolation
   isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  company       Company?        @relation(fields: [companyId], references: [id])
   cardTypeSetups CardTypeSetup[]
   expenses      Expense[]
   incomes       Income[]
   salesOrders   SalesOrder[]
   cashCollections CashCollection[]
   cashDeliveries CashDelivery[]
+
+  @@index([companyId])
 }
 
 model CardType {
@@ -463,14 +483,18 @@ model Customer {
   profileImage      String?         // Profile photo (base64 or URL)
   nidFrontImage     String?         // National ID front card image
   nidBackImage      String?         // National ID back card image
+  companyId         String?         // Multi-tenant isolation
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
+  company           Company?        @relation(fields: [companyId], references: [id])
   salesOrders       SalesOrder[]
   hireSales         HireSales[]
   salesReturns      SalesReturn[]
   cashCollections   CashCollection[]
   orderSheets       OrderSheet[]
+
+  @@index([companyId])
 }
 
 model Supplier {
@@ -489,12 +513,16 @@ model Supplier {
   profileImage       String?          // Profile photo (base64 or URL)
   nidFrontImage      String?          // National ID front card image
   nidBackImage       String?          // National ID back card image
+  companyId          String?          // Multi-tenant isolation
   isActive           Boolean          @default(true)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
+  company            Company?         @relation(fields: [companyId], references: [id])
   purchaseOrders     PurchaseOrder[]
   purchaseReturns    PurchaseReturn[]
   cashDeliveries     CashDelivery[]
+
+  @@index([companyId])
 }
 
 // ============================================================
@@ -547,11 +575,13 @@ model PurchaseOrder {
   grandTotal      Float               @default(0)
   status          String              @default("Draft")
   notes           String?
+  companyId       String?             // Multi-tenant isolation
   isActive        Boolean             @default(true)
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   supplier        Supplier            @relation(fields: [supplierId], references: [id])
   godown          Godown?             @relation(fields: [godownId], references: [id])
+  company         Company?            @relation(fields: [companyId], references: [id])
   lines           PurchaseOrderLine[]
   purchaseReturn  PurchaseReturn[]
 
@@ -559,6 +589,7 @@ model PurchaseOrder {
   @@index([godownId])
   @@index([date])
   @@index([status])
+  @@index([companyId])
 }
 
 model PurchaseOrderLine {
@@ -593,12 +624,14 @@ model SalesOrder {
   paymentOptionId String?
   status          String           @default("Draft")
   notes           String?
+  companyId       String?          // Multi-tenant isolation
   isActive        Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   customer        Customer         @relation(fields: [customerId], references: [id])
   godown          Godown?          @relation(fields: [godownId], references: [id])
   paymentOption   PaymentOption?   @relation(fields: [paymentOptionId], references: [id])
+  company         Company?         @relation(fields: [companyId], references: [id])
   lines           SalesOrderLine[]
   salesReturns    SalesReturn[]
   replacements    ReplacementOrder[]
@@ -607,6 +640,7 @@ model SalesOrder {
   @@index([godownId])
   @@index([date])
   @@index([status])
+  @@index([companyId])
 }
 
 model SalesOrderLine {
@@ -648,17 +682,20 @@ model HireSales {
   vatAmount         Float           @default(0)
   status            String          @default("Active")
   notes             String?
+  companyId         String?         // Multi-tenant isolation
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   customer          Customer        @relation(fields: [customerId], references: [id])
   godown            Godown?         @relation(fields: [godownId], references: [id])
+  company           Company?        @relation(fields: [companyId], references: [id])
   lines             HireSalesLine[]
   installments      HireInstallment[]
 
   @@index([customerId])
   @@index([date])
   @@index([status])
+  @@index([companyId])
 }
 
 model HireSalesLine {
@@ -712,17 +749,20 @@ model SalesReturn {
   grandTotal      Float            @default(0)
   creditMemoCode  String?
   status          String           @default("Pending")
+  companyId       String?          // Multi-tenant isolation
   isActive        Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   salesOrder      SalesOrder       @relation(fields: [salesOrderId], references: [id])
   customer        Customer         @relation(fields: [customerId], references: [id])
   godown          Godown?          @relation(fields: [godownId], references: [id])
+  company         Company?         @relation(fields: [companyId], references: [id])
   lines           SalesReturnLine[]
 
   @@index([salesOrderId])
   @@index([customerId])
   @@index([date])
+  @@index([companyId])
 }
 
 model SalesReturnLine {
@@ -754,16 +794,19 @@ model PurchaseReturn {
   debitNoteCode   String?
   challanRef      String?
   status          String             @default("Pending")
+  companyId       String?             // Multi-tenant isolation
   isActive        Boolean            @default(true)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
   supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  company         Company?           @relation(fields: [companyId], references: [id])
   lines           PurchaseReturnLine[]
 
   @@index([purchaseOrderId])
   @@index([supplierId])
   @@index([date])
+  @@index([companyId])
 }
 
 model PurchaseReturnLine {
@@ -1216,6 +1259,7 @@ model Notification {
   module       String?  // "SalesOrder", "PurchaseOrder", "Stock", "Ledger", etc.
   referenceId  String?  // ID of the related record
   referenceCode String? // Human-readable code (PO-00001, SO-00001, etc.)
+  companyId    String?  // Multi-tenant isolation
   isRead       Boolean  @default(false)
   isDismissed  Boolean  @default(false)
   dismissedAt  DateTime?
@@ -1223,10 +1267,12 @@ model Notification {
   actionUrl    String?  // Navigation hint for frontend
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  company      Company? @relation(fields: [companyId], references: [id])
 
   @@index([type])
   @@index([isRead])
   @@index([createdAt])
+  @@index([companyId])
 }
 
 // Product Serial/IMEI Lifecycle Tracking — trace full history from procurement to sale/return
@@ -1242,6 +1288,7 @@ model ProductSerialTracking {
   godownId        String?  // Current warehouse location
   customerId      String?  // Current owner (if sold)
   supplierId      String?  // Original supplier
+  companyId       String?  // Multi-tenant isolation
   purchaseDate    DateTime?
   saleDate        DateTime?
   returnDate      DateTime?
@@ -1250,6 +1297,9 @@ model ProductSerialTracking {
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 // Data Integrity Audit Log — out-of-balance entries, reconciliation failures
@@ -1263,6 +1313,7 @@ model DataIntegrityLog {
   discrepancy     Float    @default(0)  // Amount of imbalance if any
   expectedValue   Float    @default(0)
   actualValue     Float    @default(0)
+  companyId       String?  // Multi-tenant isolation
   checkedAt       DateTime @default(now())
   checkedBy       String?
   resolvedAt      DateTime?
@@ -1270,6 +1321,9 @@ model DataIntegrityLog {
   resolution      String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 // Ledger Auto-Post Queue — tracks automatic ledger entries generated from transactions
@@ -1286,15 +1340,18 @@ model LedgerAutoPost {
   amount          Float    @default(0)
   postingDate     DateTime
   status          String   @default("Posted")  // "Pending", "Posted", "Reversed", "Failed"
+  companyId       String?  // Multi-tenant isolation — inherited from source document
   reversalReason  String?
   postedAt        DateTime @default(now())
   postedBy        String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
 
   @@index([sourceType])
   @@index([postingDate])
   @@index([status])
+  @@index([companyId])
 }
 
 // ============================================================

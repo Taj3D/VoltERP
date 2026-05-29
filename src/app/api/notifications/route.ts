@@ -1,15 +1,20 @@
 // ============================================================
 // NOTIFICATIONS API — Full CRUD + Auto-Generate + Header Polling
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
-// Server-side RBAC via withApiSecurity(), Period Close, VAT Masking
-// Enhanced: BalanceMismatch, CreditLimitExceeded, TransferDelay alerts
-// Enhanced: all=true query param, severity breakdown in countOnly
-// Enhanced: VAT masking extended to HireSales module
+// STAGE 13: companyId isolation, checkNotificationDismissPermission,
+//   Audit-Integrity-Sentinel token, comprehensive VAT masking,
+//   companyId filtering on all source data in generateNotifications
 // ============================================================
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  safeFinancialSubtract,
+  checkNotificationDismissPermission,
+  type UserRole,
+} from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
 // Zero-padded immutable auto-code generator: NOT-XXXXX
 async function generateCode(model: string, prefix: string): Promise<string> {
@@ -29,34 +34,42 @@ function maskForVat(value: any, isVatAuditor: boolean): any {
   return 'N/A (Audit Mode)';
 }
 
-// Sensitive monetary field patterns to mask within message strings
+// Comprehensive monetary pattern masking within message strings
 function maskVatInMessage(message: string, isVatAuditor: boolean): string {
   if (!isVatAuditor) return message;
-  // Mask BDT currency patterns like ৳1,200.00 or ৳575,000.00
-  return message.replace(/৳[\d,]+\.?\d*/g, 'N/A (Audit Mode)');
+  // Mask BDT currency patterns: ৳1,200.00 or ৳575,000.00
+  let masked = message.replace(/৳[\d,]+\.?\d*/g, 'N/A (Audit Mode)');
+  // Mask plain number patterns preceded by currency keywords
+  masked = masked.replace(/(?:amount|balance|limit|total|due|remaining|outstanding|overdue|exceeded|difference|debit|credit|cost|value|price|paid)[\s:]*[\d,]+\.?\d*/gi, (match) =>
+    match.replace(/[\d,]+\.?\d*$/, 'N/A (Audit Mode)')
+  );
+  return masked;
 }
 
 // Modules where VAT Auditor masking applies to currency values
 const VAT_MASKED_MODULES = ['Ledger', 'Financial', 'PeriodClose', 'HireSales'];
 
 // Role-based notification module filter
-function getRoleModuleFilter(role: UserRole): Record<string, unknown> {
+function getRoleModuleFilter(role: UserRole, companyId?: string | null): Record<string, unknown> {
+  const baseFilter: Record<string, unknown> = {
+    ...(companyId ? { companyId } : {}),
+  };
   switch (role) {
     case 'admin':
     case 'manager':
       // Admin/Manager: see all modules (integrity, financial, stock, personnel)
-      return {};
+      return baseFilter;
     case 'sr':
       // SR: only low-stock, hire-sales, personnel status — NO Ledger/Financial
-      return { module: { notIn: ['Ledger', 'Financial', 'PeriodClose'] } };
+      return { ...baseFilter, module: { notIn: ['Ledger', 'Financial', 'PeriodClose'] } };
     case 'dealer':
       // Dealer: only low-stock and order-status notifications
-      return { type: { in: ['LowStock', 'System'] } };
+      return { ...baseFilter, type: { in: ['LowStock', 'System'] } };
     case 'vat_auditor':
       // VAT Auditor: see all modules but financial values are masked
-      return {};
+      return baseFilter;
     default:
-      return {};
+      return baseFilter;
   }
 }
 
@@ -65,13 +78,14 @@ function getRoleModuleFilter(role: UserRole): Record<string, unknown> {
 // Enhanced: all=true returns both read and unread notifications
 // Enhanced: countOnly returns severity breakdown { count, critical, warning, info }
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'GET');
+  const security = await withApiSecurity(request, 'Notifications', 'GET');
   if (!security.authorized) return security.response;
 
   try {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
     const isVatAuditor = userRole === 'vat_auditor';
+    const companyId = security.user.companyId;
 
     // Optional action: auto-generate notifications before fetching
     const action = searchParams.get('action');
@@ -79,8 +93,8 @@ export async function GET(request: NextRequest) {
       return await generateNotifications(security, isVatAuditor);
     }
 
-    // Build role-based module filter
-    const roleFilter = getRoleModuleFilter(userRole);
+    // Build role-based module filter (includes companyId)
+    const roleFilter = getRoleModuleFilter(userRole, companyId);
 
     // Additional query filters
     const type = searchParams.get('type');
@@ -185,11 +199,12 @@ export async function GET(request: NextRequest) {
 
 // POST /api/notifications — Create a notification or auto-generate batch
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'POST');
+  const security = await withApiSecurity(request, 'Notifications', 'POST');
   if (!security.authorized) return security.response;
 
   try {
     const userRole = security.user.role as UserRole;
+    const companyId = security.user.companyId;
 
     // Dealer blocked entirely from creating
     if (userRole === 'dealer') {
@@ -236,20 +251,19 @@ export async function POST(request: NextRequest) {
         referenceId: referenceId || null,
         referenceCode: referenceCode || null,
         actionUrl: actionUrl || null,
+        ...(companyId ? { companyId } : {}),
       },
     });
 
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'CREATE',
-        module: 'Notifications',
-        recordId: notification.id,
-        recordLabel: notification.code,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({ type, title, module }),
-      },
+    // Audit log with Integrity Sentinel token
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Audit-Integrity-Sentinel',
+      recordId: notification.id,
+      recordLabel: notification.code,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({ type, title, module }),
     });
 
     return NextResponse.json({ success: true, data: notification }, { status: 201 });
@@ -261,11 +275,12 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/notifications — Mark as read, mark all read, or dismiss
 export async function PUT(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'PUT');
+  const security = await withApiSecurity(request, 'Notifications', 'PUT');
   if (!security.authorized) return security.response;
 
   try {
     const userRole = security.user.role as UserRole;
+    const companyId = security.user.companyId;
 
     if (userRole === 'dealer') {
       return NextResponse.json(
@@ -279,21 +294,20 @@ export async function PUT(request: NextRequest) {
 
     // Mark ALL as read
     if (action === 'mark-all-read') {
-      const roleFilter = getRoleModuleFilter(userRole);
+      const roleFilter = getRoleModuleFilter(userRole, companyId);
       const result = await db.notification.updateMany({
         where: { ...roleFilter, isRead: false, isDismissed: false },
         data: { isRead: true },
       });
 
-      await db.auditLog.create({
-        data: {
-          action: 'UPDATE',
-          module: 'Notifications',
-          recordLabel: 'Mark All Read',
-          userId: security.user.id,
-          userName: security.user.name,
-          details: JSON.stringify({ affected: result.count }),
-        },
+      // Audit log with Integrity Sentinel token
+      await logUserActivity({
+        action: 'UPDATE',
+        module: 'Audit-Integrity-Sentinel',
+        recordLabel: 'Mark All Read',
+        userId: security.user.id,
+        userName: security.user.name,
+        details: JSON.stringify({ affected: result.count }),
       });
 
       return NextResponse.json({ success: true, affected: result.count });
@@ -306,6 +320,11 @@ export async function PUT(request: NextRequest) {
 
     const existing = await db.notification.findUnique({ where: { id } });
     if (!existing) {
+      return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
+    }
+
+    // Cross-tenant check: if user has companyId, notification must belong to same company
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
       return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
     }
 
@@ -323,17 +342,27 @@ export async function PUT(request: NextRequest) {
     if (action === 'mark-read' || isRead === true) {
       updateData.isRead = true;
     }
+
+    // Dismiss action requires admin permission
     if (action === 'dismiss' || isDismissed === true) {
+      const dismissCheck = checkNotificationDismissPermission(userRole);
+      if (dismissCheck) return dismissCheck;
+
       updateData.isDismissed = true;
       updateData.dismissedAt = new Date();
       updateData.dismissedBy = dismissedBy || security.user.name;
     }
+
     if (isRead !== undefined && action !== 'mark-read') {
       updateData.isRead = isRead;
     }
     if (isDismissed !== undefined && action !== 'dismiss') {
       updateData.isDismissed = isDismissed;
       if (isDismissed) {
+        // Double-check dismiss permission for isDismissed flag
+        const dismissCheck = checkNotificationDismissPermission(userRole);
+        if (dismissCheck) return dismissCheck;
+
         updateData.dismissedAt = new Date();
         updateData.dismissedBy = dismissedBy || security.user.name;
       }
@@ -344,17 +373,15 @@ export async function PUT(request: NextRequest) {
       data: updateData,
     });
 
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'UPDATE',
-        module: 'Notifications',
-        recordId: notification.id,
-        recordLabel: notification.code,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify(updateData),
-      },
+    // Audit log with Integrity Sentinel token
+    await logUserActivity({
+      action: 'UPDATE',
+      module: 'Audit-Integrity-Sentinel',
+      recordId: notification.id,
+      recordLabel: notification.code,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify(updateData),
     });
 
     return NextResponse.json({ success: true, data: notification });
@@ -369,12 +396,15 @@ export async function PUT(request: NextRequest) {
 // Scans for: LowStock, OverdueInstallment, DataIntegrity, PeriodClose,
 //            BalanceMismatch, CreditLimitExceeded, TransferDelay
 // All inserts within db.$transaction() for atomic consistency
+// STAGE 13: All source data filtered by companyId,
+//   all created notifications include companyId
 // ============================================================
 async function generateNotifications(
-  security: { authorized: true; user: { id: string; email: string; name: string; role: string } },
+  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } },
   _isVatAuditor: boolean
 ) {
   const userRole = security.user.role as UserRole;
+  const companyId = security.user.companyId;
 
   if (userRole === 'dealer') {
     return NextResponse.json(
@@ -387,12 +417,15 @@ async function generateNotifications(
 
   try {
     await db.$transaction(async (tx: any) => {
+      // Company-scoped filter helper
+      const companyFilter = companyId ? { companyId } : {};
+
       // ─────────────────────────────────────────────────────────
       // 1. LOW STOCK ALERTS
-      //    Products where openingStock <= reorderLevel
+      //    Products where openingStock <= reorderLevel (filtered by companyId)
       // ─────────────────────────────────────────────────────────
       const lowStockProducts = await tx.product.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...companyFilter },
         select: {
           id: true,
           productCode: true,
@@ -413,6 +446,7 @@ async function generateNotifications(
             type: 'LowStock',
             referenceId: product.id,
             isDismissed: false,
+            ...companyFilter,
           },
         });
 
@@ -429,6 +463,7 @@ async function generateNotifications(
               referenceId: product.id,
               referenceCode: product.productCode,
               actionUrl: '/stock',
+              ...companyFilter,
             },
           });
           created.push(notification);
@@ -438,11 +473,13 @@ async function generateNotifications(
       // ─────────────────────────────────────────────────────────
       // 2. OVERDUE HIRE-SALE INSTALLMENTS
       //    Pending/Partial installments past their dueDate
+      //    Filtered by hireSales with companyId
       // ─────────────────────────────────────────────────────────
       const overdueInstallments = await tx.hireInstallment.findMany({
         where: {
           status: { in: ['Pending', 'Partial'] },
           dueDate: { lt: new Date() },
+          ...(companyId ? { hireSales: { companyId } } : {}),
         },
         include: {
           hireSales: {
@@ -462,12 +499,13 @@ async function generateNotifications(
             type: 'OverdueInstallment',
             referenceId: inst.id,
             isDismissed: false,
+            ...companyFilter,
           },
         });
 
         if (!existing) {
+          const remaining = safeFinancialSubtract(inst.amount, inst.paidAmount);
           const code = await generateCodeInTx(tx, 'NOT-');
-          const remaining = inst.amount - inst.paidAmount;
           const notification = await tx.notification.create({
             data: {
               code,
@@ -479,6 +517,7 @@ async function generateNotifications(
               referenceId: inst.id,
               referenceCode: inst.hireSales.invoiceNo,
               actionUrl: '/hire-sales',
+              ...companyFilter,
             },
           });
           created.push(notification);
@@ -493,12 +532,13 @@ async function generateNotifications(
 
       // ─────────────────────────────────────────────────────────
       // 3. DATA INTEGRITY ALERTS
-      //    Check for failed/warning data integrity logs
+      //    Check for failed/warning data integrity logs (filtered by companyId)
       // ─────────────────────────────────────────────────────────
       if (userRole === 'admin' || userRole === 'manager') {
         const integrityIssues = await tx.dataIntegrityLog.findMany({
           where: {
             status: { in: ['Failed', 'Warning'] },
+            ...companyFilter,
           },
           take: 20,
           orderBy: { createdAt: 'desc' },
@@ -510,6 +550,7 @@ async function generateNotifications(
               type: 'DataIntegrity',
               referenceId: issue.id,
               isDismissed: false,
+              ...companyFilter,
             },
           });
 
@@ -526,6 +567,7 @@ async function generateNotifications(
                 referenceId: issue.id,
                 referenceCode: issue.code,
                 actionUrl: '/chart-of-accounts',
+                ...companyFilter,
               },
             });
             created.push(notification);
@@ -535,7 +577,7 @@ async function generateNotifications(
 
       // ─────────────────────────────────────────────────────────
       // 4. PERIOD CLOSE REMINDERS
-      //    Alert if current month has no period close record yet
+      //    Alert if current month has no period close record yet (filtered by companyId)
       // ─────────────────────────────────────────────────────────
       if (userRole === 'admin' || userRole === 'manager') {
         const now = new Date();
@@ -543,7 +585,7 @@ async function generateNotifications(
         const currentYear = now.getFullYear();
 
         const periodRecord = await tx.periodClose.findFirst({
-          where: { periodMonth: currentMonth, periodYear: currentYear },
+          where: { periodMonth: currentMonth, periodYear: currentYear, ...companyFilter },
         });
 
         // If we're past day 5 and no period close exists for current month, alert
@@ -552,6 +594,7 @@ async function generateNotifications(
             where: {
               type: 'PeriodClose',
               isDismissed: false,
+              ...companyFilter,
               createdAt: {
                 gte: new Date(currentYear, currentMonth - 1, 1),
               },
@@ -569,6 +612,7 @@ async function generateNotifications(
                 message: `The accounting period for ${currentMonth}/${currentYear} has not been closed yet. Please review and close the period to ensure data integrity.`,
                 module: 'PeriodClose',
                 actionUrl: '/balance-sheet',
+                ...companyFilter,
               },
             });
             created.push(notification);
@@ -580,11 +624,12 @@ async function generateNotifications(
       // 5. BALANCE MISMATCH ALERTS (Ledger Integrity)
       //    Groups LedgerEntry by date, checks if SUM(debit) !== SUM(credit)
       //    Only visible to Admin/Manager roles
+      //    Filtered by companyId on LedgerEntry
       // ─────────────────────────────────────────────────────────
       if (userRole === 'admin' || userRole === 'manager') {
-        // Fetch all active ledger entries with their dates
+        // Fetch all active ledger entries filtered by companyId
         const ledgerEntries = await tx.ledgerEntry.findMany({
-          where: { isActive: true },
+          where: { isActive: true, ...companyFilter },
           select: {
             id: true,
             entryCode: true,
@@ -618,6 +663,7 @@ async function generateNotifications(
                 type: 'BalanceMismatch',
                 isDismissed: false,
                 title: { contains: dateKey },
+                ...companyFilter,
               },
             });
 
@@ -633,6 +679,7 @@ async function generateNotifications(
                   module: 'Ledger',
                   referenceCode: totals.entryCodes[0] || null,
                   actionUrl: '/chart-of-accounts',
+                  ...companyFilter,
                 },
               });
               created.push(notification);
@@ -645,6 +692,7 @@ async function generateNotifications(
       // 6. CREDIT LIMIT EXCEEDED ALERTS
       //    Customers with outstanding balance (Dr) exceeding creditLimit
       //    Only visible to Admin/Manager roles
+      //    Filtered by companyId via product relation
       // ─────────────────────────────────────────────────────────
       if (userRole === 'admin' || userRole === 'manager') {
         const customersOverLimit = await tx.customer.findMany({
@@ -652,6 +700,7 @@ async function generateNotifications(
             isActive: true,
             openingBalanceType: 'Dr',
             creditLimit: { gt: 0 },
+            ...companyFilter,
           },
           select: {
             id: true,
@@ -674,12 +723,13 @@ async function generateNotifications(
               type: 'CreditLimitExceeded',
               referenceId: customer.id,
               isDismissed: false,
+              ...companyFilter,
             },
           });
 
           if (!existing) {
             const code = await generateCodeInTx(tx, 'NOT-');
-            const overAmount = customer.openingBalance - customer.creditLimit;
+            const overAmount = safeFinancialSubtract(customer.openingBalance, customer.creditLimit);
             const notification = await tx.notification.create({
               data: {
                 code,
@@ -691,6 +741,7 @@ async function generateNotifications(
                 referenceId: customer.id,
                 referenceCode: customer.customerCode,
                 actionUrl: '/customers',
+                ...companyFilter,
               },
             });
             created.push(notification);
@@ -702,6 +753,7 @@ async function generateNotifications(
       // 7. STOCK TRANSFER DELAY ALERTS
       //    StockTransfers with shippingStatus = "In-Transit" and
       //    shipped more than 3 days ago without delivery
+      //    Filtered by companyId via product relation (StockTransferLine → Product)
       // ─────────────────────────────────────────────────────────
       const threeDaysAgo = new Date();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -711,6 +763,7 @@ async function generateNotifications(
           shippingStatus: 'In-Transit',
           shippedAt: { lt: threeDaysAgo },
           isActive: true,
+          ...(companyId ? { lines: { some: { product: { companyId } } } } : {}),
         },
         include: {
           fromGodown: { select: { name: true } },
@@ -725,6 +778,7 @@ async function generateNotifications(
             type: 'TransferDelay',
             referenceId: transfer.id,
             isDismissed: false,
+            ...companyFilter,
           },
         });
 
@@ -747,6 +801,7 @@ async function generateNotifications(
               referenceId: transfer.id,
               referenceCode: transfer.transferNo,
               actionUrl: '/stock',
+              ...companyFilter,
             },
           });
           created.push(notification);
@@ -754,23 +809,21 @@ async function generateNotifications(
       }
     });
 
-    // Audit log for generation (outside transaction to avoid double-logging)
-    await db.auditLog.create({
-      data: {
-        action: 'CREATE',
-        module: 'Notifications',
-        recordLabel: 'Auto-Generate',
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          generatedCount: created.length,
-          types: ['LowStock', 'OverdueInstallment', 'DataIntegrity', 'PeriodClose', 'BalanceMismatch', 'CreditLimitExceeded', 'TransferDelay'],
-        }),
-      },
+    // Audit log for generation with Integrity Sentinel token
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Audit-Integrity-Sentinel',
+      recordLabel: 'Auto-Generate',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        generatedCount: created.length,
+        types: ['LowStock', 'OverdueInstallment', 'DataIntegrity', 'PeriodClose', 'BalanceMismatch', 'CreditLimitExceeded', 'TransferDelay'],
+      }),
     });
 
     // Return fresh count after generation with severity breakdown
-    const roleFilter = getRoleModuleFilter(userRole as UserRole);
+    const roleFilter = getRoleModuleFilter(userRole as UserRole, companyId);
     const [unreadCount, criticalCount, warningCount, infoCount] = await Promise.all([
       db.notification.count({
         where: { ...roleFilter, isRead: false, isDismissed: false },

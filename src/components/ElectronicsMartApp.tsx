@@ -151,8 +151,8 @@ const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
   sr: ["_placeholder_sr_override_below_"],
-  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
-  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms"],
+  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
+  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms"],
   vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
 };
 
@@ -249,9 +249,11 @@ function useAuth() {
 // UTILITY FUNCTIONS
 // ============================================================
 
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -1886,14 +1888,25 @@ function DashboardPage() {
   const auth = useAuth();
   const userName = auth.user?.displayName || auth.user?.name || "User";
   const isVatAuditor = auth.isVatAuditor;
+  const AUDIT_MASK = "N/A (Audit Mode)";
 
-  // Filter KPIs for VAT Auditor (hide profit-related)
+  // Filter KPIs for VAT Auditor (mask all monetary values)
   const visibleKpis = isVatAuditor
-    ? kpis.filter(k => !["Today's Sales", "Today's Purchase", "Total Expenses"].includes(k.label))
+    ? kpis.map(k => ({
+        ...k,
+        value: ["Total Products", "Low Stock Items", "Total Customers", "Total Suppliers"].includes(k.label) ? k.value : AUDIT_MASK,
+      }))
     : kpis;
 
   return (
     <div className="page-enter space-y-6">
+      {/* VAT Auditor Badge */}
+      {isVatAuditor && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+          <span className="text-sm text-amber-700 dark:text-amber-400">All monetary values are masked. Only legal outward/inward invoice tax records shown.</span>
+        </div>
+      )}
       {/* Welcome & Clock */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
@@ -2034,8 +2047,8 @@ function DashboardPage() {
                       <TableCell className="font-medium text-slate-900 dark:text-white">{inst.customerName || "—"}</TableCell>
                       <TableCell>{inst.customerAddress || "—"}</TableCell>
                       <TableCell>{inst.productName || "Not available"}</TableCell>
-                      <TableCell className="font-mono">{fmt(inst.installmentAmount, "currency")}</TableCell>
-                      <TableCell className="font-mono">{fmt(inst.defaultAmount || 0, "currency")}</TableCell>
+                      <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmt(inst.installmentAmount, "currency")}</TableCell>
+                      <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmt(inst.defaultAmount || 0, "currency")}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

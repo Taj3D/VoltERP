@@ -1,11 +1,23 @@
 // ============================================================
 // LEDGER AUTO-POST API — Automated Ledger Posting from Transactions
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
+// STAGE 13: Full multi-tenant companyId isolation, safe financial
+// arithmetic, RBAC via checkAutoPostAdminPermission, logUserActivity
+// with Audit-AutoPost-Engine module token, VAT Auditor masking.
 // ============================================================
 
-import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  checkAutoPostAdminPermission,
+  maskForVatAuditor,
+  type UserRole,
+} from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
+import { db } from '@/lib/db';
 import { generateNextCode } from '@/lib/accounting-utils';
 
 // Inline code generator for LedgerAutoPost
@@ -20,39 +32,39 @@ async function generateAutoPostCode(): Promise<string> {
   return `LAP-${String(num + 1).padStart(5, '0')}`;
 }
 
-function maskForVat(value: any, isVatAuditor: boolean): any {
-  if (!isVatAuditor) return value;
-  return 'N/A (Audit Mode)';
-}
-
-// Helper: Find or create a ChartOfAccount by classification and name
+// Helper: Find or create a ChartOfAccount by classification and name (company-scoped)
 async function findOrCreateAccount(
   classification: string,
   accountName: string,
-  securityUser: { id: string; name: string }
+  securityUser: { id: string; name: string },
+  companyId: string | null
 ): Promise<string> {
-  // Try to find existing account
+  // Try to find existing account — scoped by companyId
+  const companyFilter = companyId ? { companyId } : {};
+
   let account = await db.chartOfAccount.findFirst({
     where: {
       classification,
       name: { contains: accountName },
       isActive: true,
+      ...companyFilter,
     },
   });
 
   if (!account) {
-    // Try exact match
+    // Try exact match by classification only (fallback within company)
     account = await db.chartOfAccount.findFirst({
       where: {
         classification,
         isActive: true,
+        ...companyFilter,
       },
     });
   }
 
   if (account) return account.id;
 
-  // Create the account if it doesn't exist
+  // Create the account if it doesn't exist — inherit companyId from security context
   const code = await generateNextCode('chartOfAccount', 'COA-');
   const newAccount = await db.chartOfAccount.create({
     data: {
@@ -61,21 +73,20 @@ async function findOrCreateAccount(
       classification,
       openingBalance: 0,
       openingBalanceType: classification === 'Asset' || classification === 'Expense' ? 'Dr' : 'Cr',
+      companyId: companyId,
       isActive: true,
     },
   });
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      action: 'CREATE',
-      module: 'ChartOfAccounts',
-      recordId: newAccount.id,
-      recordLabel: newAccount.code,
-      userId: securityUser.id,
-      userName: securityUser.name,
-      details: JSON.stringify({ autoCreated: true, name: accountName, classification }),
-    },
+  // Audit log for auto-created COA
+  await logUserActivity({
+    action: 'CREATE',
+    module: 'Audit-AutoPost-Engine',
+    recordId: newAccount.id,
+    recordLabel: newAccount.code,
+    userId: securityUser.id,
+    userName: securityUser.name,
+    details: JSON.stringify({ autoCreated: true, name: accountName, classification, companyId }),
   });
 
   return newAccount.id;
@@ -83,15 +94,15 @@ async function findOrCreateAccount(
 
 // GET /api/ledger-auto-post — List auto-post records with filters
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'LedgerEntries', 'GET');
+  const security = await withApiSecurity(request, 'LedgerAutoPost', 'GET');
   if (!security.authorized) return security.response;
 
   try {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
-    const isVatAuditor = userRole === 'vat_auditor';
 
-    // SR and Dealer blocked
+    // SR and Dealer blocked via MODULE_DENY (enforced by withApiSecurity)
+    // Additional explicit check for safety
     if (userRole === 'sr' || userRole === 'dealer') {
       return NextResponse.json(
         { error: 'Access denied. SR and Dealer roles cannot access ledger auto-post records.' },
@@ -99,7 +110,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const companyId = security.user.companyId;
+
     const where: Record<string, unknown> = {};
+
+    // Multi-tenant isolation: filter by companyId
+    if (companyId) {
+      where.companyId = companyId;
+    }
 
     const sourceType = searchParams.get('sourceType');
     const status = searchParams.get('status');
@@ -128,11 +146,10 @@ export async function GET(request: NextRequest) {
       db.ledgerAutoPost.count({ where }),
     ]);
 
-    // Mask amounts for VAT Auditor
-    const masked = records.map((record: any) => ({
-      ...record,
-      amount: isVatAuditor ? maskForVat(record.amount, true) : record.amount,
-    }));
+    // VAT Auditor masking — mask `amount` field on all returned records
+    const masked = records.map((record: Record<string, unknown>) =>
+      maskForVatAuditor(record, userRole, ['amount'])
+    );
 
     return NextResponse.json({ records: masked, total, limit, offset });
   } catch (error) {
@@ -143,29 +160,17 @@ export async function GET(request: NextRequest) {
 
 // POST /api/ledger-auto-post — Various auto-posting actions
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'LedgerEntries', 'POST');
+  const security = await withApiSecurity(request, 'LedgerAutoPost', 'POST');
   if (!security.authorized) return security.response;
 
   try {
-    const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
 
-    // SR and Dealer blocked
-    if (userRole === 'sr' || userRole === 'dealer') {
-      return NextResponse.json(
-        { error: 'Access denied. SR and Dealer roles cannot perform ledger auto-posting.' },
-        { status: 403 }
-      );
-    }
+    // RBAC: Only admin can trigger auto-post actions
+    const permCheck = checkAutoPostAdminPermission(userRole);
+    if (permCheck) return permCheck;
 
-    // VAT Auditor: read-only
-    if (userRole === 'vat_auditor') {
-      return NextResponse.json(
-        { error: 'Write access denied. VAT Auditor has read-only access.' },
-        { status: 403 }
-      );
-    }
-
+    const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
 
     switch (action) {
@@ -192,10 +197,11 @@ export async function POST(request: NextRequest) {
 // Post a Sales Order to the ledger
 async function postSalesOrder(
   request: NextRequest,
-  security: { authorized: true; user: { id: string; email: string; name: string; role: string } }
+  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
 ) {
   const { searchParams } = new URL(request.url);
   const salesOrderId = searchParams.get('salesOrderId');
+  const companyId = security.user.companyId;
 
   if (!salesOrderId) {
     return NextResponse.json(
@@ -204,10 +210,11 @@ async function postSalesOrder(
     );
   }
 
-  // Check if already posted
-  const existingPost = await db.ledgerAutoPost.findFirst({
-    where: { sourceType: 'SalesOrder', sourceId: salesOrderId, status: 'Posted' },
-  });
+  // Check if already posted — scoped by companyId
+  const existingPostWhere: Record<string, unknown> = { sourceType: 'SalesOrder', sourceId: salesOrderId, status: 'Posted' };
+  if (companyId) existingPostWhere.companyId = companyId;
+
+  const existingPost = await db.ledgerAutoPost.findFirst({ where: existingPostWhere });
   if (existingPost) {
     return NextResponse.json(
       { error: 'This sales order has already been posted to the ledger.', autoPost: existingPost },
@@ -234,20 +241,25 @@ async function postSalesOrder(
 
   const lapCode = await generateAutoPostCode();
   const now = new Date();
-  const salesAmount = salesOrder.grandTotal;
-  const costOfGoods = salesOrder.lines.reduce(
-    (sum: number, line: any) => sum + (line.quantity * (line.rate || 0)),
-    0
+
+  // STAGE 13: Use safeFinancialRound on all amounts
+  const salesAmount = safeFinancialRound(salesOrder.grandTotal);
+  const costOfGoods = safeFinancialRound(
+    salesOrder.lines.reduce(
+      (sum: number, line: { quantity: number; rate: number | null }) =>
+        safeFinancialAdd(sum, (line.quantity * (line.rate || 0))),
+      0
+    )
   );
 
-  // Find or create accounts
-  const accountsReceivableId = await findOrCreateAccount('Asset', 'Accounts Receivable', security.user);
-  const salesRevenueId = await findOrCreateAccount('Income', 'Sales Revenue', security.user);
-  const cogsAccountId = await findOrCreateAccount('Expense', 'Cost of Goods Sold', security.user);
-  const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user);
+  // Find or create accounts — company-scoped
+  const accountsReceivableId = await findOrCreateAccount('Asset', 'Accounts Receivable', security.user, companyId);
+  const salesRevenueId = await findOrCreateAccount('Income', 'Sales Revenue', security.user, companyId);
+  const cogsAccountId = await findOrCreateAccount('Expense', 'Cost of Goods Sold', security.user, companyId);
+  const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
 
   // Use transaction for atomicity
-  const result = await db.$transaction(async (tx: any) => {
+  const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
     // 1. Dr: Accounts Receivable | Cr: Sales Revenue
     const debitEntry1 = await tx.ledgerEntry.create({
       data: {
@@ -260,6 +272,7 @@ async function postSalesOrder(
         credit: 0,
         reference: salesOrder.invoiceNo,
         referenceType: 'SalesOrder',
+        companyId: companyId,
         isActive: true,
       },
     });
@@ -275,6 +288,7 @@ async function postSalesOrder(
         credit: salesAmount,
         reference: salesOrder.invoiceNo,
         referenceType: 'SalesOrder',
+        companyId: companyId,
         isActive: true,
       },
     });
@@ -291,6 +305,7 @@ async function postSalesOrder(
         credit: 0,
         reference: salesOrder.invoiceNo,
         referenceType: 'SalesOrder',
+        companyId: companyId,
         isActive: true,
       },
     });
@@ -306,11 +321,12 @@ async function postSalesOrder(
         credit: costOfGoods,
         reference: salesOrder.invoiceNo,
         referenceType: 'SalesOrder',
+        companyId: companyId,
         isActive: true,
       },
     });
 
-    // 3. Create LedgerAutoPost tracking record
+    // 3. Create LedgerAutoPost tracking record — inherit companyId
     const autoPost = await tx.ledgerAutoPost.create({
       data: {
         code: lapCode,
@@ -324,6 +340,7 @@ async function postSalesOrder(
         amount: salesAmount,
         postingDate: salesOrder.date,
         status: 'Posted',
+        companyId: companyId,
         postedBy: security.user.name,
       },
     });
@@ -331,23 +348,21 @@ async function postSalesOrder(
     return { autoPost, entries: [debitEntry1, creditEntry1, debitEntry2, creditEntry2] };
   });
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      action: 'CREATE',
-      module: 'LedgerAutoPost',
-      recordId: result.autoPost.id,
-      recordLabel: result.autoPost.code,
-      userId: security.user.id,
-      userName: security.user.name,
-      details: JSON.stringify({
-        action: 'post-sales',
-        salesOrder: salesOrder.invoiceNo,
-        amount: salesAmount,
-        cogs: costOfGoods,
-        entriesCreated: result.entries.length,
-      }),
-    },
+  // Activity log with Audit-AutoPost-Engine module token
+  await logUserActivity({
+    action: 'CREATE',
+    module: 'Audit-AutoPost-Engine',
+    recordId: result.autoPost.id,
+    recordLabel: result.autoPost.code,
+    userId: security.user.id,
+    userName: security.user.name,
+    details: JSON.stringify({
+      action: 'post-sales',
+      salesOrder: salesOrder.invoiceNo,
+      amount: salesAmount,
+      cogs: costOfGoods,
+      entriesCreated: result.entries.length,
+    }),
   });
 
   return NextResponse.json({ autoPost: result.autoPost, entries: result.entries }, { status: 201 });
@@ -356,10 +371,11 @@ async function postSalesOrder(
 // Post a Purchase Order to the ledger
 async function postPurchaseOrder(
   request: NextRequest,
-  security: { authorized: true; user: { id: string; email: string; name: string; role: string } }
+  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
 ) {
   const { searchParams } = new URL(request.url);
   const purchaseOrderId = searchParams.get('purchaseOrderId');
+  const companyId = security.user.companyId;
 
   if (!purchaseOrderId) {
     return NextResponse.json(
@@ -368,10 +384,11 @@ async function postPurchaseOrder(
     );
   }
 
-  // Check if already posted
-  const existingPost = await db.ledgerAutoPost.findFirst({
-    where: { sourceType: 'PurchaseOrder', sourceId: purchaseOrderId, status: 'Posted' },
-  });
+  // Check if already posted — scoped by companyId
+  const existingPostWhere: Record<string, unknown> = { sourceType: 'PurchaseOrder', sourceId: purchaseOrderId, status: 'Posted' };
+  if (companyId) existingPostWhere.companyId = companyId;
+
+  const existingPost = await db.ledgerAutoPost.findFirst({ where: existingPostWhere });
   if (existingPost) {
     return NextResponse.json(
       { error: 'This purchase order has already been posted to the ledger.', autoPost: existingPost },
@@ -397,14 +414,16 @@ async function postPurchaseOrder(
   }
 
   const lapCode = await generateAutoPostCode();
-  const purchaseAmount = purchaseOrder.grandTotal;
 
-  // Find or create accounts
-  const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user);
-  const accountsPayableId = await findOrCreateAccount('Liability', 'Accounts Payable', security.user);
+  // STAGE 13: Use safeFinancialRound on all amounts
+  const purchaseAmount = safeFinancialRound(purchaseOrder.grandTotal);
+
+  // Find or create accounts — company-scoped
+  const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
+  const accountsPayableId = await findOrCreateAccount('Liability', 'Accounts Payable', security.user, companyId);
 
   // Use transaction for atomicity
-  const result = await db.$transaction(async (tx: any) => {
+  const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
     // Dr: Inventory/Purchases (Asset) | Cr: Accounts Payable (Liability)
     const debitEntry = await tx.ledgerEntry.create({
       data: {
@@ -417,6 +436,7 @@ async function postPurchaseOrder(
         credit: 0,
         reference: purchaseOrder.poNumber,
         referenceType: 'PurchaseOrder',
+        companyId: companyId,
         isActive: true,
       },
     });
@@ -432,11 +452,12 @@ async function postPurchaseOrder(
         credit: purchaseAmount,
         reference: purchaseOrder.poNumber,
         referenceType: 'PurchaseOrder',
+        companyId: companyId,
         isActive: true,
       },
     });
 
-    // Create LedgerAutoPost tracking record
+    // Create LedgerAutoPost tracking record — inherit companyId
     const autoPost = await tx.ledgerAutoPost.create({
       data: {
         code: lapCode,
@@ -450,6 +471,7 @@ async function postPurchaseOrder(
         amount: purchaseAmount,
         postingDate: purchaseOrder.date,
         status: 'Posted',
+        companyId: companyId,
         postedBy: security.user.name,
       },
     });
@@ -457,22 +479,20 @@ async function postPurchaseOrder(
     return { autoPost, entries: [debitEntry, creditEntry] };
   });
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      action: 'CREATE',
-      module: 'LedgerAutoPost',
-      recordId: result.autoPost.id,
-      recordLabel: result.autoPost.code,
-      userId: security.user.id,
-      userName: security.user.name,
-      details: JSON.stringify({
-        action: 'post-purchase',
-        purchaseOrder: purchaseOrder.poNumber,
-        amount: purchaseAmount,
-        entriesCreated: result.entries.length,
-      }),
-    },
+  // Activity log with Audit-AutoPost-Engine module token
+  await logUserActivity({
+    action: 'CREATE',
+    module: 'Audit-AutoPost-Engine',
+    recordId: result.autoPost.id,
+    recordLabel: result.autoPost.code,
+    userId: security.user.id,
+    userName: security.user.name,
+    details: JSON.stringify({
+      action: 'post-purchase',
+      purchaseOrder: purchaseOrder.poNumber,
+      amount: purchaseAmount,
+      entriesCreated: result.entries.length,
+    }),
   });
 
   return NextResponse.json({ autoPost: result.autoPost, entries: result.entries }, { status: 201 });
@@ -481,10 +501,11 @@ async function postPurchaseOrder(
 // Reverse a previous auto-post
 async function reverseAutoPost(
   request: NextRequest,
-  security: { authorized: true; user: { id: string; email: string; name: string; role: string } }
+  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
 ) {
   const { searchParams } = new URL(request.url);
   const autoPostId = searchParams.get('autoPostId');
+  const companyId = security.user.companyId;
 
   if (!autoPostId) {
     return NextResponse.json(
@@ -493,7 +514,10 @@ async function reverseAutoPost(
     );
   }
 
-  const autoPost = await db.ledgerAutoPost.findUnique({ where: { id: autoPostId } });
+  const autoPostWhere: Record<string, unknown> = { id: autoPostId };
+  if (companyId) autoPostWhere.companyId = companyId;
+
+  const autoPost = await db.ledgerAutoPost.findFirst({ where: autoPostWhere });
 
   if (!autoPost) {
     return NextResponse.json({ error: 'Auto-post record not found' }, { status: 404 });
@@ -507,20 +531,21 @@ async function reverseAutoPost(
   }
 
   const body = await request.json().catch(() => ({}));
-  const reversalReason = body.reason || 'Manual reversal';
+  const reversalReason = (body as { reason?: string }).reason || 'Manual reversal';
 
   // Use transaction for atomicity
-  const result = await db.$transaction(async (tx: any) => {
-    // Find original entries by reference
-    const originalEntries = await tx.ledgerEntry.findMany({
-      where: {
-        reference: autoPost.sourceCode,
-        referenceType: autoPost.sourceType,
-        isActive: true,
-      },
-    });
+  const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
+    // Find original entries by reference — scoped by companyId
+    const entryWhere: Record<string, unknown> = {
+      reference: autoPost.sourceCode,
+      referenceType: autoPost.sourceType,
+      isActive: true,
+    };
+    if (companyId) entryWhere.companyId = companyId;
 
-    // Create reversing entries (swap debit/credit)
+    const originalEntries = await tx.ledgerEntry.findMany({ where: entryWhere });
+
+    // Create reversing entries (swap debit/credit) — inherit companyId
     const reversingEntries = [];
     for (const entry of originalEntries) {
       const reversingEntry = await tx.ledgerEntry.create({
@@ -534,6 +559,7 @@ async function reverseAutoPost(
           credit: entry.debit, // Swap
           reference: `REV-${autoPost.sourceCode}`,
           referenceType: 'Reversal',
+          companyId: companyId,
           isActive: true,
         },
       });
@@ -552,24 +578,22 @@ async function reverseAutoPost(
     return { autoPost: updatedAutoPost, reversingEntries };
   });
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      action: 'UPDATE',
-      module: 'LedgerAutoPost',
-      recordId: result.autoPost.id,
-      recordLabel: result.autoPost.code,
-      userId: security.user.id,
-      userName: security.user.name,
-      details: JSON.stringify({
-        action: 'reverse',
-        originalSourceCode: autoPost.sourceCode,
-        originalSourceType: autoPost.sourceType,
-        originalAmount: autoPost.amount,
-        reversalReason,
-        reversingEntriesCreated: result.reversingEntries.length,
-      }),
-    },
+  // Activity log with Audit-AutoPost-Engine module token
+  await logUserActivity({
+    action: 'UPDATE',
+    module: 'Audit-AutoPost-Engine',
+    recordId: result.autoPost.id,
+    recordLabel: result.autoPost.code,
+    userId: security.user.id,
+    userName: security.user.name,
+    details: JSON.stringify({
+      action: 'reverse',
+      originalSourceCode: autoPost.sourceCode,
+      originalSourceType: autoPost.sourceType,
+      originalAmount: autoPost.amount,
+      reversalReason,
+      reversingEntriesCreated: result.reversingEntries.length,
+    }),
   });
 
   return NextResponse.json({
@@ -579,18 +603,26 @@ async function reverseAutoPost(
 }
 
 // Run all pending auto-posts
+// STAGE 13: Each individual order posting is wrapped in its own try/catch
+// with rollback so one failure doesn't corrupt the rest.
 async function runAllPending(
-  security: { authorized: true; user: { id: string; email: string; name: string; role: string } }
+  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
 ) {
-  const results: any[] = [];
-  const errors: any[] = [];
+  const companyId = security.user.companyId;
+  const companyFilter = companyId ? { companyId } : {};
 
-  // Find all confirmed SalesOrders without a LedgerAutoPost record
+  const results: Record<string, unknown>[] = [];
+  const errors: Record<string, unknown>[] = [];
+
+  // Find all confirmed SalesOrders without a LedgerAutoPost record — scoped by companyId
+  const postedSalesWhere: Record<string, unknown> = { sourceType: 'SalesOrder', status: 'Posted' };
+  if (companyId) postedSalesWhere.companyId = companyId;
+
   const postedSalesIds = await db.ledgerAutoPost.findMany({
-    where: { sourceType: 'SalesOrder', status: 'Posted' },
+    where: postedSalesWhere,
     select: { sourceId: true },
   });
-  const postedSalesIdSet = new Set(postedSalesIds.map((p: any) => p.sourceId));
+  const postedSalesIdSet = new Set(postedSalesIds.map((p: { sourceId: string }) => p.sourceId));
 
   const pendingSalesOrders = await db.salesOrder.findMany({
     where: {
@@ -600,15 +632,18 @@ async function runAllPending(
   });
 
   const unpostedSales = pendingSalesOrders.filter(
-    (so: any) => !postedSalesIdSet.has(so.id)
+    (so: { id: string }) => !postedSalesIdSet.has(so.id)
   );
 
-  // Find all confirmed PurchaseOrders without a LedgerAutoPost record
+  // Find all confirmed PurchaseOrders without a LedgerAutoPost record — scoped by companyId
+  const postedPurchaseWhere: Record<string, unknown> = { sourceType: 'PurchaseOrder', status: 'Posted' };
+  if (companyId) postedPurchaseWhere.companyId = companyId;
+
   const postedPurchaseIds = await db.ledgerAutoPost.findMany({
-    where: { sourceType: 'PurchaseOrder', status: 'Posted' },
+    where: postedPurchaseWhere,
     select: { sourceId: true },
   });
-  const postedPurchaseIdSet = new Set(postedPurchaseIds.map((p: any) => p.sourceId));
+  const postedPurchaseIdSet = new Set(postedPurchaseIds.map((p: { sourceId: string }) => p.sourceId));
 
   const pendingPurchaseOrders = await db.purchaseOrder.findMany({
     where: {
@@ -618,19 +653,19 @@ async function runAllPending(
   });
 
   const unpostedPurchases = pendingPurchaseOrders.filter(
-    (po: any) => !postedPurchaseIdSet.has(po.id)
+    (po: { id: string }) => !postedPurchaseIdSet.has(po.id)
   );
 
-  // Post each pending sales order
+  // Post each pending sales order — EACH wrapped in individual try/catch for defensive fallback
   for (const so of unpostedSales) {
     try {
-      // Reuse the post-sales logic but directly (without HTTP redirect)
-      const salesAmount = so.grandTotal;
+      // STAGE 13: Use safeFinancialRound on amounts
+      const salesAmount = safeFinancialRound(so.grandTotal);
 
       // Check if already posted (double-check)
-      const existing = await db.ledgerAutoPost.findFirst({
-        where: { sourceType: 'SalesOrder', sourceId: so.id, status: 'Posted' },
-      });
+      const existingWhere: Record<string, unknown> = { sourceType: 'SalesOrder', sourceId: so.id, status: 'Posted' };
+      if (companyId) existingWhere.companyId = companyId;
+      const existing = await db.ledgerAutoPost.findFirst({ where: existingWhere });
       if (existing) continue;
 
       const lapCode = await generateAutoPostCode();
@@ -643,17 +678,21 @@ async function runAllPending(
 
       if (!fullSO) continue;
 
-      const costOfGoods = fullSO.lines.reduce(
-        (sum: number, line: any) => sum + (line.quantity * (line.rate || 0)),
-        0
+      const costOfGoods = safeFinancialRound(
+        fullSO.lines.reduce(
+          (sum: number, line: { quantity: number; rate: number | null }) =>
+            safeFinancialAdd(sum, (line.quantity * (line.rate || 0))),
+          0
+        )
       );
 
-      const accountsReceivableId = await findOrCreateAccount('Asset', 'Accounts Receivable', security.user);
-      const salesRevenueId = await findOrCreateAccount('Income', 'Sales Revenue', security.user);
-      const cogsAccountId = await findOrCreateAccount('Expense', 'Cost of Goods Sold', security.user);
-      const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user);
+      const accountsReceivableId = await findOrCreateAccount('Asset', 'Accounts Receivable', security.user, companyId);
+      const salesRevenueId = await findOrCreateAccount('Income', 'Sales Revenue', security.user, companyId);
+      const cogsAccountId = await findOrCreateAccount('Expense', 'Cost of Goods Sold', security.user, companyId);
+      const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
 
-      const result = await db.$transaction(async (tx: any) => {
+      // STAGE 13: Individual transaction per order — one failure doesn't corrupt the rest
+      const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
         const d1 = await tx.ledgerEntry.create({
           data: {
             entryCode: await generateNextCode('ledgerEntry', 'LED-'),
@@ -665,6 +704,7 @@ async function runAllPending(
             credit: 0,
             reference: fullSO.invoiceNo,
             referenceType: 'SalesOrder',
+            companyId: companyId,
             isActive: true,
           },
         });
@@ -679,6 +719,7 @@ async function runAllPending(
             credit: salesAmount,
             reference: fullSO.invoiceNo,
             referenceType: 'SalesOrder',
+            companyId: companyId,
             isActive: true,
           },
         });
@@ -693,6 +734,7 @@ async function runAllPending(
             credit: 0,
             reference: fullSO.invoiceNo,
             referenceType: 'SalesOrder',
+            companyId: companyId,
             isActive: true,
           },
         });
@@ -707,6 +749,7 @@ async function runAllPending(
             credit: costOfGoods,
             reference: fullSO.invoiceNo,
             referenceType: 'SalesOrder',
+            companyId: companyId,
             isActive: true,
           },
         });
@@ -724,6 +767,7 @@ async function runAllPending(
             amount: salesAmount,
             postingDate: fullSO.date,
             status: 'Posted',
+            companyId: companyId,
             postedBy: security.user.name,
           },
         });
@@ -732,21 +776,22 @@ async function runAllPending(
       });
 
       results.push({ type: 'SalesOrder', code: fullSO.invoiceNo, autoPostCode: result.code, amount: salesAmount });
-    } catch (error: any) {
-      errors.push({ type: 'SalesOrder', id: so.id, code: so.invoiceNo, error: error.message });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      errors.push({ type: 'SalesOrder', id: so.id, code: so.invoiceNo, error: errorMessage });
     }
   }
 
-  // Post each pending purchase order
+  // Post each pending purchase order — EACH wrapped in individual try/catch for defensive fallback
   for (const po of unpostedPurchases) {
     try {
-      const existing = await db.ledgerAutoPost.findFirst({
-        where: { sourceType: 'PurchaseOrder', sourceId: po.id, status: 'Posted' },
-      });
+      const existingWhere: Record<string, unknown> = { sourceType: 'PurchaseOrder', sourceId: po.id, status: 'Posted' };
+      if (companyId) existingWhere.companyId = companyId;
+      const existing = await db.ledgerAutoPost.findFirst({ where: existingWhere });
       if (existing) continue;
 
       const lapCode = await generateAutoPostCode();
-      const purchaseAmount = po.grandTotal;
+      const purchaseAmount = safeFinancialRound(po.grandTotal);
 
       const fullPO = await db.purchaseOrder.findUnique({
         where: { id: po.id },
@@ -755,10 +800,11 @@ async function runAllPending(
 
       if (!fullPO) continue;
 
-      const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user);
-      const accountsPayableId = await findOrCreateAccount('Liability', 'Accounts Payable', security.user);
+      const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
+      const accountsPayableId = await findOrCreateAccount('Liability', 'Accounts Payable', security.user, companyId);
 
-      const result = await db.$transaction(async (tx: any) => {
+      // STAGE 13: Individual transaction per order — one failure doesn't corrupt the rest
+      const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
         const d1 = await tx.ledgerEntry.create({
           data: {
             entryCode: await generateNextCode('ledgerEntry', 'LED-'),
@@ -770,6 +816,7 @@ async function runAllPending(
             credit: 0,
             reference: fullPO.poNumber,
             referenceType: 'PurchaseOrder',
+            companyId: companyId,
             isActive: true,
           },
         });
@@ -784,6 +831,7 @@ async function runAllPending(
             credit: purchaseAmount,
             reference: fullPO.poNumber,
             referenceType: 'PurchaseOrder',
+            companyId: companyId,
             isActive: true,
           },
         });
@@ -801,6 +849,7 @@ async function runAllPending(
             amount: purchaseAmount,
             postingDate: fullPO.date,
             status: 'Posted',
+            companyId: companyId,
             postedBy: security.user.name,
           },
         });
@@ -809,26 +858,32 @@ async function runAllPending(
       });
 
       results.push({ type: 'PurchaseOrder', code: fullPO.poNumber, autoPostCode: result.code, amount: purchaseAmount });
-    } catch (error: any) {
-      errors.push({ type: 'PurchaseOrder', id: po.id, code: po.poNumber, error: error.message });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      errors.push({ type: 'PurchaseOrder', id: po.id, code: po.poNumber, error: errorMessage });
     }
   }
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      action: 'CREATE',
-      module: 'LedgerAutoPost',
-      recordLabel: 'Run All Pending',
-      userId: security.user.id,
-      userName: security.user.name,
-      details: JSON.stringify({
-        action: 'run-all-pending',
-        salesPosted: results.filter(r => r.type === 'SalesOrder').length,
-        purchasesPosted: results.filter(r => r.type === 'PurchaseOrder').length,
-        errors: errors.length,
-      }),
-    },
+  // STAGE 13: Use safeFinancialAdd for total accumulations
+  const totalPostedAmount = results.reduce(
+    (sum: number, r: Record<string, unknown>) => safeFinancialAdd(sum, (r.amount as number) || 0),
+    0
+  );
+
+  // Activity log with Audit-AutoPost-Engine module token
+  await logUserActivity({
+    action: 'CREATE',
+    module: 'Audit-AutoPost-Engine',
+    recordLabel: 'Run All Pending',
+    userId: security.user.id,
+    userName: security.user.name,
+    details: JSON.stringify({
+      action: 'run-all-pending',
+      salesPosted: results.filter(r => r.type === 'SalesOrder').length,
+      purchasesPosted: results.filter(r => r.type === 'PurchaseOrder').length,
+      errors: errors.length,
+      totalPostedAmount,
+    }),
   });
 
   return NextResponse.json({
@@ -839,6 +894,7 @@ async function runAllPending(
       totalErrors: errors.length,
       salesPosted: results.filter(r => r.type === 'SalesOrder').length,
       purchasesPosted: results.filter(r => r.type === 'PurchaseOrder').length,
+      totalPostedAmount,
     },
   });
 }

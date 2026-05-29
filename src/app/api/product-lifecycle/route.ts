@@ -1,11 +1,20 @@
 // ============================================================
 // PRODUCT LIFECYCLE API — Serial/IMEI Tracking
 // Group 5: Financial Auditing, Automated Ledgers & Data Integrity
+// STAGE 13: companyId isolation, safeFinancialRound on costs,
+//   Audit-Inventory-Aging token, maskForVatAuditor with
+//   costPrice/salePrice/totalValue masking
 // ============================================================
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, maskForVatAuditor, type UserRole } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  maskForVatAuditor,
+  safeFinancialRound,
+  type UserRole,
+} from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
 // Inline code generator for ProductSerialTracking
 async function generateCode(model: string, prefix: string): Promise<string> {
@@ -21,27 +30,35 @@ async function generateCode(model: string, prefix: string): Promise<string> {
 
 // GET /api/product-lifecycle
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Stock', 'GET');
+  const security = await withApiSecurity(request, 'ProductLifecycle', 'GET');
   if (!security.authorized) return security.response;
 
   try {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
+    const companyId = security.user.companyId;
 
-    // Dealer: view-only (can access)
-    // SR: can view
-    // Admin/Manager: full access
-    // VAT Auditor: cost masked
+    // Log user activity with audit token
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Audit-Inventory-Aging',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: 'Product lifecycle records accessed',
+    });
 
     const action = searchParams.get('action');
 
     // Lookup by serial or IMEI
     if (action === 'lookup') {
-      return await lookupSerialIMEI(searchParams, userRole);
+      return await lookupSerialIMEI(searchParams, userRole, companyId);
     }
 
-    // List tracking records with filters
-    const where: Record<string, unknown> = { isActive: true };
+    // List tracking records with filters — include companyId filter
+    const where: Record<string, unknown> = {
+      isActive: true,
+      ...(companyId ? { companyId } : {}),
+    };
 
     const productId = searchParams.get('productId');
     const serialNumber = searchParams.get('serialNumber');
@@ -63,10 +80,6 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
-        include: {
-          // We can't directly include relations that aren't defined in schema
-          // But we can look up related records manually
-        },
       }),
       db.productSerialTracking.count({ where }),
     ]);
@@ -84,13 +97,19 @@ export async function GET(request: NextRequest) {
           },
         });
 
+        // Apply safeFinancialRound to cost/price values
+        const costPrice = safeFinancialRound(product?.costPrice || 0);
+        const salePrice = safeFinancialRound(product?.salePrice || 0);
+        const totalValue = safeFinancialRound(costPrice); // per-unit cost rounded
+
         return maskForVatAuditor({
           ...record,
           productCode: product?.productCode || 'N/A',
           productName: product?.name || 'N/A',
-          costPrice: product?.costPrice || 0,
-          salePrice: product?.salePrice || 0,
-        }, userRole, ['costPrice', 'salePrice']);
+          costPrice,
+          salePrice,
+          totalValue,
+        }, userRole, ['costPrice', 'salePrice', 'totalValue']);
       })
     );
 
@@ -104,7 +123,8 @@ export async function GET(request: NextRequest) {
 // Lookup a specific serial/IMEI and return full lifecycle history
 async function lookupSerialIMEI(
   searchParams: URLSearchParams,
-  userRole: string
+  userRole: string,
+  companyId: string | null
 ) {
   const serial = searchParams.get('serial');
   const imei = searchParams.get('imei');
@@ -116,7 +136,10 @@ async function lookupSerialIMEI(
     );
   }
 
-  const where: Record<string, unknown> = { isActive: true };
+  const where: Record<string, unknown> = {
+    isActive: true,
+    ...(companyId ? { companyId } : {}),
+  };
   if (serial) where.serialNumber = serial;
   if (imei) where.imeiNumber = imei;
 
@@ -129,9 +152,12 @@ async function lookupSerialIMEI(
     );
   }
 
-  // Get product details
-  const product = await db.product.findUnique({
-    where: { id: record.productId },
+  // Get product details (companyId-filtered product lookup)
+  const productWhere: Record<string, unknown> = { id: record.productId };
+  if (companyId) productWhere.companyId = companyId;
+
+  const product = await db.product.findFirst({
+    where: productWhere,
     select: {
       productCode: true,
       name: true,
@@ -142,11 +168,19 @@ async function lookupSerialIMEI(
     },
   });
 
-  // Get all tracking records for this serial/IMEI (full lifecycle)
+  if (!product) {
+    return NextResponse.json(
+      { error: 'Product not found or access denied' },
+      { status: 404 }
+    );
+  }
+
+  // Get all tracking records for this serial/IMEI (full lifecycle) — companyId scoped
   const allRecords = await db.productSerialTracking.findMany({
     where: {
       productId: record.productId,
       isActive: true,
+      ...(companyId ? { companyId } : {}),
       OR: [
         ...(record.serialNumber ? [{ serialNumber: record.serialNumber }] : []),
         ...(record.imeiNumber ? [{ imeiNumber: record.imeiNumber }] : []),
@@ -188,16 +222,22 @@ async function lookupSerialIMEI(
     },
   });
 
+  // Apply safeFinancialRound and masking
+  const costPrice = safeFinancialRound(product.costPrice || 0);
+  const salePrice = safeFinancialRound(product.salePrice || 0);
+  const totalValue = safeFinancialRound(costPrice);
+
   return NextResponse.json({
     tracking: maskForVatAuditor({
       ...record,
       productCode: product?.productCode || 'N/A',
       productName: product?.name || 'N/A',
-      costPrice: product?.costPrice || 0,
-      salePrice: product?.salePrice || 0,
+      costPrice,
+      salePrice,
+      totalValue,
       category: product?.category?.name || 'N/A',
       brand: product?.brand?.name || 'N/A',
-    }, userRole, ['costPrice', 'salePrice']),
+    }, userRole as UserRole, ['costPrice', 'salePrice', 'totalValue']),
     lifecycle: allRecords.map((r: any) => ({
       ...r,
       status: r.status,
@@ -211,11 +251,12 @@ async function lookupSerialIMEI(
 
 // POST /api/product-lifecycle — Create a new tracking record
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Stock', 'POST');
+  const security = await withApiSecurity(request, 'ProductLifecycle', 'POST');
   if (!security.authorized) return security.response;
 
   try {
     const userRole = security.user.role as UserRole;
+    const companyId = security.user.companyId;
 
     // Dealer: view-only (no create)
     if (userRole === 'dealer') {
@@ -225,7 +266,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // VAT Auditor: read-only
+    // VAT Auditor: read-only (blocked by withApiSecurity, but double-check)
     if (userRole === 'vat_auditor') {
       return NextResponse.json(
         { error: 'Write access denied. VAT Auditor has read-only access.' },
@@ -265,10 +306,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify product exists
-    const product = await db.product.findUnique({ where: { id: productId } });
+    // Verify product exists and belongs to user's company
+    const productWhere: Record<string, unknown> = { id: productId };
+    if (companyId) productWhere.companyId = companyId;
+
+    const product = await db.product.findFirst({ where: productWhere });
     if (!product) {
-      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Product not found or access denied' }, { status: 404 });
     }
 
     const code = await generateCode('productSerialTracking', 'SRL-');
@@ -290,20 +334,19 @@ export async function POST(request: NextRequest) {
         returnDate: returnDate ? new Date(returnDate) : null,
         warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null,
         notes: notes || null,
+        ...(companyId ? { companyId } : {}),
       },
     });
 
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'CREATE',
-        module: 'ProductLifecycle',
-        recordId: record.id,
-        recordLabel: record.code,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({ productId, serialNumber, imeiNumber, status }),
-      },
+    // Audit log with Inventory Aging token
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Audit-Inventory-Aging',
+      recordId: record.id,
+      recordLabel: record.code,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({ productId, serialNumber, imeiNumber, status }),
     });
 
     return NextResponse.json({ record }, { status: 201 });
@@ -315,11 +358,12 @@ export async function POST(request: NextRequest) {
 
 // PUT /api/product-lifecycle — Update tracking record status
 export async function PUT(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Stock', 'PUT');
+  const security = await withApiSecurity(request, 'ProductLifecycle', 'PUT');
   if (!security.authorized) return security.response;
 
   try {
     const userRole = security.user.role as UserRole;
+    const companyId = security.user.companyId;
 
     // Dealer: view-only
     if (userRole === 'dealer') {
@@ -358,6 +402,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Tracking record not found' }, { status: 404 });
     }
 
+    // Cross-tenant check: if user has companyId, record must belong to same company
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json({ error: 'Tracking record not found' }, { status: 404 });
+    }
+
     const updateData: Record<string, unknown> = {};
     if (status) updateData.status = status;
     if (salesOrderId !== undefined) updateData.salesOrderId = salesOrderId;
@@ -382,17 +431,15 @@ export async function PUT(request: NextRequest) {
       data: updateData,
     });
 
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'UPDATE',
-        module: 'ProductLifecycle',
-        recordId: record.id,
-        recordLabel: record.code,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({ before: { status: existing.status }, after: updateData }),
-      },
+    // Audit log with Inventory Aging token
+    await logUserActivity({
+      action: 'UPDATE',
+      module: 'Audit-Inventory-Aging',
+      recordId: record.id,
+      recordLabel: record.code,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({ before: { status: existing.status }, after: updateData }),
     });
 
     return NextResponse.json({ record });
