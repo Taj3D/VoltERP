@@ -27,7 +27,10 @@ import {
 // UTILITY FUNCTIONS
 // ============================================================
 
+const AUDIT_MASK = "N/A (Audit Mode)";
+
 const fmt = (v: any, type?: string) => {
+  if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
   if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -108,7 +111,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
     code: "", periodMonth: 1, periodYear: new Date().getFullYear(), notes: "",
   });
 
-  const canModify = isAdmin || isManager;
+  const canModify = isAdmin;
 
   // Load Balance Sheet
   const loadBS = useCallback(async () => {
@@ -116,7 +119,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
     try {
       const params = new URLSearchParams();
       if (bsAsOf) params.set('asOf', bsAsOf);
-      if (isVatAuditor) params.set('hideMargins', 'true');
+      if (isVatAuditor) params.set('vatMode', 'true');
       const qs = params.toString();
       const url = `/api/reports/balance-sheet${qs ? '?' + qs : ''}`;
       const res = await apiFetch(url);
@@ -199,6 +202,8 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
   // Financial Ratios
   const ratios = useMemo(() => {
     if (!bsData) return { currentRatio: "—", debtToEquity: "—" };
+    const isMasked = typeof bsData.liabilities?.equity === 'string';
+    if (isVatAuditor || isMasked) return { currentRatio: AUDIT_MASK, debtToEquity: AUDIT_MASK };
     const currentAssets = bsData.assets?.stock + bsData.assets?.bankBalance + bsData.assets?.receivables;
     const currentLiabilities = bsData.liabilities?.payables;
     const equity = bsData.liabilities?.equity;
@@ -207,7 +212,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
       currentRatio: currentLiabilities > 0 ? (currentAssets / currentLiabilities).toFixed(2) : "∞",
       debtToEquity: equity > 0 ? (totalLiabilities / Math.max(equity, 1)).toFixed(2) : "∞",
     };
-  }, [bsData]);
+  }, [bsData, isVatAuditor]);
 
   // Export
   const exportCSV = (title: string, headers: string[], rows: string[][]) => {
@@ -285,7 +290,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                   ["Assets", "Total Assets", String(bsData.assets?.totalAssets || 0)],
                   ["Liabilities", "Payables", String(bsData.liabilities?.payables || 0)],
                   ...(bsData.liabilities?.customerAdvances > 0 ? [["Liabilities", "Customer Advances", String(bsData.liabilities?.customerAdvances || 0)]] : []),
-                  ["Liabilities", isVatAuditor ? "Equity (Masked)" : "Equity", isVatAuditor ? "N/A" : String(bsData.liabilities?.equity || 0)],
+                  ["Liabilities", isVatAuditor ? "Equity (Masked)" : "Equity", isVatAuditor ? AUDIT_MASK : String(bsData.liabilities?.equity || 0)],
                   ["Liabilities", "Total Liabilities", String(bsData.liabilities?.totalLiabilities || 0)],
                 ]);
             } else {
@@ -304,7 +309,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                   ["Assets", "Total Assets", String(bsData.assets?.totalAssets || 0)],
                   ["Liabilities", "Payables", String(bsData.liabilities?.payables || 0)],
                   ...(bsData.liabilities?.customerAdvances > 0 ? [["Liabilities", "Customer Advances", String(bsData.liabilities?.customerAdvances || 0)]] : []),
-                  ["Liabilities", isVatAuditor ? "Equity (Masked)" : "Equity", isVatAuditor ? "N/A (Audit Mode)" : String(bsData.liabilities?.equity || 0)],
+                  ["Liabilities", isVatAuditor ? "Equity (Masked)" : "Equity", isVatAuditor ? AUDIT_MASK : String(bsData.liabilities?.equity || 0)],
                   ["Liabilities", "Total Liabilities", String(bsData.liabilities?.totalLiabilities || 0)],
                 ]);
             } else {
@@ -364,7 +369,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                       <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30"><TrendingUp className="w-5 h-5 text-blue-600" /></div>
                       <div>
                         <p className="text-sm text-muted-foreground">Current Ratio</p>
-                        <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : ratios.currentRatio}</p>
+                        <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? AUDIT_MASK : ratios.currentRatio}</p>
                         <p className="text-xs text-muted-foreground">Current Assets / Current Liabilities</p>
                       </div>
                     </div>
@@ -372,7 +377,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                       <div className="p-2 rounded-lg bg-red-50 dark:bg-red-900/30"><Landmark className="w-5 h-5 text-red-600" /></div>
                       <div>
                         <p className="text-sm text-muted-foreground">Debt-to-Equity</p>
-                        <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : ratios.debtToEquity}</p>
+                        <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? AUDIT_MASK : ratios.debtToEquity}</p>
                         <p className="text-xs text-muted-foreground">Total Liabilities / Equity</p>
                       </div>
                     </div>
@@ -419,8 +424,8 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                         <TableRow className="hover:bg-muted/50">
                           <TableCell className="text-slate-900 dark:text-white">Equity</TableCell>
                           <TableCell className="text-right font-mono">
-                            {isVatAuditor
-                              ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span>
+                            {isVatAuditor || typeof bsData.liabilities?.equity === 'string'
+                              ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span>
                               : fmt(bsData.liabilities?.equity, "currency")}
                           </TableCell>
                         </TableRow>
@@ -506,7 +511,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
             <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg mt-4">
               <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
               <span className="text-sm text-yellow-700 dark:text-yellow-400 font-medium">
-                {isVatAuditor ? "Read-only access. VAT Auditor cannot create, lock, or unlock periods." : "Read-only access."}
+                {isVatAuditor ? "Read-only access. VAT Auditor cannot create, lock, or unlock periods." : isManager ? "Read-only access. Only administrators can create, lock, or unlock periods." : "Read-only access."}
               </span>
             </div>
           )}

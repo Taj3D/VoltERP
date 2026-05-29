@@ -23,7 +23,10 @@ import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/expor
 // UTILITY FUNCTIONS (local copies for standalone component)
 // ============================================================
 
+const AUDIT_MASK = "N/A (Audit Mode)";
+
 const fmt = (v: any, type?: string) => {
+  if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
   if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -490,7 +493,7 @@ export default function ChartOfAccountsLedgerPage() {
                 filteredCOA.map((a: any) => [a.code, a.name, a.classification, String(a.openingBalance), a.openingBalanceType, a.isActive ? "Active" : "Inactive"]));
             } else {
               exportCSV("Ledger-Entries", ["Code", "Date", "Account", "Particulars", "Debit", "Credit", "Reference", "Ref Type"],
-                entries.map((e: any) => [e.entryCode, fmtDate(e.date), e.account, e.particulars || "", isVatAuditor ? "N/A" : String(e.debit), isVatAuditor ? "N/A" : String(e.credit), e.reference || "", e.referenceType || ""]));
+                entries.map((e: any) => [e.entryCode, fmtDate(e.date), e.account, e.particulars || "", isVatAuditor ? AUDIT_MASK : String(e.debit), isVatAuditor ? AUDIT_MASK : String(e.credit), e.reference || "", e.referenceType || ""]));
             }
           }}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => {
@@ -499,7 +502,7 @@ export default function ChartOfAccountsLedgerPage() {
                 filteredCOA.map((a: any) => [a.code, a.name, a.classification, String(a.openingBalance), a.openingBalanceType, a.isActive ? "Active" : "Inactive"]));
             } else {
               exportPDF("Ledger-Entries", ["Code", "Date", "Account", "Particulars", "Debit", "Credit", "Reference", "Ref Type"],
-                entries.map((e: any) => [e.entryCode, fmtDate(e.date), e.account, e.particulars || "", isVatAuditor ? "N/A (Audit Mode)" : String(e.debit), isVatAuditor ? "N/A (Audit Mode)" : String(e.credit), e.reference || "", e.referenceType || ""]));
+                entries.map((e: any) => [e.entryCode, fmtDate(e.date), e.account, e.particulars || "", isVatAuditor ? AUDIT_MASK : String(e.debit), isVatAuditor ? AUDIT_MASK : String(e.credit), e.reference || "", e.referenceType || ""]));
             }
           }}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
           <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={activeTab === "coa" ? openCOACreate : openLedCreate} disabled={isVatAuditor}>
@@ -582,7 +585,7 @@ export default function ChartOfAccountsLedgerPage() {
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.code}</TableCell>
                           <TableCell>{item.name}</TableCell>
                           <TableCell><Badge className={CLASSIFICATION_COLORS[item.classification] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>{item.classification}</Badge></TableCell>
-                          <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.openingBalance, "currency")}</TableCell>
+                          <TableCell className="font-mono">{isVatAuditor ? AUDIT_MASK : fmt(item.openingBalance, "currency")}</TableCell>
                           <TableCell><Badge variant="outline">{item.openingBalanceType}</Badge></TableCell>
                           <TableCell><Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>{item.isActive ? "Active" : "Inactive"}</Badge></TableCell>
                           <TableCell className="text-right">
@@ -599,9 +602,9 @@ export default function ChartOfAccountsLedgerPage() {
                                 <div><span className="text-muted-foreground">Parent:</span> <span className="font-medium text-slate-900 dark:text-white">{item.parentAccount?.name || "—"}</span></div>
                                 <div><span className="text-muted-foreground">Child Accounts:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.childAccounts || 0}</span></div>
                                 <div><span className="text-muted-foreground">Ledger Entries:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.ledgerEntries || 0}</span></div>
-                                <div><span className="text-muted-foreground">Own Balance:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.subBalance?.ownNet || 0, "currency")}</span></div>
-                                <div><span className="text-muted-foreground">Child Balance:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.subBalance?.childNet || 0, "currency")}</span></div>
-                                <div><span className="text-muted-foreground">Total Balance:</span> <span className="font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.subBalance?.totalNet || 0, "currency")}</span></div>
+                                <div><span className="text-muted-foreground">Own Balance:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? AUDIT_MASK : fmt(item.subBalance?.ownNet || 0, "currency")}</span></div>
+                                <div><span className="text-muted-foreground">Child Balance:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? AUDIT_MASK : fmt(item.subBalance?.childNet || 0, "currency")}</span></div>
+                                <div><span className="text-muted-foreground">Total Balance:</span> <span className="font-bold text-slate-900 dark:text-white">{isVatAuditor ? AUDIT_MASK : fmt(item.subBalance?.totalNet || 0, "currency")}</span></div>
                                 {item.childAccounts?.length > 0 && (
                                   <div className="col-span-3">
                                     <span className="text-muted-foreground">Children:</span>{" "}
@@ -666,9 +669,9 @@ export default function ChartOfAccountsLedgerPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             {[
               { label: "Total Entries", value: ledStats.total, icon: FileText, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-              { label: "Total Debit", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(ledStats.totalDebit, "currency"), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
-              { label: "Total Credit", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(ledStats.totalCredit, "currency"), icon: ArrowDownCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
-              { label: "Balance", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(ledStats.balance, "currency"), icon: CheckCircle, color: ledStats.balance === 0 ? "text-green-600" : "text-red-600", bg: ledStats.balance === 0 ? "bg-green-50 dark:bg-green-900/30" : "bg-red-50 dark:bg-red-900/30" },
+              { label: "Total Debit", value: isVatAuditor ? AUDIT_MASK : fmt(ledStats.totalDebit, "currency"), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+              { label: "Total Credit", value: isVatAuditor ? AUDIT_MASK : fmt(ledStats.totalCredit, "currency"), icon: ArrowDownCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+              { label: "Balance", value: isVatAuditor ? AUDIT_MASK : fmt(ledStats.balance, "currency"), icon: CheckCircle, color: ledStats.balance === 0 ? "text-green-600" : "text-red-600", bg: ledStats.balance === 0 ? "bg-green-50 dark:bg-green-900/30" : "bg-red-50 dark:bg-red-900/30" },
             ].map((stat, i) => (
               <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
                 <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
@@ -724,12 +727,12 @@ export default function ChartOfAccountsLedgerPage() {
                         <TableCell>{item.particulars || "—"}</TableCell>
                         <TableCell className="font-mono">
                           {isVatAuditor
-                            ? (item.referenceType === "Manual" ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(item.debit, "currency"))
+                            ? (String(item.debit) === AUDIT_MASK ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : item.referenceType === "Manual" ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : fmt(item.debit, "currency"))
                             : (item.debit > 0 ? fmt(item.debit, "currency") : "—")}
                         </TableCell>
                         <TableCell className="font-mono">
                           {isVatAuditor
-                            ? (item.referenceType === "Manual" ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(item.credit, "currency"))
+                            ? (String(item.credit) === AUDIT_MASK ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : item.referenceType === "Manual" ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : fmt(item.credit, "currency"))
                             : (item.credit > 0 ? fmt(item.credit, "currency") : "—")}
                         </TableCell>
                         <TableCell>{item.reference || "—"}</TableCell>

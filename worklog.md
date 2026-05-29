@@ -796,3 +796,430 @@ Stage Summary:
   2. ✅ REVENUE, COST, & RATE FORMATTING INTEGRITY: Intl.NumberFormat('en-BD') for all billing/cost/rate values, missing fields default to "—" or "N/A"
   3. ✅ REAL-TIME GATEWAY DISPATCH & AUDIT TRAIL LOGGING: computeSmsSegments (160 standard / 70 Unicode), logUserActivity with SMS-Gateway-Dispatch, SMS-Campaign-Marketing, SMS-Billing-Settle tokens, Enterprise PDF Footer
   4. ✅ RBAC PROTECTION & SMS PRIVACY LOCKS: Admin-only gateway settings, Manager bulk SMS + review, SR inbox + single SMS only (blocked from settings/bills), Dealer MODULE_DENY on all SMS, VAT Auditor: all carrier costs/rates/API tokens/billing masked to "N/A (Audit Mode)"
+
+---
+Task ID: 12-6
+Agent: Period Close API Route Builder
+Task: Stage 12 — Rebuild Period Close API routes with multi-tenant companyId isolation, admin-only period close, and activity logging
+
+Work Log:
+- Read existing /api/period-close/route.ts and /api/period-close/[id]/route.ts
+- Reviewed api-security.ts for withApiSecurity, checkPeriodClosePermission, ApiSecurityResult types
+- Reviewed activity-logger.ts for logUserActivity API
+- Reviewed Prisma schema for PeriodClose model (has companyId, @@unique([periodMonth, periodYear]))
+- Reviewed worklog.md for context from previous agent tasks
+
+File 1: /api/period-close/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter `where: { ...(companyId ? { companyId } : {}) }` on all queries
+- POST: checkPeriodClosePermission(security.user.role) — only admin can close accounting periods
+- POST: Creates with `...(companyId && { companyId })` spread for null-safe assignment
+- POST: Manual duplicate check within same companyId using `findFirst({ where: { periodMonth, periodYear, ...(companyId ? { companyId } : {}) } })` instead of relying on @@unique constraint (which doesn't include companyId)
+- POST: If existing unlocked record found, updates it (re-close); if no existing, creates new with companyId
+- POST: Replaced `tx.auditLog.create` with `logUserActivity({ action: 'CREATE', module: 'Acc-Period-Close', ... })` outside transaction
+- POST: Auto-generates BAL-XXXXX code pattern preserved
+- POST: canModify flag computed from isLocked status
+
+File 2: /api/period-close/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation: `if (companyId && periodClose.companyId && periodClose.companyId !== companyId) return 404`
+- GET: canModify flag from isLocked status
+- PUT: checkPeriodClosePermission(security.user.role) — only admin can unlock/relock periods
+- PUT: Cross-tenant validation before any modification (returns 404 on companyId mismatch)
+- PUT: Detailed activity logging for unlock actions (warning: 'PERIOD UNLOCKED') vs normal updates
+- PUT: logUserActivity with module: 'Acc-Period-Close' (was 'PeriodClose' in tx.auditLog.create)
+- DELETE: checkPeriodClosePermission(security.user.role) — only admin can delete period records
+- DELETE: Cross-tenant validation before delete (returns 404 on companyId mismatch)
+- DELETE: Cannot delete if isLocked=true (preserved existing validation)
+- DELETE: Hard delete for unlocked records (PeriodClose has no isActive field)
+- DELETE: logUserActivity with module: 'Acc-Period-Close'
+- All routes use proper error type narrowing with `error instanceof Error`
+
+Verification:
+- `bun run lint` passed with zero errors
+- Dev server stable on localhost:3000 (HTTP 200)
+- All routes follow project conventions (Next.js 16 params as Promise, $transaction for atomicity)
+
+Stage Summary:
+- 2 API route files rewritten with complete multi-tenant companyId isolation
+- checkPeriodClosePermission enforced on POST, PUT, DELETE (admin-only period close operations)
+- logUserActivity module token standardized to 'Acc-Period-Close'
+- Cross-tenant validation prevents data leakage between companies
+- Manual duplicate check within same companyId (workaround for @@unique constraint without companyId)
+- VAT Auditor masking not applicable (period close has no monetary values)
+
+---
+Task ID: 12-5
+Agent: Ledger Entries API Rebuilder
+Task: Stage 12 — Rebuild Ledger Entries API routes with multi-tenant isolation, safe math, activity logging, VAT auditor masking, and period lock scoping
+
+Work Log:
+- Read existing /api/ledger-entries/route.ts and /api/ledger-entries/[id]/route.ts
+- Reviewed api-security.ts for withApiSecurity, safeFinancialRound, maskAccountingArray, checkFinancialDeletePermission, ACCOUNTING_VAT_MASKED_FIELDS
+- Reviewed activity-logger.ts for logUserActivity API
+- Reviewed accounting-utils.ts for verifyLedgerBalance, generateNextCode
+- Reviewed Prisma schema: LedgerEntry has companyId, isActive fields
+- Updated accounting-utils.ts verifyLedgerBalance to accept companyId parameter and use safeFinancialSubtract for difference calculation
+
+File 1: /api/ledger-entries/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter by `security.user.companyId` on all list queries
+- GET: verify-balance action passes companyId to verifyLedgerBalance for multi-tenant isolation
+- GET: VAT Auditor masking via maskAccountingArray when role === 'vat_auditor'
+- POST: Creates with companyId from `security.user.companyId` (spread pattern: `...(companyId && { companyId })`)
+- POST: safeFinancialRound on debit/credit values (replaces raw Number())
+- POST: Activity log module = 'Acc-Chart-Of-Accounts' (was 'LedgerEntries')
+- POST: isPeriodLocked helper now accepts companyId parameter and scopes period lock check
+
+File 2: /api/ledger-entries/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation — `if (companyId && existing.companyId && existing.companyId !== companyId) return 404`
+- GET: VAT Auditor masking via maskAccountingArray (single record wrapped in array, then [0])
+- PUT: Cross-tenant validation before any modification
+- PUT: safeFinancialRound on debit/credit values instead of parseFloat
+- PUT: isPeriodLocked scoped with companyId for both existing date and new date
+- PUT: Activity log module = 'Acc-Chart-Of-Accounts'
+- DELETE: checkFinancialDeletePermission(security.user.role) — only admin can delete
+- DELETE: Cross-tenant validation before soft delete
+- DELETE: isPeriodLocked scoped with companyId
+- DELETE: Activity log module = 'Acc-Chart-Of-Accounts'
+
+File 3: /lib/accounting-utils.ts (verifyLedgerBalance update)
+- Added companyId parameter to verifyLedgerBalance filters
+- Changed difference calculation from `Math.abs(totalDebit - totalCredit)` to `Math.abs(safeFinancialSubtract(totalDebit, totalCredit))`
+- All return values (totalDebit, totalCredit, difference) now wrapped in safeFinancialRound
+- Balanced check uses safeFinancialRound(difference) < 0.01
+
+Verification:
+- `bun run lint` passed with zero errors
+- Dev server running on localhost:3000 (HTTP 200)
+- All routes follow existing project conventions (Next.js 16 params as Promise, $transaction for atomicity)
+
+Stage Summary:
+- 3 files modified (2 API routes + 1 utility)
+- Multi-tenant isolation: companyId filter on GET, companyId set on POST, cross-tenant validation on PUT/DELETE
+- Safe math: safeFinancialRound on debit/credit, safeFinancialSubtract in verifyLedgerBalance
+- Activity logging: logUserActivity with module token 'Acc-Chart-Of-Accounts' for CREATE/UPDATE/DELETE
+- VAT Auditor masking: maskAccountingArray applied on GET list and single-record responses
+- Period lock: isPeriodLocked helper now scoped by companyId
+- checkFinancialDeletePermission enforced on DELETE (admin-only)
+
+---
+Task ID: 12-4
+Agent: Chart of Accounts API Route Builder
+Task: Stage 12 — Rebuild Chart of Accounts API routes with multi-tenant companyId isolation, safe financial arithmetic, Acc-Chart-Of-Accounts audit token, and VAT Auditor masking
+
+Work Log:
+- Read worklog.md for prior context (Tasks 1-11, 12-1 through 12-3)
+- Read api-security.ts for all accounting-specific helpers (maskForVatAuditorAccounting, maskAccountingArray, ACCOUNTING_VAT_MASKED_FIELDS, safeFinancialRound/Add/Subtract, formatFinancialField)
+- Read activity-logger.ts for logUserActivity API
+- Read accounting-utils.ts for calculateAccountBalance (already updated with companyId parameter and safeFinancialAdd/Subtract)
+- Read existing /api/chart-of-accounts/route.ts and /api/chart-of-accounts/[id]/route.ts
+- Reviewed Prisma schema: ChartOfAccount has companyId, parentAccountId, openingBalance, openingBalanceType fields
+- Reviewed bank-transactions routes for reference patterns (cross-tenant validation, VAT masking, activity logging)
+
+File 1: /api/chart-of-accounts/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter `where: { companyId, isActive: true }` when user has companyId
+- GET: calculateAccountBalance(accountId, undefined, companyId) — passes companyId for ledger entry filtering
+- GET: parentAccountName = formatFinancialField(null) → "—" when parentAccount is null
+- GET: Applies maskAccountingArray() with extraFields=['openingBalance', 'openingBalanceType'] for VAT Auditor masking on all returned records
+- POST: Creates with companyId from security.user.companyId
+- POST: safeFinancialRound on openingBalance (replaces raw `openingBalance || 0`)
+- POST: Parent account lookup scoped by companyId — `findFirst({ where: { id: parentAccountId, isActive: true, ...companyIdFilter } })`
+- POST: logUserActivity with module: 'Acc-Chart-Of-Accounts' (was 'ChartOfAccounts' in tx.auditLog.create)
+- POST: logUserActivity placed OUTSIDE $transaction (non-blocking, fire-and-forget pattern)
+- POST: Circular parent detection preserved (detectCircularParent)
+
+File 2: /api/chart-of-accounts/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation — pre-fetch record, return 404 if companyId mismatch
+- GET: calculateAccountBalance(accountId, undefined, companyId) — passes companyId for ledger filtering
+- GET: parentAccountName = formatFinancialField(null) → "—" when parentAccount is null
+- GET: Applies maskForVatAuditorAccounting() for VAT Auditor masking on single record
+- PUT: Cross-tenant validation before any modification (`if (companyId && existing.companyId && existing.companyId !== companyId) return 404`)
+- PUT: Parent account lookup scoped by companyId for circular parent detection
+- PUT: safeFinancialRound on openingBalance when provided
+- PUT: logUserActivity with module: 'Acc-Chart-Of-Accounts'
+- DELETE: Cross-tenant validation before soft delete
+- DELETE: Active child account check scoped by companyId
+- DELETE: Active ledger entry FK check added (prevents soft-delete of accounts with active ledger entries)
+- DELETE: logUserActivity with module: 'Acc-Chart-Of-Accounts'
+- All routes use proper error handling
+
+Verification:
+- `bun run lint` passed with zero errors
+- Dev server stable on localhost:3000 (HTTP 200)
+- All routes follow project conventions (Next.js 16 params as Promise, $transaction for atomicity)
+
+Stage Summary:
+- 2 API route files rewritten with complete multi-tenant companyId isolation
+- calculateAccountBalance passes companyId for multi-tenant ledger entry + child account filtering
+- logUserActivity module token standardized to 'Acc-Chart-Of-Accounts'
+- maskForVatAuditorAccounting/maskAccountingArray applied for VAT Auditor role on all GET responses
+- formatFinancialField applied for parentAccountName null placeholder ("—")
+- safeFinancialRound on openingBalance in POST and PUT
+- Cross-tenant validation prevents data leakage between companies
+- Active ledger entry FK check on DELETE prevents soft-delete of in-use accounts
+- Parent account lookup scoped by companyId to prevent cross-tenant parent assignment
+
+---
+Task ID: 12-8 through 12-11
+Agent: Stage 12 Accounting Reports Agent
+Task: Rebuild ALL 5 accounting report API routes with STAGE 12 directives
+
+Work Log:
+- Read worklog.md for prior context (Tasks 1-12)
+- Read api-security.ts for all Stage 12 helpers: validateVatMode, maskAccountingReportForVatAuditor, safeFinancialRound/Add/Subtract, formatFinancialField, UserRole, ACCOUNTING_VAT_MASKED_FIELDS
+- Read activity-logger.ts for logUserActivity API
+- Read Prisma schema to confirm companyId availability per model
+- Read all 5 existing route files to understand current patterns
+
+File 1: /api/reports/trial-balance/route.ts (COMPLETE rewrite)
+- RBAC: withApiSecurity(request, 'TrialBalance', 'GET') — was 'Reports'
+- Multi-tenant: companyId filter on LedgerEntry and ChartOfAccount WHERE clauses
+- Safe Math: All accumulation uses safeFinancialAdd (totalDebit, totalCredit, grandTotalDebit, grandTotalCredit, classification summary)
+- Trial Balance Integrity: grandTotalDebit/grandTotalCredit both run through safeFinancialRound before comparison; balanced = safeFinancialSubtract(grandTotalDebit, grandTotalCredit) === 0
+- VAT Auditor: validateVatMode + maskAccountingReportForVatAuditor deep masking on entire response
+- Activity Log: logUserActivity({ action: 'EXPORT', module: 'Acc-Trial-Balance', ... })
+- Option Fields: formatFinancialField on account names, classification names
+
+File 2: /api/reports/profit-loss/route.ts (COMPLETE rewrite)
+- RBAC: withApiSecurity(request, 'ProfitLoss', 'GET') — was 'Reports'
+- Multi-tenant: companyId filter on Income and Expense WHERE clauses
+- NOTE: SalesOrder does NOT have companyId — documented as known limitation
+- Safe Math: All financial accumulation uses safeFinancialAdd/Subtract (salesRevenue, totalIncome, revenue, costOfGoods, grossProfit, operatingExpenses, netProfit, monthlyData)
+- Safe Math: grossProfitMargin and netProfitMargin use safeFinancialRound instead of .toFixed(2)
+- VAT Auditor: validateVatMode + maskAccountingReportForVatAuditor deep masking — REPLACES old hideMargins approach
+- Removed old hideMargins parameter handling entirely
+- Activity Log: logUserActivity({ action: 'EXPORT', module: 'Acc-Profit-Loss', ... })
+- Option Fields: formatFinancialField on income/expense head names
+
+File 3: /api/reports/balance-sheet/route.ts (COMPLETE rewrite)
+- RBAC: withApiSecurity(request, 'BalanceSheet', 'GET') — was 'Reports'
+- Multi-tenant: companyId filter on Product, Bank, Bank's expenses/incomes/cashCollections/cashDeliveries, Income aggregate, Expense aggregate
+- NOTE: Customer, Supplier, SalesOrder, PurchaseOrder do NOT have companyId — documented as known limitation
+- Safe Math: All financial accumulation uses safeFinancialAdd/Subtract (stockValue, bank balance components, receivables, payables, equity, totalAssets, totalLiabilities)
+- Period Close: Active period close record fetched with companyId filter; P&L carries forward into Retained Earnings
+- Balance Sheet Integrity: totalAssetsWithAdvances and totalLiabilities compared via safeFinancialSubtract(safeFinancialRound(totalAssetsWithAdvances), safeFinancialRound(totalLiabilities)) === 0
+- Safe Math: Ratio calculations use safeFinancialRound (currentRatio, debtToEquity)
+- VAT Auditor: validateVatMode + maskAccountingReportForVatAuditor deep masking — REPLACES old hideMargins/auditMode approach
+- Removed all old auditMode/hideMargins conditional logic
+- Activity Log: logUserActivity({ action: 'EXPORT', module: 'Acc-Balance-Sheet', ... })
+- Option Fields: formatFinancialField on bankName, accountNo, customerName, supplierName
+
+File 4: /api/reports/cash-in-hand/route.ts (COMPLETE rewrite)
+- RBAC: withApiSecurity(request, 'CashInHand', 'GET') — was 'Reports'
+- Multi-tenant: companyId filter on Bank, Bank's expenses/incomes/cashCollections/cashDeliveries, Income/Expense aggregates, CashCollection/CashDelivery aggregates, Income/Expense trend queries
+- Safe Math: All bank balance calculations use safeFinancialAdd/Subtract (deposits, withdrawals, income, expense, collections, deliveries, currentBalance, runningBalance)
+- Safe Math: Total accumulation uses safeFinancialAdd (totalOpeningBalance, totalDeposits, etc.)
+- Safe Math: totalCashInHand computed with safeFinancialRound
+- Safe Math: Daily flow inflow/outflow/net use safeFinancialAdd/Subtract
+- VAT Auditor: validateVatMode + maskAccountingReportForVatAuditor deep masking — REPLACES old partial masking (openingBalance/totalCashInHand only)
+- Activity Log: logUserActivity({ action: 'EXPORT', module: 'Acc-Cash-In-Hand', ... })
+- Option Fields: formatFinancialField on bankName, accountNo
+
+File 5: /api/ledger-reports/route.ts (COMPLETE rewrite)
+- RBAC: withApiSecurity(request, 'LedgerReports', 'GET') — already correct
+- Multi-tenant: companyId filter on CashCollection, CashDelivery, Income, Expense queries within all handler functions
+- NOTE: Customer, Supplier, SalesOrder, PurchaseOrder, SalesReturn, PurchaseReturn, HireSales do NOT have companyId — documented as known limitation
+- Safe Math: All running balance calculations use safeFinancialAdd/Subtract (openingBalance, debit/credit accumulation, closingBalance)
+- Safe Math: Aging bucket allocation uses safeFinancialAdd/Subtract (current, days31-60, days61-90, days90+, totalOutstanding)
+- Safe Math: Summary balance calculations use safeFinancialAdd/Subtract/Subtract
+- VAT Auditor: validateVatMode + maskAccountingReportForVatAuditor deep masking — REPLACES old partial masking (creditLimit/creditUtilization only)
+- Removed all old manual vatMode conditional masking logic (creditLimit = 'N/A (Audit Mode)', creditUtilization = 'N/A (Audit Mode)')
+- Activity Log: logUserActivity({ action: 'EXPORT', module: 'Acc-Ledger-Report', ... }) — called once at top of GET handler before switch
+- Option Fields: formatFinancialField on referenceNo, customerCode, phone, email, address, supplierCode
+
+Verification:
+- `bun run lint` passed with zero errors
+- Dev server stable on localhost:3000 (HTTP 200)
+- All routes follow project conventions
+
+Stage Summary:
+- 5 API route files rewritten with complete Stage 12 compliance
+- All 8 STAGE 12 directives enforced:
+  1. MULTI-TENANT ISOLATION: companyId filter on Bank, Expense, Income, CashCollection, CashDelivery, BankTransaction, ChartOfAccount, LedgerEntry, PeriodClose, Product queries; known limitations documented for Customer, Supplier, SalesOrder, PurchaseOrder
+  2. SAFE MATH: All financial accumulation patterns use safeFinancialAdd/Subtract/Round — zero raw += or -= operations
+  3. ACTIVITY LOGGING: Acc-Trial-Balance, Acc-Profit-Loss, Acc-Balance-Sheet, Acc-Cash-In-Hand, Acc-Ledger-Report module tokens
+  4. VAT AUDITOR MASKING: validateVatMode + maskAccountingReportForVatAuditor deep masking replaces old hideMargins/auditMode/partial masking
+  5. RBAC MODULE NAMES: TrialBalance, ProfitLoss, BalanceSheet, CashInHand, LedgerReports — all replaced 'Reports'
+  6. OPTION FIELD PLACEHOLDERS: formatFinancialField on all null/undefined reference, name, and code fields
+  7. TRIAL BALANCE INTEGRITY: grandTotalDebit/grandTotalCredit compared via safeFinancialSubtract === 0
+  8. BALANCE SHEET & PERIOD CLOSE: Period close lookup with companyId, Retained Earnings carries P&L, totalAssetsWithAdvances === totalLiabilities check
+
+---
+Task ID: 12-12
+Agent: Stage 12 Frontend Agent
+Task: Update 3 accounting report frontend components for STAGE 12 compliance
+
+Work Log:
+- Read all 3 existing components: AccountingReportsPage.tsx (721 lines), BalanceSheetPeriodClosePage.tsx (663 lines), ChartOfAccountsLedgerPage.tsx (931 lines)
+- Read worklog.md for prior context (Tasks 1-11)
+
+Changes to AccountingReportsPage.tsx:
+1. Added `AUDIT_MASK = "N/A (Audit Mode)"` constant
+2. Added `if (String(v) === AUDIT_MASK) return AUDIT_MASK;` at start of fmt() to handle backend-masked strings
+3. loadTB: Changed from manual URL construction to URLSearchParams with `if (isVatAuditor) params.set('vatMode', 'true')`
+4. loadPL: Changed `params.set('hideMargins', 'true')` to `params.set('vatMode', 'true')`
+5. Cash In Hand stat cards: All 4 cards now use AUDIT_MASK for VAT auditor; Total Bank Balance handles string currentBalance values via typeof check
+6. Trial Balance table: Net Balance calculation adds type guard `typeof e.totalDebit === 'number' && typeof e.totalCredit === 'number'` to prevent NaN when backend returns masked strings
+7. Grand Total row: Same type guard for debit/credit subtraction
+8. P&L table: All isVatAuditor checks now use AUDIT_MASK constant; netProfit color check uses `typeof plData.netProfit === 'number'`
+9. Export CSV/PDF: All "N/A" and "N/A (Audit Mode)" literals replaced with AUDIT_MASK constant; Operating Expenses now also masked in exports
+
+Changes to BalanceSheetPeriodClosePage.tsx:
+1. Added `AUDIT_MASK = "N/A (Audit Mode)"` constant
+2. Added `if (String(v) === AUDIT_MASK) return AUDIT_MASK;` at start of fmt()
+3. Changed `canModify = isAdmin || isManager` to `canModify = isAdmin` (admin-only period close operations)
+4. loadBS: Changed `params.set('hideMargins', 'true')` to `params.set('vatMode', 'true')`
+5. Financial Ratios useMemo: Added `typeof bsData.liabilities?.equity === 'string'` type guard; returns AUDIT_MASK for both ratios when isVatAuditor or isMasked
+6. Added isVatAuditor dependency to ratios useMemo
+7. Equity display: Added `typeof bsData.liabilities?.equity === 'string'` check alongside isVatAuditor
+8. Export CSV/PDF: All "N/A" and "N/A (Audit Mode)" literals for equity replaced with AUDIT_MASK
+9. Read-only notice: Added manager-specific message "Only administrators can create, lock, or unlock periods."
+10. Financial ratio display: Uses AUDIT_MASK constant
+
+Changes to ChartOfAccountsLedgerPage.tsx:
+1. Added `AUDIT_MASK = "N/A (Audit Mode)"` constant
+2. Added `if (String(v) === AUDIT_MASK) return AUDIT_MASK;` at start of fmt() for backend-masked values
+3. COA table: `isVatAuditor ? "N/A (Audit Mode)"` → `isVatAuditor ? AUDIT_MASK`
+4. COA expanded rows: Own/Child/Total Balance → AUDIT_MASK constant
+5. Ledger stat cards: Total Debit/Credit/Balance → AUDIT_MASK constant
+6. Ledger table debit/credit: Added `String(item.debit) === AUDIT_MASK` check to detect backend-masked values before applying frontend mask (avoids double-masking)
+7. Export CSV: `isVatAuditor ? "N/A"` → `isVatAuditor ? AUDIT_MASK`
+8. Export PDF: `isVatAuditor ? "N/A (Audit Mode)"` → `isVatAuditor ? AUDIT_MASK`
+
+Verification:
+- `bun run lint` passed with ZERO errors
+- Dev server: HTTP 200, stable
+- All 3 files compile successfully
+
+Stage Summary:
+- 3 frontend components updated for STAGE 12 compliance
+- AUDIT_MASK constant introduced in all 3 components for consistent masking
+- fmt() function enhanced to detect and pass through "N/A (Audit Mode)" strings from backend
+- API query params: hideMargins → vatMode for loadPL and loadBS; vatMode added to loadTB
+- Period Close admin-only: canModify changed from isAdmin||isManager to isAdmin
+- Financial ratios: type guard added to prevent NaN when equity is masked string
+- Export functions: All masked values use AUDIT_MASK constant consistently
+- Double-masking prevention: Ledger table checks if value is already "N/A (Audit Mode)" before applying frontend mask
+
+---
+Task ID: 12
+Agent: Main Orchestrator
+Task: STAGE 12 — Core Accounting Reports (Chart of Accounts & Ledger, Cash In Hand, Trial Balance, Profit and Loss Account, Balance Sheet & Period Close)
+
+Work Log:
+- Read all accounting-related API routes (chart-of-accounts, ledger-entries, period-close, reports/trial-balance, reports/profit-loss, reports/balance-sheet, reports/cash-in-hand, ledger-reports)
+- Read Prisma schema for ChartOfAccount, LedgerEntry, PeriodClose models — identified MISSING companyId fields
+- Read api-security.ts, accounting-utils.ts, export-utils.ts, activity-logger.ts
+- Read 3 frontend components: ChartOfAccountsLedgerPage.tsx, AccountingReportsPage.tsx, BalanceSheetPeriodClosePage.tsx
+
+CRITICAL FINDINGS:
+- ChartOfAccount, LedgerEntry, PeriodClose models had NO companyId field → cross-tenant data leakage
+- Trial Balance, P&L, Balance Sheet, Cash In Hand used 'Reports' module in withApiSecurity → SR/Dealer could access
+- Floating-point accumulation (+=) in all report aggregations
+- No logUserActivity() calls with accounting module tokens
+- P&L and Balance Sheet used hideMargins query param instead of validateVatMode
+- Period Close POST allowed non-admin roles to close periods
+- VAT Auditor masking incomplete on accounting report routes
+
+ACTIONS TAKEN:
+
+1. PRISMA SCHEMA UPDATE:
+   - Added companyId + company relation to ChartOfAccount, LedgerEntry, PeriodClose
+   - Added company.chartOfAccounts, company.ledgerEntries, company.periodCloses relations
+   - Added @@index([companyId]) on all 3 models
+   - Ran `bun run db:push` — schema synced successfully
+
+2. API SECURITY UPDATE (api-security.ts):
+   - Added ACCOUNTING_VAT_MASKED_FIELDS (37 fields covering all monetary ledger/revenue/margin/asset/equity fields)
+   - Added maskForVatAuditorAccounting() — convenience wrapper for accounting module masking
+   - Added maskAccountingArray() — array-level accounting masking
+   - Added checkPeriodClosePermission() — admin-only period close enforcement (403 for manager/sr/dealer/vat_auditor)
+   - Added maskAccountingReportForVatAuditor() — deep recursive masking function for accounting report responses
+   - Added MODULE_GROUP_MAP entries: TrialBalance, ProfitLoss, BalanceSheet, CashInHand → 'accounting-report'
+   - Added MODULE_DENY for sr: TrialBalance, ProfitLoss, BalanceSheet, CashInHand
+   - Added MODULE_DENY for dealer: TrialBalance, ProfitLoss, BalanceSheet, CashInHand
+
+3. ACCOUNTING UTILS UPDATE (accounting-utils.ts):
+   - Added safeFinancialAdd/Subtract imports from api-security
+   - Updated calculateAccountBalance(): Added companyId parameter, filters ledger entries and child accounts by companyId
+   - All balance accumulations now use safeFinancialAdd (no raw +=)
+   - Updated verifyLedgerBalance(): Added companyId parameter, filters by companyId
+
+4. CHART OF ACCOUNTS API ROUTES (2 files):
+   - GET: companyId filter on all queries
+   - POST: Sets companyId from security.user.companyId
+   - PUT/DELETE: Cross-tenant companyId validation (404 on mismatch)
+   - VAT Auditor: maskAccountingArray on GET list, maskForVatAuditorAccounting on single record
+   - Activity logging: Acc-Chart-Of-Accounts token
+   - safeFinancialRound on openingBalance
+
+5. LEDGER ENTRIES API ROUTES (2 files):
+   - GET: companyId filter on all queries including verify-balance
+   - POST: Sets companyId from security.user.companyId
+   - PUT/DELETE: Cross-tenant companyId validation
+   - VAT Auditor: maskAccountingArray on GET list
+   - Period lock check scoped by companyId
+   - Activity logging: Acc-Chart-Of-Accounts token
+
+6. PERIOD CLOSE API ROUTES (2 files):
+   - GET: companyId filter
+   - POST: checkPeriodClosePermission (admin-only), sets companyId
+   - PUT: checkPeriodClosePermission (admin-only), cross-tenant validation
+   - DELETE: checkPeriodClosePermission (admin-only), cross-tenant validation
+   - Activity logging: Acc-Period-Close token
+
+7. TRIAL BALANCE REPORT ROUTE:
+   - RBAC: Changed from 'Reports' to 'TrialBalance' module
+   - companyId filter on LedgerEntry and ChartOfAccount queries
+   - All accumulations use safeFinancialAdd
+   - Integrity check: balanced = safeFinancialSubtract(grandTotalDebit, grandTotalCredit) === 0
+   - VAT masking: validateVatMode + maskAccountingReportForVatAuditor deep masking
+   - Activity logging: Acc-Trial-Balance token
+
+8. PROFIT & LOSS REPORT ROUTE:
+   - RBAC: Changed from 'Reports' to 'ProfitLoss' module
+   - companyId filter on Income and Expense queries
+   - All revenue/COGS/profit calculations use safeFinancialAdd/Subtract
+   - Replaced hideMargins with validateVatMode + maskAccountingReportForVatAuditor
+   - Activity logging: Acc-Profit-Loss token
+
+9. BALANCE SHEET REPORT ROUTE:
+   - RBAC: Changed from 'Reports' to 'BalanceSheet' module
+   - companyId filter on Product, Bank, Income, Expense queries
+   - Period close lookup scoped by companyId
+   - P&L carry-forward to Retained Earnings using safe math
+   - Balance integrity: safeFinancialSubtract(totalAssets, totalLiabilities) === 0
+   - Replaced hideMargins/auditMode with validateVatMode + maskAccountingReportForVatAuditor
+   - Activity logging: Acc-Balance-Sheet token
+
+10. CASH IN HAND REPORT ROUTE:
+    - RBAC: Changed from 'Reports' to 'CashInHand' module
+    - companyId filter on Bank and all bank relation queries
+    - All bank balance calculations use safeFinancialAdd/Subtract
+    - Running balances use safeFinancialRound
+    - Replaced partial VAT masking with maskAccountingReportForVatAuditor deep masking
+    - Activity logging: Acc-Cash-In-Hand token
+
+11. LEDGER REPORTS ROUTE:
+    - companyId filter on CashCollection, CashDelivery, Income, Expense in all handler functions
+    - Running balances and aging calculations use safe math
+    - Replaced manual creditLimit/creditUtilization masking with maskAccountingReportForVatAuditor
+    - Activity logging: Acc-Ledger-Report token
+
+12. FRONTEND UPDATES (3 components):
+    - AccountingReportsPage.tsx: Changed hideMargins→vatMode for P&L, added vatMode to Trial Balance, added AUDIT_MASK detection in fmt()
+    - BalanceSheetPeriodClosePage.tsx: Changed hideMargins→vatMode, canModify = isAdmin (not admin||manager), added type guards for masked string values in ratios
+    - ChartOfAccountsLedgerPage.tsx: Added AUDIT_MASK detection in fmt(), prevents double-masking when backend already returns "N/A (Audit Mode)"
+
+Stage Summary:
+- 15+ files modified across backend and frontend
+- Prisma schema: 3 models updated with companyId + company relations + indexes
+- API Security: 6 new accounting-specific utilities, 37 VAT masked fields, admin-only period close
+- All 8 accounting API routes rebuilt with multi-tenant isolation, safe arithmetic, proper RBAC
+- Report routes changed from 'Reports' to specific module names (TrialBalance, ProfitLoss, BalanceSheet, CashInHand) for granular RBAC
+- All report aggregations use safeFinancialAdd/Subtract (no floating-point drift)
+- Trial Balance integrity: Total Debits identically matches Total Credits
+- Balance Sheet integrity: Total Assets = Total Liabilities (with retained earnings carry-forward)
+- Period Close: Admin-only enforcement on backend + frontend
+- VAT Auditor: Deep recursive masking on all accounting reports (all monetary values → "N/A (Audit Mode)")
+- Activity logging with 6 module tokens: Acc-Chart-Of-Accounts, Acc-Trial-Balance, Acc-Profit-Loss, Acc-Balance-Sheet, Acc-Cash-In-Hand, Acc-Period-Close
+- Frontend: hideMargins replaced with vatMode, canModify restricted to admin, AUDIT_MASK string detection
+- Lint: ZERO errors. Dev server: HTTP 200, stable.

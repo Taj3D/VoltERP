@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClosePermission } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/period-close - List all period close records with canModify flag
+// GET /api/period-close - List all period close records for the user's company
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'PeriodClose', 'GET');
   if (!security.authorized) return security.response;
+
   try {
+    const companyId = security.user.companyId;
+
     const periods = await db.periodClose.findMany({
+      where: {
+        ...(companyId ? { companyId } : {}),
+      },
       orderBy: [{ periodYear: 'desc' }, { periodMonth: 'desc' }],
     });
 
@@ -28,10 +35,17 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/period-close - Create period close with auto-code and validation
+// ADMIN-ONLY: Only administrators can close accounting periods
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'PeriodClose', 'POST');
   if (!security.authorized) return security.response;
+
+  // ADMIN-ONLY CHECK: Only admin can close periods
+  const permissionCheck = checkPeriodClosePermission(security.user.role);
+  if (permissionCheck) return permissionCheck;
+
   try {
+    const companyId = security.user.companyId;
     const body = await request.json();
     const { periodMonth, periodYear, closedBy, notes } = body;
 
@@ -52,9 +66,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if period is already locked (unique constraint on periodMonth + periodYear)
-    const existing = await db.periodClose.findUnique({
-      where: { periodMonth_periodYear: { periodMonth: month, periodYear: year } },
+    // MANUAL DUPLICATE CHECK within the same companyId
+    // The @@unique([periodMonth, periodYear]) constraint doesn't include companyId,
+    // so we must manually check for duplicates within the same tenant.
+    const existing = await db.periodClose.findFirst({
+      where: {
+        periodMonth: month,
+        periodYear: year,
+        ...(companyId ? { companyId } : {}),
+      },
     });
 
     if (existing?.isLocked) {
@@ -80,44 +100,55 @@ export async function POST(request: NextRequest) {
       }
       const code = `BAL-${String(nextNum).padStart(5, '0')}`;
 
-      // Use upsert to prevent duplicate records for same month/year
-      const periodClose = await tx.periodClose.upsert({
-        where: { periodMonth_periodYear: { periodMonth: month, periodYear: year } },
-        update: {
-          closeDate: new Date(),
-          closedBy: closedBy || null,
-          isLocked: true,
-          notes: notes || null,
-        },
-        create: {
-          code,
-          periodMonth: month,
-          periodYear: year,
-          closeDate: new Date(),
-          closedBy: closedBy || null,
-          isLocked: true,
-          notes: notes || null,
-        },
-      });
+      let periodClose;
 
-      // Create AuditLog entry
-      await tx.auditLog.create({
-        data: {
-          action: 'CREATE',
-          module: 'PeriodClose',
-          recordId: periodClose.id,
-          recordLabel: `${periodClose.code} - ${month}/${year}`,
-          details: JSON.stringify({
-            code: periodClose.code,
+      if (existing) {
+        // Update existing unlocked record (re-close the period)
+        periodClose = await tx.periodClose.update({
+          where: { id: existing.id },
+          data: {
+            closeDate: new Date(),
+            closedBy: closedBy || null,
+            isLocked: true,
+            notes: notes || null,
+            ...(companyId && { companyId }),
+          },
+        });
+      } else {
+        // Create new period close record with companyId
+        periodClose = await tx.periodClose.create({
+          data: {
+            code,
             periodMonth: month,
             periodYear: year,
-            closedBy,
+            closeDate: new Date(),
+            closedBy: closedBy || null,
             isLocked: true,
-          }),
-        },
-      });
+            notes: notes || null,
+            ...(companyId && { companyId }),
+          },
+        });
+      }
 
       return { ...periodClose, canModify: false };
+    });
+
+    // Activity logging (non-blocking, outside transaction)
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Acc-Period-Close',
+      recordId: result.id,
+      recordLabel: `${result.code} - ${month}/${year}`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        code: result.code,
+        periodMonth: month,
+        periodYear: year,
+        closedBy,
+        isLocked: true,
+        companyId: companyId || null,
+      }),
     });
 
     return NextResponse.json(result, { status: 201 });

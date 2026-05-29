@@ -1,15 +1,34 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  validateVatMode,
+  maskAccountingReportForVatAuditor,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  formatFinancialField,
+} from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/trial-balance - Enhanced with date range, COA classification, opening balances
+// GET /api/reports/trial-balance - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'GET');
+  const security = await withApiSecurity(request, 'TrialBalance', 'GET');
   if (!security.authorized) return security.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from');
     const to = searchParams.get('to');
+
+    // STAGE 12: VAT Auditor mode validation
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
+
+    // STAGE 12: Multi-tenant companyId isolation
+    const companyId = security.user.companyId;
 
     // Build date filter
     const dateFilter: Record<string, Date> = {};
@@ -17,6 +36,7 @@ export async function GET(request: NextRequest) {
     if (to) dateFilter.lte = new Date(to);
 
     const where: Record<string, unknown> = { isActive: true };
+    if (companyId) where.companyId = companyId;
     if (from || to) where.date = dateFilter;
 
     // Fetch ledger entries with chartOfAccount relation
@@ -26,8 +46,12 @@ export async function GET(request: NextRequest) {
     });
 
     // Fetch all COA records for classification lookup AND opening balance seeding
+    // STAGE 12: Filter by companyId
+    const coaWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) coaWhere.companyId = companyId;
+
     const coaRecords = await db.chartOfAccount.findMany({
-      where: { isActive: true },
+      where: coaWhere,
     });
     const coaMap = new Map(coaRecords.map((c) => [c.name, c.classification]));
 
@@ -62,6 +86,7 @@ export async function GET(request: NextRequest) {
     }
 
     // STEP 2: Add ledger entry totals on top of opening balances
+    // STAGE 12: Use safeFinancialAdd for all accumulation
     for (const entry of ledgerEntries) {
       // Determine classification: prefer from COA FK, then from COA name lookup, then default
       let classification = 'Unclassified';
@@ -73,8 +98,8 @@ export async function GET(request: NextRequest) {
 
       const existing = accountMap.get(entry.account);
       if (existing) {
-        existing.totalDebit += entry.debit;
-        existing.totalCredit += entry.credit;
+        existing.totalDebit = safeFinancialAdd(existing.totalDebit, entry.debit);
+        existing.totalCredit = safeFinancialAdd(existing.totalCredit, entry.credit);
       } else {
         accountMap.set(entry.account, {
           account: entry.account,
@@ -91,16 +116,27 @@ export async function GET(request: NextRequest) {
       a.account.localeCompare(b.account)
     );
 
-    // Calculate netBalance per account
+    // STAGE 12: Calculate netBalance per account with safe math
     const entriesWithNet = entries.map((e) => ({
       ...e,
-      netBalance: e.totalDebit - e.totalCredit,
+      netBalance: safeFinancialSubtract(e.totalDebit, e.totalCredit),
     }));
 
-    const grandTotalDebit = entries.reduce((sum, e) => sum + e.totalDebit, 0);
-    const grandTotalCredit = entries.reduce((sum, e) => sum + e.totalCredit, 0);
+    // STAGE 12: Use safeFinancialAdd for grand total accumulation
+    let grandTotalDebit = 0;
+    let grandTotalCredit = 0;
+    for (const e of entries) {
+      grandTotalDebit = safeFinancialAdd(grandTotalDebit, e.totalDebit);
+      grandTotalCredit = safeFinancialAdd(grandTotalCredit, e.totalCredit);
+    }
+
+    // STAGE 12: Trial Balance Integrity — verify grandTotalDebit identically matches grandTotalCredit
+    grandTotalDebit = safeFinancialRound(grandTotalDebit);
+    grandTotalCredit = safeFinancialRound(grandTotalCredit);
+    const balanced = safeFinancialSubtract(grandTotalDebit, grandTotalCredit) === 0;
 
     // Group by classification for summary
+    // STAGE 12: Use safeFinancialAdd for classification summary accumulation
     const classificationSummary = new Map<
       string,
       { classification: string; totalDebit: number; totalCredit: number }
@@ -108,8 +144,8 @@ export async function GET(request: NextRequest) {
     for (const entry of entries) {
       const existing = classificationSummary.get(entry.classification);
       if (existing) {
-        existing.totalDebit += entry.totalDebit;
-        existing.totalCredit += entry.totalCredit;
+        existing.totalDebit = safeFinancialAdd(existing.totalDebit, entry.totalDebit);
+        existing.totalCredit = safeFinancialAdd(existing.totalCredit, entry.totalCredit);
       } else {
         classificationSummary.set(entry.classification, {
           classification: entry.classification,
@@ -141,17 +177,45 @@ export async function GET(request: NextRequest) {
 
     const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
-    return NextResponse.json({
-      entries: entriesWithNet,
-      classificationSummary: Array.from(classificationSummary.values()),
+    // STAGE 12: Apply formatFinancialField to null/undefined reference fields
+    const formattedEntries = entriesWithNet.map((e) => ({
+      ...e,
+      account: formatFinancialField(e.account),
+      classification: formatFinancialField(e.classification),
+    }));
+
+    // Build response data
+    const responseData: Record<string, unknown> = {
+      entries: formattedEntries,
+      classificationSummary: Array.from(classificationSummary.values()).map((cs) => ({
+        ...cs,
+        classification: formatFinancialField(cs.classification),
+      })),
       grandTotalDebit,
       grandTotalCredit,
-      balanced: Math.abs(grandTotalDebit - grandTotalCredit) < 0.01,
+      balanced,
       chartData,
       pieData: pieData.map((d, i) => ({ ...d, color: PIE_COLORS[i % PIE_COLORS.length] })),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+    };
+
+    // STAGE 12: Apply VAT Auditor deep masking
+    if (vatMode) {
+      const masked = maskAccountingReportForVatAuditor(responseData, userRole);
+      return NextResponse.json(masked);
+    }
+
+    // STAGE 12: Activity logging
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Acc-Trial-Balance',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: 'Trial Balance report generated',
     });
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Error generating trial balance:', error);
     return NextResponse.json(

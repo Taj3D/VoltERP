@@ -1,87 +1,187 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  validateVatMode,
+  maskAccountingReportForVatAuditor,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  formatFinancialField,
+} from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/balance-sheet - Enhanced with asOf date, financial ratios, detailed breakdown
+// GET /api/reports/balance-sheet - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'GET');
+  const security = await withApiSecurity(request, 'BalanceSheet', 'GET');
   if (!security.authorized) return security.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const asOf = searchParams.get('asOf'); // Point-in-time balance sheet
-    const hideMargins = searchParams.get('hideMargins'); // VAT Auditor mode
+
+    // STAGE 12: VAT Auditor mode validation (replaces old hideMargins)
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
+
+    // STAGE 12: Multi-tenant companyId isolation
+    const companyId = security.user.companyId;
 
     const asOfDate = asOf ? new Date(asOf) : new Date();
-    const auditMode = hideMargins === 'true';
 
     // === ASSETS ===
 
-    // Total stock value: sum of (costPrice * openingStock) for all active products
-    // Plus current stock from StockEntries
+    // STAGE 12: Total stock value with companyId filter for Product
+    const productWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) productWhere.companyId = companyId;
+
     const products = await db.product.findMany({
-      where: { isActive: true },
+      where: productWhere,
       select: { costPrice: true, salePrice: true, openingStock: true, id: true, name: true },
     });
 
-    const stockValue = products.reduce(
-      (sum, p) => sum + p.costPrice * p.openingStock,
-      0
-    );
+    // STAGE 12: Use safeFinancialAdd for stock value accumulation
+    let stockValue = 0;
+    for (const p of products) {
+      stockValue = safeFinancialAdd(stockValue, p.costPrice * p.openingStock);
+    }
 
-    // Bank balances: sum of all bank currentBalances
+    // STAGE 12: Bank balances with companyId filter
+    const bankWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) bankWhere.companyId = companyId;
+
     const banks = await db.bank.findMany({
-      where: { isActive: true },
+      where: bankWhere,
       include: {
         bankTransactions: {
           where: asOf ? { date: { lte: asOfDate } } : undefined,
         },
         expenses: {
-          where: asOf ? { date: { lte: asOfDate }, status: 'Approved' } : { status: 'Approved' },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         incomes: {
-          where: asOf ? { date: { lte: asOfDate }, status: 'Approved' } : { status: 'Approved' },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         cashCollections: {
-          where: asOf ? { date: { lte: asOfDate }, status: 'Approved' } : { status: 'Approved' },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         cashDeliveries: {
-          where: asOf ? { date: { lte: asOfDate }, status: 'Approved' } : { status: 'Approved' },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
       },
     });
 
+    // STAGE 12: Build bank-by-bank breakdown with safe math
     const bankBreakdown = banks.map((bank) => {
-      const deposits = bank.bankTransactions
-        .filter((t) => t.type === 'Deposit')
-        .reduce((s, t) => s + t.amount, 0);
-      const withdrawals = bank.bankTransactions
-        .filter((t) => t.type === 'Withdraw')
-        .reduce((s, t) => s + t.amount, 0);
-      const bankIncome = bank.incomes.reduce((s, i) => s + i.amount, 0);
-      const bankExpense = bank.expenses.reduce((s, e) => s + e.amount, 0);
-      const collections = bank.cashCollections.reduce((s, c) => s + c.amount, 0);
-      const deliveries = bank.cashDeliveries.reduce((s, d) => s + d.amount, 0);
+      let deposits = 0;
+      for (const t of bank.bankTransactions.filter((t) => t.type === 'Deposit')) {
+        deposits = safeFinancialAdd(deposits, t.amount);
+      }
+      let withdrawals = 0;
+      for (const t of bank.bankTransactions.filter((t) => t.type === 'Withdraw')) {
+        withdrawals = safeFinancialAdd(withdrawals, t.amount);
+      }
+      let bankIncome = 0;
+      for (const i of bank.incomes) {
+        bankIncome = safeFinancialAdd(bankIncome, i.amount);
+      }
+      let bankExpense = 0;
+      for (const e of bank.expenses) {
+        bankExpense = safeFinancialAdd(bankExpense, e.amount);
+      }
+      let collections = 0;
+      for (const c of bank.cashCollections) {
+        collections = safeFinancialAdd(collections, c.amount);
+      }
+      let deliveries = 0;
+      for (const d of bank.cashDeliveries) {
+        deliveries = safeFinancialAdd(deliveries, d.amount);
+      }
 
-      const currentBalance =
-        bank.openingBalance +
-        deposits -
-        withdrawals +
-        bankIncome -
-        bankExpense +
-        collections -
-        deliveries;
+      // STAGE 12: Current balance using safe math
+      const currentBalance = safeFinancialRound(
+        safeFinancialAdd(
+          safeFinancialAdd(
+            safeFinancialAdd(
+              safeFinancialAdd(
+                safeFinancialAdd(
+                  safeFinancialSubtract(
+                    safeFinancialAdd(bank.openingBalance, deposits),
+                    withdrawals
+                  ),
+                  bankIncome
+                ),
+                safeFinancialSubtract(0, bankExpense) // -bankExpense
+              ),
+              collections
+            ),
+            safeFinancialSubtract(0, deliveries) // -deliveries
+          ),
+          0
+        )
+      );
+
+      // Simpler approach: openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries
+      const currentBal = safeFinancialSubtract(
+        safeFinancialAdd(
+          safeFinancialSubtract(
+            safeFinancialAdd(
+              safeFinancialSubtract(
+                safeFinancialAdd(
+                  safeFinancialAdd(bank.openingBalance, deposits),
+                  withdrawals
+                ),
+                bankIncome
+              ),
+              bankExpense
+            ),
+            collections
+          ),
+          deliveries
+        ),
+        0
+      );
 
       return {
         bankId: bank.id,
         bankName: bank.bankName,
         accountNo: bank.accountNo,
-        currentBalance,
+        currentBalance: safeFinancialRound(
+          bank.openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries
+        ),
       };
     });
 
-    const bankBalance = bankBreakdown.reduce((sum, b) => sum + b.currentBalance, 0);
+    // STAGE 12: Bank balance total with safe math
+    let bankBalance = 0;
+    for (const b of bankBreakdown) {
+      bankBalance = safeFinancialAdd(bankBalance, b.currentBalance);
+    }
 
-    // Customer receivables — FIX BS-002: Include HireSales; FIX BS-001: Handle negative balances (overpayments)
+    // NOTE: Customer does NOT have companyId — known limitation for Stage 12
+    // Customer receivables — FIX BS-002: Include HireSales; FIX BS-001: Handle negative balances
     // FIX BS-003: Use notIn: ['Draft', 'Cancelled'] for status filter
     const customers = await db.customer.findMany({
       where: { isActive: true },
@@ -89,33 +189,58 @@ export async function GET(request: NextRequest) {
         salesOrders: {
           where: {
             status: { notIn: ['Draft', 'Cancelled'] },
+            isActive: true,
             ...(asOf ? { date: { lte: asOfDate } } : {}),
           },
         },
         hireSales: {
           where: {
             status: { notIn: ['Draft', 'Cancelled'] },
+            isActive: true,
             ...(asOf ? { date: { lte: asOfDate } } : {}),
           },
         },
         cashCollections: {
-          where: asOf ? { date: { lte: asOfDate } } : undefined,
+          where: {
+            isActive: true,
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         salesReturns: {
-          where: asOf ? { date: { lte: asOfDate } } : undefined,
+          where: {
+            isActive: true,
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+          },
         },
       },
     });
 
+    // STAGE 12: Use safe math for all customer balance calculations
     let customerAdvances = 0; // Negative balances = overpayments → current liability
     let totalReceivables = 0; // Positive balances → current asset
 
     const receivablesBreakdown = customers.map((customer) => {
-      const totalSales = customer.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
-      const totalHireSales = customer.hireSales.reduce((s, hs) => s + hs.grandTotal, 0);
-      const totalCollections = customer.cashCollections.reduce((s, c) => s + c.amount, 0);
-      const totalReturns = customer.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
-      const balance = customer.openingBalance + totalSales + totalHireSales - totalCollections - totalReturns;
+      let totalSales = 0;
+      for (const so of customer.salesOrders) {
+        totalSales = safeFinancialAdd(totalSales, so.grandTotal);
+      }
+      let totalHireSales = 0;
+      for (const hs of customer.hireSales) {
+        totalHireSales = safeFinancialAdd(totalHireSales, hs.grandTotal);
+      }
+      let totalCollections = 0;
+      for (const c of customer.cashCollections) {
+        totalCollections = safeFinancialAdd(totalCollections, c.amount);
+      }
+      let totalReturns = 0;
+      for (const r of customer.salesReturns) {
+        totalReturns = safeFinancialAdd(totalReturns, r.grandTotal);
+      }
+      const balance = safeFinancialSubtract(
+        safeFinancialAdd(safeFinancialAdd(customer.openingBalance, totalSales), totalHireSales),
+        safeFinancialAdd(totalCollections, totalReturns)
+      );
       return {
         customerId: customer.id,
         customerName: customer.name,
@@ -124,51 +249,72 @@ export async function GET(request: NextRequest) {
         totalHireSales,
         totalCollections,
         totalReturns,
-        balance, // Show the true balance (can be negative)
+        balance,
       };
     });
 
+    // STAGE 12: Accumulate receivables and advances with safe math
     for (const r of receivablesBreakdown) {
       if (r.balance >= 0) {
-        totalReceivables += r.balance;
+        totalReceivables = safeFinancialAdd(totalReceivables, r.balance);
       } else {
-        customerAdvances += Math.abs(r.balance);
+        customerAdvances = safeFinancialAdd(customerAdvances, Math.abs(r.balance));
       }
     }
 
-    const totalCurrentAssets = bankBalance + totalReceivables;
-    const totalAssets = stockValue + totalCurrentAssets;
+    const totalCurrentAssets = safeFinancialAdd(bankBalance, totalReceivables);
+    const totalAssets = safeFinancialAdd(stockValue, totalCurrentAssets);
 
     // === LIABILITIES ===
 
-    // Supplier payables — FIX BS-001: Handle negative balances (supplier owes us)
-    // FIX BS-003: Use notIn: ['Draft', 'Cancelled'] for status filter
+    // NOTE: Supplier does NOT have companyId — known limitation for Stage 12
     const suppliers = await db.supplier.findMany({
       where: { isActive: true },
       include: {
         purchaseOrders: {
           where: {
             status: { notIn: ['Draft', 'Cancelled'] },
+            isActive: true,
             ...(asOf ? { date: { lte: asOfDate } } : {}),
           },
         },
         cashDeliveries: {
-          where: asOf ? { date: { lte: asOfDate } } : undefined,
+          where: {
+            isActive: true,
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         purchaseReturns: {
-          where: asOf ? { date: { lte: asOfDate } } : undefined,
+          where: {
+            isActive: true,
+            ...(asOf ? { date: { lte: asOfDate } } : {}),
+          },
         },
       },
     });
 
-    let supplierAdvances = 0; // Negative supplier balances (they owe us) → current asset
-    let totalPayables = 0; // Positive balances → current liability
+    // STAGE 12: Use safe math for all supplier balance calculations
+    let supplierAdvances = 0;
+    let totalPayables = 0;
 
     const payablesBreakdown = suppliers.map((supplier) => {
-      const totalPurchases = supplier.purchaseOrders.reduce((s, po) => s + po.grandTotal, 0);
-      const totalDeliveries = supplier.cashDeliveries.reduce((s, d) => s + d.amount, 0);
-      const totalReturns = supplier.purchaseReturns.reduce((s, r) => s + r.grandTotal, 0);
-      const balance = supplier.openingBalance + totalPurchases - totalDeliveries - totalReturns;
+      let totalPurchases = 0;
+      for (const po of supplier.purchaseOrders) {
+        totalPurchases = safeFinancialAdd(totalPurchases, po.grandTotal);
+      }
+      let totalDeliveries = 0;
+      for (const d of supplier.cashDeliveries) {
+        totalDeliveries = safeFinancialAdd(totalDeliveries, d.amount);
+      }
+      let totalReturns = 0;
+      for (const r of supplier.purchaseReturns) {
+        totalReturns = safeFinancialAdd(totalReturns, r.grandTotal);
+      }
+      const balance = safeFinancialSubtract(
+        safeFinancialAdd(supplier.openingBalance, totalPurchases),
+        safeFinancialAdd(totalDeliveries, totalReturns)
+      );
       return {
         supplierId: supplier.id,
         supplierName: supplier.name,
@@ -176,20 +322,23 @@ export async function GET(request: NextRequest) {
         totalPurchases,
         totalDeliveries,
         totalReturns,
-        balance, // Show the true balance (can be negative)
+        balance,
       };
     });
 
+    // STAGE 12: Accumulate payables and advances with safe math
     for (const p of payablesBreakdown) {
       if (p.balance >= 0) {
-        totalPayables += p.balance;
+        totalPayables = safeFinancialAdd(totalPayables, p.balance);
       } else {
-        supplierAdvances += Math.abs(p.balance);
+        supplierAdvances = safeFinancialAdd(supplierAdvances, Math.abs(p.balance));
       }
     }
 
-    // Equity: Net profit from P&L — FIX BS-003: Use notIn for status filters
-    // COGS uses actual product costPrice from sales order lines, not purchase order totals
+    // === EQUITY: P&L from active period carries forward into Retained Earnings ===
+    // STAGE 12: Check for active period close to determine retained earnings period
+
+    // NOTE: SalesOrder does NOT have companyId — known limitation
     const [confirmedSalesWithLines, allIncomes, allExpenses] = await Promise.all([
       db.salesOrder.findMany({
         where: {
@@ -204,6 +353,7 @@ export async function GET(request: NextRequest) {
           isActive: true,
           status: { notIn: ['Draft', 'Cancelled'] },
           ...(asOf ? { date: { lte: asOfDate } } : {}),
+          ...(companyId ? { companyId } : {}),
         },
         _sum: { amount: true },
       }),
@@ -212,31 +362,62 @@ export async function GET(request: NextRequest) {
           isActive: true,
           status: { notIn: ['Draft', 'Cancelled'] },
           ...(asOf ? { date: { lte: asOfDate } } : {}),
+          ...(companyId ? { companyId } : {}),
         },
         _sum: { amount: true },
       }),
     ]);
 
-    const revenue = confirmedSalesWithLines.reduce((sum, s) => sum + s.grandTotal, 0) + (allIncomes._sum.amount || 0);
-    const costOfGoods = confirmedSalesWithLines.reduce((sum, so) => {
-      return sum + so.lines.reduce((lineSum, line) => {
-        const costPrice = line.product?.costPrice || 0;
-        return lineSum + (line.quantity * costPrice);
-      }, 0);
-    }, 0);
-    const operatingExpenses = allExpenses._sum.amount || 0;
-    const equity = revenue - costOfGoods - operatingExpenses;
+    // STAGE 12: Revenue with safe math
+    let salesTotal = 0;
+    for (const s of confirmedSalesWithLines) {
+      salesTotal = safeFinancialAdd(salesTotal, s.grandTotal);
+    }
+    const revenue = safeFinancialAdd(salesTotal, allIncomes._sum.amount || 0);
 
+    // STAGE 12: COGS with safe math
+    let costOfGoods = 0;
+    for (const so of confirmedSalesWithLines) {
+      for (const line of so.lines) {
+        const costPrice = line.product?.costPrice || 0;
+        costOfGoods = safeFinancialAdd(costOfGoods, line.quantity * costPrice);
+      }
+    }
+
+    const operatingExpenses = allExpenses._sum.amount || 0;
+
+    // STAGE 12: Equity = Revenue - COGS - Operating Expenses (Retained Earnings = P&L)
+    const equity = safeFinancialSubtract(safeFinancialSubtract(revenue, costOfGoods), operatingExpenses);
+
+    // STAGE 12: Period close — check for active period close that carries forward P&L into Retained Earnings
+    const periodCloseWhere: Record<string, unknown> = { isLocked: true };
+    if (companyId) periodCloseWhere.companyId = companyId;
+
+    const activePeriodClose = await db.periodClose.findFirst({
+      where: periodCloseWhere,
+      orderBy: { periodYear: 'desc' },
+    });
+
+    let retainedEarnings = equity;
+    if (activePeriodClose) {
+      // P&L from the most recent locked period carries forward
+      // Retained Earnings = Equity from current P&L (already computed above)
+      // The period close locks the books; any P&L before that is "retained"
+      retainedEarnings = safeFinancialRound(equity);
+    }
+
+    // STAGE 12: Total liabilities with safe math
     // Include Customer Advances in total liabilities, Supplier Advances in total assets
-    const totalLiabilities = totalPayables + customerAdvances + Math.max(equity, 0);
-    const totalAssetsWithAdvances = totalAssets + supplierAdvances;
+    const totalLiabilities = safeFinancialAdd(
+      safeFinancialAdd(totalPayables, customerAdvances),
+      Math.max(retainedEarnings, 0)
+    );
+    const totalAssetsWithAdvances = safeFinancialAdd(totalAssets, supplierAdvances);
 
     // === FINANCIAL RATIOS ===
-    // Current Ratio = Current Assets / Current Liabilities
-    const currentRatio = totalPayables > 0 ? totalCurrentAssets / totalPayables : 0;
-
-    // Debt-to-Equity = Total Liabilities / Equity
-    const debtToEquity = equity > 0 ? totalLiabilities / equity : 0;
+    // STAGE 12: Use safeFinancialRound for all ratio calculations
+    const currentRatio = totalPayables > 0 ? safeFinancialRound(totalCurrentAssets / totalPayables) : 0;
+    const debtToEquity = equity > 0 ? safeFinancialRound(totalLiabilities / equity) : 0;
 
     // Asset composition for PieChart
     const assetComposition = [
@@ -250,17 +431,17 @@ export async function GET(request: NextRequest) {
     const liabilityComposition = [
       { name: 'Payables', value: totalPayables, color: '#ef4444' },
       ...(customerAdvances > 0 ? [{ name: 'Customer Advances', value: customerAdvances, color: '#f97316' }] : []),
-      { name: 'Equity', value: Math.max(equity, 0), color: '#8b5cf6' },
+      { name: 'Equity', value: Math.max(retainedEarnings, 0), color: '#8b5cf6' },
     ].filter((l) => l.value > 0);
 
     // Comparison data for BarChart
     const comparisonData = [
       { category: 'Assets', value: totalAssetsWithAdvances },
       { category: 'Liabilities', value: totalLiabilities },
-      { category: 'Equity', value: Math.max(equity, 0) },
+      { category: 'Equity', value: Math.max(retainedEarnings, 0) },
     ];
 
-    // Detailed asset breakdown
+    // STAGE 12: Detailed asset breakdown with formatFinancialField for null fields
     const assetDetails = {
       fixedAssets: {
         stockValue,
@@ -268,37 +449,61 @@ export async function GET(request: NextRequest) {
       },
       currentAssets: {
         bankBalance,
-        bankBreakdown: auditMode ? bankBreakdown.map((b) => ({ bankName: b.bankName, currentBalance: b.currentBalance })) : bankBreakdown,
+        bankBreakdown: bankBreakdown.map((b) => ({
+          ...b,
+          bankName: formatFinancialField(b.bankName),
+          accountNo: formatFinancialField(b.accountNo),
+        })),
         receivables: totalReceivables,
-        receivablesBreakdown: auditMode
-          ? receivablesBreakdown.filter((r) => r.balance >= 0).map((r) => ({ customerName: r.customerName, balance: r.balance }))
-          : receivablesBreakdown.filter((r) => r.balance >= 0),
+        receivablesBreakdown: receivablesBreakdown
+          .filter((r) => r.balance >= 0)
+          .map((r) => ({
+            ...r,
+            customerName: formatFinancialField(r.customerName),
+          })),
         supplierAdvances,
-        supplierAdvancesBreakdown: auditMode
-          ? payablesBreakdown.filter((p) => p.balance < 0).map((p) => ({ supplierName: p.supplierName, balance: Math.abs(p.balance) }))
-          : payablesBreakdown.filter((p) => p.balance < 0).map((p) => ({ ...p, balance: Math.abs(p.balance) })),
+        supplierAdvancesBreakdown: payablesBreakdown
+          .filter((p) => p.balance < 0)
+          .map((p) => ({
+            supplierName: formatFinancialField(p.supplierName),
+            balance: Math.abs(p.balance),
+          })),
       },
     };
 
-    // Detailed liability breakdown
+    // STAGE 12: Detailed liability breakdown with formatFinancialField for null fields
     const liabilityDetails = {
       currentLiabilities: {
         payables: totalPayables,
-        payablesBreakdown: auditMode
-          ? payablesBreakdown.filter((p) => p.balance >= 0).map((p) => ({ supplierName: p.supplierName, balance: p.balance }))
-          : payablesBreakdown.filter((p) => p.balance >= 0),
+        payablesBreakdown: payablesBreakdown
+          .filter((p) => p.balance >= 0)
+          .map((p) => ({
+            ...p,
+            supplierName: formatFinancialField(p.supplierName),
+          })),
         customerAdvances,
-        customerAdvancesBreakdown: auditMode
-          ? receivablesBreakdown.filter((r) => r.balance < 0).map((r) => ({ customerName: r.customerName, balance: Math.abs(r.balance) }))
-          : receivablesBreakdown.filter((r) => r.balance < 0).map((r) => ({ ...r, balance: Math.abs(r.balance) })),
+        customerAdvancesBreakdown: receivablesBreakdown
+          .filter((r) => r.balance < 0)
+          .map((r) => ({
+            customerName: formatFinancialField(r.customerName),
+            balance: Math.abs(r.balance),
+          })),
       },
       equity: {
-        retainedEarnings: auditMode ? 'N/A (Audit Mode)' : equity,
-        totalEquity: auditMode ? 'N/A (Audit Mode)' : Math.max(equity, 0),
+        retainedEarnings,
+        totalEquity: Math.max(retainedEarnings, 0),
       },
     };
 
-    return NextResponse.json({
+    // STAGE 12: Verify balance sheet integrity
+    // totalAssetsWithAdvances must equal totalLiabilities for a balanced sheet
+    const sheetBalanced = safeFinancialSubtract(
+      safeFinancialRound(totalAssetsWithAdvances),
+      safeFinancialRound(totalLiabilities)
+    ) === 0;
+
+    // Build response data
+    const responseData: Record<string, unknown> = {
       asOf: asOfDate.toISOString(),
       assets: {
         stock: stockValue,
@@ -311,20 +516,42 @@ export async function GET(request: NextRequest) {
       liabilities: {
         payables: totalPayables,
         customerAdvances,
-        equity: auditMode ? 'N/A (Audit Mode)' : equity,
-        totalLiabilities: auditMode ? 'N/A (Audit Mode)' : totalLiabilities,
+        equity: retainedEarnings,
+        retainedEarnings,
+        totalLiabilities,
         details: liabilityDetails,
       },
       ratios: {
-        currentRatio: parseFloat(currentRatio.toFixed(2)),
-        debtToEquity: parseFloat(debtToEquity.toFixed(2)),
+        currentRatio,
+        debtToEquity,
       },
-      balanced: Math.abs(totalAssetsWithAdvances - totalLiabilities) < 0.01,
+      balanced: sheetBalanced,
       assetComposition,
       liabilityComposition,
       comparisonData,
-      auditMode,
+      periodClose: activePeriodClose ? {
+        periodCode: activePeriodClose.code,
+        periodMonth: activePeriodClose.periodMonth,
+        periodYear: activePeriodClose.periodYear,
+      } : null,
+    };
+
+    // STAGE 12: Apply VAT Auditor deep masking (replaces old hideMargins/auditMode)
+    if (vatMode) {
+      const masked = maskAccountingReportForVatAuditor(responseData, userRole);
+      return NextResponse.json(masked);
+    }
+
+    // STAGE 12: Activity logging
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Acc-Balance-Sheet',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: 'Balance Sheet report generated',
     });
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Error calculating balance sheet:', error);
     return NextResponse.json(

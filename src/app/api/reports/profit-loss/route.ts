@@ -1,16 +1,34 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  validateVatMode,
+  maskAccountingReportForVatAuditor,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  formatFinancialField,
+} from '@/lib/api-security';
+import type { UserRole } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/profit-loss - Enhanced with date range, COGS formula, VAT Auditor mode
+// GET /api/reports/profit-loss - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'GET');
+  const security = await withApiSecurity(request, 'ProfitLoss', 'GET');
   if (!security.authorized) return security.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from');
     const to = searchParams.get('to');
-    const hideMargins = searchParams.get('hideMargins'); // VAT Auditor mode
+
+    // STAGE 12: VAT Auditor mode validation (replaces old hideMargins)
+    const rawVatMode = searchParams.get('vatMode') === 'true';
+    const userRole = security.user.role as UserRole;
+    const vatMode = validateVatMode(rawVatMode, userRole);
+
+    // STAGE 12: Multi-tenant companyId isolation
+    const companyId = security.user.companyId;
 
     // Build date filters
     const dateFilterSO: Record<string, Date> = {};
@@ -36,13 +54,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // FIX PL-001: Include multiple non-Draft/non-Cancelled statuses instead of only 'Confirmed'
+    // FIX PL-001: Include multiple non-Draft/non-Cancelled statuses
+    // NOTE: SalesOrder does NOT have companyId — known limitation for Stage 12
     const salesWhere: Record<string, unknown> = { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true };
     if (from || to) salesWhere.date = dateFilterSO;
 
-    // Income and expenses: include Approved status (already filtered by isActive)
-    const incomeWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...dateFilterIncome };
-    const expenseWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...dateFilterExpense };
+    // STAGE 12: Add companyId filter to Income and Expense (models WITH companyId)
+    const incomeWhere: Record<string, unknown> = {
+      isActive: true,
+      status: { notIn: ['Draft', 'Cancelled'] },
+      ...dateFilterIncome,
+      ...(companyId ? { companyId } : {}),
+    };
+    const expenseWhere: Record<string, unknown> = {
+      isActive: true,
+      status: { notIn: ['Draft', 'Cancelled'] },
+      ...dateFilterExpense,
+      ...(companyId ? { companyId } : {}),
+    };
 
     const [confirmedSales, allIncomes, allExpenses] = await Promise.all([
       db.salesOrder.findMany({
@@ -59,58 +88,67 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
-    // Net Revenue = Sales Revenue + Other Income
-    const salesRevenue = confirmedSales.reduce((sum, s) => sum + s.grandTotal, 0);
-    const totalIncome = allIncomes.reduce((sum, i) => sum + i.amount, 0);
-    const revenue = salesRevenue + totalIncome;
+    // STAGE 12: Net Revenue = Sales Revenue + Other Income (using safeFinancialAdd)
+    let salesRevenue = 0;
+    for (const s of confirmedSales) {
+      salesRevenue = safeFinancialAdd(salesRevenue, s.grandTotal);
+    }
+    let totalIncome = 0;
+    for (const i of allIncomes) {
+      totalIncome = safeFinancialAdd(totalIncome, i.amount);
+    }
+    const revenue = safeFinancialAdd(salesRevenue, totalIncome);
 
-    // COGS = Sum of (quantity × costPrice) for all sold items, not total purchase order amounts
-    // This uses the actual cost price from the product at time of sale
-    const costOfGoods = confirmedSales.reduce((sum, so) => {
-      return sum + so.lines.reduce((lineSum, line) => {
+    // STAGE 12: COGS = Sum of (quantity × costPrice) for all sold items (using safeFinancialAdd)
+    let costOfGoods = 0;
+    for (const so of confirmedSales) {
+      for (const line of so.lines) {
         const costPrice = line.product?.costPrice || 0;
-        return lineSum + (line.quantity * costPrice);
-      }, 0);
-    }, 0);
+        costOfGoods = safeFinancialAdd(costOfGoods, line.quantity * costPrice);
+      }
+    }
 
-    // Gross Profit = Net Revenue - COGS
-    const grossProfit = revenue - costOfGoods;
-    const grossProfitMargin = revenue > 0 ? ((grossProfit / revenue) * 100).toFixed(2) : '0.00';
+    // STAGE 12: Gross Profit = Net Revenue - COGS (using safeFinancialSubtract)
+    const grossProfit = safeFinancialSubtract(revenue, costOfGoods);
+    const grossProfitMargin = revenue > 0 ? safeFinancialRound((grossProfit / revenue) * 100) : 0;
 
-    // Operating Expenses
-    const operatingExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
+    // STAGE 12: Operating Expenses (using safeFinancialAdd)
+    let operatingExpenses = 0;
+    for (const e of allExpenses) {
+      operatingExpenses = safeFinancialAdd(operatingExpenses, e.amount);
+    }
 
-    // Net Margin = Gross Profit - Operating Expenses
-    const netProfit = grossProfit - operatingExpenses;
-    const netProfitMargin = revenue > 0 ? ((netProfit / revenue) * 100).toFixed(2) : '0.00';
+    // STAGE 12: Net Margin = Gross Profit - Operating Expenses
+    const netProfit = safeFinancialSubtract(grossProfit, operatingExpenses);
+    const netProfitMargin = revenue > 0 ? safeFinancialRound((netProfit / revenue) * 100) : 0;
 
-    // Income details grouped by head
+    // STAGE 12: Income details grouped by head (using safeFinancialAdd)
     const incomeByHead = new Map<string, { head: string; amount: number; count: number }>();
     for (const income of allIncomes) {
-      const headName = income.head?.name || 'Unknown';
+      const headName = formatFinancialField(income.head?.name);
       const existing = incomeByHead.get(headName);
       if (existing) {
-        existing.amount += income.amount;
+        existing.amount = safeFinancialAdd(existing.amount, income.amount);
         existing.count += 1;
       } else {
         incomeByHead.set(headName, { head: headName, amount: income.amount, count: 1 });
       }
     }
 
-    // Expense details grouped by head
+    // STAGE 12: Expense details grouped by head (using safeFinancialAdd)
     const expenseByHead = new Map<string, { head: string; amount: number; count: number }>();
     for (const expense of allExpenses) {
-      const headName = expense.head?.name || 'Unknown';
+      const headName = formatFinancialField(expense.head?.name);
       const existing = expenseByHead.get(headName);
       if (existing) {
-        existing.amount += expense.amount;
+        existing.amount = safeFinancialAdd(existing.amount, expense.amount);
         existing.count += 1;
       } else {
         expenseByHead.set(headName, { head: headName, amount: expense.amount, count: 1 });
       }
     }
 
-    // Monthly breakdown
+    // STAGE 12: Monthly breakdown with safe math
     const now = new Date();
     const monthsToGenerate = 12;
     const monthlyData: {
@@ -119,9 +157,9 @@ export async function GET(request: NextRequest) {
       cogs: number;
       grossProfit: number;
       expenses: number;
-      netMargin: number | string;
+      netMargin: number;
       profit: number;
-      profitMargin: number | string;
+      profitMargin: number;
     }[] = [];
 
     for (let i = monthsToGenerate - 1; i >= 0; i--) {
@@ -130,39 +168,44 @@ export async function GET(request: NextRequest) {
       const year = d.getFullYear();
       const month = d.getMonth();
 
-      const monthSales = confirmedSales
-        .filter((s) => {
-          const sd = new Date(s.date);
-          return sd.getFullYear() === year && sd.getMonth() === month;
-        })
-        .reduce((sum, s) => sum + s.grandTotal, 0);
-      const monthIncome = allIncomes
-        .filter((inc) => {
-          const id = new Date(inc.date);
-          return id.getFullYear() === year && id.getMonth() === month;
-        })
-        .reduce((sum, inc) => sum + inc.amount, 0);
-      const monthCOGS = confirmedSales
-        .filter((s) => {
-          const sd = new Date(s.date);
-          return sd.getFullYear() === year && sd.getMonth() === month;
-        })
-        .reduce((sum, so) => {
-          return sum + so.lines.reduce((lineSum, line) => {
-            const costPrice = line.product?.costPrice || 0;
-            return lineSum + (line.quantity * costPrice);
-          }, 0);
-        }, 0);
-      const monthExpenses = allExpenses
-        .filter((e) => {
-          const ed = new Date(e.date);
-          return ed.getFullYear() === year && ed.getMonth() === month;
-        })
-        .reduce((sum, e) => sum + e.amount, 0);
+      let monthSales = 0;
+      for (const s of confirmedSales) {
+        const sd = new Date(s.date);
+        if (sd.getFullYear() === year && sd.getMonth() === month) {
+          monthSales = safeFinancialAdd(monthSales, s.grandTotal);
+        }
+      }
 
-      const monthRevenue = monthSales + monthIncome;
-      const monthGrossProfit = monthRevenue - monthCOGS;
-      const monthNet = monthGrossProfit - monthExpenses;
+      let monthIncome = 0;
+      for (const inc of allIncomes) {
+        const id = new Date(inc.date);
+        if (id.getFullYear() === year && id.getMonth() === month) {
+          monthIncome = safeFinancialAdd(monthIncome, inc.amount);
+        }
+      }
+
+      let monthCOGS = 0;
+      for (const s of confirmedSales) {
+        const sd = new Date(s.date);
+        if (sd.getFullYear() === year && sd.getMonth() === month) {
+          for (const line of s.lines) {
+            const costPrice = line.product?.costPrice || 0;
+            monthCOGS = safeFinancialAdd(monthCOGS, line.quantity * costPrice);
+          }
+        }
+      }
+
+      let monthExpenses = 0;
+      for (const e of allExpenses) {
+        const ed = new Date(e.date);
+        if (ed.getFullYear() === year && ed.getMonth() === month) {
+          monthExpenses = safeFinancialAdd(monthExpenses, e.amount);
+        }
+      }
+
+      const monthRevenue = safeFinancialAdd(monthSales, monthIncome);
+      const monthGrossProfit = safeFinancialSubtract(monthRevenue, monthCOGS);
+      const monthNet = safeFinancialSubtract(monthGrossProfit, monthExpenses);
 
       monthlyData.push({
         month: monthStr,
@@ -171,23 +214,13 @@ export async function GET(request: NextRequest) {
         grossProfit: monthGrossProfit,
         expenses: monthExpenses,
         profit: monthNet,
-        profitMargin: hideMargins
-          ? 'N/A (Audit Mode)'
-          : monthRevenue > 0
-            ? parseFloat(((monthNet / monthRevenue) * 100).toFixed(1))
-            : 0,
-        netMargin: hideMargins
-          ? 'N/A (Audit Mode)'
-          : monthRevenue > 0
-            ? parseFloat(((monthNet / monthRevenue) * 100).toFixed(1))
-            : 0,
+        profitMargin: monthRevenue > 0 ? safeFinancialRound((monthNet / monthRevenue) * 100) : 0,
+        netMargin: monthRevenue > 0 ? safeFinancialRound((monthNet / monthRevenue) * 100) : 0,
       });
     }
 
-    // VAT Auditor mode: replace netProfit/netMargin with "N/A (Audit Mode)"
-    const auditMode = hideMargins === 'true';
-
-    return NextResponse.json({
+    // Build response data
+    const responseData: Record<string, unknown> = {
       revenue,
       salesRevenue,
       otherIncome: totalIncome,
@@ -195,15 +228,31 @@ export async function GET(request: NextRequest) {
       grossProfit,
       grossProfitMargin,
       operatingExpenses,
-      netProfit: auditMode ? 'N/A (Audit Mode)' : netProfit,
-      netProfitMargin: auditMode ? 'N/A (Audit Mode)' : netProfitMargin,
+      netProfit,
+      netProfitMargin,
       incomeDetails: Array.from(incomeByHead.values()),
       expenseDetails: Array.from(expenseByHead.values()),
       monthlyData,
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
-      auditMode,
+    };
+
+    // STAGE 12: Apply VAT Auditor deep masking (replaces old hideMargins approach)
+    if (vatMode) {
+      const masked = maskAccountingReportForVatAuditor(responseData, userRole);
+      return NextResponse.json(masked);
+    }
+
+    // STAGE 12: Activity logging
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Acc-Profit-Loss',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: 'Profit & Loss report generated',
     });
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Error calculating profit & loss:', error);
     return NextResponse.json(

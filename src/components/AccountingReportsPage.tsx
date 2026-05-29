@@ -24,7 +24,10 @@ import {
 // UTILITY FUNCTIONS
 // ============================================================
 
+const AUDIT_MASK = "N/A (Audit Mode)";
+
 const fmt = (v: any, type?: string) => {
+  if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
   if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -133,13 +136,17 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
   const loadTB = useCallback(async () => {
     setTbLoading(true);
     try {
-      let url = "/api/reports/trial-balance";
-      if (tbFrom || tbTo) url += `?${tbFrom ? `from=${tbFrom}` : ""}${tbFrom && tbTo ? "&" : ""}${tbTo ? `to=${tbTo}` : ""}`;
+      const params = new URLSearchParams();
+      if (tbFrom) params.set('from', tbFrom);
+      if (tbTo) params.set('to', tbTo);
+      if (isVatAuditor) params.set('vatMode', 'true');
+      const qs = params.toString();
+      const url = `/api/reports/trial-balance${qs ? '?' + qs : ''}`;
       const res = await apiFetch(url);
       setTbData(res);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setTbLoading(false); }
-  }, [toast, tbFrom, tbTo]);
+  }, [toast, tbFrom, tbTo, isVatAuditor]);
 
   // Load P&L
   const loadPL = useCallback(async () => {
@@ -148,7 +155,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
       const params = new URLSearchParams();
       if (plFrom) params.set('from', plFrom);
       if (plTo) params.set('to', plTo);
-      if (isVatAuditor) params.set('hideMargins', 'true');
+      if (isVatAuditor) params.set('vatMode', 'true');
       const qs = params.toString();
       const url = `/api/reports/profit-loss${qs ? '?' + qs : ''}`;
       const res = await apiFetch(url);
@@ -214,25 +221,25 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
           <Button variant="outline" size="sm" onClick={() => {
             if (activeTab === "cash" && cashData) {
               exportCSV("Cash-In-Hand", ["Bank", "Account No", "Opening", "Deposits", "Withdrawals", "Income", "Expense", "Collections", "Deliveries", "Current Balance"],
-                (cashData.bankBreakdown || []).map((b: any) => [b.bankName, b.accountNo, String(b.openingBalance), String(b.deposits), String(b.withdrawals), String(b.income), isVatAuditor ? "N/A" : String(b.expense), String(b.collections), String(b.deliveries), String(b.currentBalance)]));
+                (cashData.bankBreakdown || []).map((b: any) => [b.bankName, b.accountNo, String(b.openingBalance), String(b.deposits), String(b.withdrawals), String(b.income), isVatAuditor ? AUDIT_MASK : String(b.expense), String(b.collections), String(b.deliveries), String(b.currentBalance)]));
             } else if (activeTab === "trial" && tbData) {
               exportCSV("Trial-Balance", ["Account", "Total Debit", "Total Credit", "Net Balance"],
-                (tbData.entries || []).map((e: any) => [e.account, String(e.totalDebit), String(e.totalCredit), String(e.totalDebit - e.totalCredit)]));
+                (tbData.entries || []).map((e: any) => [e.account, String(e.totalDebit), String(e.totalCredit), isVatAuditor ? AUDIT_MASK : String(typeof e.totalDebit === 'number' ? e.totalDebit - e.totalCredit : 0)]));
             } else if (activeTab === "pl" && plData) {
               exportCSV("Profit-and-Loss", ["Item", "Amount"],
-                [["Sales Revenue", String(plData.salesRevenue)], ["Other Income", String(plData.otherIncome)], ["Total Revenue", String(plData.revenue)], ["COGS", String(plData.costOfGoods)], ["Gross Profit", String(plData.grossProfit)], ["Operating Expenses", String(plData.operatingExpenses)], ["Net Profit", isVatAuditor ? "N/A" : String(plData.netProfit)]]);
+                [["Sales Revenue", String(plData.salesRevenue)], ["Other Income", String(plData.otherIncome)], ["Total Revenue", String(plData.revenue)], ["COGS", String(plData.costOfGoods)], ["Gross Profit", String(plData.grossProfit)], ["Operating Expenses", isVatAuditor ? AUDIT_MASK : String(plData.operatingExpenses)], ["Net Profit", isVatAuditor ? AUDIT_MASK : String(plData.netProfit)]]);
             }
           }}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => {
             if (activeTab === "cash" && cashData) {
               exportPDF("Cash-In-Hand", ["Bank", "Account No", "Opening", "Deposits", "Withdrawals", "Income", "Expense", "Current Balance"],
-                (cashData.bankBreakdown || []).map((b: any) => [b.bankName, b.accountNo, String(b.openingBalance), String(b.deposits), String(b.withdrawals), String(b.income), isVatAuditor ? "N/A" : String(b.expense), String(b.currentBalance)]));
+                (cashData.bankBreakdown || []).map((b: any) => [b.bankName, b.accountNo, String(b.openingBalance), String(b.deposits), String(b.withdrawals), String(b.income), isVatAuditor ? AUDIT_MASK : String(b.expense), String(b.currentBalance)]));
             } else if (activeTab === "trial" && tbData) {
               exportPDF("Trial-Balance", ["Account", "Total Debit", "Total Credit", "Net Balance"],
-                (tbData.entries || []).map((e: any) => [e.account, String(e.totalDebit), String(e.totalCredit), String(e.totalDebit - e.totalCredit)]));
+                (tbData.entries || []).map((e: any) => [e.account, String(e.totalDebit), String(e.totalCredit), isVatAuditor ? AUDIT_MASK : String(typeof e.totalDebit === 'number' ? e.totalDebit - e.totalCredit : 0)]));
             } else if (activeTab === "pl" && plData) {
               exportPDF("Profit-and-Loss", ["Item", "Amount"],
-                [["Sales Revenue", String(plData.salesRevenue)], ["Other Income", String(plData.otherIncome)], ["Total Revenue", String(plData.revenue)], ["COGS", String(plData.costOfGoods)], ["Gross Profit", String(plData.grossProfit)], ["Operating Expenses", String(plData.operatingExpenses)], ["Net Profit", isVatAuditor ? "N/A (Audit Mode)" : String(plData.netProfit)]]);
+                [["Sales Revenue", String(plData.salesRevenue)], ["Other Income", String(plData.otherIncome)], ["Total Revenue", String(plData.revenue)], ["COGS", String(plData.costOfGoods)], ["Gross Profit", String(plData.grossProfit)], ["Operating Expenses", isVatAuditor ? AUDIT_MASK : String(plData.operatingExpenses)], ["Net Profit", isVatAuditor ? AUDIT_MASK : String(plData.netProfit)]]);
             }
           }}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
         </div>
@@ -267,10 +274,10 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               {/* Stat Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
                 {[
-                  { label: "Total Cash In Hand", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(cashData.totals?.totalCashInHand, "currency"), icon: Wallet, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
-                  { label: "Total Bank Balance", value: fmt(cashData.bankBreakdown?.reduce((s: number, b: any) => s + b.currentBalance, 0), "currency"), icon: Landmark, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-                  { label: "Total Receivables", value: fmt(cashData.totals?.cashCollections, "currency"), icon: ArrowUpCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
-                  { label: "Net Cash Position", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(cashData.totals?.totalCashInHand, "currency"), icon: DollarSign, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
+                  { label: "Total Cash In Hand", value: isVatAuditor ? AUDIT_MASK : fmt(cashData.totals?.totalCashInHand, "currency"), icon: Wallet, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+                  { label: "Total Bank Balance", value: isVatAuditor ? AUDIT_MASK : fmt(cashData.bankBreakdown?.reduce((s: number, b: any) => s + (typeof b.currentBalance === 'number' ? b.currentBalance : 0), 0), "currency"), icon: Landmark, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+                  { label: "Total Receivables", value: isVatAuditor ? AUDIT_MASK : fmt(cashData.totals?.cashCollections, "currency"), icon: ArrowUpCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+                  { label: "Net Cash Position", value: isVatAuditor ? AUDIT_MASK : fmt(cashData.totals?.totalCashInHand, "currency"), icon: DollarSign, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
                 ].map((stat, i) => (
                   <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
                     <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
@@ -334,7 +341,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                             <TableCell className="text-right font-mono text-green-600">{fmt(b.deposits, "currency")}</TableCell>
                             <TableCell className="text-right font-mono text-red-600">{fmt(b.withdrawals, "currency")}</TableCell>
                             <TableCell className="text-right font-mono text-green-600">{fmt(b.income, "currency")}</TableCell>
-                            <TableCell className="text-right font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(b.expense, "currency")}</TableCell>
+                            <TableCell className="text-right font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : fmt(b.expense, "currency")}</TableCell>
                             <TableCell className="text-right font-mono text-green-600">{fmt(b.collections, "currency")}</TableCell>
                             <TableCell className="text-right font-mono text-red-600">{fmt(b.deliveries, "currency")}</TableCell>
                             <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white">{fmt(b.currentBalance, "currency")}</TableCell>
@@ -463,7 +470,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                                 <TableCell className="text-right font-mono">{fmt(e.totalCredit, "currency")}</TableCell>
                                 {!isVatAuditor && (
                                   <TableCell className="text-right font-mono font-bold">
-                                    {e.totalDebit > e.totalCredit ? fmt(e.totalDebit - e.totalCredit, "currency") + " Dr" : fmt(e.totalCredit - e.totalDebit, "currency") + " Cr"}
+                                    {typeof e.totalDebit === 'number' && typeof e.totalCredit === 'number' ? (e.totalDebit > e.totalCredit ? fmt(e.totalDebit - e.totalCredit, "currency") + " Dr" : fmt(e.totalCredit - e.totalDebit, "currency") + " Cr") : AUDIT_MASK}
                                   </TableCell>
                                 )}
                               </TableRow>
@@ -475,11 +482,11 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                               <TableCell className="text-right font-mono">{fmt(tbData.grandTotalCredit, "currency")}</TableCell>
                               {!isVatAuditor && (
                                 <TableCell className="text-right font-mono">
-                                  {Math.abs(tbData.grandTotalDebit - tbData.grandTotalCredit) < 0.01 ? (
+                                  {typeof tbData.grandTotalDebit === 'number' && typeof tbData.grandTotalCredit === 'number' ? (Math.abs(tbData.grandTotalDebit - tbData.grandTotalCredit) < 0.01 ? (
                                     <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Balanced</Badge>
                                   ) : (
                                     <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Unbalanced: {fmt(Math.abs(tbData.grandTotalDebit - tbData.grandTotalCredit), "currency")}</Badge>
-                                  )}
+                                  )) : AUDIT_MASK}
                                 </TableCell>
                               )}
                             </TableRow>
@@ -616,12 +623,12 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                         {(plData.expenseDetails || []).map((e: any, i: number) => (
                           <TableRow key={i} className="hover:bg-muted/50">
                             <TableCell className="pl-6 text-slate-900 dark:text-white">{e.head}</TableCell>
-                            <TableCell className="text-right font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(e.amount, "currency")}</TableCell>
+                            <TableCell className="text-right font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : fmt(e.amount, "currency")}</TableCell>
                           </TableRow>
                         ))}
                         <TableRow className="hover:bg-muted/50 font-semibold">
                           <TableCell className="text-slate-900 dark:text-white">Total Operating Expenses</TableCell>
-                          <TableCell className="text-right font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(plData.operatingExpenses, "currency")}</TableCell>
+                          <TableCell className="text-right font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{AUDIT_MASK}</span> : fmt(plData.operatingExpenses, "currency")}</TableCell>
                         </TableRow>
 
                         {/* Net Profit */}
@@ -629,15 +636,15 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                           <TableCell className="text-slate-900 dark:text-white">Net Profit</TableCell>
                           <TableCell className="text-right font-mono">
                             {isVatAuditor
-                              ? <span className="text-amber-600 dark:text-amber-400">N/A (Audit Mode)</span>
-                              : <span className={plData.netProfit >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>{fmt(plData.netProfit, "currency")}</span>}
+                              ? <span className="text-amber-600 dark:text-amber-400">{AUDIT_MASK}</span>
+                              : <span className={typeof plData.netProfit === 'number' && plData.netProfit >= 0 ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>{fmt(plData.netProfit, "currency")}</span>}
                           </TableCell>
                         </TableRow>
                         <TableRow className="hover:bg-muted/50">
                           <TableCell className="pl-6 italic text-muted-foreground">Net Profit Margin</TableCell>
                           <TableCell className="text-right font-mono">
                             {isVatAuditor
-                              ? <span className="text-amber-600 dark:text-amber-400">N/A (Audit Mode)</span>
+                              ? <span className="text-amber-600 dark:text-amber-400">{AUDIT_MASK}</span>
                               : fmt(plData.netProfitMargin, "percent")}
                           </TableCell>
                         </TableRow>

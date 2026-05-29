@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  maskForVatAuditorAccounting,
+  safeFinancialRound,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  formatFinancialField,
+} from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 import { detectCircularParent, calculateAccountBalance } from '@/lib/accounting-utils';
 
-// GET /api/chart-of-accounts/[id]
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// GET /api/chart-of-accounts/[id] - Get single chart of account with cross-tenant validation,
+// safe sub-balances, VAT Auditor masking, and optional field placeholders
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const security = await withApiSecurity(request, 'ChartOfAccounts', 'GET');
   if (!security.authorized) return security.response;
+
+  const role = security.user.role;
+  const companyId = security.user.companyId;
+
   try {
     const { id } = await params;
     const account = await db.chartOfAccount.findUnique({
@@ -17,12 +33,27 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         _count: { select: { childAccounts: true, ledgerEntries: true } },
       },
     });
-    if (!account) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    // COA-002: Attach dynamic sub-balance
-    const balance = await calculateAccountBalance(account.id);
+    if (!account) {
+      return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
+    }
+
+    // Cross-tenant validation: if user has a companyId, the record must match
+    if (companyId && account.companyId && account.companyId !== companyId) {
+      return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
+    }
+
+    // COA-002: Attach dynamic sub-balance (companyId-aware + safe arithmetic)
+    const balance = await calculateAccountBalance(account.id, undefined, companyId);
+
+    // Format parentAccount name — show "—" if null
+    const parentAccountName = account.parentAccount
+      ? account.parentAccount.name
+      : formatFinancialField(null);
+
     const accountWithBalance = {
       ...account,
+      parentAccountName,
       subBalance: {
         ownDebit: balance.ownDebit,
         ownCredit: balance.ownCredit,
@@ -36,24 +67,48 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       },
     };
 
-    return NextResponse.json(accountWithBalance);
+    // Apply VAT Auditor accounting masking
+    const maskedItem = maskForVatAuditorAccounting(
+      accountWithBalance as Record<string, unknown>,
+      role
+    );
+
+    return NextResponse.json(maskedItem);
   } catch (error) {
     console.error('Error fetching chart of account:', error);
-    return NextResponse.json({ error: 'Failed to fetch chart of account' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to fetch chart of account' },
+      { status: 500 }
+    );
   }
 }
 
-// PUT /api/chart-of-accounts/[id]
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// PUT /api/chart-of-accounts/[id] - Update with cross-tenant validation,
+// safe arithmetic, activity logging, and circular parent detection
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const security = await withApiSecurity(request, 'ChartOfAccounts', 'PUT');
   if (!security.authorized) return security.response;
+
+  const companyId = security.user.companyId;
+
   try {
     const { id } = await params;
     const body = await request.json();
     const { name, classification, parentAccountId, openingBalance, openingBalanceType, isActive } = body;
 
+    // Fetch existing record
     const existing = await db.chartOfAccount.findUnique({ where: { id } });
-    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!existing) {
+      return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
+    }
+
+    // Cross-tenant validation: if user has a companyId, the record must match
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
+    }
 
     // COA-001: Circular parent detection on parentAccountId change
     if (parentAccountId !== undefined && parentAccountId) {
@@ -65,13 +120,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         );
       }
 
-      // Verify parent account exists
-      const parentExists = await db.chartOfAccount.findUnique({
-        where: { id: parentAccountId, isActive: true },
-      });
+      // Verify parent account exists AND belongs to same company
+      const parentWhere: Record<string, unknown> = { id: parentAccountId, isActive: true };
+      if (companyId) {
+        parentWhere.companyId = companyId;
+      }
+      const parentExists = await db.chartOfAccount.findFirst({ where: parentWhere });
       if (!parentExists) {
         return NextResponse.json(
-          { error: 'Parent account not found or is inactive' },
+          { error: 'Parent account not found, is inactive, or does not belong to your company' },
           { status: 400 }
         );
       }
@@ -86,6 +143,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       }
     }
 
+    // Safe arithmetic on opening balance if provided
+    const safeOpeningBalance = openingBalance !== undefined
+      ? safeFinancialRound(Number(openingBalance))
+      : undefined;
+
     const result = await db.$transaction(async (tx) => {
       const account = await tx.chartOfAccount.update({
         where: { id },
@@ -93,7 +155,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           ...(name !== undefined && { name }),
           ...(classification !== undefined && { classification }),
           ...(parentAccountId !== undefined && { parentAccountId: parentAccountId || null }),
-          ...(openingBalance !== undefined && { openingBalance }),
+          ...(safeOpeningBalance !== undefined && { openingBalance: safeOpeningBalance }),
           ...(openingBalanceType !== undefined && { openingBalanceType }),
           ...(isActive !== undefined && { isActive }),
         },
@@ -104,39 +166,72 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          action: 'UPDATE',
-          module: 'ChartOfAccounts',
-          recordId: account.id,
-          recordLabel: `${account.code} - ${account.name}`,
-          details: JSON.stringify(body),
-        },
-      });
-
       return account;
+    });
+
+    // Activity logging — module token "Acc-Chart-Of-Accounts"
+    await logUserActivity({
+      action: 'UPDATE',
+      module: 'Acc-Chart-Of-Accounts',
+      recordId: id,
+      recordLabel: `${existing.code} - ${existing.name}`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        code: existing.code,
+        updatedFields: {
+          ...(name !== undefined && { name }),
+          ...(classification !== undefined && { classification }),
+          ...(parentAccountId !== undefined && { parentAccountId }),
+          ...(safeOpeningBalance !== undefined && { openingBalance: safeOpeningBalance }),
+          ...(openingBalanceType !== undefined && { openingBalanceType }),
+          ...(isActive !== undefined && { isActive }),
+        },
+        companyId: companyId || null,
+      }),
     });
 
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error updating chart of account:', error);
-    return NextResponse.json({ error: 'Failed to update chart of account' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to update chart of account' },
+      { status: 500 }
+    );
   }
 }
 
-// DELETE /api/chart-of-accounts/[id]
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// DELETE /api/chart-of-accounts/[id] - Soft delete with cross-tenant validation,
+// child account FK check, and activity logging
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const security = await withApiSecurity(request, 'ChartOfAccounts', 'DELETE');
   if (!security.authorized) return security.response;
+
+  const companyId = security.user.companyId;
+
   try {
     const { id } = await params;
-    const existing = await db.chartOfAccount.findUnique({ where: { id } });
-    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    // Check if account has active child accounts
-    const activeChildren = await db.chartOfAccount.count({
-      where: { parentAccountId: id, isActive: true },
-    });
+    // Fetch existing record
+    const existing = await db.chartOfAccount.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
+    }
+
+    // Cross-tenant validation: if user has a companyId, the record must match
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
+    }
+
+    // Check if account has active child accounts (scoped by companyId)
+    const childWhere: Record<string, unknown> = { parentAccountId: id, isActive: true };
+    if (companyId) {
+      childWhere.companyId = companyId;
+    }
+    const activeChildren = await db.chartOfAccount.count({ where: childWhere });
     if (activeChildren > 0) {
       return NextResponse.json(
         { error: `Cannot deactivate: account has ${activeChildren} active child account(s). Remove or reassign children first.` },
@@ -144,22 +239,45 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       );
     }
 
-    await db.$transaction(async (tx) => {
-      await tx.chartOfAccount.update({ where: { id }, data: { isActive: false } });
+    // Check if account has active ledger entries
+    const ledgerCount = await db.ledgerEntry.count({
+      where: { accountId: id, isActive: true },
+    });
+    if (ledgerCount > 0) {
+      return NextResponse.json(
+        { error: `Cannot deactivate: account has ${ledgerCount} active ledger entries. This account is in active use.` },
+        { status: 400 }
+      );
+    }
 
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          module: 'ChartOfAccounts',
-          recordId: id,
-          recordLabel: `${existing.code} - ${existing.name}`,
-        },
-      });
+    await db.$transaction(async (tx) => {
+      // Soft delete
+      await tx.chartOfAccount.update({ where: { id }, data: { isActive: false } });
+    });
+
+    // Activity logging — module token "Acc-Chart-Of-Accounts"
+    await logUserActivity({
+      action: 'DELETE',
+      module: 'Acc-Chart-Of-Accounts',
+      recordId: id,
+      recordLabel: `${existing.code} - ${existing.name}`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        softDelete: true,
+        code: existing.code,
+        name: existing.name,
+        classification: existing.classification,
+        companyId: companyId || null,
+      }),
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting chart of account:', error);
-    return NextResponse.json({ error: 'Failed to delete chart of account' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to delete chart of account' },
+      { status: 500 }
+    );
   }
 }

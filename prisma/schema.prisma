@@ -119,6 +119,9 @@ model Company {
   smsSettings        SmsSetting[]
   smsLogs            SmsLog[]
   smsBills           SmsBill[]
+  chartOfAccounts    ChartOfAccount[]
+  ledgerEntries      LedgerEntry[]
+  periodCloses       PeriodClose[]
 }
 
 model Category {
@@ -1117,12 +1120,16 @@ model ChartOfAccount {
   parentAccountId     String?
   openingBalance      Float            @default(0)
   openingBalanceType  String           @default("Dr")  // "Dr" or "Cr"
+  companyId           String?          // Multi-tenant isolation
   isActive            Boolean          @default(true)
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   parentAccount       ChartOfAccount?  @relation("COAHierarchy", fields: [parentAccountId], references: [id])
   childAccounts       ChartOfAccount[] @relation("COAHierarchy")
   ledgerEntries       LedgerEntry[]
+  company             Company?         @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model LedgerEntry {
@@ -1136,14 +1143,17 @@ model LedgerEntry {
   credit          Float         @default(0)
   reference       String?
   referenceType   String?       // "SalesOrder", "PurchaseOrder", "Expense", "Income", "CashCollection", "CashDelivery", "BankTransaction", "Manual"
+  companyId       String?       // Multi-tenant isolation
   isActive        Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   chartOfAccount  ChartOfAccount? @relation(fields: [accountId], references: [id])
+  company         Company?      @relation(fields: [companyId], references: [id])
 
   @@index([accountId])
   @@index([date])
   @@index([referenceType])
+  @@index([companyId])
 }
 
 // ============================================================
@@ -1159,10 +1169,14 @@ model PeriodClose {
   closedBy    String?
   isLocked    Boolean  @default(false)
   notes       String?
+  companyId   String?  // Multi-tenant isolation
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  company         Company?      @relation(fields: [companyId], references: [id])
+
   @@unique([periodMonth, periodYear])
+  @@index([companyId])
 }
 
 // ============================================================

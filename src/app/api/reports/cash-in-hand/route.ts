@@ -1,22 +1,36 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  validateVatMode,
+  maskAccountingReportForVatAuditor,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  formatFinancialField,
+} from '@/lib/api-security';
 import type { UserRole } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/cash-in-hand - Enhanced with date range, bank-by-bank running balances, cash flow trend
+// GET /api/reports/cash-in-hand - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Reports', 'GET');
+  const security = await withApiSecurity(request, 'CashInHand', 'GET');
   if (!security.authorized) return security.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const from = searchParams.get('from');
     const to = searchParams.get('to');
-    // VAT-001: Validate vatMode
+
+    // STAGE 12: VAT Auditor mode validation
     const rawVatMode = searchParams.get('vatMode') === 'true';
     const userRole = security.user.role as UserRole;
     const vatMode = validateVatMode(rawVatMode, userRole);
 
-    // Fetch all banks with related transactions
+    // STAGE 12: Multi-tenant companyId isolation
+    const companyId = security.user.companyId;
+
+    // Build date filters
     const dateFilterBT: Record<string, Date> = {};
     const dateFilterExp: Record<string, unknown> = {};
     const dateFilterInc: Record<string, unknown> = {};
@@ -42,56 +56,99 @@ export async function GET(request: NextRequest) {
       dateFilterCD.date = { ...existingCD, lte: new Date(to) };
     }
 
+    // STAGE 12: Filter banks by companyId
+    const bankWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) bankWhere.companyId = companyId;
+
     const banks = await db.bank.findMany({
-      where: { isActive: true },
+      where: bankWhere,
       include: {
         bankTransactions: {
           where: from || to ? { date: dateFilterBT } : undefined,
           orderBy: { date: 'asc' },
         },
         expenses: {
-          where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterExp : {}) },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(from || to ? dateFilterExp : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         incomes: {
-          where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterInc : {}) },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(from || to ? dateFilterInc : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         cashCollections: {
-          where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterCC : {}) },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(from || to ? dateFilterCC : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
         cashDeliveries: {
-          where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterCD : {}) },
+          where: {
+            isActive: true,
+            status: 'Approved',
+            ...(from || to ? dateFilterCD : {}),
+            ...(companyId ? { companyId } : {}),
+          },
         },
       },
     });
 
-    // Build bank-by-bank breakdown with running balances
+    // STAGE 12: Build bank-by-bank breakdown with running balances using safe math
     const bankBreakdown = banks.map((bank) => {
-      const deposits = bank.bankTransactions
-        .filter((t) => t.type === 'Deposit')
-        .reduce((s, t) => s + t.amount, 0);
-      const withdrawals = bank.bankTransactions
-        .filter((t) => t.type === 'Withdraw')
-        .reduce((s, t) => s + t.amount, 0);
-      const bankIncome = bank.incomes.reduce((s, i) => s + i.amount, 0);
-      const bankExpense = bank.expenses.reduce((s, e) => s + e.amount, 0);
-      const collections = bank.cashCollections.reduce((s, c) => s + c.amount, 0);
-      const deliveries = bank.cashDeliveries.reduce((s, d) => s + d.amount, 0);
+      let deposits = 0;
+      for (const t of bank.bankTransactions.filter((t) => t.type === 'Deposit')) {
+        deposits = safeFinancialAdd(deposits, t.amount);
+      }
+      let withdrawals = 0;
+      for (const t of bank.bankTransactions.filter((t) => t.type === 'Withdraw')) {
+        withdrawals = safeFinancialAdd(withdrawals, t.amount);
+      }
+      let bankIncome = 0;
+      for (const i of bank.incomes) {
+        bankIncome = safeFinancialAdd(bankIncome, i.amount);
+      }
+      let bankExpense = 0;
+      for (const e of bank.expenses) {
+        bankExpense = safeFinancialAdd(bankExpense, e.amount);
+      }
+      let collections = 0;
+      for (const c of bank.cashCollections) {
+        collections = safeFinancialAdd(collections, c.amount);
+      }
+      let deliveries = 0;
+      for (const d of bank.cashDeliveries) {
+        deliveries = safeFinancialAdd(deliveries, d.amount);
+      }
 
-      const currentBalance =
-        bank.openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries;
+      // STAGE 12: Current balance using safe math
+      const currentBalance = safeFinancialRound(
+        bank.openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries
+      );
 
-      // Running balance calculation from transactions in date order
+      // STAGE 12: Running balance calculation from transactions in date order using safe math
       let runningBalance = bank.openingBalance;
       const runningBalances = bank.bankTransactions.map((t) => {
-        if (t.type === 'Deposit') runningBalance += t.amount;
-        else if (t.type === 'Withdraw') runningBalance -= t.amount;
+        if (t.type === 'Deposit') {
+          runningBalance = safeFinancialAdd(runningBalance, t.amount);
+        } else if (t.type === 'Withdraw') {
+          runningBalance = safeFinancialSubtract(runningBalance, t.amount);
+        }
         // Transfer: source bank decrements
         return {
           date: t.date,
           type: t.type,
           amount: t.amount,
           transactionCode: t.transactionCode,
-          runningBalance: parseFloat(runningBalance.toFixed(2)),
+          runningBalance: safeFinancialRound(runningBalance),
         };
       });
 
@@ -106,17 +163,25 @@ export async function GET(request: NextRequest) {
         expense: bankExpense,
         collections,
         deliveries,
-        currentBalance: parseFloat(currentBalance.toFixed(2)),
+        currentBalance,
         runningBalances,
       };
     });
 
-    // Calculate totals across all banks
-    const totalOpeningBalance = banks.reduce((sum, b) => sum + b.openingBalance, 0);
-    const totalDeposits = bankBreakdown.reduce((sum, b) => sum + b.deposits, 0);
-    const totalWithdrawals = bankBreakdown.reduce((sum, b) => sum + b.withdrawals, 0);
-    const totalBankIncome = bankBreakdown.reduce((sum, b) => sum + b.income, 0);
-    const totalBankExpense = bankBreakdown.reduce((sum, b) => sum + b.expense, 0);
+    // STAGE 12: Calculate totals across all banks using safe math
+    let totalOpeningBalance = 0;
+    let totalDeposits = 0;
+    let totalWithdrawals = 0;
+    let totalBankIncome = 0;
+    let totalBankExpense = 0;
+
+    for (const b of bankBreakdown) {
+      totalOpeningBalance = safeFinancialAdd(totalOpeningBalance, b.openingBalance);
+      totalDeposits = safeFinancialAdd(totalDeposits, b.deposits);
+      totalWithdrawals = safeFinancialAdd(totalWithdrawals, b.withdrawals);
+      totalBankIncome = safeFinancialAdd(totalBankIncome, b.income);
+      totalBankExpense = safeFinancialAdd(totalBankExpense, b.expense);
+    }
 
     // Cash income/expense not linked to any bank (Cash payment option)
     const cashOption = await db.paymentOption.findFirst({
@@ -132,6 +197,7 @@ export async function GET(request: NextRequest) {
           paymentOptionId: cashOption.id,
           isActive: true,
           ...(from || to ? dateFilterInc : {}),
+          ...(companyId ? { companyId } : {}),
         },
         _sum: { amount: true },
       });
@@ -140,6 +206,7 @@ export async function GET(request: NextRequest) {
           paymentOptionId: cashOption.id,
           isActive: true,
           ...(from || to ? dateFilterExp : {}),
+          ...(companyId ? { companyId } : {}),
         },
         _sum: { amount: true },
       });
@@ -147,35 +214,51 @@ export async function GET(request: NextRequest) {
       cashExpense = cashExpenses._sum.amount || 0;
     }
 
-    // All cash collections and deliveries
+    // STAGE 12: All cash collections and deliveries with companyId filter
+    const ccWhere: Record<string, unknown> = { isActive: true, status: 'Approved', ...(from || to ? dateFilterCC : {}) };
+    if (companyId) ccWhere.companyId = companyId;
+
+    const cdWhere: Record<string, unknown> = { isActive: true, status: 'Approved', ...(from || to ? dateFilterCD : {}) };
+    if (companyId) cdWhere.companyId = companyId;
+
     const allCashCollections = await db.cashCollection.aggregate({
-      where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterCC : {}) },
+      where: ccWhere,
       _sum: { amount: true },
     });
     const allCashDeliveries = await db.cashDelivery.aggregate({
-      where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterCD : {}) },
+      where: cdWhere,
       _sum: { amount: true },
     });
 
-    const totalCashInHand =
+    // STAGE 12: Total cash in hand using safe math
+    const totalCashInHand = safeFinancialRound(
       totalOpeningBalance +
       totalDeposits -
       totalWithdrawals +
       cashIncome -
       cashExpense +
       (allCashCollections._sum.amount || 0) -
-      (allCashDeliveries._sum.amount || 0);
+      (allCashDeliveries._sum.amount || 0)
+    );
 
     // Cash flow trend data
     const allBankTransactions = banks.flatMap((b) =>
       b.bankTransactions.map((t) => ({ ...t, bankName: b.bankName }))
     );
+
+    // STAGE 12: Filter income/expense by companyId
+    const incWhere: Record<string, unknown> = { isActive: true, status: 'Approved', ...(from || to ? dateFilterInc : {}) };
+    if (companyId) incWhere.companyId = companyId;
+
+    const expWhere: Record<string, unknown> = { isActive: true, status: 'Approved', ...(from || to ? dateFilterExp : {}) };
+    if (companyId) expWhere.companyId = companyId;
+
     const allIncomeRecords = await db.income.findMany({
-      where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterInc : {}) },
+      where: incWhere,
       select: { date: true, amount: true },
     });
     const allExpenseRecords = await db.expense.findMany({
-      where: { isActive: true, status: 'Approved', ...(from || to ? dateFilterExp : {}) },
+      where: expWhere,
       select: { date: true, amount: true },
     });
 
@@ -196,39 +279,40 @@ export async function GET(request: NextRequest) {
       const month = d.getMonth();
       const day = d.getDate();
 
-      const dayInflow =
-        allBankTransactions
-          .filter((t) => {
-            const td = new Date(t.date);
-            return td.getFullYear() === year && td.getMonth() === month && td.getDate() === day && t.type === 'Deposit';
-          })
-          .reduce((s, t) => s + t.amount, 0) +
-        allIncomeRecords
-          .filter((i) => {
-            const id = new Date(i.date);
-            return id.getFullYear() === year && id.getMonth() === month && id.getDate() === day;
-          })
-          .reduce((s, i) => s + i.amount, 0);
+      // STAGE 12: Use safe math for daily flow calculations
+      let dayInflow = 0;
+      for (const t of allBankTransactions) {
+        const td = new Date(t.date);
+        if (td.getFullYear() === year && td.getMonth() === month && td.getDate() === day && t.type === 'Deposit') {
+          dayInflow = safeFinancialAdd(dayInflow, t.amount);
+        }
+      }
+      for (const inc of allIncomeRecords) {
+        const id = new Date(inc.date);
+        if (id.getFullYear() === year && id.getMonth() === month && id.getDate() === day) {
+          dayInflow = safeFinancialAdd(dayInflow, inc.amount);
+        }
+      }
 
-      const dayOutflow =
-        allBankTransactions
-          .filter((t) => {
-            const td = new Date(t.date);
-            return td.getFullYear() === year && td.getMonth() === month && td.getDate() === day && t.type === 'Withdraw';
-          })
-          .reduce((s, t) => s + t.amount, 0) +
-        allExpenseRecords
-          .filter((e) => {
-            const ed = new Date(e.date);
-            return ed.getFullYear() === year && ed.getMonth() === month && ed.getDate() === day;
-          })
-          .reduce((s, e) => s + e.amount, 0);
+      let dayOutflow = 0;
+      for (const t of allBankTransactions) {
+        const td = new Date(t.date);
+        if (td.getFullYear() === year && td.getMonth() === month && td.getDate() === day && t.type === 'Withdraw') {
+          dayOutflow = safeFinancialAdd(dayOutflow, t.amount);
+        }
+      }
+      for (const exp of allExpenseRecords) {
+        const ed = new Date(exp.date);
+        if (ed.getFullYear() === year && ed.getMonth() === month && ed.getDate() === day) {
+          dayOutflow = safeFinancialAdd(dayOutflow, exp.amount);
+        }
+      }
 
       dailyFlow.push({
         date: d.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
         inflow: dayInflow,
         outflow: dayOutflow,
-        net: dayInflow - dayOutflow,
+        net: safeFinancialSubtract(dayInflow, dayOutflow),
       });
     }
 
@@ -266,24 +350,49 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 15);
 
-    return NextResponse.json({
-      bankBreakdown,
+    // STAGE 12: Apply formatFinancialField to null/undefined fields in bankBreakdown
+    const formattedBankBreakdown = bankBreakdown.map((b) => ({
+      ...b,
+      bankName: formatFinancialField(b.bankName),
+      accountNo: formatFinancialField(b.accountNo),
+    }));
+
+    // Build response data
+    const responseData: Record<string, unknown> = {
+      bankBreakdown: formattedBankBreakdown,
       totals: {
-        openingBalance: vatMode ? 'N/A (Audit Mode)' : totalOpeningBalance,
+        openingBalance: totalOpeningBalance,
         deposits: totalDeposits,
         withdrawals: totalWithdrawals,
         cashIncome,
         cashExpense,
         cashCollections: allCashCollections._sum.amount || 0,
         cashDeliveries: allCashDeliveries._sum.amount || 0,
-        totalCashInHand: vatMode ? 'N/A (Audit Mode)' : parseFloat(totalCashInHand.toFixed(2)),
+        totalCashInHand,
       },
       dailyFlow,
       incomeVsExpense,
       recentTransactions,
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+    };
+
+    // STAGE 12: Apply VAT Auditor deep masking (replaces old partial masking)
+    if (vatMode) {
+      const masked = maskAccountingReportForVatAuditor(responseData, userRole);
+      return NextResponse.json(masked);
+    }
+
+    // STAGE 12: Activity logging
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Acc-Cash-In-Hand',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: 'Cash in Hand report generated',
     });
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Error calculating cash in hand:', error);
     return NextResponse.json(

@@ -66,6 +66,10 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   LedgerEntries: 'accounting-report',
   LedgerReports: 'accounting-report',
   PeriodClose: 'accounting-report',
+  TrialBalance: 'accounting-report',
+  ProfitLoss: 'accounting-report',
+  BalanceSheet: 'accounting-report',
+  CashInHand: 'accounting-report',
   // MIS Reports
   MISReports: 'mis-report',
   // Dashboard
@@ -96,8 +100,8 @@ const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -509,6 +513,160 @@ export function formatFinancialField(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (typeof value === 'string' && value.trim() === '') return '—';
   return String(value);
+}
+
+// ============================================================
+// STAGE 12: CORE ACCOUNTING REPORTS SECURITY UTILITIES
+// ============================================================
+
+/**
+ * Accounting module fields that VAT Auditor must NOT see values for.
+ * Covers all monetary ledger balances, revenue lines, gross profit margins,
+ * asset statements, and capital metrics.
+ */
+export const ACCOUNTING_VAT_MASKED_FIELDS = [
+  'amount',
+  'debit',
+  'credit',
+  'openingBalance',
+  'currentBalance',
+  'runningBalance',
+  'grandTotal',
+  'subTotal',
+  'vatAmount',
+  'discount',
+  'discountAmount',
+  'totalDebit',
+  'totalCredit',
+  'totalNet',
+  'ownDebit',
+  'ownCredit',
+  'ownNet',
+  'childDebit',
+  'childCredit',
+  'childNet',
+  'netBalance',
+  'revenue',
+  'costOfGoods',
+  'grossProfit',
+  'grossProfitMargin',
+  'operatingExpenses',
+  'netProfit',
+  'netProfitMargin',
+  'equity',
+  'totalAssets',
+  'totalLiabilities',
+  'totalCashInHand',
+  'stock',
+  'bankBalance',
+  'receivables',
+  'payables',
+  'retainedEarnings',
+  'totalEquity',
+  'creditLimit',
+  'balance',
+  'profit',
+  'profitMargin',
+];
+
+/**
+ * maskForVatAuditorAccounting - Convenience wrapper for accounting module masking.
+ * Applies ACCOUNTING_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+ * Masks all monetary ledger balances, revenue lines, gross profit margins,
+ * asset statements, and capital metrics to "N/A (Audit Mode)".
+ */
+export function maskForVatAuditorAccounting<T extends Record<string, unknown>>(
+  data: T,
+  role: UserRole
+): T {
+  if (role !== 'vat_auditor') return data;
+  return maskForVatAuditor(data, role, ACCOUNTING_VAT_MASKED_FIELDS);
+}
+
+/**
+ * maskAccountingArray - Apply VAT Auditor masking to an array of accounting records,
+ * including nested relation objects.
+ */
+export function maskAccountingArray<T extends Record<string, unknown>>(
+  items: T[],
+  role: UserRole,
+  extraFields?: string[]
+): T[] {
+  if (role !== 'vat_auditor') return items;
+  const fields = extraFields
+    ? [...ACCOUNTING_VAT_MASKED_FIELDS, ...extraFields]
+    : ACCOUNTING_VAT_MASKED_FIELDS;
+  return items.map((item) => maskForVatAuditor(item, role, fields));
+}
+
+/**
+ * checkPeriodClosePermission - Only Administrators (admin) can trigger the
+ * "Period Close" action, which freezes the active ledger parameters.
+ * Managers can generate all reports but CANNOT perform period closing operations.
+ * SR and Dealer are already blocked by MODULE_DENY.
+ *
+ * Returns a 403 response if the role is not admin, or null if allowed.
+ */
+export function checkPeriodClosePermission(role: UserRole): NextResponse | null {
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Period Close access denied. Only Administrators can close accounting periods. Your role (${role}) can generate reports but cannot lock periods.`,
+      },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
+/**
+ * maskAccountingReportForVatAuditor - Deep masking function for accounting report
+ * responses. Walks through the response object and masks all monetary fields
+ * at every nesting level.
+ */
+export function maskAccountingReportForVatAuditor(
+  data: Record<string, unknown>,
+  role: UserRole
+): Record<string, unknown> {
+  if (role !== 'vat_auditor') return data;
+
+  const masked = { ...data };
+  const monetaryKeys = new Set(ACCOUNTING_VAT_MASKED_FIELDS);
+
+  function maskRecursive(obj: unknown): unknown {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'number') return 'N/A (Audit Mode)';
+    if (typeof obj === 'string') return obj; // string values stay
+    if (Array.isArray(obj)) return obj.map(maskRecursive);
+    if (typeof obj === 'object') {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+        if (monetaryKeys.has(key) && (typeof value === 'number' || value === null)) {
+          result[key] = 'N/A (Audit Mode)';
+        } else if (typeof value === 'object' && value !== null) {
+          result[key] = maskRecursive(value);
+        } else {
+          result[key] = value;
+        }
+      }
+      return result;
+    }
+    return obj;
+  }
+
+  // Mask top-level monetary keys
+  for (const key of Object.keys(masked)) {
+    if (monetaryKeys.has(key) && (typeof masked[key] === 'number' || masked[key] === null)) {
+      masked[key] = 'N/A (Audit Mode)';
+    } else if (typeof masked[key] === 'object' && masked[key] !== null && !Array.isArray(masked[key])) {
+      masked[key] = maskRecursive(masked[key]);
+    } else if (Array.isArray(masked[key])) {
+      masked[key] = (masked[key] as unknown[]).map(maskRecursive);
+    }
+  }
+
+  masked['vatAuditMode'] = true;
+  return masked;
 }
 
 // ============================================================

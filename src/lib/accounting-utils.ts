@@ -1,9 +1,11 @@
 // ============================================================
 // ACCOUNTING UTILITY FUNCTIONS
 // Shared helpers for Chart of Accounts & General Ledger
+// Stage 12: safeFinancialAdd/Subtract for all aggregations
 // ============================================================
 
 import { db } from '@/lib/db';
+import { safeFinancialAdd, safeFinancialSubtract, safeFinancialRound } from '@/lib/api-security';
 
 /**
  * COA-001: Detect circular parent references in the COA hierarchy.
@@ -63,7 +65,8 @@ export async function detectCircularParent(
  */
 export async function calculateAccountBalance(
   accountId: string,
-  visited?: Set<string>
+  visited?: Set<string>,
+  companyId?: string | null
 ): Promise<{
   ownDebit: number;
   ownCredit: number;
@@ -95,9 +98,12 @@ export async function calculateAccountBalance(
     },
   });
 
-  // Get own ledger entries
+  // Get own ledger entries — STAGE 12: Filter by companyId if provided
+  const ledgerWhere: Record<string, unknown> = { accountId, isActive: true };
+  if (companyId) ledgerWhere.companyId = companyId;
+
   const ownEntries = await db.ledgerEntry.aggregate({
-    where: { accountId, isActive: true },
+    where: ledgerWhere,
     _sum: { debit: true, credit: true },
   });
 
@@ -107,13 +113,17 @@ export async function calculateAccountBalance(
   const openingType = account?.openingBalanceType || 'Dr';
 
   // Opening balance: Dr adds to debit side, Cr adds to credit side
-  const adjustedOwnDebit = ownDebit + (openingType === 'Dr' ? openingBalance : 0);
-  const adjustedOwnCredit = ownCredit + (openingType === 'Cr' ? openingBalance : 0);
-  const ownNet = adjustedOwnDebit - adjustedOwnCredit;
+  // STAGE 12: Use safeFinancialAdd for floating-point safety
+  const adjustedOwnDebit = safeFinancialAdd(ownDebit, openingType === 'Dr' ? openingBalance : 0);
+  const adjustedOwnCredit = safeFinancialAdd(ownCredit, openingType === 'Cr' ? openingBalance : 0);
+  const ownNet = safeFinancialSubtract(adjustedOwnDebit, adjustedOwnCredit);
 
-  // Get child accounts
+  // Get child accounts — STAGE 12: Filter by companyId if provided
+  const childWhere: Record<string, unknown> = { parentAccountId: accountId, isActive: true };
+  if (companyId) childWhere.companyId = companyId;
+
   const children = await db.chartOfAccount.findMany({
-    where: { parentAccountId: accountId, isActive: true },
+    where: childWhere,
     select: { id: true },
   });
 
@@ -122,10 +132,10 @@ export async function calculateAccountBalance(
   let childNet = 0;
 
   for (const child of children) {
-    const childBalance = await calculateAccountBalance(child.id, visitedSet);
-    childDebit += childBalance.totalDebit;
-    childCredit += childBalance.totalCredit;
-    childNet += childBalance.totalNet;
+    const childBalance = await calculateAccountBalance(child.id, visitedSet, companyId);
+    childDebit = safeFinancialAdd(childDebit, childBalance.totalDebit);
+    childCredit = safeFinancialAdd(childCredit, childBalance.totalCredit);
+    childNet = safeFinancialAdd(childNet, childBalance.totalNet);
   }
 
   return {
@@ -135,9 +145,9 @@ export async function calculateAccountBalance(
     childDebit,
     childCredit,
     childNet,
-    totalDebit: adjustedOwnDebit + childDebit,
-    totalCredit: adjustedOwnCredit + childCredit,
-    totalNet: ownNet + childNet,
+    totalDebit: safeFinancialAdd(adjustedOwnDebit, childDebit),
+    totalCredit: safeFinancialAdd(adjustedOwnCredit, childCredit),
+    totalNet: safeFinancialAdd(ownNet, childNet),
   };
 }
 
@@ -184,6 +194,7 @@ export async function verifyLedgerBalance(filters?: {
   to?: string;
   reference?: string;
   referenceType?: string;
+  companyId?: string | null;
 }): Promise<{
   balanced: boolean;
   totalDebit: number;
@@ -192,6 +203,11 @@ export async function verifyLedgerBalance(filters?: {
   entryCount: number;
 }> {
   const where: Record<string, unknown> = { isActive: true };
+
+  // STAGE 12: Multi-tenant isolation — filter by companyId
+  if (filters?.companyId) {
+    where.companyId = filters.companyId;
+  }
 
   if (filters?.from || filters?.to) {
     const dateFilter: Record<string, Date> = {};
@@ -218,13 +234,14 @@ export async function verifyLedgerBalance(filters?: {
 
   const totalDebit = aggregateResult._sum.debit || 0;
   const totalCredit = aggregateResult._sum.credit || 0;
-  const difference = Math.abs(totalDebit - totalCredit);
+  // STAGE 12: Use safeFinancialSubtract for floating-point-safe difference
+  const difference = Math.abs(safeFinancialSubtract(totalDebit, totalCredit));
 
   return {
-    balanced: difference < 0.01, // Allow floating-point tolerance
-    totalDebit,
-    totalCredit,
-    difference,
+    balanced: safeFinancialRound(difference) < 0.01, // Allow floating-point tolerance
+    totalDebit: safeFinancialRound(totalDebit),
+    totalCredit: safeFinancialRound(totalCredit),
+    difference: safeFinancialRound(difference),
     entryCount: countResult,
   };
 }

@@ -1,11 +1,22 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  validateVatMode,
+  maskAccountingReportForVatAuditor,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+  safeFinancialRound,
+  formatFinancialField,
+} from '@/lib/api-security';
 import type { UserRole } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
+// GET /api/ledger-reports - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'LedgerReports', 'GET');
   if (!security.authorized) return security.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'customer';
@@ -13,29 +24,42 @@ export async function GET(request: NextRequest) {
     const to = searchParams.get('to');
     const customerId = searchParams.get('customerId');
     const supplierId = searchParams.get('supplierId');
-    // VAT-001: Validate vatMode — only vat_auditor role can activate masking
+
+    // STAGE 12: VAT Auditor mode validation
     const rawVatMode = searchParams.get('vatMode') === 'true';
     const userRole = security.user.role as UserRole;
     const vatMode = validateVatMode(rawVatMode, userRole);
+
+    // STAGE 12: Multi-tenant companyId isolation
+    const companyId = security.user.companyId;
 
     const dateFilter: Record<string, Date> = {};
     if (from) dateFilter.gte = new Date(from);
     if (to) dateFilter.lte = new Date(to);
     const hasDateFilter = from || to;
 
+    // STAGE 12: Activity logging
+    await logUserActivity({
+      action: 'EXPORT',
+      module: 'Acc-Ledger-Report',
+      userId: security.user.id,
+      userName: security.user.name,
+      details: `Ledger report generated (type: ${type})`,
+    });
+
     switch (type) {
       case 'customer':
-        return await handleCustomerLedger(customerId, dateFilter, hasDateFilter, vatMode);
+        return await handleCustomerLedger(customerId, dateFilter, hasDateFilter, vatMode, userRole, companyId);
       case 'supplier':
-        return await handleSupplierLedger(supplierId, dateFilter, hasDateFilter, vatMode);
+        return await handleSupplierLedger(supplierId, dateFilter, hasDateFilter, vatMode, userRole, companyId);
       case 'customer-summary':
-        return await handleCustomerSummary(dateFilter, hasDateFilter, vatMode);
+        return await handleCustomerSummary(dateFilter, hasDateFilter, vatMode, userRole, companyId);
       case 'supplier-summary':
-        return await handleSupplierSummary(dateFilter, hasDateFilter, vatMode);
+        return await handleSupplierSummary(dateFilter, hasDateFilter, vatMode, userRole, companyId);
       case 'customer-aging':
-        return await handleCustomerAging(vatMode);
+        return await handleCustomerAging(vatMode, userRole, companyId);
       case 'supplier-aging':
-        return await handleSupplierAging(vatMode);
+        return await handleSupplierAging(vatMode, userRole, companyId);
       default:
         return NextResponse.json({ error: 'Invalid type parameter' }, { status: 400 });
     }
@@ -50,12 +74,15 @@ async function handleCustomerLedger(
   customerId: string | null,
   dateFilter: Record<string, Date>,
   hasDateFilter: boolean,
-  vatMode: boolean
+  vatMode: boolean,
+  userRole: UserRole,
+  _companyId: string | null
 ) {
   if (!customerId) {
     return NextResponse.json({ error: 'customerId is required for type=customer' }, { status: 400 });
   }
 
+  // NOTE: Customer does NOT have companyId — known limitation for Stage 12
   const customer = await db.customer.findUnique({
     where: { id: customerId },
     select: {
@@ -72,7 +99,7 @@ async function handleCustomerLedger(
   // Build date filter for queries
   const whereDate = hasDateFilter ? { date: dateFilter } : {};
 
-  // Fetch all transactions in parallel
+  // STAGE 12: Fetch all transactions in parallel with companyId filters where applicable
   const [salesOrders, salesReturns, cashCollections, hireSales] = await Promise.all([
     db.salesOrder.findMany({
       where: { customerId, isActive: true, ...whereDate },
@@ -85,7 +112,13 @@ async function handleCustomerLedger(
       orderBy: { date: 'asc' },
     }),
     db.cashCollection.findMany({
-      where: { customerId, isActive: true, ...whereDate },
+      where: {
+        customerId,
+        isActive: true,
+        ...whereDate,
+        // STAGE 12: Filter by companyId
+        ...(_companyId ? { companyId: _companyId } : {}),
+      },
       select: { id: true, collectionCode: true, date: true, amount: true, status: true },
       orderBy: { date: 'asc' },
     }),
@@ -107,22 +140,22 @@ async function handleCustomerLedger(
     status?: string;
   }> = [];
 
-  // Opening balance
-  const openingBalance = Number(customer.openingBalance);
-  let runningBalance = customer.openingBalanceType === 'Cr' ? -openingBalance : openingBalance;
+  // STAGE 12: Use safe math for opening balance
+  const openingBalance = safeFinancialRound(Number(customer.openingBalance));
+  let runningBalance = customer.openingBalanceType === 'Cr' ? safeFinancialSubtract(0, openingBalance) : openingBalance;
 
   // Sales Orders -> Debit (customer owes more)
   for (const so of salesOrders) {
     if (so.status !== 'Draft') {
-      const amount = Number(so.grandTotal);
-      runningBalance += amount;
+      const amount = safeFinancialRound(Number(so.grandTotal));
+      runningBalance = safeFinancialAdd(runningBalance, amount);
       rows.push({
         date: so.date.toISOString(),
-        referenceNo: so.invoiceNo,
+        referenceNo: formatFinancialField(so.invoiceNo),
         referenceType: 'Sales Order',
         debit: amount,
         credit: 0,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: so.status,
       });
     }
@@ -131,15 +164,15 @@ async function handleCustomerLedger(
   // Hire Sales -> Debit (customer owes more)
   for (const hs of hireSales) {
     if (hs.status !== 'Draft') {
-      const amount = Number(hs.grandTotal);
-      runningBalance += amount;
+      const amount = safeFinancialRound(Number(hs.grandTotal));
+      runningBalance = safeFinancialAdd(runningBalance, amount);
       rows.push({
         date: hs.date.toISOString(),
-        referenceNo: hs.invoiceNo,
+        referenceNo: formatFinancialField(hs.invoiceNo),
         referenceType: 'Hire Sales',
         debit: amount,
         credit: 0,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: hs.status,
       });
     }
@@ -148,15 +181,15 @@ async function handleCustomerLedger(
   // Cash Collections -> Credit (customer pays, reduces what they owe)
   for (const cc of cashCollections) {
     if (cc.status !== 'Draft') {
-      const amount = Number(cc.amount);
-      runningBalance -= amount;
+      const amount = safeFinancialRound(Number(cc.amount));
+      runningBalance = safeFinancialSubtract(runningBalance, amount);
       rows.push({
         date: cc.date.toISOString(),
-        referenceNo: cc.collectionCode,
+        referenceNo: formatFinancialField(cc.collectionCode),
         referenceType: 'Cash Collection',
         debit: 0,
         credit: amount,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: cc.status,
       });
     }
@@ -165,15 +198,15 @@ async function handleCustomerLedger(
   // Sales Returns -> Credit (reduces what customer owes)
   for (const sr of salesReturns) {
     if (sr.status !== 'Draft') {
-      const amount = Number(sr.grandTotal);
-      runningBalance -= amount;
+      const amount = safeFinancialRound(Number(sr.grandTotal));
+      runningBalance = safeFinancialSubtract(runningBalance, amount);
       rows.push({
         date: sr.date.toISOString(),
-        referenceNo: sr.returnNo,
+        referenceNo: formatFinancialField(sr.returnNo),
         referenceType: 'Sales Return',
         debit: 0,
         credit: amount,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: sr.status,
       });
     }
@@ -182,26 +215,34 @@ async function handleCustomerLedger(
   // Sort all rows by date
   rows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Recalculate running balance in order
-  let rb = customer.openingBalanceType === 'Cr' ? -openingBalance : openingBalance;
+  // STAGE 12: Recalculate running balance in order with safe math
+  let rb = customer.openingBalanceType === 'Cr' ? safeFinancialSubtract(0, openingBalance) : openingBalance;
   for (const row of rows) {
-    rb += row.debit - row.credit;
-    row.runningBalance = rb;
+    rb = safeFinancialAdd(rb, safeFinancialSubtract(row.debit, row.credit));
+    row.runningBalance = safeFinancialRound(rb);
   }
 
-  const closingBalance = rb;
+  const closingBalance = safeFinancialRound(rb);
 
   // Calculate aging buckets for this customer
-  const aging = await calculateCustomerAging(customerId);
+  const aging = await calculateCustomerAging(customerId, _companyId);
+
+  // STAGE 12: Total debit/credit with safe math
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const row of rows) {
+    totalDebit = safeFinancialAdd(totalDebit, row.debit);
+    totalCredit = safeFinancialAdd(totalCredit, row.credit);
+  }
 
   const result: Record<string, unknown> = {
     customer: {
       id: customer.id,
-      customerCode: customer.customerCode,
+      customerCode: formatFinancialField(customer.customerCode),
       name: customer.name,
-      phone: customer.phone,
-      email: customer.email,
-      address: customer.address,
+      phone: formatFinancialField(customer.phone),
+      email: formatFinancialField(customer.email),
+      address: formatFinancialField(customer.address),
       creditLimit: Number(customer.creditLimit),
       customerType: customer.customerType,
     },
@@ -209,21 +250,16 @@ async function handleCustomerLedger(
     openingBalanceType: customer.openingBalanceType,
     closingBalance,
     closingBalanceType: closingBalance >= 0 ? 'Dr' : 'Cr',
-    totalDebit: rows.reduce((sum, r) => sum + r.debit, 0),
-    totalCredit: rows.reduce((sum, r) => sum + r.credit, 0),
+    totalDebit,
+    totalCredit,
     transactions: rows,
     aging,
   };
 
-  // VAT Auditor mode: mask cost/profit info
+  // STAGE 12: Apply deep VAT Auditor masking via maskAccountingReportForVatAuditor
   if (vatMode) {
-    result.vatMode = true;
-    result.note = 'Internal margins masked in audit mode';
-    // MIS-001 FIX: Mask creditUtilization and balance in VAT audit mode
-    (result as Record<string, unknown>).creditUtilization = 'N/A (Audit Mode)';
-    if (result.customer) {
-      (result.customer as Record<string, unknown>).creditLimit = 'N/A (Audit Mode)';
-    }
+    const masked = maskAccountingReportForVatAuditor(result, userRole);
+    return NextResponse.json(masked);
   }
 
   return NextResponse.json(result);
@@ -234,12 +270,15 @@ async function handleSupplierLedger(
   supplierId: string | null,
   dateFilter: Record<string, Date>,
   hasDateFilter: boolean,
-  vatMode: boolean
+  vatMode: boolean,
+  userRole: UserRole,
+  _companyId: string | null
 ) {
   if (!supplierId) {
     return NextResponse.json({ error: 'supplierId is required for type=supplier' }, { status: 400 });
   }
 
+  // NOTE: Supplier does NOT have companyId — known limitation for Stage 12
   const supplier = await db.supplier.findUnique({
     where: { id: supplierId },
     select: {
@@ -255,6 +294,7 @@ async function handleSupplierLedger(
 
   const whereDate = hasDateFilter ? { date: dateFilter } : {};
 
+  // STAGE 12: Fetch with companyId filters where applicable
   const [purchaseOrders, purchaseReturns, cashDeliveries] = await Promise.all([
     db.purchaseOrder.findMany({
       where: { supplierId, isActive: true, ...whereDate },
@@ -267,7 +307,13 @@ async function handleSupplierLedger(
       orderBy: { date: 'asc' },
     }),
     db.cashDelivery.findMany({
-      where: { supplierId, isActive: true, ...whereDate },
+      where: {
+        supplierId,
+        isActive: true,
+        ...whereDate,
+        // STAGE 12: Filter by companyId
+        ...(_companyId ? { companyId: _companyId } : {}),
+      },
       select: { id: true, deliveryCode: true, date: true, amount: true, status: true },
       orderBy: { date: 'asc' },
     }),
@@ -283,22 +329,23 @@ async function handleSupplierLedger(
     status?: string;
   }> = [];
 
-  const openingBalance = Number(supplier.openingBalance);
+  // STAGE 12: Use safe math for opening balance
+  const openingBalance = safeFinancialRound(Number(supplier.openingBalance));
   // Supplier: Cr means we owe them, Dr means they owe us
-  let runningBalance = supplier.openingBalanceType === 'Dr' ? -openingBalance : openingBalance;
+  let runningBalance = supplier.openingBalanceType === 'Dr' ? safeFinancialSubtract(0, openingBalance) : openingBalance;
 
   // Purchase Orders -> Credit (we owe supplier more)
   for (const po of purchaseOrders) {
     if (po.status !== 'Draft') {
-      const amount = Number(po.grandTotal);
-      runningBalance += amount;
+      const amount = safeFinancialRound(Number(po.grandTotal));
+      runningBalance = safeFinancialAdd(runningBalance, amount);
       rows.push({
         date: po.date.toISOString(),
-        referenceNo: po.poNumber,
+        referenceNo: formatFinancialField(po.poNumber),
         referenceType: 'Purchase Order',
         debit: 0,
         credit: amount,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: po.status,
       });
     }
@@ -307,15 +354,15 @@ async function handleSupplierLedger(
   // Cash Deliveries -> Debit (we pay supplier, reduces what we owe)
   for (const cd of cashDeliveries) {
     if (cd.status !== 'Draft') {
-      const amount = Number(cd.amount);
-      runningBalance -= amount;
+      const amount = safeFinancialRound(Number(cd.amount));
+      runningBalance = safeFinancialSubtract(runningBalance, amount);
       rows.push({
         date: cd.date.toISOString(),
-        referenceNo: cd.deliveryCode,
+        referenceNo: formatFinancialField(cd.deliveryCode),
         referenceType: 'Cash Delivery',
         debit: amount,
         credit: 0,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: cd.status,
       });
     }
@@ -324,15 +371,15 @@ async function handleSupplierLedger(
   // Purchase Returns -> Debit (reduces what we owe)
   for (const pr of purchaseReturns) {
     if (pr.status !== 'Draft') {
-      const amount = Number(pr.grandTotal);
-      runningBalance -= amount;
+      const amount = safeFinancialRound(Number(pr.grandTotal));
+      runningBalance = safeFinancialSubtract(runningBalance, amount);
       rows.push({
         date: pr.date.toISOString(),
-        referenceNo: pr.returnNo,
+        referenceNo: formatFinancialField(pr.returnNo),
         referenceType: 'Purchase Return',
         debit: amount,
         credit: 0,
-        runningBalance,
+        runningBalance: safeFinancialRound(runningBalance),
         status: pr.status,
       });
     }
@@ -341,45 +388,50 @@ async function handleSupplierLedger(
   // Sort all rows by date
   rows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Recalculate running balance in order
-  let rb = supplier.openingBalanceType === 'Dr' ? -openingBalance : openingBalance;
+  // STAGE 12: Recalculate running balance in order with safe math
+  let rb = supplier.openingBalanceType === 'Dr' ? safeFinancialSubtract(0, openingBalance) : openingBalance;
   for (const row of rows) {
-    rb += row.credit - row.debit;
-    row.runningBalance = rb;
+    rb = safeFinancialAdd(rb, safeFinancialSubtract(row.credit, row.debit));
+    row.runningBalance = safeFinancialRound(rb);
   }
 
-  const closingBalance = rb;
+  const closingBalance = safeFinancialRound(rb);
 
   // Calculate aging buckets for this supplier
-  const aging = await calculateSupplierAging(supplierId);
+  const aging = await calculateSupplierAging(supplierId, _companyId);
+
+  // STAGE 12: Total debit/credit with safe math
+  let totalDebit = 0;
+  let totalCredit = 0;
+  for (const row of rows) {
+    totalDebit = safeFinancialAdd(totalDebit, row.debit);
+    totalCredit = safeFinancialAdd(totalCredit, row.credit);
+  }
 
   const result: Record<string, unknown> = {
     supplier: {
       id: supplier.id,
-      supplierCode: supplier.supplierCode,
+      supplierCode: formatFinancialField(supplier.supplierCode),
       name: supplier.name,
-      phone: supplier.phone,
-      email: supplier.email,
-      address: supplier.address,
+      phone: formatFinancialField(supplier.phone),
+      email: formatFinancialField(supplier.email),
+      address: formatFinancialField(supplier.address),
       creditLimit: Number(supplier.creditLimit),
     },
     openingBalance,
     openingBalanceType: supplier.openingBalanceType,
     closingBalance,
     closingBalanceType: closingBalance >= 0 ? 'Cr' : 'Dr',
-    totalDebit: rows.reduce((sum, r) => sum + r.debit, 0),
-    totalCredit: rows.reduce((sum, r) => sum + r.credit, 0),
+    totalDebit,
+    totalCredit,
     transactions: rows,
     aging,
   };
 
+  // STAGE 12: Apply deep VAT Auditor masking via maskAccountingReportForVatAuditor
   if (vatMode) {
-    result.vatMode = true;
-    result.note = 'Internal margins masked in audit mode';
-    // MIS-001 FIX: Mask creditUtilization for supplier in VAT audit mode
-    if (result.supplier) {
-      (result.supplier as Record<string, unknown>).creditLimit = 'N/A (Audit Mode)';
-    }
+    const masked = maskAccountingReportForVatAuditor(result, userRole);
+    return NextResponse.json(masked);
   }
 
   return NextResponse.json(result);
@@ -389,10 +441,13 @@ async function handleSupplierLedger(
 async function handleCustomerSummary(
   dateFilter: Record<string, Date>,
   hasDateFilter: boolean,
-  vatMode: boolean
+  vatMode: boolean,
+  userRole: UserRole,
+  _companyId: string | null
 ) {
   const whereDate = hasDateFilter ? { date: dateFilter } : {};
 
+  // NOTE: Customer does NOT have companyId — known limitation for Stage 12
   const customers = await db.customer.findMany({
     where: { isActive: true },
     select: {
@@ -418,7 +473,14 @@ async function handleCustomerSummary(
           _sum: { grandTotal: true },
         }),
         db.cashCollection.aggregate({
-          where: { customerId: cust.id, status: { not: 'Draft' }, isActive: true, ...whereDate },
+          where: {
+            customerId: cust.id,
+            status: { not: 'Draft' },
+            isActive: true,
+            ...whereDate,
+            // STAGE 12: Filter by companyId
+            ...(_companyId ? { companyId: _companyId } : {}),
+          },
           _sum: { amount: true },
         }),
         db.hireSales.aggregate({
@@ -427,20 +489,27 @@ async function handleCustomerSummary(
         }),
       ]);
 
-      const totalSales = Number(salesAgg._sum.grandTotal || 0) + Number(hireAgg._sum.grandTotal || 0);
-      const totalCollections = Number(collectionsAgg._sum.amount || 0);
-      const totalReturns = Number(returnsAgg._sum.grandTotal || 0);
-      const openingBal = Number(cust.openingBalance);
-      const openingAdj = cust.openingBalanceType === 'Cr' ? -openingBal : openingBal;
-      const balance = openingAdj + totalSales - totalCollections - totalReturns;
-      const creditLimit = Number(cust.creditLimit);
-      const creditUtilization = creditLimit > 0 ? Math.round((Math.abs(balance) / creditLimit) * 100) : 0;
+      // STAGE 12: Use safe math for all summary calculations
+      const totalSales = safeFinancialAdd(
+        safeFinancialRound(Number(salesAgg._sum.grandTotal || 0)),
+        safeFinancialRound(Number(hireAgg._sum.grandTotal || 0))
+      );
+      const totalCollections = safeFinancialRound(Number(collectionsAgg._sum.amount || 0));
+      const totalReturns = safeFinancialRound(Number(returnsAgg._sum.grandTotal || 0));
+      const openingBal = safeFinancialRound(Number(cust.openingBalance));
+      const openingAdj = cust.openingBalanceType === 'Cr' ? safeFinancialSubtract(0, openingBal) : openingBal;
+      const balance = safeFinancialSubtract(
+        safeFinancialAdd(openingAdj, totalSales),
+        safeFinancialAdd(totalCollections, totalReturns)
+      );
+      const creditLimit = safeFinancialRound(Number(cust.creditLimit));
+      const creditUtilization = creditLimit > 0 ? safeFinancialRound((Math.abs(balance) / creditLimit) * 100) : 0;
 
       return {
         customerId: cust.id,
-        customerCode: cust.customerCode,
+        customerCode: formatFinancialField(cust.customerCode),
         customerName: cust.name,
-        phone: cust.phone,
+        phone: formatFinancialField(cust.phone),
         totalSales,
         totalCollections,
         totalReturns,
@@ -460,12 +529,10 @@ async function handleCustomerSummary(
     data: summaries,
   };
 
+  // STAGE 12: Apply deep VAT Auditor masking
   if (vatMode) {
-    result.vatMode = true;
-    // Mask cost/profit fields for VAT auditor
-    for (const s of summaries) {
-      (s as Record<string, unknown>).creditUtilization = 'N/A (Audit Mode)';
-    }
+    const masked = maskAccountingReportForVatAuditor(result, userRole);
+    return NextResponse.json(masked);
   }
 
   return NextResponse.json(result);
@@ -475,10 +542,13 @@ async function handleCustomerSummary(
 async function handleSupplierSummary(
   dateFilter: Record<string, Date>,
   hasDateFilter: boolean,
-  vatMode: boolean
+  vatMode: boolean,
+  userRole: UserRole,
+  _companyId: string | null
 ) {
   const whereDate = hasDateFilter ? { date: dateFilter } : {};
 
+  // NOTE: Supplier does NOT have companyId — known limitation for Stage 12
   const suppliers = await db.supplier.findMany({
     where: { isActive: true },
     select: {
@@ -504,24 +574,35 @@ async function handleSupplierSummary(
           _sum: { grandTotal: true },
         }),
         db.cashDelivery.aggregate({
-          where: { supplierId: sup.id, status: { not: 'Draft' }, isActive: true, ...whereDate },
+          where: {
+            supplierId: sup.id,
+            status: { not: 'Draft' },
+            isActive: true,
+            ...whereDate,
+            // STAGE 12: Filter by companyId
+            ...(_companyId ? { companyId: _companyId } : {}),
+          },
           _sum: { amount: true },
         }),
       ]);
 
-      const totalPurchases = Number(purchasesAgg._sum.grandTotal || 0);
-      const totalDeliveries = Number(deliveriesAgg._sum.amount || 0);
-      const totalReturns = Number(returnsAgg._sum.grandTotal || 0);
-      const openingBal = Number(sup.openingBalance);
-      const openingAdj = sup.openingBalanceType === 'Dr' ? -openingBal : openingBal;
-      const balance = openingAdj + totalPurchases - totalDeliveries - totalReturns;
-      const creditLimit = Number(sup.creditLimit);
+      // STAGE 12: Use safe math for all summary calculations
+      const totalPurchases = safeFinancialRound(Number(purchasesAgg._sum.grandTotal || 0));
+      const totalDeliveries = safeFinancialRound(Number(deliveriesAgg._sum.amount || 0));
+      const totalReturns = safeFinancialRound(Number(returnsAgg._sum.grandTotal || 0));
+      const openingBal = safeFinancialRound(Number(sup.openingBalance));
+      const openingAdj = sup.openingBalanceType === 'Dr' ? safeFinancialSubtract(0, openingBal) : openingBal;
+      const balance = safeFinancialSubtract(
+        safeFinancialAdd(openingAdj, totalPurchases),
+        safeFinancialAdd(totalDeliveries, totalReturns)
+      );
+      const creditLimit = safeFinancialRound(Number(sup.creditLimit));
 
       return {
         supplierId: sup.id,
-        supplierCode: sup.supplierCode,
+        supplierCode: formatFinancialField(sup.supplierCode),
         supplierName: sup.name,
-        phone: sup.phone,
+        phone: formatFinancialField(sup.phone),
         totalPurchases,
         totalDeliveries,
         totalReturns,
@@ -539,15 +620,22 @@ async function handleSupplierSummary(
     data: summaries,
   };
 
+  // STAGE 12: Apply deep VAT Auditor masking
   if (vatMode) {
-    result.vatMode = true;
+    const masked = maskAccountingReportForVatAuditor(result, userRole);
+    return NextResponse.json(masked);
   }
 
   return NextResponse.json(result);
 }
 
 // ─── Customer Aging ──────────────────────────────────────────────────────────
-async function handleCustomerAging(vatMode: boolean) {
+async function handleCustomerAging(
+  vatMode: boolean,
+  userRole: UserRole,
+  _companyId: string | null
+) {
+  // NOTE: Customer does NOT have companyId — known limitation for Stage 12
   const customers = await db.customer.findMany({
     where: { isActive: true },
     select: {
@@ -559,11 +647,11 @@ async function handleCustomerAging(vatMode: boolean) {
 
   const agingData = await Promise.all(
     customers.map(async (cust) => {
-      const aging = await calculateCustomerAging(cust.id);
+      const aging = await calculateCustomerAging(cust.id, _companyId);
       if (aging.totalOutstanding <= 0) return null;
       return {
         customerId: cust.id,
-        customerCode: cust.customerCode,
+        customerCode: formatFinancialField(cust.customerCode),
         customerName: cust.name,
         ...aging,
       };
@@ -573,28 +661,49 @@ async function handleCustomerAging(vatMode: boolean) {
   const filtered = agingData.filter((a): a is NonNullable<typeof a> => a !== null);
   filtered.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
 
+  // STAGE 12: Use safe math for aging totals
+  let totalOutstanding = 0;
+  let current = 0;
+  let days31to60 = 0;
+  let days61to90 = 0;
+  let days90plus = 0;
+  for (const a of filtered) {
+    totalOutstanding = safeFinancialAdd(totalOutstanding, a.totalOutstanding);
+    current = safeFinancialAdd(current, a.current);
+    days31to60 = safeFinancialAdd(days31to60, a.days31to60);
+    days61to90 = safeFinancialAdd(days61to90, a.days61to90);
+    days90plus = safeFinancialAdd(days90plus, a.days90plus);
+  }
+
   const result: Record<string, unknown> = {
     type: 'customer-aging',
     count: filtered.length,
     totals: {
-      totalOutstanding: filtered.reduce((s, a) => s + a.totalOutstanding, 0),
-      current: filtered.reduce((s, a) => s + a.current, 0),
-      days31to60: filtered.reduce((s, a) => s + a.days31to60, 0),
-      days61to90: filtered.reduce((s, a) => s + a.days61to90, 0),
-      days90plus: filtered.reduce((s, a) => s + a.days90plus, 0),
+      totalOutstanding,
+      current,
+      days31to60,
+      days61to90,
+      days90plus,
     },
     data: filtered,
   };
 
+  // STAGE 12: Apply deep VAT Auditor masking
   if (vatMode) {
-    result.vatMode = true;
+    const masked = maskAccountingReportForVatAuditor(result, userRole);
+    return NextResponse.json(masked);
   }
 
   return NextResponse.json(result);
 }
 
 // ─── Supplier Aging ──────────────────────────────────────────────────────────
-async function handleSupplierAging(vatMode: boolean) {
+async function handleSupplierAging(
+  vatMode: boolean,
+  userRole: UserRole,
+  _companyId: string | null
+) {
+  // NOTE: Supplier does NOT have companyId — known limitation for Stage 12
   const suppliers = await db.supplier.findMany({
     where: { isActive: true },
     select: {
@@ -606,11 +715,11 @@ async function handleSupplierAging(vatMode: boolean) {
 
   const agingData = await Promise.all(
     suppliers.map(async (sup) => {
-      const aging = await calculateSupplierAging(sup.id);
+      const aging = await calculateSupplierAging(sup.id, _companyId);
       if (aging.totalOutstanding <= 0) return null;
       return {
         supplierId: sup.id,
-        supplierCode: sup.supplierCode,
+        supplierCode: formatFinancialField(sup.supplierCode),
         supplierName: sup.name,
         ...aging,
       };
@@ -620,21 +729,37 @@ async function handleSupplierAging(vatMode: boolean) {
   const filtered = agingData.filter((a): a is NonNullable<typeof a> => a !== null);
   filtered.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
 
+  // STAGE 12: Use safe math for aging totals
+  let totalOutstanding = 0;
+  let current = 0;
+  let days31to60 = 0;
+  let days61to90 = 0;
+  let days90plus = 0;
+  for (const a of filtered) {
+    totalOutstanding = safeFinancialAdd(totalOutstanding, a.totalOutstanding);
+    current = safeFinancialAdd(current, a.current);
+    days31to60 = safeFinancialAdd(days31to60, a.days31to60);
+    days61to90 = safeFinancialAdd(days61to90, a.days61to90);
+    days90plus = safeFinancialAdd(days90plus, a.days90plus);
+  }
+
   const result: Record<string, unknown> = {
     type: 'supplier-aging',
     count: filtered.length,
     totals: {
-      totalOutstanding: filtered.reduce((s, a) => s + a.totalOutstanding, 0),
-      current: filtered.reduce((s, a) => s + a.current, 0),
-      days31to60: filtered.reduce((s, a) => s + a.days31to60, 0),
-      days61to90: filtered.reduce((s, a) => s + a.days61to90, 0),
-      days90plus: filtered.reduce((s, a) => s + a.days90plus, 0),
+      totalOutstanding,
+      current,
+      days31to60,
+      days61to90,
+      days90plus,
     },
     data: filtered,
   };
 
+  // STAGE 12: Apply deep VAT Auditor masking
   if (vatMode) {
-    result.vatMode = true;
+    const masked = maskAccountingReportForVatAuditor(result, userRole);
+    return NextResponse.json(masked);
   }
 
   return NextResponse.json(result);
@@ -699,8 +824,8 @@ function allocateAgingBuckets(
   for (const inv of sorted) {
     // FIFO: Apply payments to oldest invoices first
     const paidAgainstThis = Math.min(remainingPayments, inv.totalAmount);
-    remainingPayments -= paidAgainstThis;
-    const outstanding = inv.totalAmount - paidAgainstThis;
+    remainingPayments = safeFinancialSubtract(remainingPayments, paidAgainstThis);
+    const outstanding = safeFinancialSubtract(inv.totalAmount, paidAgainstThis);
 
     const daysOutstanding = Math.floor(
       (today.getTime() - new Date(inv.date).getTime()) / (1000 * 60 * 60 * 24)
@@ -709,16 +834,16 @@ function allocateAgingBuckets(
     let bucket = 'current';
     if (outstanding > 0) {
       if (daysOutstanding <= 30) {
-        current += outstanding;
+        current = safeFinancialAdd(current, outstanding);
         bucket = 'current';
       } else if (daysOutstanding <= 60) {
-        days31to60 += outstanding;
+        days31to60 = safeFinancialAdd(days31to60, outstanding);
         bucket = '31-60';
       } else if (daysOutstanding <= 90) {
-        days61to90 += outstanding;
+        days61to90 = safeFinancialAdd(days61to90, outstanding);
         bucket = '61-90';
       } else {
-        days90plus += outstanding;
+        days90plus = safeFinancialAdd(days90plus, outstanding);
         bucket = '90+';
       }
     }
@@ -726,7 +851,7 @@ function allocateAgingBuckets(
     invoiceBreakdown.push({
       id: inv.id,
       type: inv.type,
-      reference: inv.reference,
+      reference: formatFinancialField(inv.reference),
       date: inv.date,
       originalAmount: inv.totalAmount,
       outstandingAmount: outstanding,
@@ -735,11 +860,15 @@ function allocateAgingBuckets(
     });
   }
 
-  const totalOutstanding = current + days31to60 + days61to90 + days90plus;
+  // STAGE 12: Total outstanding using safe math
+  const totalOutstanding = safeFinancialAdd(
+    safeFinancialAdd(current, days31to60),
+    safeFinancialAdd(days61to90, days90plus)
+  );
   return { totalOutstanding, current, days31to60, days61to90, days90plus, invoiceBreakdown };
 }
 
-async function calculateCustomerAging(customerId: string): Promise<{
+async function calculateCustomerAging(customerId: string, _companyId: string | null): Promise<{
   totalOutstanding: number;
   current: number;
   days31to60: number;
@@ -759,6 +888,7 @@ async function calculateCustomerAging(customerId: string): Promise<{
   const today = new Date();
 
   // Get all non-Draft sales orders for this customer
+  // NOTE: SalesOrder does NOT have companyId — known limitation for Stage 12
   const salesOrders = await db.salesOrder.findMany({
     where: { customerId, status: { not: 'Draft' }, isActive: true },
     select: { id: true, date: true, grandTotal: true },
@@ -779,25 +909,26 @@ async function calculateCustomerAging(customerId: string): Promise<{
     ...salesOrders.map((so) => ({
       id: so.id,
       date: so.date,
-      totalAmount: Number(so.grandTotal),
+      totalAmount: safeFinancialRound(Number(so.grandTotal)),
       type: 'SalesOrder',
       reference: so.id,
     })),
     ...overdueInstallments.map((hi) => ({
       id: hi.id,
       date: hi.dueDate,
-      totalAmount: Number(hi.amount),
+      totalAmount: safeFinancialRound(Number(hi.amount)),
       type: 'HireInstallment',
       reference: hi.hireSales?.invoiceNo || hi.id,
     })),
   ];
 
-  // Get total collections for this customer
+  // STAGE 12: Get total collections for this customer with companyId filter
   const collectionsAgg = await db.cashCollection.aggregate({
     where: {
       customerId,
       isActive: true,
       status: { not: 'Draft' },
+      ...(_companyId ? { companyId: _companyId } : {}),
     },
     _sum: { amount: true },
   });
@@ -812,12 +943,16 @@ async function calculateCustomerAging(customerId: string): Promise<{
     _sum: { grandTotal: true },
   });
 
-  const totalPayments = Number(collectionsAgg._sum.amount || 0) + Number(returnsAgg._sum.grandTotal || 0);
+  // STAGE 12: Use safe math for total payments
+  const totalPayments = safeFinancialAdd(
+    safeFinancialRound(Number(collectionsAgg._sum.amount || 0)),
+    safeFinancialRound(Number(returnsAgg._sum.grandTotal || 0))
+  );
 
   return allocateAgingBuckets(invoices, totalPayments, today);
 }
 
-async function calculateSupplierAging(supplierId: string): Promise<{
+async function calculateSupplierAging(supplierId: string, _companyId: string | null): Promise<{
   totalOutstanding: number;
   current: number;
   days31to60: number;
@@ -836,6 +971,7 @@ async function calculateSupplierAging(supplierId: string): Promise<{
 }> {
   const today = new Date();
 
+  // NOTE: PurchaseOrder does NOT have companyId — known limitation for Stage 12
   const purchaseOrders = await db.purchaseOrder.findMany({
     where: { supplierId, status: { not: 'Draft' }, isActive: true },
     select: { id: true, date: true, grandTotal: true, poNumber: true },
@@ -845,17 +981,18 @@ async function calculateSupplierAging(supplierId: string): Promise<{
   const invoices: OutstandingInvoice[] = purchaseOrders.map((po) => ({
     id: po.id,
     date: po.date,
-    totalAmount: Number(po.grandTotal),
+    totalAmount: safeFinancialRound(Number(po.grandTotal)),
     type: 'PurchaseOrder',
     reference: po.poNumber,
   }));
 
-  // Get total payments for this supplier
+  // STAGE 12: Get total payments for this supplier with companyId filter
   const deliveriesAgg = await db.cashDelivery.aggregate({
     where: {
       supplierId,
       isActive: true,
       status: { not: 'Draft' },
+      ...(_companyId ? { companyId: _companyId } : {}),
     },
     _sum: { amount: true },
   });
@@ -870,7 +1007,11 @@ async function calculateSupplierAging(supplierId: string): Promise<{
     _sum: { grandTotal: true },
   });
 
-  const totalPayments = Number(deliveriesAgg._sum.amount || 0) + Number(returnsAgg._sum.grandTotal || 0);
+  // STAGE 12: Use safe math for total payments
+  const totalPayments = safeFinancialAdd(
+    safeFinancialRound(Number(deliveriesAgg._sum.amount || 0)),
+    safeFinancialRound(Number(returnsAgg._sum.grandTotal || 0))
+  );
 
   return allocateAgingBuckets(invoices, totalPayments, today);
 }
