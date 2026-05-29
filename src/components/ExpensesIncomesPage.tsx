@@ -16,22 +16,30 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import type { CompanyProfile } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS (local copies for standalone component)
 // ============================================================
 
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const fmt = (v: any, type?: string) => {
-  if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (v === null || v === undefined) return "\u2014";
+  if (type === "currency") return `\u09F3${bdCurrencyFmt.format(Number(v))}`;
+  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "\u2014";
   if (type === "boolean") return v ? "Active" : "Inactive";
+  if (type === "number") return bdCurrencyFmt.format(Number(v));
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "\u2014";
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -123,6 +131,9 @@ export default function ExpensesIncomesPage() {
   const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
   const [banks, setBanks] = useState<any[]>([]);
 
+  // Company profile for PDF footer
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | undefined>(undefined);
+
   // Heads form state
   const [headForm, setHeadForm] = useState<{ name: string; type: string }>({ name: "", type: "Expense" });
   const [headEditItem, setHeadEditItem] = useState<any>(null);
@@ -137,6 +148,8 @@ export default function ExpensesIncomesPage() {
     date: new Date().toISOString().split("T")[0],
     headId: "",
     amount: "",
+    chequeNo: "",
+    voucherNo: "",
     paymentOptionId: "",
     bankId: "",
     description: "",
@@ -146,6 +159,7 @@ export default function ExpensesIncomesPage() {
   // RBAC
   const isDealer = user?.role === "dealer";
   const isSR = user?.role === "sr";
+  const isAdmin = user?.role === "admin";
 
   // Current data based on tab
   const currentData = activeTab === "expenses" ? expenses : incomes;
@@ -226,7 +240,17 @@ export default function ExpensesIncomesPage() {
     } finally { setHeadsLoading(false); }
   }, [toast]);
 
-  useEffect(() => { load(); loadHeads(); }, [load, loadHeads]);
+  // Load company profile for PDF footer
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding").catch(() => null);
+      if (res?.company) {
+        setCompanyProfile(res.company as CompanyProfile);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { load(); loadHeads(); loadCompanyProfile(); }, [load, loadHeads, loadCompanyProfile]);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -274,6 +298,8 @@ export default function ExpensesIncomesPage() {
       date: new Date().toISOString().split("T")[0],
       headId: "",
       amount: "",
+      chequeNo: "",
+      voucherNo: "",
       paymentOptionId: "",
       bankId: "",
       description: "",
@@ -295,6 +321,8 @@ export default function ExpensesIncomesPage() {
       date: item.date ? item.date.split("T")[0] : "",
       headId: item.headId || "",
       amount: item.amount || "",
+      chequeNo: item.chequeNo || "",
+      voucherNo: item.voucherNo || "",
       paymentOptionId: item.paymentOptionId || "",
       bankId: item.bankId || "",
       description: item.description || "",
@@ -316,6 +344,8 @@ export default function ExpensesIncomesPage() {
         date: formData.date,
         headId: formData.headId,
         amount: Number(formData.amount),
+        chequeNo: formData.chequeNo || null,
+        voucherNo: formData.voucherNo || null,
         paymentOptionId: formData.paymentOptionId || null,
         bankId: formData.bankId || null,
         description: formData.description || null,
@@ -343,10 +373,13 @@ export default function ExpensesIncomesPage() {
 
   const exportCSV = () => {
     try {
-      const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Payment Option", "Bank", "Status"];
+      const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Cheque No", "Voucher No", "Payment Option", "Bank", "Status"];
       const rows = filtered.map((item: any) => [
-        item[codeField], item.head?.name || "—", fmtDate(item.date),
-        String(item.amount || 0), item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
+        item[codeField], item.head?.name || "\u2014", fmtDate(item.date),
+        isVatAuditor ? "N/A (Audit Mode)" : String(item.amount || 0),
+        isVatAuditor ? "N/A (Audit Mode)" : (item.chequeNo || "\u2014"),
+        isVatAuditor ? "N/A (Audit Mode)" : (item.voucherNo || "\u2014"),
+        item.paymentOption?.name || "\u2014", item.bank?.bankName || "\u2014", item.status
       ]);
       exportToCSVSimple(tabLabel, headers, rows);
       toast({ title: "Exported", description: `${tabLabel}s exported to CSV` });
@@ -357,17 +390,45 @@ export default function ExpensesIncomesPage() {
 
   const exportPDF = () => {
     try {
-      const headers = [`${codePrefix} Code`, "Head", "Date", "Amount", "Payment Option", "Bank", "Status"];
-      const body = filtered.map((item: any) => [
-        item[codeField],
-        item.head?.name || "—",
-        fmtDate(item.date),
-        isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"),
-        item.paymentOption?.name || "—",
-        item.bank?.bankName || "—",
-        item.status,
-      ]);
-      exportToPDFSimple(`${tabLabel}s`, headers, body, "landscape");
+      const columns = [
+        { key: "code", label: `${codePrefix} Code`, type: "text" as const },
+        { key: "head", label: "Head", type: "text" as const },
+        { key: "date", label: "Date", type: "date" as const },
+        { key: "amount", label: "Amount", type: "currency" as const },
+        { key: "chequeNo", label: "Cheque No", type: "text" as const },
+        { key: "voucherNo", label: "Voucher No", type: "text" as const },
+        { key: "paymentOption", label: "Payment Option", type: "text" as const },
+        { key: "bank", label: "Bank", type: "text" as const },
+        { key: "status", label: "Status", type: "text" as const },
+      ];
+
+      const data = filtered.map((item: any) => ({
+        code: item[codeField],
+        head: item.head?.name || "\u2014",
+        date: item.date,
+        amount: isVatAuditor ? "N/A (Audit Mode)" : item.amount,
+        chequeNo: isVatAuditor ? "N/A (Audit Mode)" : (item.chequeNo || ""),
+        voucherNo: isVatAuditor ? "N/A (Audit Mode)" : (item.voucherNo || ""),
+        paymentOption: item.paymentOption?.name || "\u2014",
+        bank: isVatAuditor ? "N/A (Audit Mode)" : (item.bank?.bankName || "\u2014"),
+        status: item.status,
+      }));
+
+      exportToPDF({
+        title: `${tabLabel}s`,
+        orientation: "landscape",
+        columns,
+        data,
+        isVatAuditor,
+        vatMaskedColumns: isVatAuditor ? ["amount", "chequeNo", "voucherNo"] : [],
+        company: companyProfile,
+        financialFooter: {
+          preparedBy: user?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: user?.displayName || user?.email || "",
+        },
+      });
       toast({ title: "Exported", description: `${tabLabel}s exported to PDF` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -386,6 +447,8 @@ export default function ExpensesIncomesPage() {
         { key: "headId", label: "Head", type: "text", required: true },
         { key: "amount", label: "Amount", type: "number", required: true },
         { key: "date", label: "Date", type: "date", required: true },
+        { key: "chequeNo", label: "Cheque No", type: "text" },
+        { key: "voucherNo", label: "Voucher No", type: "text" },
         { key: "paymentOptionId", label: "Payment Option", type: "text" },
         { key: "bankId", label: "Bank", type: "text" },
         { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
@@ -410,6 +473,14 @@ export default function ExpensesIncomesPage() {
     }
   };
 
+  /** Mask field value for VAT Auditor */
+  const maskIfVatAuditor = (value: any, fieldName: string) => {
+    if (!isVatAuditor) return value || "\u2014";
+    const maskedFields = ["amount", "chequeNo", "voucherNo", "accountNo", "accountNumber"];
+    if (maskedFields.includes(fieldName)) return "N/A (Audit Mode)";
+    return value || "\u2014";
+  };
+
   // Dealer restriction - early return AFTER all hooks
   if (isDealer) {
     return (
@@ -426,13 +497,21 @@ export default function ExpensesIncomesPage() {
   // SR restricted from creating expenses
   const canCreateCurrentTab = !(isSR && activeTab === "expenses");
 
+  // Delete button disabled: VAT auditor, SR on expenses, non-admin
+  const deleteDisabled = (tabContext?: "expenses" | "incomes" | "heads") => {
+    if (isVatAuditor) return true;
+    if (tabContext === "expenses" && isSR) return true;
+    if (!isAdmin) return true;
+    return false;
+  };
+
   return (
     <div className="page-enter space-y-4">
       {/* VAT Auditor Mode Badge */}
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Amount/cost fields hidden for audit compliance. Data maps to legal outward/inward invoicing sets only.</span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Amount, cheque, voucher, and bank account fields hidden for audit compliance. Data maps to legal outward/inward invoicing sets only.</span>
         </div>
       )}
 
@@ -441,6 +520,14 @@ export default function ExpensesIncomesPage() {
         <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
           <AlertTriangle className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
           <span className="text-sm text-yellow-700 dark:text-yellow-400 font-medium">You can only create Income entries. Expense creation is restricted.</span>
+        </div>
+      )}
+
+      {/* Manager restriction banner */}
+      {user?.role === "manager" && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+          <Lock className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+          <span className="text-sm text-orange-700 dark:text-orange-400 font-medium">Delete operations are restricted to administrators only.</span>
         </div>
       )}
 
@@ -534,7 +621,18 @@ export default function ExpensesIncomesPage() {
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button variant="ghost" size="sm" onClick={() => openHeadEdit(h)} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setHeadDeleteItem(h)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            {deleteDisabled("heads") ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>
+                                    <Button variant="ghost" size="sm" className="text-red-500" disabled><Trash2 className="w-3.5 h-3.5" /></Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{isVatAuditor ? "VAT Auditor cannot delete" : "Only administrators can delete financial posts"}</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setHeadDeleteItem(h)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -616,16 +714,27 @@ export default function ExpensesIncomesPage() {
                         </Button>
                       </TableCell>
                       <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item[codeField]}</TableCell>
-                      <TableCell>{item.head?.name || "—"}</TableCell>
+                      <TableCell>{item.head?.name || "\u2014"}</TableCell>
                       <TableCell>{fmtDate(item.date)}</TableCell>
                       <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency")}</TableCell>
-                      <TableCell>{item.paymentOption?.name || "—"}</TableCell>
-                      <TableCell>{item.bank?.bankName || "—"}</TableCell>
+                      <TableCell>{item.paymentOption?.name || "\u2014"}</TableCell>
+                      <TableCell>{isVatAuditor ? "N/A (Audit Mode)" : (item.bank?.bankName || "\u2014")}</TableCell>
                       <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="sm" onClick={() => openEdit(item)} disabled={isSR && activeTab === "expenses"}><Edit className="w-3.5 h-3.5" /></Button>
-                          <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)} disabled={isSR && activeTab === "expenses"}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          {deleteDisabled(activeTab as "expenses" | "incomes") ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>
+                                  <Button variant="ghost" size="sm" className="text-red-500" disabled><Trash2 className="w-3.5 h-3.5" /></Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>{isVatAuditor ? "VAT Auditor cannot delete" : "Only administrators can delete financial posts"}</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -633,10 +742,13 @@ export default function ExpensesIncomesPage() {
                       <TableRow>
                         <TableCell colSpan={9} className="bg-muted/30 p-3">
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                            <div><span className="text-muted-foreground">Head:</span> <span className="font-medium text-slate-900 dark:text-white">{item.head?.name || "—"}</span></div>
-                            <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.bankName || "—"}</span></div>
-                            <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
-                            <div className="col-span-2"><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "—"}</span></div>
+                            <div><span className="text-muted-foreground">Head:</span> <span className="font-medium text-slate-900 dark:text-white">{item.head?.name || "\u2014"}</span></div>
+                            <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : (item.bank?.bankName || "\u2014")}</span></div>
+                            <div><span className="text-muted-foreground">Bank Account:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : (item.bank?.accountNo || item.bank?.accountNumber || "\u2014")}</span></div>
+                            <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "\u2014"}</span></div>
+                            <div><span className="text-muted-foreground">Cheque No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : (item.chequeNo || "\u2014")}</span></div>
+                            <div><span className="text-muted-foreground">Voucher No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : (item.voucherNo || "\u2014")}</span></div>
+                            <div className="col-span-2"><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "\u2014"}</span></div>
                             <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
                           </div>
                         </TableCell>
@@ -687,6 +799,26 @@ export default function ExpensesIncomesPage() {
                   <Input className="bg-muted cursor-not-allowed" value="N/A (Audit Mode)" readOnly />
                 ) : (
                   <Input type="number" step="0.01" value={formData.amount || ""} onChange={e => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" />
+                )}
+              </div>
+
+              {/* Cheque No */}
+              <div className="space-y-1.5">
+                <Label>Cheque No</Label>
+                {isVatAuditor ? (
+                  <Input className="bg-muted cursor-not-allowed" value="N/A (Audit Mode)" readOnly />
+                ) : (
+                  <Input type="text" value={formData.chequeNo || ""} onChange={e => setFormData({ ...formData, chequeNo: e.target.value })} placeholder="Enter cheque number" />
+                )}
+              </div>
+
+              {/* Voucher No */}
+              <div className="space-y-1.5">
+                <Label>Voucher No</Label>
+                {isVatAuditor ? (
+                  <Input className="bg-muted cursor-not-allowed" value="N/A (Audit Mode)" readOnly />
+                ) : (
+                  <Input type="text" value={formData.voucherNo || ""} onChange={e => setFormData({ ...formData, voucherNo: e.target.value })} placeholder="Enter voucher number" />
                 )}
               </div>
 

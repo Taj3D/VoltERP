@@ -1,8 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  checkPeriodClose,
+  maskForVatAuditorFinancial,
+  checkFinancialDeletePermission,
+  safeFinancialRound,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+} from '@/lib/api-security';
 
-// GET /api/cash-deliveries/[id] - Get single cash delivery with all relations
+// Helper: normalize empty strings to null for optional string fields
+function nullIfEmpty(value: string | undefined | null): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  return value;
+}
+
+// GET /api/cash-deliveries/[id] - Get single cash delivery with cross-tenant validation
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,7 +43,19 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(item);
+    // Cross-tenant validation: companyId mismatch → 404
+    const companyId = security.user.companyId;
+    if (companyId && item.companyId && item.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'Cash delivery not found' },
+        { status: 404 }
+      );
+    }
+
+    // Apply VAT Auditor financial masking for single record
+    const maskedItem = maskForVatAuditorFinancial(item, security.user.role);
+
+    return NextResponse.json(maskedItem);
   } catch (error) {
     console.error('Error fetching cash delivery:', error);
     return NextResponse.json(
@@ -38,7 +65,7 @@ export async function GET(
   }
 }
 
-// PUT /api/cash-deliveries/[id] - Update cash delivery with bank reversal + balance validation
+// PUT /api/cash-deliveries/[id] - Update with bank reversal + re-entry with sufficient balance validation
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -55,6 +82,8 @@ export async function PUT(
       amount,
       paymentOptionId,
       bankId,
+      chequeNo,
+      voucherNo,
       description,
       status,
     } = body;
@@ -75,6 +104,15 @@ export async function PUT(
       );
     }
 
+    // Cross-tenant validation
+    const companyId = security.user.companyId;
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'Cash delivery not found' },
+        { status: 404 }
+      );
+    }
+
     // Period-close lock check
     const checkDate = date ? new Date(date) : (existing.date || new Date());
     const periodLock = await checkPeriodClose(checkDate);
@@ -86,15 +124,15 @@ export async function PUT(
     const oldAmount = existing.amount;
     const oldStatus = existing.status;
     const newBankId = bankId !== undefined ? (bankId || null) : oldBankId;
-    const newAmount = amount !== undefined ? (parseFloat(amount) || 0) : oldAmount;
+    const newAmount = amount !== undefined ? safeFinancialRound(parseFloat(amount) || 0) : oldAmount;
     const newStatus = status || oldStatus;
+    const newChequeNo = chequeNo !== undefined ? nullIfEmpty(chequeNo) : existing.chequeNo;
+    const newVoucherNo = voucherNo !== undefined ? nullIfEmpty(voucherNo) : existing.voucherNo;
+    const newDescription = description !== undefined ? nullIfEmpty(description) : existing.description;
 
     // Pre-transaction balance validation for CashDelivery:
-    // If new status is Approved and there's a bankId, we need to validate sufficiency.
-    // The net impact = (new decrement if Approved) - (old increment we reverse if was Approved)
-    // But we reverse old first, then apply new, so we validate the apply step.
+    // If new status is Approved and there's a bankId, validate sufficient balance.
     if (newStatus === 'Approved' && newBankId) {
-      // Calculate what the bank balance would be after reversing old impact
       const bank = await db.bank.findUnique({
         where: { id: newBankId },
         select: { currentBalance: true, bankName: true },
@@ -110,7 +148,7 @@ export async function PUT(
       // Simulate: reverse old first (if old was Approved with same bankId, add oldAmount back)
       let projectedBalance = bank.currentBalance;
       if (oldStatus === 'Approved' && oldBankId === newBankId) {
-        projectedBalance += oldAmount;
+        projectedBalance = safeFinancialAdd(projectedBalance, oldAmount);
       } else if (oldStatus === 'Approved' && oldBankId && oldBankId !== newBankId) {
         // Old bank gets reversed (different bank), new bank only gets decremented
         projectedBalance = bank.currentBalance; // new bank hasn't been touched yet
@@ -127,17 +165,62 @@ export async function PUT(
     }
 
     const result = await db.$transaction(async (tx) => {
-      // Reverse old bank impact if the old status was Approved
+      // ── STEP 1: Reverse old bank impact if old status was Approved ──
+      // (payment to supplier was made, so add the amount back to the bank)
       if (oldStatus === 'Approved' && oldBankId) {
+        const bankRecord = await tx.bank.findUnique({
+          where: { id: oldBankId },
+          select: { currentBalance: true },
+        });
+        const reversedBalance = safeFinancialAdd(bankRecord?.currentBalance ?? 0, oldAmount);
         await tx.bank.update({
           where: { id: oldBankId },
-          data: { currentBalance: { increment: oldAmount } },
+          data: { currentBalance: reversedBalance },
         });
       }
 
-      // Apply new bank impact if the new status is Approved
+      // ── STEP 2: Create reversal ledger entries for the old state ──
+      if (oldStatus === 'Approved') {
+        // Resolve old cash/bank account name for reversal
+        let oldCashAccountName = 'Cash in Hand';
+        if (oldBankId) {
+          const oldBankRecord = await tx.bank.findUnique({
+            where: { id: oldBankId },
+            select: { bankName: true },
+          });
+          oldCashAccountName = oldBankRecord?.bankName || 'Bank';
+        }
+
+        // Reversal: Dr: [old cash/bank] (reverses original credit from cash/bank)
+        await tx.ledgerEntry.create({
+          data: {
+            date: checkDate,
+            account: oldCashAccountName,
+            particulars: 'Reversal: Cash Delivery update',
+            debit: oldAmount,
+            credit: 0,
+            reference: existing.deliveryCode,
+            referenceType: 'CashDelivery',
+          },
+        });
+
+        // Reversal: Cr: [old supplier] (reverses original debit to supplier)
+        await tx.ledgerEntry.create({
+          data: {
+            date: checkDate,
+            account: existing.supplier.name,
+            particulars: 'Reversal: Cash Delivery update',
+            debit: 0,
+            credit: oldAmount,
+            reference: existing.deliveryCode,
+            referenceType: 'CashDelivery',
+          },
+        });
+      }
+
+      // ── STEP 3: Apply new bank impact if new status is Approved ──
       if (newStatus === 'Approved' && newBankId) {
-        // Re-validate inside transaction
+        // Re-validate inside transaction for consistency
         const currentBank = await tx.bank.findUnique({
           where: { id: newBankId },
           select: { currentBalance: true },
@@ -149,59 +232,43 @@ export async function PUT(
           );
         }
 
+        const newBalance = safeFinancialSubtract(currentBank.currentBalance, newAmount);
         await tx.bank.update({
           where: { id: newBankId },
-          data: { currentBalance: { decrement: newAmount } },
+          data: { currentBalance: newBalance },
         });
       }
 
-      // Get the supplier name for ledger entry (may have changed)
-      let supplierName = existing.supplier.name;
-      if (supplierId && supplierId !== existing.supplierId) {
-        const newSupplier = await tx.supplier.findUnique({
-          where: { id: supplierId },
-          select: { name: true },
-        });
-        if (newSupplier) supplierName = newSupplier.name;
-      }
+      // ── STEP 4: Create new ledger entries if new status is Approved ──
+      if (newStatus === 'Approved') {
+        // Get the supplier name for ledger entry (may have changed)
+        let supplierName = existing.supplier.name;
+        if (supplierId && supplierId !== existing.supplierId) {
+          const newSupplier = await tx.supplier.findUnique({
+            where: { id: supplierId },
+            select: { name: true },
+          });
+          if (newSupplier) supplierName = newSupplier.name;
+        }
 
-      // Update the cash delivery
-      const updated = await tx.cashDelivery.update({
-        where: { id },
-        data: {
-          ...(supplierId && { supplierId }),
-          ...(date && { date: new Date(date) }),
-          ...(amount !== undefined && { amount: newAmount }),
-          ...(paymentOptionId !== undefined && { paymentOptionId: paymentOptionId || null }),
-          ...(bankId !== undefined && { bankId: bankId || null }),
-          ...(description !== undefined && { description: description || null }),
-          ...(status && { status: newStatus }),
-        },
-        include: {
-          supplier: true,
-          paymentOption: true,
-          bank: true,
-        },
-      });
+        // Resolve new cash/bank account name
+        let newCashAccountName = 'Cash in Hand';
+        if (newBankId) {
+          const newBankRecord = await tx.bank.findUnique({
+            where: { id: newBankId },
+            select: { bankName: true },
+          });
+          newCashAccountName = newBankRecord?.bankName || 'Bank';
+        }
 
-      // If status is Approved and (bankId or amount changed), create balanced ledger pair
-      const bankOrAmountChanged =
-        newBankId !== oldBankId || newAmount !== oldAmount;
-      const statusChanged = newStatus !== oldStatus;
+        const newParticulars = newDescription || 'Cash Delivery to supplier (updated)';
 
-      if ((newStatus === 'Approved' && bankOrAmountChanged) ||
-          (statusChanged && newStatus === 'Approved')) {
-        // Get cash/bank account name for the credit entry
-        const bankRecord = newBankId
-          ? await tx.bank.findUnique({ where: { id: newBankId }, select: { bankName: true } })
-          : null;
-        const cashAccountName = bankRecord?.bankName || 'Cash in Hand';
         // Dr: Supplier
         await tx.ledgerEntry.create({
           data: {
-            date: updated.date,
+            date: checkDate,
             account: supplierName,
-            particulars: 'Cash Delivery to supplier (updated)',
+            particulars: newParticulars,
             debit: newAmount,
             credit: 0,
             reference: existing.deliveryCode,
@@ -211,9 +278,9 @@ export async function PUT(
         // Cr: Cash/Bank
         await tx.ledgerEntry.create({
           data: {
-            date: updated.date,
-            account: cashAccountName,
-            particulars: 'Cash Delivery to supplier (updated)',
+            date: checkDate,
+            account: newCashAccountName,
+            particulars: newParticulars,
             debit: 0,
             credit: newAmount,
             reference: existing.deliveryCode,
@@ -222,24 +289,48 @@ export async function PUT(
         });
       }
 
-      // Create AuditLog entry
+      // ── STEP 5: Update the cash delivery record ──
+      const updated = await tx.cashDelivery.update({
+        where: { id },
+        data: {
+          ...(supplierId && { supplierId }),
+          ...(date && { date: new Date(date) }),
+          ...(amount !== undefined && { amount: newAmount }),
+          ...(paymentOptionId !== undefined && { paymentOptionId: paymentOptionId || null }),
+          ...(bankId !== undefined && { bankId: newBankId }),
+          ...(chequeNo !== undefined && { chequeNo: newChequeNo }),
+          ...(voucherNo !== undefined && { voucherNo: newVoucherNo }),
+          ...(description !== undefined && { description: newDescription }),
+          ...(status && { status: newStatus }),
+        },
+        include: {
+          supplier: true,
+          paymentOption: true,
+          bank: true,
+        },
+      });
+
+      // ── STEP 6: AuditLog with "Fin-Ledger-Transaction" module token ──
       await tx.auditLog.create({
         data: {
           action: 'UPDATE',
-          module: 'CashDeliveries',
+          module: 'Fin-Ledger-Transaction',
           recordId: updated.id,
           recordLabel: existing.deliveryCode,
           userId: security.user.id,
           userName: security.user.name,
           details: JSON.stringify({
+            type: 'CashDelivery',
             previousBankId: oldBankId,
             newBankId,
             previousAmount: oldAmount,
             newAmount,
             previousStatus: oldStatus,
             newStatus,
-            bankImpactReversed: oldStatus === 'Approved' && oldBankId ? true : false,
-            bankImpactApplied: newStatus === 'Approved' && newBankId ? true : false,
+            bankImpactReversed: !!(oldStatus === 'Approved' && oldBankId),
+            bankImpactApplied: !!(newStatus === 'Approved' && newBankId),
+            ledgerReversalCreated: oldStatus === 'Approved',
+            ledgerNewEntriesCreated: newStatus === 'Approved',
           }),
         },
       });
@@ -257,7 +348,7 @@ export async function PUT(
   }
 }
 
-// DELETE /api/cash-deliveries/[id] - Soft delete
+// DELETE /api/cash-deliveries/[id] - Soft delete (admin only), bank balance reversal
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -265,15 +356,36 @@ export async function DELETE(
   const security = await withApiSecurity(request, 'CashDeliveries', 'DELETE');
   if (!security.authorized) return security.response;
 
+  // Manager delete restriction: only admin can delete financial posts
+  const deleteCheck = checkFinancialDeletePermission(security.user.role);
+  if (deleteCheck) return deleteCheck;
+
   try {
     const { id } = await params;
 
     const existing = await db.cashDelivery.findUnique({
       where: { id },
-      select: { deliveryCode: true, isActive: true, bankId: true, amount: true, status: true, date: true },
+      select: {
+        deliveryCode: true,
+        isActive: true,
+        bankId: true,
+        amount: true,
+        status: true,
+        date: true,
+        companyId: true,
+      },
     });
 
     if (!existing) {
+      return NextResponse.json(
+        { error: 'Cash delivery not found' },
+        { status: 404 }
+      );
+    }
+
+    // Cross-tenant validation
+    const companyId = security.user.companyId;
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
       return NextResponse.json(
         { error: 'Cash delivery not found' },
         { status: 404 }
@@ -301,24 +413,30 @@ export async function DELETE(
       // If the delivery was Approved and had a bankId, reverse the bank impact
       // (payment to supplier was made, so add the amount back to the bank)
       if (existing.status === 'Approved' && existing.bankId) {
+        const bankRecord = await tx.bank.findUnique({
+          where: { id: existing.bankId },
+          select: { currentBalance: true },
+        });
+        const newBalance = safeFinancialAdd(bankRecord?.currentBalance ?? 0, existing.amount);
         await tx.bank.update({
           where: { id: existing.bankId },
-          data: { currentBalance: { increment: existing.amount } },
+          data: { currentBalance: newBalance },
         });
       }
 
-      // Create AuditLog entry
+      // AuditLog with "Fin-Ledger-Transaction" module token
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
-          module: 'CashDeliveries',
+          module: 'Fin-Ledger-Transaction',
           recordId: id,
           recordLabel: existing.deliveryCode,
           userId: security.user.id,
           userName: security.user.name,
           details: JSON.stringify({
+            type: 'CashDelivery',
             softDelete: true,
-            bankImpactReversed: existing.status === 'Approved' && existing.bankId ? true : false,
+            bankImpactReversed: !!(existing.status === 'Approved' && existing.bankId),
             reversedAmount: existing.status === 'Approved' && existing.bankId ? existing.amount : 0,
           }),
         },

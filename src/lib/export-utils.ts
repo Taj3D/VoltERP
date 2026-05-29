@@ -85,6 +85,13 @@ export interface PDFOptions {
   customHeader?: (doc: jsPDF, pageNumber: number, pageWidth: number, pageHeight: number) => void;
   /** Optional company profile for dynamic branding in header/footer */
   company?: CompanyProfile;
+  /** Enterprise Financial Footer: "Prepared By", "Checked By", "Authorized By" signature blocks */
+  financialFooter?: {
+    preparedBy?: string;
+    checkedBy?: string;
+    authorizedBy?: string;
+    printedBy: string; // Username of the person who generated the PDF
+  };
 }
 
 export interface CSVOptions {
@@ -395,9 +402,49 @@ function drawFooter(
   pageWidth: number,
   pageHeight: number,
   margin: number,
-  company?: CompanyProfile
+  company?: CompanyProfile,
+  financialFooter?: PDFOptions["financialFooter"]
 ): void {
   const footerY = pageHeight - 8;
+
+  // If financial footer is provided, draw the enterprise signature block ABOVE the navy bar
+  if (financialFooter) {
+    const signatureY = pageHeight - 28; // Position above the navy bar
+    doc.setTextColor(60, 60, 60);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+
+    const signatureFields = [
+      { label: "Prepared By", value: financialFooter.preparedBy || "" },
+      { label: "Checked By", value: financialFooter.checkedBy || "" },
+      { label: "Authorized By", value: financialFooter.authorizedBy || "" },
+    ];
+
+    // Draw three signature columns evenly spaced
+    const colWidth = (pageWidth - margin * 2) / 3;
+    signatureFields.forEach((field, i) => {
+      const x = margin + i * colWidth;
+      doc.setFont("helvetica", "bold");
+      doc.text(`${field.label}:`, x, signatureY);
+      doc.setFont("helvetica", "normal");
+      // Underline for signature
+      doc.setDrawColor(150, 150, 150);
+      doc.setLineWidth(0.3);
+      doc.line(x, signatureY + 1.5, x + colWidth - 10, signatureY + 1.5);
+      if (field.value) {
+        doc.text(field.value, x, signatureY + 5);
+      }
+    });
+
+    // Printed By + ISO timestamp (right-aligned)
+    const now = new Date();
+    const isoTimestamp = now.toISOString().replace("T", " ").substring(0, 19);
+    const printedByText = `Printed By: ${financialFooter.printedBy} | ${isoTimestamp}`;
+    doc.setFontSize(6);
+    doc.setTextColor(120, 120, 120);
+    const ptbWidth = doc.getTextWidth(printedByText);
+    doc.text(printedByText, pageWidth - margin - ptbWidth, signatureY + 9);
+  }
 
   // Navy blue footer bar
   doc.setFillColor(10, 22, 40);
@@ -476,6 +523,9 @@ export function exportToPDF(options: PDFOptions): void {
     // ── Corporate Header ──
     const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
 
+    // ── Adjust bottom margin for financial footer (more space needed for signature blocks) ──
+    const bottomMargin = options.financialFooter ? 36 : 18;
+
     // ── Prepare Table Data ──
     const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
     const headers = visibleColumns.map((c) => c.label);
@@ -529,14 +579,14 @@ export function exportToPDF(options: PDFOptions): void {
       head: [headers],
       body,
       startY: tableStartY,
-      margin: { left: margin, right: margin, bottom: 18 },
+      margin: { left: margin, right: margin, bottom: bottomMargin },
       styles,
       headStyles,
       alternateRowStyles,
       columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
         // Draw footer on every page
-        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
 
         // Call custom header callback if provided
         if (customHeader) {
@@ -552,10 +602,10 @@ export function exportToPDF(options: PDFOptions): void {
 
       // Check if summary fits on current page, otherwise add new page
       let currentSummaryY: number;
-      if (summaryStartY > pageHeight - 30) {
+      if (summaryStartY > pageHeight - (options.financialFooter ? 44 : 30)) {
         doc.addPage();
         drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
-        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
+        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
         currentSummaryY = 36; // Below corporate header on new page
       } else {
         currentSummaryY = summaryStartY;
@@ -569,10 +619,10 @@ export function exportToPDF(options: PDFOptions): void {
         };
 
         // Check if summary row fits on current page
-        if (currentSummaryY > pageHeight - 25) {
+        if (currentSummaryY > pageHeight - (options.financialFooter ? 44 : 25)) {
           doc.addPage();
           drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
-          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
+          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
           currentSummaryY = 36; // Below corporate header
         }
 
@@ -593,7 +643,7 @@ export function exportToPDF(options: PDFOptions): void {
           },
           columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
           didDrawPage: (data: any) => {
-            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
+            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
           },
         });
 

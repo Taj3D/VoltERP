@@ -17,9 +17,13 @@ model User {
   name      String
   password  String
   role      String   @default("admin")
+  companyId String?  // Multi-tenant isolation: links user to a company
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 // ============================================================
@@ -102,8 +106,16 @@ model Company {
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
-  products    Product[]
-  orderSheets OrderSheet[]
+  products           Product[]
+  orderSheets        OrderSheet[]
+  users              User[]
+  banks              Bank[]
+  expenseIncomeHeads ExpenseIncomeHead[]
+  expenses           Expense[]
+  incomes            Income[]
+  cashCollections    CashCollection[]
+  cashDeliveries     CashDelivery[]
+  bankTransactions   BankTransaction[]
 }
 
 model Category {
@@ -138,15 +150,19 @@ model Bank {
   accountHolder  String
   openingBalance Float             @default(0)
   currentBalance Float             @default(0)
+  companyId      String?            // Multi-tenant isolation
   isActive       Boolean           @default(true)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+  company        Company?          @relation(fields: [companyId], references: [id])
   bankTransactions BankTransaction[]
   transferToTransactions BankTransaction[] @relation("TransferToBank")
   expenses      Expense[]
   incomes       Income[]
   cashCollections CashCollection[]
   cashDeliveries CashDelivery[]
+
+  @@index([companyId])
 }
 
 model Department {
@@ -857,11 +873,15 @@ model ExpenseIncomeHead {
   id        String   @id @default(cuid())
   name      String
   type      String   // "Expense" or "Income"
+  companyId String?  // Multi-tenant isolation
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  company   Company? @relation(fields: [companyId], references: [id])
   expenses  Expense[]
   incomes   Income[]
+
+  @@index([companyId])
 }
 
 model Expense {
@@ -872,6 +892,9 @@ model Expense {
   amount           Float
   paymentOptionId  String?
   bankId           String?
+  companyId        String?           // Multi-tenant isolation
+  chequeNo         String?           // Cheque number reference
+  voucherNo        String?           // Payment voucher number
   description      String?
   status           String            @default("Approved")
   isActive         Boolean           @default(true)
@@ -880,9 +903,11 @@ model Expense {
   head             ExpenseIncomeHead @relation(fields: [headId], references: [id])
   paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
   bank             Bank?             @relation(fields: [bankId], references: [id])
+  company          Company?          @relation(fields: [companyId], references: [id])
 
   @@index([headId])
   @@index([bankId])
+  @@index([companyId])
   @@index([date])
 }
 
@@ -894,6 +919,9 @@ model Income {
   amount           Float
   paymentOptionId  String?
   bankId           String?
+  companyId        String?           // Multi-tenant isolation
+  chequeNo         String?           // Cheque number reference
+  voucherNo        String?           // Payment voucher number
   description      String?
   status           String            @default("Approved")
   isActive         Boolean           @default(true)
@@ -902,9 +930,11 @@ model Income {
   head             ExpenseIncomeHead @relation(fields: [headId], references: [id])
   paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
   bank             Bank?             @relation(fields: [bankId], references: [id])
+  company          Company?          @relation(fields: [companyId], references: [id])
 
   @@index([headId])
   @@index([bankId])
+  @@index([companyId])
   @@index([date])
 }
 
@@ -916,6 +946,9 @@ model CashCollection {
   amount          Float
   paymentOptionId String?
   bankId          String?
+  companyId       String?        // Multi-tenant isolation
+  chequeNo        String?        // Cheque number reference
+  voucherNo       String?        // Payment voucher number
   description     String?
   status          String         @default("Approved")
   isActive        Boolean        @default(true)
@@ -924,9 +957,11 @@ model CashCollection {
   customer        Customer       @relation(fields: [customerId], references: [id])
   paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
   bank            Bank?          @relation(fields: [bankId], references: [id])
+  company         Company?       @relation(fields: [companyId], references: [id])
 
   @@index([customerId])
   @@index([bankId])
+  @@index([companyId])
   @@index([date])
 }
 
@@ -938,6 +973,9 @@ model CashDelivery {
   amount          Float
   paymentOptionId String?
   bankId          String?
+  companyId       String?        // Multi-tenant isolation
+  chequeNo        String?        // Cheque number reference
+  voucherNo       String?        // Payment voucher number
   description     String?
   status          String         @default("Approved")
   isActive        Boolean        @default(true)
@@ -946,9 +984,11 @@ model CashDelivery {
   supplier        Supplier       @relation(fields: [supplierId], references: [id])
   paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
   bank            Bank?          @relation(fields: [bankId], references: [id])
+  company         Company?       @relation(fields: [companyId], references: [id])
 
   @@index([supplierId])
   @@index([bankId])
+  @@index([companyId])
   @@index([date])
 }
 
@@ -961,6 +1001,10 @@ model BankTransaction {
   amount          Float
   runningBalance  Float    @default(0)
   toBankId        String?  // For bank-to-bank transfers
+  companyId       String?  // Multi-tenant isolation
+  chequeNo        String?  // Cheque number reference
+  depositorName   String?  // Name of the depositor
+  referenceNo     String?  // Reference/comment for the transaction
   description     String?
   status          String   @default("Approved")
   isActive        Boolean  @default(true)
@@ -968,8 +1012,10 @@ model BankTransaction {
   updatedAt       DateTime @updatedAt
   bank            Bank     @relation(fields: [bankId], references: [id])
   toBank          Bank?    @relation("TransferToBank", fields: [toBankId], references: [id])
+  company         Company? @relation(fields: [companyId], references: [id])
 
   @@index([bankId])
+  @@index([companyId])
   @@index([date])
   @@index([type])
 }

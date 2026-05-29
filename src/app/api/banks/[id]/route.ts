@@ -1,15 +1,27 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, maskForVatAuditorFinancial, checkFinancialDeletePermission, safeFinancialRound } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Banks', 'GET');
   if (!security.authorized) return security.response;
+
+  const companyId = security.user.companyId;
+  const role = security.user.role;
+
   try {
     const { id } = await params;
     const item = await db.bank.findUnique({ where: { id } });
     if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(item);
+
+    // Cross-tenant validation
+    if (companyId && item.companyId && item.companyId !== companyId) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    // Apply VAT Auditor masking
+    const masked = maskForVatAuditorFinancial(item, role);
+    return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
   }
@@ -18,10 +30,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Banks', 'PUT');
   if (!security.authorized) return security.response;
+
+  const companyId = security.user.companyId;
+
   try {
     const { id } = await params;
     const body = await request.json();
+
+    // Cross-tenant validation
+    const existing = await db.bank.findUnique({ where: { id } });
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
     const item = await db.$transaction(async (tx) => {
+      const openingBalance = safeFinancialRound(body.openingBalance ?? existing.openingBalance);
       const record = await tx.bank.update({
         where: { id },
         data: {
@@ -29,7 +53,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           branch: body.branch || null,
           accountNo: body.accountNo,
           accountHolder: body.accountHolder,
-          openingBalance: body.openingBalance ?? 0,
+          openingBalance,
           isActive: body.isActive ?? true,
         },
       });
@@ -42,7 +66,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           recordLabel: record.bankName || record.accountNo || record.id,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ bankName: record.bankName, accountNo: record.accountNo }),
+          details: JSON.stringify({ bankName: record.bankName, accountNo: record.accountNo, openingBalance }),
         },
       });
 
@@ -57,11 +81,23 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Banks', 'DELETE');
   if (!security.authorized) return security.response;
+
+  // Only administrators can delete financial entities
+  const deleteCheck = checkFinancialDeletePermission(security.user.role);
+  if (deleteCheck) return deleteCheck;
+
+  const companyId = security.user.companyId;
+
   try {
     const { id } = await params;
     await db.$transaction(async (tx) => {
       const record = await tx.bank.findUnique({ where: { id } });
       if (!record) throw new Error('Not found');
+
+      // Cross-tenant validation
+      if (companyId && record.companyId && record.companyId !== companyId) {
+        throw new Error('Not found');
+      }
 
       // FK check: Check if bank is referenced by active transactions
       const [
@@ -108,6 +144,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   } catch (error: any) {
     if (error?.message?.startsWith('Cannot delete')) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error?.message === 'Not found') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
   }

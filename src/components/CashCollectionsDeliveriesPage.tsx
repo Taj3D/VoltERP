@@ -16,8 +16,10 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import type { ColumnDef } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS (self-contained)
@@ -25,11 +27,29 @@ import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/expor
 
 type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
+/** Intl.NumberFormat('en-BD') for ALL financial/numeric figures */
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const fmtCurrency = (v: any): string => {
+  if (v === null || v === undefined) return "—";
+  return `৳${bdCurrencyFmt.format(Number(v))}`;
+};
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return fmtCurrency(v);
+  if (type === "number") return bdCurrencyFmt.format(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
+  return String(v);
+};
+
+/** Display field with "—" default for null/empty */
+const displayField = (v: any): string => {
+  if (v === null || v === undefined || v === "") return "—";
   return String(v);
 };
 
@@ -77,6 +97,7 @@ export default function CashCollectionsDeliveriesPage() {
   const isDealer = user?.role === "dealer";
   const isSR = user?.role === "sr";
   const isVatAuditor = user?.role === "vat_auditor";
+  const isAdmin = user?.role === "admin";
 
   // ---- Shared State ----
   const [activeTab, setActiveTab] = useState("collections");
@@ -103,14 +124,16 @@ export default function CashCollectionsDeliveriesPage() {
   // Collections form
   const [collForm, setCollForm] = useState<Record<string, any>>({
     collectionCode: "", customerId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, paymentOptionId: "", bankId: "", description: "", status: "Approved"
+    amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+    description: "", status: "Approved"
   });
   const [customerOutstanding, setCustomerOutstanding] = useState<number | null>(null);
 
   // Deliveries form
   const [delForm, setDelForm] = useState<Record<string, any>>({
     deliveryCode: "", supplierId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, paymentOptionId: "", bankId: "", description: "", status: "Approved"
+    amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+    description: "", status: "Approved"
   });
   const [supplierPayable, setSupplierPayable] = useState<number | null>(null);
 
@@ -253,6 +276,16 @@ export default function CashCollectionsDeliveriesPage() {
     }
   };
 
+  // ---- Mask bank name for VAT Auditor (hide account numbers) ----
+  const maskBankName = (bank: any) => {
+    if (!bank) return "—";
+    if (isVatAuditor) {
+      // Show bank name but mask account number
+      return bank.bankName ? `${bank.bankName.split(" - ")[0]} (Audit Mode)` : "—";
+    }
+    return bank.bankName || "—";
+  };
+
   // ---- Create / Edit ----
   const openCreate = (type: "collection" | "delivery") => {
     if (type === "delivery" && isSR) return; // SR cannot create deliveries
@@ -267,7 +300,8 @@ export default function CashCollectionsDeliveriesPage() {
       setCollForm({
         collectionCode: `COL-${nextNum}`, customerId: "",
         date: new Date().toISOString().split("T")[0],
-        amount: 0, paymentOptionId: "", bankId: "", description: "", status: "Approved"
+        amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+        description: "", status: "Approved"
       });
     } else {
       const nextNum = delData.length > 0
@@ -276,7 +310,8 @@ export default function CashCollectionsDeliveriesPage() {
       setDelForm({
         deliveryCode: `DEL-${nextNum}`, supplierId: "",
         date: new Date().toISOString().split("T")[0],
-        amount: 0, paymentOptionId: "", bankId: "", description: "", status: "Approved"
+        amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+        description: "", status: "Approved"
       });
     }
     loadOptions();
@@ -294,6 +329,8 @@ export default function CashCollectionsDeliveriesPage() {
         amount: item.amount || 0,
         paymentOptionId: item.paymentOptionId || "",
         bankId: item.bankId || "",
+        chequeNo: item.chequeNo || "",
+        voucherNo: item.voucherNo || "",
         description: item.description || "",
         status: item.status || "Approved",
       });
@@ -306,6 +343,8 @@ export default function CashCollectionsDeliveriesPage() {
         amount: item.amount || 0,
         paymentOptionId: item.paymentOptionId || "",
         bankId: item.bankId || "",
+        chequeNo: item.chequeNo || "",
+        voucherNo: item.voucherNo || "",
         description: item.description || "",
         status: item.status || "Approved",
       });
@@ -330,6 +369,8 @@ export default function CashCollectionsDeliveriesPage() {
           amount: Number(collForm.amount) || 0,
           paymentOptionId: collForm.paymentOptionId || null,
           bankId: collForm.bankId || null,
+          chequeNo: collForm.chequeNo || null,
+          voucherNo: collForm.voucherNo || null,
           description: collForm.description || null,
           status: collForm.status || "Approved",
         };
@@ -356,6 +397,8 @@ export default function CashCollectionsDeliveriesPage() {
           amount: Number(delForm.amount) || 0,
           paymentOptionId: delForm.paymentOptionId || null,
           bankId: delForm.bankId || null,
+          chequeNo: delForm.chequeNo || null,
+          voucherNo: delForm.voucherNo || null,
           description: delForm.description || null,
           status: delForm.status || "Approved",
         };
@@ -375,6 +418,11 @@ export default function CashCollectionsDeliveriesPage() {
   // ---- Delete ----
   const handleDelete = async () => {
     if (!deleteItem) return;
+    if (!isAdmin) {
+      toast({ title: "Access Denied", description: "Only administrators can delete financial posts", variant: "destructive" });
+      setDeleteItem(null);
+      return;
+    }
     try {
       const apiBase = formType === "collection" ? "/api/cash-collections" : "/api/cash-deliveries";
       await apiFetch(`${apiBase}/${deleteItem.id}`, { method: "DELETE" });
@@ -388,18 +436,26 @@ export default function CashCollectionsDeliveriesPage() {
   const exportCSV = (type: "collection" | "delivery") => {
     try {
       if (type === "collection") {
-        const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
+        const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Cheque No", "Voucher No", "Status"];
         const rows = filteredColl.map((item: any) => [
-          item.collectionCode, item.customer?.name || "—", fmtDate(item.date), isVatAuditor ? "N/A (Audit Mode)" : String(item.amount || 0),
-          item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
+          item.collectionCode, item.customer?.name || "—", fmtDate(item.date),
+          isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount),
+          item.paymentOption?.name || "—", maskBankName(item.bank),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          item.status
         ]);
         exportToCSVSimple("Cash Collections", headers, rows);
         toast({ title: "Exported", description: "Cash Collections exported to CSV" });
       } else {
-        const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
+        const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Cheque No", "Voucher No", "Status"];
         const rows = filteredDel.map((item: any) => [
-          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date), isVatAuditor ? "N/A (Audit Mode)" : String(item.amount || 0),
-          item.paymentOption?.name || "—", item.bank?.bankName || "—", item.status
+          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date),
+          isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount),
+          item.paymentOption?.name || "—", maskBankName(item.bank),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          item.status
         ]);
         exportToCSVSimple("Cash Deliveries", headers, rows);
         toast({ title: "Exported", description: "Cash Deliveries exported to CSV" });
@@ -409,26 +465,81 @@ export default function CashCollectionsDeliveriesPage() {
     }
   };
 
-  // ---- Export PDF ----
-  const exportPDF = (type: "collection" | "delivery") => {
+  // ---- Export PDF (Enterprise with financialFooter) ----
+  const exportPDFHandler = (type: "collection" | "delivery") => {
     try {
+      const financialFooter = {
+        preparedBy: user?.displayName || "",
+        checkedBy: "",
+        authorizedBy: "",
+        printedBy: user?.displayName || user?.email || "",
+      };
+
       if (type === "collection") {
-        const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Status"];
-        const body = filteredColl.map((item: any) => [
-          item.collectionCode, item.customer?.name || "—", fmtDate(item.date),
-          isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"), item.paymentOption?.name || "—",
-          item.bank?.bankName || "—", item.status
-        ]);
-        exportToPDFSimple("Cash Collections", headers, body, "landscape");
+        const columns: ColumnDef[] = [
+          { key: "collectionCode", label: "Collection Code", type: "text" },
+          { key: "customerName", label: "Customer", type: "text" },
+          { key: "date", label: "Date", type: "date" },
+          { key: "amount", label: "Amount", type: "currency" },
+          { key: "paymentOptionName", label: "Payment Option", type: "text" },
+          { key: "bankName", label: "Bank", type: "text" },
+          { key: "chequeNo", label: "Cheque No", type: "text" },
+          { key: "voucherNo", label: "Voucher No", type: "text" },
+          { key: "status", label: "Status", type: "text" },
+        ];
+        const data = filteredColl.map((item: any) => ({
+          collectionCode: item.collectionCode,
+          customerName: item.customer?.name || "—",
+          date: item.date,
+          amount: isVatAuditor ? "N/A (Audit Mode)" : item.amount,
+          paymentOptionName: item.paymentOption?.name || "—",
+          bankName: maskBankName(item.bank),
+          chequeNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          voucherNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          status: item.status,
+        }));
+        exportToPDF({
+          title: "Cash Collections",
+          columns,
+          data,
+          orientation: "landscape",
+          isVatAuditor,
+          vatMaskedColumns: isVatAuditor ? ["amount", "chequeNo", "voucherNo"] : [],
+          financialFooter,
+        });
         toast({ title: "Exported", description: "Cash Collections exported to PDF" });
       } else {
-        const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Status"];
-        const body = filteredDel.map((item: any) => [
-          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date),
-          isVatAuditor ? "N/A (Audit Mode)" : fmt(item.amount, "currency"), item.paymentOption?.name || "—",
-          item.bank?.bankName || "—", item.status
-        ]);
-        exportToPDFSimple("Cash Deliveries", headers, body, "landscape");
+        const columns: ColumnDef[] = [
+          { key: "deliveryCode", label: "Delivery Code", type: "text" },
+          { key: "supplierName", label: "Supplier", type: "text" },
+          { key: "date", label: "Date", type: "date" },
+          { key: "amount", label: "Amount", type: "currency" },
+          { key: "paymentOptionName", label: "Payment Option", type: "text" },
+          { key: "bankName", label: "Bank", type: "text" },
+          { key: "chequeNo", label: "Cheque No", type: "text" },
+          { key: "voucherNo", label: "Voucher No", type: "text" },
+          { key: "status", label: "Status", type: "text" },
+        ];
+        const data = filteredDel.map((item: any) => ({
+          deliveryCode: item.deliveryCode,
+          supplierName: item.supplier?.name || "—",
+          date: item.date,
+          amount: isVatAuditor ? "N/A (Audit Mode)" : item.amount,
+          paymentOptionName: item.paymentOption?.name || "—",
+          bankName: maskBankName(item.bank),
+          chequeNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          voucherNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          status: item.status,
+        }));
+        exportToPDF({
+          title: "Cash Deliveries",
+          columns,
+          data,
+          orientation: "landscape",
+          isVatAuditor,
+          vatMaskedColumns: isVatAuditor ? ["amount", "chequeNo", "voucherNo"] : [],
+          financialFooter,
+        });
         toast({ title: "Exported", description: "Cash Deliveries exported to PDF" });
       }
     } catch (e: any) {
@@ -460,7 +571,7 @@ export default function CashCollectionsDeliveriesPage() {
     });
   };
 
-  // ---- Dealer: COMPLETELY HIDDEN ----
+  // ---- Dealer: Access Restricted ----
   if (isDealer) {
     return (
       <div className="page-enter flex items-center justify-center min-h-[60vh]">
@@ -480,7 +591,7 @@ export default function CashCollectionsDeliveriesPage() {
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Internal net margins and hidden expense adjustments are masked for audit compliance</span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Financial amounts, cheque/voucher numbers and bank account details are masked for audit compliance</span>
         </div>
       )}
 
@@ -495,7 +606,7 @@ export default function CashCollectionsDeliveriesPage() {
           <Button variant="outline" size="sm" onClick={() => exportCSV(activeTab === "collections" ? "collection" : "delivery")}>
             <Download className="w-4 h-4 mr-1" />Export CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => exportPDF(activeTab === "collections" ? "collection" : "delivery")}>
+          <Button variant="outline" size="sm" onClick={() => exportPDFHandler(activeTab === "collections" ? "collection" : "delivery")}>
             <FileDown className="w-4 h-4 mr-1" />Export PDF
           </Button>
           <Button
@@ -517,11 +628,11 @@ export default function CashCollectionsDeliveriesPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs - SR cannot see Cash Deliveries tab */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="collections">Cash Collections</TabsTrigger>
-          <TabsTrigger value="deliveries">Cash Deliveries</TabsTrigger>
+          {!isSR && <TabsTrigger value="deliveries">Cash Deliveries</TabsTrigger>}
         </TabsList>
 
         {/* ============ COLLECTIONS TAB ============ */}
@@ -530,7 +641,7 @@ export default function CashCollectionsDeliveriesPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: "Total Collections", value: collStats.total, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-              { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(collStats.totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+              { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(collStats.totalAmount), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
               { label: "Pending", value: collStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
               { label: "Approved", value: collStats.approved, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
             ].map((stat, i) => (
@@ -562,15 +673,17 @@ export default function CashCollectionsDeliveriesPage() {
                       <TableHead>Amount</TableHead>
                       <TableHead>Payment Option</TableHead>
                       <TableHead>Bank</TableHead>
+                      <TableHead>Cheque No</TableHead>
+                      <TableHead>Voucher No</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {collLoading ? (
-                      <TableRow><TableCell colSpan={9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredColl.length === 0 ? (
-                      <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No cash collections found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No cash collections found</TableCell></TableRow>
                     ) : filteredColl.map((item: any) => (
                       <React.Fragment key={item.id}>
                         <TableRow className="data-table-row hover:bg-muted/50">
@@ -582,25 +695,46 @@ export default function CashCollectionsDeliveriesPage() {
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.collectionCode}</TableCell>
                           <TableCell>{item.customer?.name || "—"}</TableCell>
                           <TableCell>{fmtDate(item.date)}</TableCell>
-                          <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(item.amount, "currency")}</TableCell>
+                          <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmtCurrency(item.amount)}</TableCell>
                           <TableCell>{item.paymentOption?.name || "—"}</TableCell>
-                          <TableCell>{item.bank?.bankName || "—"}</TableCell>
+                          <TableCell>{maskBankName(item.bank)}</TableCell>
+                          <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.chequeNo)}</TableCell>
+                          <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.voucherNo)}</TableCell>
                           <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Button variant="ghost" size="sm" onClick={() => openEdit(item, "collection")}><Edit className="w-3.5 h-3.5" /></Button>
-                              <Button variant="ghost" size="sm" className="text-red-500" onClick={() => { setFormType("collection"); setDeleteItem(item); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-red-500"
+                                        disabled={!isAdmin}
+                                        onClick={() => { setFormType("collection"); setDeleteItem(item); }}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  {!isAdmin && <TooltipContent><p>Only administrators can delete financial posts</p></TooltipContent>}
+                                </Tooltip>
+                              </TooltipProvider>
                             </div>
                           </TableCell>
                         </TableRow>
                         {collExpandedRows.has(item.id) && (
                           <TableRow>
-                            <TableCell colSpan={9} className="bg-muted/30 p-3">
+                            <TableCell colSpan={11} className="bg-muted/30 p-3">
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                 <div><span className="text-muted-foreground">Customer:</span> <span className="font-medium text-slate-900 dark:text-white">{item.customer?.name || "—"}</span></div>
-                                <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.bankName || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{maskBankName(item.bank)}</span></div>
                                 <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
-                                <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Cheque No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo)}</span></div>
+                                <div><span className="text-muted-foreground">Voucher No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo)}</span></div>
+                                <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{displayField(item.description)}</span></div>
                                 <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
                               </div>
                             </TableCell>
@@ -617,96 +751,121 @@ export default function CashCollectionsDeliveriesPage() {
         </TabsContent>
 
         {/* ============ DELIVERIES TAB ============ */}
-        <TabsContent value="deliveries" className="space-y-4">
-          {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: "Total Deliveries", value: delStats.total, icon: ArrowDownCircle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-              { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(delStats.totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
-              { label: "Pending", value: delStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
-              { label: "Approved", value: delStats.approved, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
-            ].map((stat, i) => (
-              <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
-                <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
-                <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
-              </CardContent></Card>
-            ))}
-          </div>
+        {!isSR && (
+          <TabsContent value="deliveries" className="space-y-4">
+            {/* Stat Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: "Total Deliveries", value: delStats.total, icon: ArrowDownCircle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+                { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(delStats.totalAmount), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+                { label: "Pending", value: delStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+                { label: "Approved", value: delStats.approved, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+              ].map((stat, i) => (
+                <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
+                  <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+                  <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
+                </CardContent></Card>
+              ))}
+            </div>
 
-          {/* Table */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input placeholder="Search by code, supplier..." value={delSearch} onChange={e => setDelSearch(e.target.value)} className="pl-10" />
+            {/* Table */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input placeholder="Search by code, supplier..." value={delSearch} onChange={e => setDelSearch(e.target.value)} className="pl-10" />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadDeliveries}><RefreshCw className="w-4 h-4" /></Button>
                 </div>
-                <Button variant="outline" size="sm" onClick={loadDeliveries}><RefreshCw className="w-4 h-4" /></Button>
-              </div>
-              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="w-10">+</TableHead>
-                      <TableHead>Delivery Code</TableHead>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Payment Option</TableHead>
-                      <TableHead>Bank</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-20 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {delLoading ? (
-                      <TableRow><TableCell colSpan={9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-                    ) : filteredDel.length === 0 ? (
-                      <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No cash deliveries found</TableCell></TableRow>
-                    ) : filteredDel.map((item: any) => (
-                      <React.Fragment key={item.id}>
-                        <TableRow className="data-table-row hover:bg-muted/50">
-                          <TableCell>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleDelExpand(item.id)}>
-                              {delExpandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                            </Button>
-                          </TableCell>
-                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.deliveryCode}</TableCell>
-                          <TableCell>{item.supplier?.name || "—"}</TableCell>
-                          <TableCell>{fmtDate(item.date)}</TableCell>
-                          <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmt(item.amount, "currency")}</TableCell>
-                          <TableCell>{item.paymentOption?.name || "—"}</TableCell>
-                          <TableCell>{item.bank?.bankName || "—"}</TableCell>
-                          <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => openEdit(item, "delivery")} disabled={isSR}><Edit className="w-3.5 h-3.5" /></Button>
-                              <Button variant="ghost" size="sm" className="text-red-500" disabled={isSR} onClick={() => { setFormType("delivery"); setDeleteItem(item); }}><Trash2 className="w-3.5 h-3.5" /></Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {delExpandedRows.has(item.id) && (
-                          <TableRow>
-                            <TableCell colSpan={9} className="bg-muted/30 p-3">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                                <div><span className="text-muted-foreground">Supplier:</span> <span className="font-medium text-slate-900 dark:text-white">{item.supplier?.name || "—"}</span></div>
-                                <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.bankName || "—"}</span></div>
-                                <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
-                                <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "—"}</span></div>
-                                <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
+                <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead className="w-10">+</TableHead>
+                        <TableHead>Delivery Code</TableHead>
+                        <TableHead>Supplier</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Payment Option</TableHead>
+                        <TableHead>Bank</TableHead>
+                        <TableHead>Cheque No</TableHead>
+                        <TableHead>Voucher No</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-20 text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {delLoading ? (
+                        <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      ) : filteredDel.length === 0 ? (
+                        <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No cash deliveries found</TableCell></TableRow>
+                      ) : filteredDel.map((item: any) => (
+                        <React.Fragment key={item.id}>
+                          <TableRow className="data-table-row hover:bg-muted/50">
+                            <TableCell>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleDelExpand(item.id)}>
+                                {delExpandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.deliveryCode}</TableCell>
+                            <TableCell>{item.supplier?.name || "—"}</TableCell>
+                            <TableCell>{fmtDate(item.date)}</TableCell>
+                            <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmtCurrency(item.amount)}</TableCell>
+                            <TableCell>{item.paymentOption?.name || "—"}</TableCell>
+                            <TableCell>{maskBankName(item.bank)}</TableCell>
+                            <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.chequeNo)}</TableCell>
+                            <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.voucherNo)}</TableCell>
+                            <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => openEdit(item, "delivery")} disabled={isSR}><Edit className="w-3.5 h-3.5" /></Button>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-red-500"
+                                          disabled={!isAdmin}
+                                          onClick={() => { setFormType("delivery"); setDeleteItem(item); }}
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </span>
+                                    </TooltipTrigger>
+                                    {!isAdmin && <TooltipContent><p>Only administrators can delete financial posts</p></TooltipContent>}
+                                  </Tooltip>
+                                </TooltipProvider>
                               </div>
                             </TableCell>
                           </TableRow>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">Showing {filteredDel.length} of {delData.length} cash deliveries</div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                          {delExpandedRows.has(item.id) && (
+                            <TableRow>
+                              <TableCell colSpan={11} className="bg-muted/30 p-3">
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                  <div><span className="text-muted-foreground">Supplier:</span> <span className="font-medium text-slate-900 dark:text-white">{item.supplier?.name || "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{maskBankName(item.bank)}</span></div>
+                                  <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Cheque No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo)}</span></div>
+                                  <div><span className="text-muted-foreground">Voucher No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo)}</span></div>
+                                  <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{displayField(item.description)}</span></div>
+                                  <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">Showing {filteredDel.length} of {delData.length} cash deliveries</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* ============ CREATE / EDIT DIALOG ============ */}
@@ -743,7 +902,7 @@ export default function CashCollectionsDeliveriesPage() {
                     </Select>
                     {customerOutstanding !== null && (
                       <p className={`text-xs font-medium ${customerOutstanding > 0 ? "text-red-600" : "text-green-600"}`}>
-                        Outstanding: {fmt(customerOutstanding, "currency")}
+                        Outstanding: {fmtCurrency(customerOutstanding)}
                       </p>
                     )}
                   </div>
@@ -769,9 +928,17 @@ export default function CashCollectionsDeliveriesPage() {
                     <Select value={collForm.bankId || ""} onValueChange={v => setCollForm({ ...collForm, bankId: v })}>
                       <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
                       <SelectContent>
-                        {banks.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}
+                        {banks.map((b: any) => <SelectItem key={b.id} value={b.id}>{isVatAuditor ? `${b.bankName?.split(" - ")[0] || b.bankName} (Audit Mode)` : b.bankName}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cheque No</Label>
+                    <Input value={collForm.chequeNo || ""} onChange={e => setCollForm({ ...collForm, chequeNo: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Voucher No</Label>
+                    <Input value={collForm.voucherNo || ""} onChange={e => setCollForm({ ...collForm, voucherNo: e.target.value })} placeholder="Optional" />
                   </div>
                   <div className="space-y-1.5 md:col-span-2">
                     <Label>Status</Label>
@@ -814,7 +981,7 @@ export default function CashCollectionsDeliveriesPage() {
                     </Select>
                     {supplierPayable !== null && (
                       <p className={`text-xs font-medium ${supplierPayable > 0 ? "text-red-600" : "text-green-600"}`}>
-                        Payable: {fmt(supplierPayable, "currency")}
+                        Payable: {fmtCurrency(supplierPayable)}
                       </p>
                     )}
                   </div>
@@ -840,9 +1007,17 @@ export default function CashCollectionsDeliveriesPage() {
                     <Select value={delForm.bankId || ""} onValueChange={v => setDelForm({ ...delForm, bankId: v })}>
                       <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
                       <SelectContent>
-                        {banks.map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}
+                        {banks.map((b: any) => <SelectItem key={b.id} value={b.id}>{isVatAuditor ? `${b.bankName?.split(" - ")[0] || b.bankName} (Audit Mode)` : b.bankName}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cheque No</Label>
+                    <Input value={delForm.chequeNo || ""} onChange={e => setDelForm({ ...delForm, chequeNo: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Voucher No</Label>
+                    <Input value={delForm.voucherNo || ""} onChange={e => setDelForm({ ...delForm, voucherNo: e.target.value })} placeholder="Optional" />
                   </div>
                   <div className="space-y-1.5 md:col-span-2">
                     <Label>Status</Label>
@@ -881,7 +1056,9 @@ export default function CashCollectionsDeliveriesPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={!isAdmin}>
+              {isAdmin ? "Delete" : "Admin Only"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

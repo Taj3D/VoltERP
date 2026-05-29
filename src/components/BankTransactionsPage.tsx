@@ -16,8 +16,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import { exportToPDF, exportToCSVSimple, importFromCSV, type ColumnDef } from "@/lib/export-utils";
 
 // ============================================================
 // LOCAL UTILITY FUNCTIONS (self-contained)
@@ -73,19 +74,42 @@ function useAuth() {
   const isVatAuditor = authState.user?.role === "vat_auditor";
   const isDealer = authState.user?.role === "dealer";
   const isSR = authState.user?.role === "sr";
+  const isAdmin = authState.user?.role === "admin";
 
-  return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR };
+  return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR, isAdmin };
 }
+
+// ── Intl.NumberFormat('en-BD') for ALL financial/numeric figures ──
+const bdCurrencyFormatter = new Intl.NumberFormat("en-BD", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const fmtCurrency = (v: any): string => {
+  if (v === null || v === undefined) return "—";
+  const num = Number(v);
+  if (isNaN(num)) return "—";
+  return `৳${bdCurrencyFormatter.format(num)}`;
+};
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return fmtCurrency(v);
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+
+// Empty field default — returns "—" if null/empty
+const fmtEmpty = (v: any): string => {
+  if (v === null || v === undefined || v === "") return "—";
+  return String(v);
+};
+
+// VAT Auditor mask helper
+const auditMask = "N/A (Audit Mode)";
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -114,7 +138,7 @@ async function apiFetch(path: string, opts?: RequestInit) {
 
 export default function BankTransactionsPage() {
   const { toast } = useToast();
-  const { isVatAuditor, isDealer, isSR, user } = useAuth();
+  const { isVatAuditor, isDealer, isSR, isAdmin, user } = useAuth();
   const [data, setData] = useState<any[]>([]);
   const [banks, setBanks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,6 +160,9 @@ export default function BankTransactionsPage() {
     date: new Date().toISOString().split("T")[0],
     description: "",
     status: "Approved",
+    chequeNo: "",
+    depositorName: "",
+    referenceNo: "",
   });
 
   // Load bank transactions
@@ -199,6 +226,9 @@ export default function BankTransactionsPage() {
       item.bank?.bankName?.toLowerCase().includes(s) ||
       item.type?.toLowerCase().includes(s) ||
       item.description?.toLowerCase().includes(s) ||
+      item.chequeNo?.toLowerCase().includes(s) ||
+      item.depositorName?.toLowerCase().includes(s) ||
+      item.referenceNo?.toLowerCase().includes(s) ||
       item.status?.toLowerCase().includes(s)
     );
   }, [data, search, typeFilter]);
@@ -256,6 +286,9 @@ export default function BankTransactionsPage() {
       date: new Date().toISOString().split("T")[0],
       description: "",
       status: "Approved",
+      chequeNo: "",
+      depositorName: "",
+      referenceNo: "",
     });
     setEditItem(null);
     setShowForm(true);
@@ -273,6 +306,9 @@ export default function BankTransactionsPage() {
       date: item.date ? item.date.split("T")[0] : "",
       description: item.description || "",
       status: item.status || "Approved",
+      chequeNo: item.chequeNo || "",
+      depositorName: item.depositorName || "",
+      referenceNo: item.referenceNo || "",
     });
     setEditItem(item);
     setShowForm(true);
@@ -311,6 +347,9 @@ export default function BankTransactionsPage() {
         date: formData.date,
         description: formData.description || undefined,
         status: formData.status || "Approved",
+        chequeNo: formData.chequeNo || undefined,
+        depositorName: formData.depositorName || undefined,
+        referenceNo: formData.referenceNo || undefined,
       };
       if (editItem) {
         await apiFetch(`/api/bank-transactions/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
@@ -344,13 +383,16 @@ export default function BankTransactionsPage() {
   // Export CSV
   const exportCSV = () => {
     try {
-      const headers = ["Transaction Code", "Bank", "Type", "Amount", "Running Balance", "To Bank", "Date", "Status"];
+      const headers = ["Transaction Code", "Bank", "Type", "Amount", "Running Balance", "Cheque No", "Depositor", "Reference No", "To Bank", "Date", "Status"];
       const rows = filtered.map((item: any) => [
         item.transactionCode,
         item.bank?.bankName || "—",
         item.type,
         String(item.amount || 0),
         String(item.runningBalance || 0),
+        item.chequeNo || "—",
+        item.depositorName || "—",
+        item.referenceNo || "—",
         item.toBank?.bankName || "—",
         fmtDate(item.date),
         item.status,
@@ -362,21 +404,55 @@ export default function BankTransactionsPage() {
     }
   };
 
-  // Export PDF
+  // Export PDF — Enterprise with financialFooter
   const exportPDF = () => {
     try {
-      const headers = ["Code", "Bank", "Type", "Amount", "Running Bal", "To Bank", "Date", "Status"];
-      const body = filtered.map((item: any) => [
-        item.transactionCode,
-        item.bank?.bankName || "—",
-        item.type,
-        fmt(item.amount, "currency"),
-        fmt(item.runningBalance, "currency"),
-        item.toBank?.bankName || "—",
-        fmtDate(item.date),
-        item.status,
-      ]);
-      exportToPDFSimple("Bank Transactions", headers, body, "landscape");
+      const columns: ColumnDef[] = [
+        { key: "transactionCode", label: "Code", type: "text" },
+        { key: "bankName", label: "Bank", type: "text" },
+        { key: "type", label: "Type", type: "text" },
+        { key: "amount", label: "Amount", type: "currency" },
+        { key: "runningBalance", label: "Running Bal", type: "currency" },
+        { key: "chequeNo", label: "Cheque No", type: "text" },
+        { key: "depositorName", label: "Depositor", type: "text" },
+        { key: "referenceNo", label: "Reference", type: "text" },
+        { key: "toBankName", label: "To Bank", type: "text" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "status", label: "Status", type: "text" },
+      ];
+
+      const vatMaskedColumns = isVatAuditor
+        ? ["amount", "runningBalance", "chequeNo", "depositorName", "referenceNo"]
+        : [];
+
+      const pdfData = filtered.map((item: any) => ({
+        transactionCode: item.transactionCode,
+        bankName: item.bank?.bankName || "—",
+        type: item.type,
+        amount: item.amount,
+        runningBalance: item.runningBalance,
+        chequeNo: item.chequeNo,
+        depositorName: item.depositorName,
+        referenceNo: item.referenceNo,
+        toBankName: item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—",
+        date: item.date,
+        status: item.status,
+      }));
+
+      exportToPDF({
+        title: "Bank Transactions",
+        orientation: "landscape",
+        columns,
+        data: pdfData,
+        isVatAuditor,
+        vatMaskedColumns,
+        financialFooter: {
+          preparedBy: user?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: user?.displayName || user?.email || "",
+        },
+      });
       toast({ title: "Exported", description: "Bank Transactions exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -394,6 +470,9 @@ export default function BankTransactionsPage() {
         { key: "date", label: "Date", type: "date", required: true },
         { key: "toBankId", label: "To Bank", type: "text" },
         { key: "description", label: "Description", type: "text" },
+        { key: "chequeNo", label: "Cheque No", type: "text" },
+        { key: "depositorName", label: "Depositor Name", type: "text" },
+        { key: "referenceNo", label: "Reference No", type: "text" },
         { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
       ],
     }).then(result => {
@@ -445,7 +524,7 @@ export default function BankTransactionsPage() {
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Running balance hidden — transactions mapped against legal invoicing sets and compliant VAT ledger formats only</span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Amount, balance, cheque, depositor, and reference fields hidden — transactions mapped against legal invoicing sets and compliant VAT ledger formats only</span>
         </div>
       )}
 
@@ -463,7 +542,7 @@ export default function BankTransactionsPage() {
                         <Building2 className="w-4 h-4 text-[#2563eb]" />
                         <span className="font-semibold text-slate-900 dark:text-white">{bank.bankName}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">A/C: {bank.accountNo}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">A/C: {isVatAuditor ? auditMask : (bank.accountNo || "—")}</p>
                       {bank.branch && <p className="text-xs text-muted-foreground">Branch: {bank.branch}</p>}
                     </div>
                     <div className="text-right">
@@ -510,7 +589,7 @@ export default function BankTransactionsPage() {
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search by code, bank, type..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+              <Input placeholder="Search by code, bank, type, cheque, depositor..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="w-[150px]"><SelectValue placeholder="Filter Type" /></SelectTrigger>
@@ -562,15 +641,28 @@ export default function BankTransactionsPage() {
                             <TypeIcon className="w-3 h-3 mr-1" />{item.type}
                           </Badge>
                         </TableCell>
-                        <TableCell className="font-mono">{fmt(item.amount, "currency")}</TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? <span className="text-xs text-muted-foreground italic">N/A (Audit Mode)</span> : fmt(item.runningBalance, "currency")}</TableCell>
+                        <TableCell className="font-mono">{isVatAuditor ? <span className="text-xs text-muted-foreground italic">{auditMask}</span> : fmt(item.amount, "currency")}</TableCell>
+                        <TableCell className="font-mono">{isVatAuditor ? <span className="text-xs text-muted-foreground italic">{auditMask}</span> : fmt(item.runningBalance, "currency")}</TableCell>
                         <TableCell>{item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—"}</TableCell>
                         <TableCell>{fmtDate(item.date)}</TableCell>
                         <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            {!isAdmin ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span>
+                                    <Button variant="ghost" size="sm" className="text-red-300 cursor-not-allowed" disabled>
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>Only administrators can delete financial posts</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -582,7 +674,7 @@ export default function BankTransactionsPage() {
                                 <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Bank Details</div>
                                 <div className="space-y-1">
                                   <p><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.bankName || "—"}</span></p>
-                                  <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{item.bank?.accountNo || "—"}</span></p>
+                                  <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{isVatAuditor ? auditMask : (item.bank?.accountNo || "—")}</span></p>
                                   <p><span className="text-muted-foreground">Branch:</span> {item.bank?.branch || "—"}</p>
                                 </div>
                               </div>
@@ -591,7 +683,7 @@ export default function BankTransactionsPage() {
                                   <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Target Bank Details</div>
                                   <div className="space-y-1">
                                     <p><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.toBank?.bankName || "—"}</span></p>
-                                    <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{item.toBank?.accountNo || "—"}</span></p>
+                                    <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{isVatAuditor ? auditMask : (item.toBank?.accountNo || "—")}</span></p>
                                     <p><span className="text-muted-foreground">Branch:</span> {item.toBank?.branch || "—"}</p>
                                   </div>
                                 </div>
@@ -599,8 +691,11 @@ export default function BankTransactionsPage() {
                               <div>
                                 <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Transaction Details</div>
                                 <div className="space-y-1">
-                                  <p><span className="text-muted-foreground">Description:</span> {item.description || "—"}</p>
-                                  <p><span className="text-muted-foreground">Running Balance:</span> <span className="font-mono font-medium">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.runningBalance, "currency")}</span></p>
+                                  <p><span className="text-muted-foreground">Description:</span> {fmtEmpty(item.description)}</p>
+                                  <p><span className="text-muted-foreground">Cheque No:</span> <span className="font-mono">{isVatAuditor ? auditMask : fmtEmpty(item.chequeNo)}</span></p>
+                                  <p><span className="text-muted-foreground">Depositor:</span> {isVatAuditor ? auditMask : fmtEmpty(item.depositorName)}</p>
+                                  <p><span className="text-muted-foreground">Reference No:</span> <span className="font-mono">{isVatAuditor ? auditMask : fmtEmpty(item.referenceNo)}</span></p>
+                                  <p><span className="text-muted-foreground">Running Balance:</span> <span className="font-mono font-medium">{isVatAuditor ? auditMask : fmt(item.runningBalance, "currency")}</span></p>
                                   <p><span className="text-muted-foreground">Created:</span> {fmtDate(item.createdAt)}</p>
                                 </div>
                               </div>
@@ -621,7 +716,7 @@ export default function BankTransactionsPage() {
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Bank Transaction</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Bank Transaction</DialogTitle><DialogDescription>Fill in the transaction details below. Fields marked with * are required.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Transaction Code - Auto-generated */}
@@ -676,6 +771,39 @@ export default function BankTransactionsPage() {
                   value={formData.amount || ""}
                   onChange={e => setFormData({ ...formData, amount: e.target.value })}
                   placeholder="0.00"
+                />
+              </div>
+
+              {/* Cheque No */}
+              <div className="space-y-1.5">
+                <Label>Cheque No</Label>
+                <Input
+                  type="text"
+                  value={formData.chequeNo || ""}
+                  onChange={e => setFormData({ ...formData, chequeNo: e.target.value })}
+                  placeholder="Cheque number (optional)"
+                />
+              </div>
+
+              {/* Depositor Name */}
+              <div className="space-y-1.5">
+                <Label>Depositor Name</Label>
+                <Input
+                  type="text"
+                  value={formData.depositorName || ""}
+                  onChange={e => setFormData({ ...formData, depositorName: e.target.value })}
+                  placeholder="Depositor name (optional)"
+                />
+              </div>
+
+              {/* Reference No */}
+              <div className="space-y-1.5">
+                <Label>Reference No</Label>
+                <Input
+                  type="text"
+                  value={formData.referenceNo || ""}
+                  onChange={e => setFormData({ ...formData, referenceNo: e.target.value })}
+                  placeholder="Reference number (optional)"
                 />
               </div>
 
@@ -774,7 +902,7 @@ export default function BankTransactionsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Dialog */}
+      {/* Delete Dialog — only accessible by admin (manager sees disabled button) */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>

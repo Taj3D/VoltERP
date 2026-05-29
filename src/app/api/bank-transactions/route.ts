@@ -1,15 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  checkPeriodClose,
+  maskFinancialArray,
+  safeFinancialRound,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+} from '@/lib/api-security';
 
-// GET /api/bank-transactions - List all bank transactions with relations
+// Helper: null if empty string
+function nullIfEmpty(value: string | undefined | null): string | null {
+  if (value === undefined || value === null) return null;
+  return value.trim() === '' ? null : value.trim();
+}
+
+// GET /api/bank-transactions - List all bank transactions with multi-tenant isolation, safe running balances, VAT masking
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'BankTransactions', 'GET');
   if (!security.authorized) return security.response;
 
+  const role = security.user.role;
+  const companyId = security.user.companyId;
+
   try {
+    // Multi-tenant filter: only show transactions for the user's company
+    const whereClause: any = { isActive: true };
+    if (companyId) {
+      whereClause.companyId = companyId;
+    }
+
     const items = await db.bankTransaction.findMany({
-      where: { isActive: true },
+      where: whereClause,
       include: {
         bank: true,
         toBank: true,
@@ -17,28 +39,35 @@ export async function GET(request: NextRequest) {
       orderBy: { date: 'asc' },
     });
 
-    // Compute running balances per bank if any are 0
+    // Compute running balances per bank using safe financial arithmetic
     const bankBalanceMap: Record<string, number> = {};
     const computed = items.map((txn: any) => {
-      if (!bankBalanceMap[txn.bankId]) {
-        bankBalanceMap[txn.bankId] = txn.bank?.openingBalance || 0;
+      const bId = txn.bankId;
+      if (!(bId in bankBalanceMap)) {
+        bankBalanceMap[bId] = txn.bank?.openingBalance || 0;
       }
       if (txn.type === 'Deposit') {
-        bankBalanceMap[txn.bankId] += txn.amount;
+        bankBalanceMap[bId] = safeFinancialAdd(bankBalanceMap[bId], txn.amount);
       } else if (txn.type === 'Withdraw' || txn.type === 'Transfer') {
-        bankBalanceMap[txn.bankId] -= txn.amount;
+        bankBalanceMap[bId] = safeFinancialSubtract(bankBalanceMap[bId], txn.amount);
       }
-      const runningBalance = bankBalanceMap[txn.bankId];
-      // Update stored runningBalance if stale
-      if (Math.abs(txn.runningBalance - runningBalance) > 0.01) {
-        db.bankTransaction.update({ where: { id: txn.id }, data: { runningBalance } }).catch(() => {});
+      const runningBalance = safeFinancialRound(bankBalanceMap[bId]);
+      // Update stored runningBalance if stale (fire-and-forget)
+      if (Math.abs(txn.runningBalance - runningBalance) > 0.005) {
+        db.bankTransaction
+          .update({ where: { id: txn.id }, data: { runningBalance } })
+          .catch(() => {});
       }
       return { ...txn, runningBalance };
     });
 
     // Return in desc order for display
     computed.reverse();
-    return NextResponse.json(computed);
+
+    // Apply VAT Auditor financial masking
+    const masked = maskFinancialArray(computed, role);
+
+    return NextResponse.json(masked);
   } catch (error) {
     console.error('Error fetching bank transactions:', error);
     return NextResponse.json(
@@ -48,14 +77,27 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/bank-transactions - Create bank transaction with balance tracking
+// POST /api/bank-transactions - Create bank transaction with multi-tenant isolation, safe arithmetic, double-entry ledger, audit
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'BankTransactions', 'POST');
   if (!security.authorized) return security.response;
 
+  const companyId = security.user.companyId;
+
   try {
     const body = await request.json();
-    const { bankId, date, type, amount, toBankId, description, status } = body;
+    const {
+      bankId,
+      date,
+      type,
+      amount,
+      toBankId,
+      chequeNo,
+      depositorName,
+      referenceNo,
+      description,
+      status,
+    } = body;
 
     if (!bankId || !type || !date || amount === undefined || amount === null) {
       return NextResponse.json(
@@ -64,7 +106,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const transactionAmount = Number(amount);
+    const transactionAmount = safeFinancialRound(Number(amount));
     if (isNaN(transactionAmount) || transactionAmount <= 0) {
       return NextResponse.json(
         { error: 'Amount must be a positive number' },
@@ -91,6 +133,18 @@ export async function POST(request: NextRequest) {
     const periodLock = await checkPeriodClose(transactionDate);
     if (periodLock) return periodLock;
 
+    // Clean optional string fields → null if empty
+    const cleanChequeNo = nullIfEmpty(chequeNo);
+    const cleanDepositorName = nullIfEmpty(depositorName);
+    const cleanReferenceNo = nullIfEmpty(referenceNo);
+    const cleanDescription = nullIfEmpty(description);
+
+    // Build companyId filter for bank lookups (multi-tenant)
+    const bankCompanyFilter: any = {};
+    if (companyId) {
+      bankCompanyFilter.companyId = companyId;
+    }
+
     const result = await db.$transaction(async (tx) => {
       // Auto-generate transactionCode as BTX-XXXXX (5-digit zero-padded)
       const lastBT = await tx.bankTransaction.findFirst({
@@ -109,10 +163,12 @@ export async function POST(request: NextRequest) {
 
       // ── Deposit ──────────────────────────────────────────────
       if (type === 'Deposit') {
-        const bank = await tx.bank.findUnique({ where: { id: bankId } });
-        if (!bank) throw new Error(`Bank with id ${bankId} not found`);
+        const bank = await tx.bank.findFirst({
+          where: { id: bankId, ...bankCompanyFilter, isActive: true },
+        });
+        if (!bank) throw new Error(`Bank with id ${bankId} not found or does not belong to your company`);
 
-        const updatedBalance = bank.currentBalance + transactionAmount;
+        const updatedBalance = safeFinancialAdd(bank.currentBalance, transactionAmount);
         await tx.bank.update({
           where: { id: bankId },
           data: { currentBalance: updatedBalance },
@@ -126,7 +182,11 @@ export async function POST(request: NextRequest) {
             type: 'Deposit',
             amount: transactionAmount,
             runningBalance: updatedBalance,
-            description: description || null,
+            companyId: companyId || null,
+            chequeNo: cleanChequeNo,
+            depositorName: cleanDepositorName,
+            referenceNo: cleanReferenceNo,
+            description: cleanDescription,
             status: status || 'Approved',
             isActive: true,
           },
@@ -155,11 +215,11 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // AuditLog
+        // AuditLog — module token "Fin-Bank-Settlement"
         await tx.auditLog.create({
           data: {
             action: 'CREATE',
-            module: 'BankTransactions',
+            module: 'Fin-Bank-Settlement',
             recordId: bankTransaction.id,
             recordLabel: transactionCode,
             userId: security.user.id,
@@ -170,6 +230,7 @@ export async function POST(request: NextRequest) {
               bankName: bank.bankName,
               amount: transactionAmount,
               runningBalance: updatedBalance,
+              companyId: companyId || null,
             }),
           },
         });
@@ -179,8 +240,10 @@ export async function POST(request: NextRequest) {
 
       // ── Withdraw ─────────────────────────────────────────────
       if (type === 'Withdraw') {
-        const bank = await tx.bank.findUnique({ where: { id: bankId } });
-        if (!bank) throw new Error(`Bank with id ${bankId} not found`);
+        const bank = await tx.bank.findFirst({
+          where: { id: bankId, ...bankCompanyFilter, isActive: true },
+        });
+        if (!bank) throw new Error(`Bank with id ${bankId} not found or does not belong to your company`);
 
         // VALIDATE sufficient balance
         if (bank.currentBalance < transactionAmount) {
@@ -189,7 +252,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const updatedBalance = bank.currentBalance - transactionAmount;
+        const updatedBalance = safeFinancialSubtract(bank.currentBalance, transactionAmount);
         await tx.bank.update({
           where: { id: bankId },
           data: { currentBalance: updatedBalance },
@@ -203,7 +266,11 @@ export async function POST(request: NextRequest) {
             type: 'Withdraw',
             amount: transactionAmount,
             runningBalance: updatedBalance,
-            description: description || null,
+            companyId: companyId || null,
+            chequeNo: cleanChequeNo,
+            depositorName: cleanDepositorName,
+            referenceNo: cleanReferenceNo,
+            description: cleanDescription,
             status: status || 'Approved',
             isActive: true,
           },
@@ -232,11 +299,11 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // AuditLog
+        // AuditLog — module token "Fin-Bank-Settlement"
         await tx.auditLog.create({
           data: {
             action: 'CREATE',
-            module: 'BankTransactions',
+            module: 'Fin-Bank-Settlement',
             recordId: bankTransaction.id,
             recordLabel: transactionCode,
             userId: security.user.id,
@@ -247,6 +314,7 @@ export async function POST(request: NextRequest) {
               bankName: bank.bankName,
               amount: transactionAmount,
               runningBalance: updatedBalance,
+              companyId: companyId || null,
             }),
           },
         });
@@ -256,11 +324,15 @@ export async function POST(request: NextRequest) {
 
       // ── Transfer ─────────────────────────────────────────────
       if (type === 'Transfer') {
-        const sourceBank = await tx.bank.findUnique({ where: { id: bankId } });
-        if (!sourceBank) throw new Error(`Source bank with id ${bankId} not found`);
+        const sourceBank = await tx.bank.findFirst({
+          where: { id: bankId, ...bankCompanyFilter, isActive: true },
+        });
+        if (!sourceBank) throw new Error(`Source bank with id ${bankId} not found or does not belong to your company`);
 
-        const targetBank = await tx.bank.findUnique({ where: { id: toBankId } });
-        if (!targetBank) throw new Error(`Target bank with id ${toBankId} not found`);
+        const targetBank = await tx.bank.findFirst({
+          where: { id: toBankId, ...bankCompanyFilter, isActive: true },
+        });
+        if (!targetBank) throw new Error(`Target bank with id ${toBankId} not found or does not belong to your company`);
 
         // VALIDATE source bank has sufficient balance
         if (sourceBank.currentBalance < transactionAmount) {
@@ -270,20 +342,20 @@ export async function POST(request: NextRequest) {
         }
 
         // Decrement source bank
-        const sourceUpdatedBalance = sourceBank.currentBalance - transactionAmount;
+        const sourceUpdatedBalance = safeFinancialSubtract(sourceBank.currentBalance, transactionAmount);
         await tx.bank.update({
           where: { id: bankId },
           data: { currentBalance: sourceUpdatedBalance },
         });
 
         // Increment target bank
-        const targetUpdatedBalance = targetBank.currentBalance + transactionAmount;
+        const targetUpdatedBalance = safeFinancialAdd(targetBank.currentBalance, transactionAmount);
         await tx.bank.update({
           where: { id: toBankId },
           data: { currentBalance: targetUpdatedBalance },
         });
 
-        // Generate target transaction code properly (don't reuse nextNum + 1)
+        // Generate target transaction code (avoid collision)
         const lastBTForTarget = await tx.bankTransaction.findFirst({
           orderBy: { transactionCode: 'desc' },
           select: { transactionCode: true },
@@ -295,7 +367,6 @@ export async function POST(request: NextRequest) {
             targetNextNum = parseInt(match[1], 10) + 1;
           }
         }
-        // Use the higher of the two to avoid collision
         const effectiveTargetNum = Math.max(targetNextNum, nextNum + 1);
         const targetTransactionCode = `BTX-${String(effectiveTargetNum).padStart(5, '0')}`;
 
@@ -309,14 +380,18 @@ export async function POST(request: NextRequest) {
             amount: transactionAmount,
             runningBalance: sourceUpdatedBalance,
             toBankId,
-            description: description || null,
+            companyId: companyId || null,
+            chequeNo: cleanChequeNo,
+            depositorName: cleanDepositorName,
+            referenceNo: cleanReferenceNo,
+            description: cleanDescription,
             status: status || 'Approved',
             isActive: true,
           },
           include: { bank: true, toBank: true },
         });
 
-        // Target BankTransaction (type="Deposit", linked via toBankId)
+        // Target BankTransaction (type="Deposit", linked via toBankId) — same companyId
         await tx.bankTransaction.create({
           data: {
             transactionCode: targetTransactionCode,
@@ -326,7 +401,11 @@ export async function POST(request: NextRequest) {
             amount: transactionAmount,
             runningBalance: targetUpdatedBalance,
             toBankId: bankId,
-            description: description || `Transfer from ${sourceBank.bankName}`,
+            companyId: companyId || null,
+            chequeNo: cleanChequeNo,
+            depositorName: cleanDepositorName,
+            referenceNo: cleanReferenceNo,
+            description: cleanDescription || `Transfer from ${sourceBank.bankName}`,
             status: status || 'Approved',
             isActive: true,
           },
@@ -344,8 +423,6 @@ export async function POST(request: NextRequest) {
             referenceType: 'BankTransfer',
           },
         });
-
-        // LedgerEntry: credit to target (with explicit debit: 0)
         await tx.ledgerEntry.create({
           data: {
             date: transactionDate,
@@ -357,11 +434,11 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // AuditLog
+        // AuditLog — module token "Fin-Bank-Settlement"
         await tx.auditLog.create({
           data: {
             action: 'CREATE',
-            module: 'BankTransactions',
+            module: 'Fin-Bank-Settlement',
             recordId: sourceTransaction.id,
             recordLabel: transactionCode,
             userId: security.user.id,
@@ -376,6 +453,7 @@ export async function POST(request: NextRequest) {
               sourceRunningBalance: sourceUpdatedBalance,
               targetRunningBalance: targetUpdatedBalance,
               targetTransactionCode,
+              companyId: companyId || null,
             }),
           },
         });
@@ -396,6 +474,7 @@ export async function POST(request: NextRequest) {
     const statusCode =
       message.includes('Insufficient') ||
       message.includes('not found') ||
+      message.includes('does not belong') ||
       message.includes('required') ||
       message.includes('Invalid') ||
       message.includes('positive')

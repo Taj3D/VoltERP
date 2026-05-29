@@ -97,16 +97,16 @@ const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
   sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
 // Write (POST/PUT/DELETE) deny per role
 const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
-  manager: [],
+  manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
   sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail'],
   vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
 };
 
@@ -115,7 +115,7 @@ const AUTH_EXEMPT_MODULES = ['Auth', 'Seed'];
 
 export interface ApiSecurityResult {
   authorized: true;
-  user: { id: string; email: string; name: string; role: UserRole };
+  user: { id: string; email: string; name: string; role: UserRole; companyId: string | null };
 }
 
 export interface ApiSecurityError {
@@ -144,7 +144,7 @@ export async function withApiSecurity(
   if (AUTH_EXEMPT_MODULES.includes(module)) {
     return {
       authorized: true,
-      user: { id: 'system', email: 'system@ems.local', name: 'System', role: 'admin' },
+      user: { id: 'system', email: 'system@ems.local', name: 'System', role: 'admin', companyId: null },
     };
   }
 
@@ -164,7 +164,7 @@ export async function withApiSecurity(
   // Look up user in database
   const user = await db.user.findUnique({
     where: { email: userEmail },
-    select: { id: true, email: true, name: true, role: true, isActive: true },
+    select: { id: true, email: true, name: true, role: true, isActive: true, companyId: true },
   });
 
   if (!user || !user.isActive) {
@@ -233,7 +233,7 @@ export async function withApiSecurity(
   // All checks passed
   return {
     authorized: true,
-    user: { id: user.id, email: user.email, name: user.name, role },
+    user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId },
   };
 }
 
@@ -352,4 +352,161 @@ export function validateImageFields(
     }
   }
   return null;
+}
+
+// ============================================================
+// STAGE 10: FINANCIAL MODULE SECURITY UTILITIES
+// ============================================================
+
+/**
+ * Financial module fields that VAT Auditor must NOT see values for.
+ * Covers all liquid monetary fields: actual expense amounts, invoiced income,
+ * cash-in-hand totals, bank account numbers, and transaction vouchers.
+ */
+export const FINANCIAL_VAT_MASKED_FIELDS = [
+  'amount',
+  'runningBalance',
+  'openingBalance',
+  'currentBalance',
+  'accountNo',
+  'chequeNo',
+  'voucherNo',
+  'referenceNo',
+  'depositorName',
+  'grandTotal',
+  'subTotal',
+  'vatAmount',
+  'discount',
+  'discountAmount',
+  'creditLimit',
+  'openingBalanceType',
+];
+
+/**
+ * maskForVatAuditorFinancial - Convenience wrapper for financial module masking.
+ * Applies FINANCIAL_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+ * Also recursively masks nested objects (e.g., bank.accountNo, customer.creditLimit).
+ */
+export function maskForVatAuditorFinancial<T extends Record<string, unknown>>(
+  data: T,
+  role: UserRole
+): T {
+  if (role !== 'vat_auditor') return data;
+  return maskForVatAuditor(data, role, FINANCIAL_VAT_MASKED_FIELDS);
+}
+
+/**
+ * maskFinancialArray - Apply VAT Auditor masking to an array of financial records,
+ * including nested relation objects (bank, customer, supplier).
+ */
+export function maskFinancialArray<T extends Record<string, unknown>>(
+  items: T[],
+  role: UserRole,
+  extraFields?: string[]
+): T[] {
+  if (role !== 'vat_auditor') return items;
+  const fields = extraFields
+    ? [...FINANCIAL_VAT_MASKED_FIELDS, ...extraFields]
+    : FINANCIAL_VAT_MASKED_FIELDS;
+  return items.map((item) => {
+    let masked = maskForVatAuditor(item, role, fields);
+    // Mask nested bank object
+    if (masked.bank && typeof masked.bank === 'object') {
+      masked = {
+        ...masked,
+        bank: maskForVatAuditor(masked.bank as Record<string, unknown>, role, ['accountNo', 'currentBalance', 'openingBalance']),
+      };
+    }
+    // Mask nested toBank object
+    if (masked.toBank && typeof masked.toBank === 'object') {
+      masked = {
+        ...masked,
+        toBank: maskForVatAuditor(masked.toBank as Record<string, unknown>, role, ['accountNo', 'currentBalance', 'openingBalance']),
+      };
+    }
+    // Mask nested customer object
+    if (masked.customer && typeof masked.customer === 'object') {
+      masked = {
+        ...masked,
+        customer: maskForVatAuditor(
+          masked.customer as Record<string, unknown>,
+          role,
+          ['creditLimit', 'openingBalance'],
+          { creditLimit: ['sr', 'dealer'], openingBalance: ['sr', 'dealer'] }
+        ),
+      };
+    }
+    // Mask nested supplier object
+    if (masked.supplier && typeof masked.supplier === 'object') {
+      masked = {
+        ...masked,
+        supplier: maskForVatAuditor(
+          masked.supplier as Record<string, unknown>,
+          role,
+          ['creditLimit', 'openingBalance'],
+          { creditLimit: ['sr', 'dealer'], openingBalance: ['sr', 'dealer'] }
+        ),
+      };
+    }
+    return masked;
+  });
+}
+
+/**
+ * checkFinancialDeletePermission - Only Administrators (admin) have the authority
+ * to modify or soft-delete posted Expense or Income vouchers.
+ * Managers can create and update but CANNOT delete final financial posts.
+ * SR and Dealer are already blocked by WRITE_DENY.
+ *
+ * Returns a 403 response if the role is not admin, or null if allowed.
+ */
+export function checkFinancialDeletePermission(role: UserRole): NextResponse | null {
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Delete access denied. Only Administrators can delete final financial posts. Your role (${role}) can create and update but cannot delete.`,
+      },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
+/**
+ * safeFinancialRound - Prevents JavaScript float rounding traps during
+ * multiple ledger aggregations. All financial accumulation must run through
+ * this uniform scaling logic.
+ *
+ * Multiplies by 100, rounds to nearest integer, then divides by 100.
+ * This ensures 0.1 + 0.2 = 0.30 (not 0.30000000000000004).
+ */
+export function safeFinancialRound(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * safeFinancialAdd - Safely add two financial values without floating-point errors.
+ */
+export function safeFinancialAdd(a: number, b: number): number {
+  return safeFinancialRound(a + b);
+}
+
+/**
+ * safeFinancialSubtract - Safely subtract two financial values without floating-point errors.
+ */
+export function safeFinancialSubtract(a: number, b: number): number {
+  return safeFinancialRound(a - b);
+}
+
+/**
+ * formatFinancialField - Clean null/undefined/empty optional string fields
+ * to "-" or "N/A" to prevent column alignment shifting in table matrix arrays
+ * or document exports.
+ *
+ * Usage: formatFinancialField(record.chequeNo) → "—" if null/undefined/empty
+ */
+export function formatFinancialField(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'string' && value.trim() === '') return '—';
+  return String(value);
 }

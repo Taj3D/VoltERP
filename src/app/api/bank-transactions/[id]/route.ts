@@ -1,14 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  checkPeriodClose,
+  maskForVatAuditorFinancial,
+  checkFinancialDeletePermission,
+  safeFinancialRound,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+} from '@/lib/api-security';
 
-// GET /api/bank-transactions/[id]
+// Helper: null if empty string
+function nullIfEmpty(value: string | undefined | null): string | null {
+  if (value === undefined || value === null) return null;
+  return value.trim() === '' ? null : value.trim();
+}
+
+// GET /api/bank-transactions/[id] - Get single bank transaction with cross-tenant validation + VAT Auditor masking
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'BankTransactions', 'GET');
   if (!security.authorized) return security.response;
+
+  const role = security.user.role;
+  const companyId = security.user.companyId;
 
   try {
     const { id } = await params;
@@ -27,7 +44,17 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(item);
+    // Cross-tenant validation: if user has a companyId, the record must match
+    if (companyId && item.companyId && item.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'Bank transaction not found' },
+        { status: 404 }
+      );
+    }
+
+    // Apply VAT Auditor financial masking
+    const maskedItem = maskForVatAuditorFinancial(item as Record<string, unknown>, role);
+    return NextResponse.json(maskedItem);
   } catch (error) {
     console.error('Error fetching bank transaction:', error);
     return NextResponse.json(
@@ -37,7 +64,7 @@ export async function GET(
   }
 }
 
-// PUT /api/bank-transactions/[id]
+// PUT /api/bank-transactions/[id] - Update with cross-tenant validation, safe balance reversal + re-entry, immutable type/code
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -45,10 +72,23 @@ export async function PUT(
   const security = await withApiSecurity(request, 'BankTransactions', 'PUT');
   if (!security.authorized) return security.response;
 
+  const companyId = security.user.companyId;
+
   try {
     const { id } = await params;
     const body = await request.json();
-    const { bankId, date, type, amount, toBankId, description, status } = body;
+    const {
+      bankId,
+      date,
+      type,
+      amount,
+      toBankId,
+      chequeNo,
+      depositorName,
+      referenceNo,
+      description,
+      status,
+    } = body;
 
     // Fetch existing record
     const existing = await db.bankTransaction.findUnique({
@@ -57,6 +97,14 @@ export async function PUT(
     });
 
     if (!existing) {
+      return NextResponse.json(
+        { error: 'Bank transaction not found' },
+        { status: 404 }
+      );
+    }
+
+    // Cross-tenant validation: if user has a companyId, the record must match
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
       return NextResponse.json(
         { error: 'Bank transaction not found' },
         { status: 404 }
@@ -87,8 +135,14 @@ export async function PUT(
     const effectiveType = existing.type;
     const effectiveBankId = bankId || existing.bankId;
     const effectiveToBankId = toBankId !== undefined ? toBankId : existing.toBankId;
-    const effectiveAmount = amount !== undefined ? Number(amount) : existing.amount;
+    const effectiveAmount = amount !== undefined ? safeFinancialRound(Number(amount)) : existing.amount;
     const effectiveDate = date ? new Date(date) : existing.date;
+
+    // Clean optional string fields → null if empty
+    const cleanChequeNo = chequeNo !== undefined ? nullIfEmpty(chequeNo) : existing.chequeNo;
+    const cleanDepositorName = depositorName !== undefined ? nullIfEmpty(depositorName) : existing.depositorName;
+    const cleanReferenceNo = referenceNo !== undefined ? nullIfEmpty(referenceNo) : existing.referenceNo;
+    const cleanDescription = description !== undefined ? nullIfEmpty(description) : existing.description;
 
     // Check if balance-affecting fields changed
     const amountChanged = effectiveAmount !== existing.amount;
@@ -96,44 +150,65 @@ export async function PUT(
     const toBankChanged = effectiveToBankId !== existing.toBankId;
     const needsBalanceUpdate = amountChanged || bankChanged || toBankChanged;
 
+    // Build companyId filter for bank lookups (multi-tenant)
+    const bankCompanyFilter: any = {};
+    if (companyId) {
+      bankCompanyFilter.companyId = companyId;
+    }
+
     const result = await db.$transaction(async (tx) => {
       if (needsBalanceUpdate) {
-        // ── Reverse old impact ──────────────────────────────────
+        // ── Reverse old impact using safe financial arithmetic ──
         if (existing.type === 'Deposit') {
-          // Old deposit incremented balance → decrement to reverse
-          await tx.bank.update({
-            where: { id: existing.bankId },
-            data: { currentBalance: { decrement: existing.amount } },
-          });
-        } else if (existing.type === 'Withdraw') {
-          // Old withdrawal decremented balance → increment to reverse
-          await tx.bank.update({
-            where: { id: existing.bankId },
-            data: { currentBalance: { increment: existing.amount } },
-          });
-        } else if (existing.type === 'Transfer') {
-          // Old transfer: source decremented, target incremented → reverse both
-          await tx.bank.update({
-            where: { id: existing.bankId },
-            data: { currentBalance: { increment: existing.amount } },
-          });
-          if (existing.toBankId) {
+          // Old deposit incremented balance → subtract to reverse
+          const currentBank = await tx.bank.findUnique({ where: { id: existing.bankId } });
+          if (currentBank) {
+            const reversedBalance = safeFinancialSubtract(currentBank.currentBalance, existing.amount);
             await tx.bank.update({
-              where: { id: existing.toBankId },
-              data: { currentBalance: { decrement: existing.amount } },
+              where: { id: existing.bankId },
+              data: { currentBalance: reversedBalance },
             });
+          }
+        } else if (existing.type === 'Withdraw') {
+          // Old withdrawal decremented balance → add to reverse
+          const currentBank = await tx.bank.findUnique({ where: { id: existing.bankId } });
+          if (currentBank) {
+            const reversedBalance = safeFinancialAdd(currentBank.currentBalance, existing.amount);
+            await tx.bank.update({
+              where: { id: existing.bankId },
+              data: { currentBalance: reversedBalance },
+            });
+          }
+        } else if (existing.type === 'Transfer') {
+          // Old transfer: source was decremented, target was incremented → reverse both
+          const sourceBank = await tx.bank.findUnique({ where: { id: existing.bankId } });
+          if (sourceBank) {
+            const sourceReversed = safeFinancialAdd(sourceBank.currentBalance, existing.amount);
+            await tx.bank.update({
+              where: { id: existing.bankId },
+              data: { currentBalance: sourceReversed },
+            });
+          }
+          if (existing.toBankId) {
+            const targetBank = await tx.bank.findUnique({ where: { id: existing.toBankId } });
+            if (targetBank) {
+              const targetReversed = safeFinancialSubtract(targetBank.currentBalance, existing.amount);
+              await tx.bank.update({
+                where: { id: existing.toBankId },
+                data: { currentBalance: targetReversed },
+              });
+            }
           }
         }
 
-        // ── Apply new impact ────────────────────────────────────
+        // ── Apply new impact using safe financial arithmetic ──
         if (effectiveType === 'Deposit') {
-          const bank = await tx.bank.findUnique({
-            where: { id: effectiveBankId },
+          const bank = await tx.bank.findFirst({
+            where: { id: effectiveBankId, ...bankCompanyFilter, isActive: true },
           });
-          if (!bank)
-            throw new Error(`Bank with id ${effectiveBankId} not found`);
+          if (!bank) throw new Error(`Bank with id ${effectiveBankId} not found or does not belong to your company`);
 
-          const updatedBalance = bank.currentBalance + effectiveAmount;
+          const updatedBalance = safeFinancialAdd(bank.currentBalance, effectiveAmount);
           await tx.bank.update({
             where: { id: effectiveBankId },
             data: { currentBalance: updatedBalance },
@@ -146,8 +221,10 @@ export async function PUT(
               date: effectiveDate,
               amount: effectiveAmount,
               runningBalance: updatedBalance,
-              description:
-                description !== undefined ? description || null : existing.description,
+              chequeNo: cleanChequeNo,
+              depositorName: cleanDepositorName,
+              referenceNo: cleanReferenceNo,
+              description: cleanDescription,
               status: status || existing.status,
             },
             include: { bank: true, toBank: true },
@@ -156,7 +233,7 @@ export async function PUT(
           await tx.auditLog.create({
             data: {
               action: 'UPDATE',
-              module: 'BankTransactions',
+              module: 'Fin-Bank-Settlement',
               recordId: id,
               recordLabel: existing.transactionCode,
               userId: security.user.id,
@@ -176,11 +253,10 @@ export async function PUT(
         }
 
         if (effectiveType === 'Withdraw') {
-          const bank = await tx.bank.findUnique({
-            where: { id: effectiveBankId },
+          const bank = await tx.bank.findFirst({
+            where: { id: effectiveBankId, ...bankCompanyFilter, isActive: true },
           });
-          if (!bank)
-            throw new Error(`Bank with id ${effectiveBankId} not found`);
+          if (!bank) throw new Error(`Bank with id ${effectiveBankId} not found or does not belong to your company`);
 
           if (bank.currentBalance < effectiveAmount) {
             throw new Error(
@@ -188,7 +264,7 @@ export async function PUT(
             );
           }
 
-          const updatedBalance = bank.currentBalance - effectiveAmount;
+          const updatedBalance = safeFinancialSubtract(bank.currentBalance, effectiveAmount);
           await tx.bank.update({
             where: { id: effectiveBankId },
             data: { currentBalance: updatedBalance },
@@ -201,8 +277,10 @@ export async function PUT(
               date: effectiveDate,
               amount: effectiveAmount,
               runningBalance: updatedBalance,
-              description:
-                description !== undefined ? description || null : existing.description,
+              chequeNo: cleanChequeNo,
+              depositorName: cleanDepositorName,
+              referenceNo: cleanReferenceNo,
+              description: cleanDescription,
               status: status || existing.status,
             },
             include: { bank: true, toBank: true },
@@ -211,7 +289,7 @@ export async function PUT(
           await tx.auditLog.create({
             data: {
               action: 'UPDATE',
-              module: 'BankTransactions',
+              module: 'Fin-Bank-Settlement',
               recordId: id,
               recordLabel: existing.transactionCode,
               userId: security.user.id,
@@ -237,21 +315,15 @@ export async function PUT(
             );
           }
 
-          const sourceBank = await tx.bank.findUnique({
-            where: { id: effectiveBankId },
+          const sourceBank = await tx.bank.findFirst({
+            where: { id: effectiveBankId, ...bankCompanyFilter, isActive: true },
           });
-          if (!sourceBank)
-            throw new Error(
-              `Source bank with id ${effectiveBankId} not found`
-            );
+          if (!sourceBank) throw new Error(`Source bank with id ${effectiveBankId} not found or does not belong to your company`);
 
-          const targetBank = await tx.bank.findUnique({
-            where: { id: effectiveToBankId },
+          const targetBank = await tx.bank.findFirst({
+            where: { id: effectiveToBankId, ...bankCompanyFilter, isActive: true },
           });
-          if (!targetBank)
-            throw new Error(
-              `Target bank with id ${effectiveToBankId} not found`
-            );
+          if (!targetBank) throw new Error(`Target bank with id ${effectiveToBankId} not found or does not belong to your company`);
 
           if (sourceBank.currentBalance < effectiveAmount) {
             throw new Error(
@@ -259,10 +331,8 @@ export async function PUT(
             );
           }
 
-          const sourceUpdatedBalance =
-            sourceBank.currentBalance - effectiveAmount;
-          const targetUpdatedBalance =
-            targetBank.currentBalance + effectiveAmount;
+          const sourceUpdatedBalance = safeFinancialSubtract(sourceBank.currentBalance, effectiveAmount);
+          const targetUpdatedBalance = safeFinancialAdd(targetBank.currentBalance, effectiveAmount);
 
           await tx.bank.update({
             where: { id: effectiveBankId },
@@ -282,8 +352,10 @@ export async function PUT(
               amount: effectiveAmount,
               runningBalance: sourceUpdatedBalance,
               toBankId: effectiveToBankId,
-              description:
-                description !== undefined ? description || null : existing.description,
+              chequeNo: cleanChequeNo,
+              depositorName: cleanDepositorName,
+              referenceNo: cleanReferenceNo,
+              description: cleanDescription,
               status: status || existing.status,
             },
             include: { bank: true, toBank: true },
@@ -309,10 +381,7 @@ export async function PUT(
                 runningBalance: targetUpdatedBalance,
                 toBankId: effectiveBankId,
                 date: effectiveDate,
-                description:
-                  description !== undefined
-                    ? description || null
-                    : `Transfer from ${sourceBank.bankName}`,
+                description: cleanDescription || `Transfer from ${sourceBank.bankName}`,
                 status: status || existing.status,
               },
             });
@@ -321,7 +390,7 @@ export async function PUT(
           await tx.auditLog.create({
             data: {
               action: 'UPDATE',
-              module: 'BankTransactions',
+              module: 'Fin-Bank-Settlement',
               recordId: id,
               recordLabel: existing.transactionCode,
               userId: security.user.id,
@@ -344,12 +413,15 @@ export async function PUT(
         }
       }
 
-      // ── No balance-affecting changes ── simple update ─────────
+      // ── No balance-affecting changes — simple update ─────────
       const updated = await tx.bankTransaction.update({
         where: { id },
         data: {
           ...(date && { date: new Date(date) }),
-          ...(description !== undefined && { description: description || null }),
+          ...(chequeNo !== undefined && { chequeNo: nullIfEmpty(chequeNo) }),
+          ...(depositorName !== undefined && { depositorName: nullIfEmpty(depositorName) }),
+          ...(referenceNo !== undefined && { referenceNo: nullIfEmpty(referenceNo) }),
+          ...(description !== undefined && { description: nullIfEmpty(description) }),
           ...(status && { status }),
         },
         include: { bank: true, toBank: true },
@@ -358,11 +430,11 @@ export async function PUT(
       await tx.auditLog.create({
         data: {
           action: 'UPDATE',
-          module: 'BankTransactions',
+          module: 'Fin-Bank-Settlement',
           recordId: id,
           recordLabel: existing.transactionCode,
-              userId: security.user.id,
-              userName: security.user.name,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             type: effectiveType,
             balanceImpact: false,
@@ -383,6 +455,7 @@ export async function PUT(
     const statusCode =
       message.includes('Insufficient') ||
       message.includes('not found') ||
+      message.includes('does not belong') ||
       message.includes('cannot be changed') ||
       message.includes('required')
         ? 400
@@ -391,13 +464,20 @@ export async function PUT(
   }
 }
 
-// DELETE /api/bank-transactions/[id] - Soft delete with balance reversal
+// DELETE /api/bank-transactions/[id] - Soft delete with checkFinancialDeletePermission, balance reversal, paired transaction cleanup
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'BankTransactions', 'DELETE');
   if (!security.authorized) return security.response;
+
+  const role = security.user.role;
+  const companyId = security.user.companyId;
+
+  // Only admin can delete financial posts
+  const deleteCheck = checkFinancialDeletePermission(role);
+  if (deleteCheck) return deleteCheck;
 
   try {
     const { id } = await params;
@@ -408,6 +488,14 @@ export async function DELETE(
     });
 
     if (!existing) {
+      return NextResponse.json(
+        { error: 'Bank transaction not found' },
+        { status: 404 }
+      );
+    }
+
+    // Cross-tenant validation: if user has a companyId, the record must match
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
       return NextResponse.json(
         { error: 'Bank transaction not found' },
         { status: 404 }
@@ -426,36 +514,52 @@ export async function DELETE(
     if (periodLock) return periodLock;
 
     await db.$transaction(async (tx) => {
-      // Soft delete
+      // Soft delete the primary transaction
       await tx.bankTransaction.update({
         where: { id },
         data: { isActive: false },
       });
 
-      // Reverse bank balance impact
+      // Reverse bank balance impact using safe financial arithmetic
       if (existing.type === 'Deposit') {
-        // Deposit had incremented balance → decrement to reverse
-        await tx.bank.update({
-          where: { id: existing.bankId },
-          data: { currentBalance: { decrement: existing.amount } },
-        });
+        // Deposit had incremented balance → subtract to reverse
+        const bank = await tx.bank.findUnique({ where: { id: existing.bankId } });
+        if (bank) {
+          const reversedBalance = safeFinancialSubtract(bank.currentBalance, existing.amount);
+          await tx.bank.update({
+            where: { id: existing.bankId },
+            data: { currentBalance: reversedBalance },
+          });
+        }
       } else if (existing.type === 'Withdraw') {
-        // Withdrawal had decremented balance → increment to reverse
-        await tx.bank.update({
-          where: { id: existing.bankId },
-          data: { currentBalance: { increment: existing.amount } },
-        });
+        // Withdrawal had decremented balance → add to reverse
+        const bank = await tx.bank.findUnique({ where: { id: existing.bankId } });
+        if (bank) {
+          const reversedBalance = safeFinancialAdd(bank.currentBalance, existing.amount);
+          await tx.bank.update({
+            where: { id: existing.bankId },
+            data: { currentBalance: reversedBalance },
+          });
+        }
       } else if (existing.type === 'Transfer') {
         // Transfer: source was decremented, target was incremented → reverse both
-        await tx.bank.update({
-          where: { id: existing.bankId },
-          data: { currentBalance: { increment: existing.amount } },
-        });
-        if (existing.toBankId) {
+        const sourceBank = await tx.bank.findUnique({ where: { id: existing.bankId } });
+        if (sourceBank) {
+          const sourceReversed = safeFinancialAdd(sourceBank.currentBalance, existing.amount);
           await tx.bank.update({
-            where: { id: existing.toBankId },
-            data: { currentBalance: { decrement: existing.amount } },
+            where: { id: existing.bankId },
+            data: { currentBalance: sourceReversed },
           });
+        }
+        if (existing.toBankId) {
+          const targetBank = await tx.bank.findUnique({ where: { id: existing.toBankId } });
+          if (targetBank) {
+            const targetReversed = safeFinancialSubtract(targetBank.currentBalance, existing.amount);
+            await tx.bank.update({
+              where: { id: existing.toBankId },
+              data: { currentBalance: targetReversed },
+            });
+          }
 
           // Also soft-delete the paired target transaction
           const pairedTransaction = await tx.bankTransaction.findFirst({
@@ -477,15 +581,15 @@ export async function DELETE(
         }
       }
 
-      // AuditLog
+      // AuditLog — module token "Fin-Bank-Settlement"
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
-          module: 'BankTransactions',
+          module: 'Fin-Bank-Settlement',
           recordId: id,
           recordLabel: existing.transactionCode,
-              userId: security.user.id,
-              userName: security.user.name,
+          userId: security.user.id,
+          userName: security.user.name,
           details: JSON.stringify({
             softDelete: true,
             type: existing.type,
@@ -494,6 +598,7 @@ export async function DELETE(
             bankName: existing.bank?.bankName,
             toBankId: existing.toBankId,
             toBankName: existing.toBank?.bankName,
+            companyId: companyId || null,
           }),
         },
       });
