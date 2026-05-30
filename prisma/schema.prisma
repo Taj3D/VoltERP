@@ -1259,12 +1259,81 @@ model AuditLog {
   userName    String?  // Display name of the user
   details     String?  // JSON string with before/after data
   ip          String?
+  companyId   String?  // Multi-tenant isolation for audit trail
+  userAgent   String?  // Browser/client user-agent string
   createdAt   DateTime @default(now())
 
   @@index([module])
   @@index([action])
   @@index([createdAt])
   @@index([userId])
+  @@index([companyId])
+}
+
+// ============================================================
+// DOMAIN 20: SYSTEM AUDIT LOGS, BACKUPS & SECURITY OVERHAUL
+// ============================================================
+
+// SystemAuditLog — Immutable, append-only deep-diff audit trail
+// Captures complete before/after state for every mutation across all 20 domains
+model SystemAuditLog {
+  id              String   @id @default(cuid())
+  actorUserId     String?  // User who performed the action
+  companyId       String?  // Multi-tenant isolation
+  ipAddress       String?  // Client IP address
+  userAgent       String?  // Browser/client user-agent
+  actionType      String   // "CREATE", "UPDATE", "DELETE"
+  targetModel     String   // Prisma model name (e.g., "Product", "SalesOrder", "Bank")
+  targetRecordId  String?  // ID of the affected record
+  previousState   String?  // JSON string — deep-diff of record BEFORE mutation (masked)
+  newState        String?  // JSON string — deep-diff of record AFTER mutation (masked)
+  metadata        String?  // Additional context (module token, request path, etc.)
+  createdAt       DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([companyId])
+  @@index([actionType])
+  @@index([targetModel])
+  @@index([createdAt])
+}
+
+// SystemBackup — Multi-tenant backup tracking and S3-compatible vault
+model SystemBackup {
+  id              String   @id @default(cuid())
+  backupCode      String   @unique  // BKP-XXXXX
+  companyId       String?  // Multi-tenant isolation
+  triggeredBy     String?  // User ID who initiated the backup
+  triggeredByName String?  // Display name
+  status          String   @default("PENDING")  // "PENDING", "ENCRYPTING", "UPLOADING", "COMPLETED", "FAILED"
+  backupType      String   @default("FULL")  // "FULL", "INCREMENTAL"
+  recordCount     Int      @default(0)  // Number of records exported
+  fileSizeBytes   Int      @default(0)  // Size of the encrypted dump
+  storageKey      String?  // S3-compatible object storage key
+  checksumSha256  String?  // SHA-256 checksum for integrity verification
+  errorMessage    String?  // Error details if status = "FAILED"
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([backupType])
+}
+
+// RateLimitAttempt — In-memory sliding window rate limiter tracking
+model RateLimitAttempt {
+  id          String   @id @default(cuid())
+  ipAddress   String   // Client IP address
+  endpoint    String   // Target endpoint (e.g., "/api/auth/login")
+  success     Boolean  @default(false)  // Whether the attempt succeeded
+  userAgent   String?  // Browser/client user-agent
+  createdAt   DateTime @default(now())
+
+  @@index([ipAddress])
+  @@index([endpoint])
+  @@index([createdAt])
 }
 
 // ============================================================

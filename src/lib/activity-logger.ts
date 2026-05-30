@@ -15,11 +15,12 @@ import { db } from '@/lib/db';
  * - Fin-Expense-Head: Expense/Income head management
  * - Fin-Ledger-Transaction: Financial ledger transactions
  * - Fin-Bank-Settlement: Bank balance settlements
+ * - Sec-Audit-Overhaul: Security audit log viewing, backup operations, and compliance center activities
  *
  * @param params - Activity log parameters
  */
 export async function logUserActivity(params: {
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'IMPORT' | 'AUTO_SMS_DISPATCH' | 'AUTO_SMS_SKIPPED';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'IMPORT' | 'AUTO_SMS_DISPATCH' | 'AUTO_SMS_SKIPPED' | 'RATE_LIMIT_TRIGGERED';
   module: string;  // Module token e.g., "SMS-Gateway-Dispatch"
   recordId?: string;
   recordLabel?: string;
