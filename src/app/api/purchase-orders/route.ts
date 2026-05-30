@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
+import { dispatchAutoSms } from '@/lib/sms-auto-trigger';
 
 // GET /api/purchase-orders - List all purchase orders with relations
 export async function GET(request: NextRequest) {
@@ -189,6 +190,22 @@ export async function POST(request: NextRequest) {
 
       return purchaseOrder;
     });
+
+    // ── Auto-SMS: Stock Receive trigger (fire-and-forget, only on Received/Delivered status) ──
+    const poStatus = body.status || 'Draft';
+    if (poStatus === 'Received' || poStatus === 'Delivered') {
+      const itemSummary = (result.lines || []).map((l: any) => l.product?.name).filter(Boolean).join(', ').substring(0, 50) + ((result.lines || []).map((l: any) => l.product?.name).filter(Boolean).join(', ').length > 50 ? '...' : '');
+      const godownName = result.godown?.name || 'Main Warehouse';
+      void dispatchAutoSms({
+        triggerType: 'stock_receive',
+        recipient: result.supplier?.phone || '',
+        message: `Stock Received Alert: ${itemSummary} safely delivered to Warehouse ${godownName} against PO ${result.poNumber}.`,
+        companyId: security.user.companyId,
+        userId: security.user.id,
+        userName: security.user.name,
+        referenceData: { poNumber: result.poNumber, godownName, supplierId },
+      }).catch(() => {});
+    }
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

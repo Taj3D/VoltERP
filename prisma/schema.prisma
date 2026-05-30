@@ -119,6 +119,7 @@ model Company {
   smsSettings        SmsSetting[]
   smsLogs            SmsLog[]
   smsBills           SmsBill[]
+  smsAutomationConfigs SmsAutomationConfig[]
   chartOfAccounts    ChartOfAccount[]
   ledgerEntries      LedgerEntry[]
   periodCloses       PeriodClose[]
@@ -1151,6 +1152,26 @@ model SmsBillPayment {
   smsBill   SmsBill  @relation(fields: [smsBillId], references: [id])
 
   @@index([smsBillId])
+}
+
+// ============================================================
+// SMS AUTOMATION CONFIG — Block 12, Directive 3
+// Transactional Auto-SMS Engine global Boolean toggle flags
+// ============================================================
+
+model SmsAutomationConfig {
+  id                     String   @id @default(cuid())
+  smsAlertOnPurchase     Boolean  @default(false)  // TRIGGER A: Product Purchase Alert
+  smsAlertOnCollection   Boolean  @default(false)  // TRIGGER B: Cash/Bank/MFS Collection Alert
+  smsAlertOnStockReceive Boolean  @default(false)  // TRIGGER C: Warehouse Stock Receipt Notification
+  smsAlertOnHrLifecycle  Boolean  @default(false)  // TRIGGER D: HR Recruitment & Joining Lifecycle Alerts
+  companyId              String?  // Multi-tenant isolation
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  company                Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 // ============================================================

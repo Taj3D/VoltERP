@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, maskForVatAuditor, validateImageFields } from '@/lib/api-security';
+import { dispatchAutoSms } from '@/lib/sms-auto-trigger';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Employees', 'GET');
@@ -112,6 +113,21 @@ export async function POST(request: NextRequest) {
 
       return record;
     });
+
+    // ── Auto-SMS: HR Lifecycle trigger (fire-and-forget) ──
+    const joiningDate = item.joiningDate
+      ? new Date(item.joiningDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })
+      : 'N/A';
+    void dispatchAutoSms({
+      triggerType: 'hr_lifecycle',
+      recipient: item.phone || '',
+      message: `Welcome ${item.name} to the team! Your official joining date is confirmed on ${joiningDate}. Check your email for login credentials.`,
+      companyId: security.user.companyId,
+      userId: security.user.id,
+      userName: security.user.name,
+      referenceData: { employeeCode: item.employeeCode, name: item.name, joiningDate: item.joiningDate },
+    }).catch(() => {});
+
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create employee' }, { status: 500 });

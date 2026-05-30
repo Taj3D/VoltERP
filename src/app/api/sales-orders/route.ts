@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
+import { dispatchAutoSms } from '@/lib/sms-auto-trigger';
 
 // GET /api/sales-orders - List all sales orders with relations
 export async function GET(request: NextRequest) {
@@ -234,6 +235,17 @@ export async function POST(request: NextRequest) {
 
       return salesOrder;
     });
+
+    // ── Auto-SMS: Purchase trigger (fire-and-forget) ──
+    void dispatchAutoSms({
+      triggerType: 'purchase',
+      recipient: result.customer?.phone || '',
+      message: `Dear ${result.customer?.name || 'Customer'}, Invoice ${result.invoiceNo} raised for ${(result.lines || []).map((l: any) => l.product?.name).filter(Boolean).join(', ').substring(0, 50)}${((result.lines || []).map((l: any) => l.product?.name).filter(Boolean).join(', ').length > 50 ? '...' : '')}. Total: ৳${result.grandTotal.toFixed(2)}. Thank you.`,
+      companyId: security.user.companyId,
+      userId: security.user.id,
+      userName: security.user.name,
+      referenceData: { invoiceNo: result.invoiceNo, grandTotal: result.grandTotal, customerId },
+    }).catch(() => {});
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

@@ -61,6 +61,7 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   SmsLogs: 'sms',
   SmsBills: 'sms',
   SmsBillPayments: 'sms',
+  SmsAutomation: 'sms',
   // Accounting Reports
   ChartOfAccounts: 'accounting-report',
   LedgerEntries: 'accounting-report',

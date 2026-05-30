@@ -7,6 +7,7 @@ import {
   safeFinancialRound,
   safeFinancialAdd,
 } from '@/lib/api-security';
+import { dispatchAutoSms } from '@/lib/sms-auto-trigger';
 
 // Helper: normalize empty strings to null for optional string fields
 function nullIfEmpty(value: string | undefined | null): string | null {
@@ -70,6 +71,18 @@ export async function POST(request: NextRequest) {
         try {
           const record = await createSingleCashCollection(body.data[i], security.user, companyId);
           results.push(record);
+
+          // ── Auto-SMS: Collection trigger (fire-and-forget, batch) ──
+          const batchPaymentMethod = (record as any)?.paymentOption?.name || 'Cash';
+          void dispatchAutoSms({
+            triggerType: 'collection',
+            recipient: (record as any)?.customer?.phone || '',
+            message: `Received with thanks: ৳${(record as any)?.amount?.toFixed(2) || '0.00'} via ${batchPaymentMethod} against Invoice/Account ${(record as any)?.collectionCode || ''}. Thank you.`,
+            companyId,
+            userId: security.user.id,
+            userName: security.user.name,
+            referenceData: { collectionCode: (record as any)?.collectionCode, amount: (record as any)?.amount },
+          }).catch(() => {});
         } catch (err) {
           errors.push({
             index: i,
@@ -86,6 +99,19 @@ export async function POST(request: NextRequest) {
 
     // ── single record creation ──
     const result = await createSingleCashCollection(body, security.user, companyId);
+
+    // ── Auto-SMS: Collection trigger (fire-and-forget) ──
+    const paymentMethodName = result.paymentOption?.name || 'Cash';
+    void dispatchAutoSms({
+      triggerType: 'collection',
+      recipient: result.customer?.phone || '',
+      message: `Received with thanks: ৳${result.amount.toFixed(2)} via ${paymentMethodName} against Invoice/Account ${result.collectionCode}. Thank you.`,
+      companyId,
+      userId: security.user.id,
+      userName: security.user.name,
+      referenceData: { collectionCode: result.collectionCode, amount: result.amount, customerId: result.customerId },
+    }).catch(() => {});
+
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
     console.error('Error creating cash collection:', error);

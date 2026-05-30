@@ -1736,3 +1736,34 @@ Stage Summary:
   2. ✅ REAL-TIME CHARACTER COUNT (GSM 03.38) & CAMPAIGN BALANCE SHIELD: computeClientSmsSegments (160 GSM / 70 Unicode), dedicated SMS Message Counter info card, Campaign Balance Shield client-side (balanceShieldBlocked) + server-side (INSUFFICIENT_SMS_CREDITS), red warning banner with Required/Available amounts
   3. ✅ DUPLICATE CAMPAIGN TRIGGER PREVENTIONS & SNAPSHOTS: Real customer data audience filtering (zone/customerType/dueBalance), instant filtered recipient count without page reload, Double-Hit Guard (smsSending locks button + "Dispatching SMS Queue via Gateway..." text + animate-spin), smsSnapshot saved before dispatch and restored on failure, separate spin-locks for 6 export types
   4. ✅ USER PROFILE LIVE ACTIVITY COUPLING & ENTERPRISE COMPLIANCE: logActivityToServer("Comm-SMS-Marketing") for all 6 export handlers, Comm-SMS-Marketing module token in all 8 API routes, financialFooter with Prepared By/Checked By/Authorized By + Printed By on all PDFs
+
+---
+Task ID: 12
+Agent: Main Orchestrator
+Task: Block 12 — Domain 19 (SMS Service & Marketing Engines) Functional & Edge-Case Audit
+
+Work Log:
+- Audited all 10 SMS API route files, SMSAnalyticsPage.tsx (2720 lines), Prisma schema SMS models, and api-security.ts helper functions
+- Directive 1 (Gateway Config & Tenant Security): VERIFIED COMPLIANT — sanitizeTextField/trimField on all text fields, companyId isolation enforced on all routes, creditBalanceLimit field present
+- Directive 2 (GSM 03.38 Char Count & Balance Shield): VERIFIED COMPLIANT — computeClientSmsSegments/computeSmsSegments implement GSM 03.38 (English 160/Unicode 70 chars per part), Campaign Balance Shield blocks dispatch when credits insufficient
+- Directive 3 (Transactional Auto-SMS Engine): FULLY IMPLEMENTED — new feature
+  - Added SmsAutomationConfig Prisma model with 4 boolean toggles (smsAlertOnPurchase, smsAlertOnCollection, smsAlertOnStockReceive, smsAlertOnHrLifecycle)
+  - Created /api/sms-automation route (GET/POST/PUT) with companyId isolation, admin-only RBAC
+  - Created /api/sms-automation/trigger route for server-to-server auto-SMS dispatch with toggle check, credit balance shield, SmsLog creation
+  - Created /src/lib/sms-auto-trigger.ts helper function (dispatchAutoSms) — never throws, fire-and-forget
+  - Integrated trigger hooks into 4 existing API routes:
+    * sales-orders POST → TRIGGER A (purchase)
+    * cash-collections POST → TRIGGER B (collection)
+    * purchase-orders POST → TRIGGER C (stock_receive)
+    * employees POST → TRIGGER D (hr_lifecycle)
+  - Added "Transactional Automation Trigger Settings" sub-tab in SMS Settings tab with 4 toggle switches, SMS template previews, admin-only save with spin-lock
+- Directive 4 (Duplicate Campaign Prevention, Spin-Locks & Snapshots): VERIFIED COMPLIANT — smsSending state locks button, smsSnapshotRef restores form on failure, "Dispatching SMS Queue via Gateway..." text with animate-spin icon
+- Directive 5 (Activity Coupling & Compliance Footers): VERIFIED COMPLIANT — logActivityToServer/logUserActivity with "Comm-SMS-Marketing" token, PDF exports include financialFooter with Triple-Signature Grid
+
+Stage Summary:
+- All 5 Block 12 directives verified and implemented
+- 3 new files created: sms-automation route, trigger route, sms-auto-trigger helper
+- 1 Prisma model added (SmsAutomationConfig) with db:push successful
+- 4 existing API routes modified with auto-SMS trigger integration
+- Frontend SMSAnalyticsPage.tsx updated with Transactional Automation sub-tab
+- Lint passes clean, dev server running error-free on port 3000

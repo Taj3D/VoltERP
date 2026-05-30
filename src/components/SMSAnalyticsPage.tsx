@@ -6,7 +6,8 @@ import {
   AlertTriangle, Banknote, Search, RefreshCw, Download,
   Upload, FileDown, Plus, MessageSquare, Settings,
   Phone, FileText, CreditCard, Activity, BarChart3,
-  Pencil, Trash2, Shield, Lock, Users, Filter, Zap, Info
+  Pencil, Trash2, Shield, Lock, Users, Filter, Zap, Info,
+  ShoppingCart, Package, UserCheck
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -250,6 +251,16 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
+  // Directive 3 — Transactional Auto-SMS Automation Config
+  const [automationConfig, setAutomationConfig] = useState({
+    smsAlertOnPurchase: false,
+    smsAlertOnCollection: false,
+    smsAlertOnStockReceive: false,
+    smsAlertOnHrLifecycle: false,
+  });
+  const [automationSaving, setAutomationSaving] = useState(false);
+  const [automationLoading, setAutomationLoading] = useState(false);
+
   // Bill Payment dialog state
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [paymentBillId, setPaymentBillId] = useState("");
@@ -330,6 +341,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   // Directive 2 — Fetch gateway balance on mount
   useEffect(() => { fetchGatewayBalance(); }, [fetchGatewayBalance]);
+
+  // Directive 3 — Load automation config when settings tab is active
+  useEffect(() => {
+    if (activeTab === "settings" && !isSR && !isDealer) {
+      loadAutomationConfig();
+    }
+  }, [activeTab, loadAutomationConfig, isSR, isDealer]);
 
   // ============================================================
   // DIRECTIVE 3 — COMPUTE FILTERED RECIPIENT COUNT
@@ -496,6 +514,47 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       loadData();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // ============================================================
+  // DIRECTIVE 3 — TRANSACTIONAL AUTO-SMS AUTOMATION CONFIG
+  // ============================================================
+
+  const loadAutomationConfig = useCallback(async () => {
+    setAutomationLoading(true);
+    try {
+      const res = await apiFetch("/api/sms-automation").catch(() => null);
+      if (res && res.id) {
+        setAutomationConfig({
+          smsAlertOnPurchase: res.smsAlertOnPurchase || false,
+          smsAlertOnCollection: res.smsAlertOnCollection || false,
+          smsAlertOnStockReceive: res.smsAlertOnStockReceive || false,
+          smsAlertOnHrLifecycle: res.smsAlertOnHrLifecycle || false,
+        });
+      }
+    } catch {} finally {
+      setAutomationLoading(false);
+    }
+  }, []);
+
+  const saveAutomationConfig = async () => {
+    if (!isAdmin) {
+      toast({ title: "Access Denied", description: "Only administrators can modify SMS automation settings", variant: "destructive" });
+      return;
+    }
+    setAutomationSaving(true);
+    try {
+      await apiFetch("/api/sms-automation", {
+        method: "PUT",
+        body: JSON.stringify(automationConfig),
+      });
+      toast({ title: "Automation Settings Saved", description: "Transactional SMS trigger settings updated successfully" });
+      logActivityToServer("Comm-SMS-Marketing", "UPDATE_AUTOMATION", "SMS Automation Config Updated", authUser?.displayName);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setAutomationSaving(false);
     }
   };
 
@@ -2550,6 +2609,218 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               )}
             </CardContent>
           </Card>
+
+          {/* Directive 3 — Transactional Automation Trigger Settings */}
+          {!isSR && !isDealer && (
+          <Card>
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+              <CardTitle className="text-white text-sm flex items-center gap-2">
+                <Zap className="w-4 h-4" />
+                Transactional Automation Trigger Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <p className="text-sm text-muted-foreground mb-6">
+                Configure automatic SMS alerts triggered by business events. Each toggle independently controls whether an auto-SMS is dispatched upon successful database commit.
+              </p>
+
+              {automationLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-muted-foreground">Loading automation settings...</span>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* TRIGGER A: Product Purchase Alert */}
+                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`p-2 rounded-md ${isDark ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
+                          <ShoppingCart className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER A: Product Purchase Alert</Label>
+                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnPurchase ? "ON" : "OFF"}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Fires when a Customer or Dealer purchases products via Core Sales/Invoicing.
+                          </p>
+                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Info className="w-3 h-3 text-blue-500" />
+                              <span className="text-xs font-medium text-muted-foreground">SMS Template</span>
+                            </div>
+                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
+                              Dear [Name], Invoice [InvNo] raised for [ItemSummary]. Total: ৳[GrandTotal]. Thank you.
+                            </code>
+                          </div>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={automationConfig.smsAlertOnPurchase}
+                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnPurchase: checked })}
+                        disabled={!isAdmin}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* TRIGGER B: Cash/Bank/MFS Collection Alert */}
+                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`p-2 rounded-md ${isDark ? "bg-amber-900/30" : "bg-amber-50"}`}>
+                          <Banknote className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER B: Cash/Bank/MFS Collection Alert</Label>
+                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnCollection ? "ON" : "OFF"}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Fires when Cash, Bank, Bkash, or Nagad collections are recorded from a Customer or Dealer.
+                          </p>
+                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Info className="w-3 h-3 text-blue-500" />
+                              <span className="text-xs font-medium text-muted-foreground">SMS Template</span>
+                            </div>
+                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
+                              Received with thanks: ৳[Amount] via [PaymentMethod] against Invoice/Account [RefNo]. Available balance: ৳[Balance].
+                            </code>
+                          </div>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={automationConfig.smsAlertOnCollection}
+                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnCollection: checked })}
+                        disabled={!isAdmin}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* TRIGGER C: Warehouse Stock Receipt Notification */}
+                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`p-2 rounded-md ${isDark ? "bg-blue-900/30" : "bg-blue-50"}`}>
+                          <Package className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER C: Warehouse Stock Receipt Notification</Label>
+                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnStockReceive ? "ON" : "OFF"}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Fires when Goods/Products are received into a Godown or Showroom from a Supplier/Vendor.
+                          </p>
+                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Info className="w-3 h-3 text-blue-500" />
+                              <span className="text-xs font-medium text-muted-foreground">SMS Template</span>
+                            </div>
+                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
+                              Stock Received Alert: [ItemSummary] safely delivered to Warehouse [GodownName] against PO [PoNo].
+                            </code>
+                          </div>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={automationConfig.smsAlertOnStockReceive}
+                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnStockReceive: checked })}
+                        disabled={!isAdmin}
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* TRIGGER D: HR Recruitment & Joining Lifecycle Alerts */}
+                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`p-2 rounded-md ${isDark ? "bg-purple-900/30" : "bg-purple-50"}`}>
+                          <UserCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER D: HR Recruitment &amp; Joining Lifecycle Alerts</Label>
+                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnHrLifecycle ? "ON" : "OFF"}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Fires when an Employee/Candidate profile state changes in the Personnel Matrix.
+                          </p>
+                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Info className="w-3 h-3 text-blue-500" />
+                              <span className="text-xs font-medium text-muted-foreground">SMS Template 1 (Exam)</span>
+                            </div>
+                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300 block mb-2">
+                              Dear [Candidate], your selection exam is scheduled on [ExamDate] at [Time]. Venue: VoltERP HQ.
+                            </code>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Info className="w-3 h-3 text-blue-500" />
+                              <span className="text-xs font-medium text-muted-foreground">SMS Template 2 (Joining)</span>
+                            </div>
+                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
+                              Welcome [EmployeeName] to the team! Your official joining date is confirmed on [JoiningDate]. Check your email for login credentials.
+                            </code>
+                          </div>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={automationConfig.smsAlertOnHrLifecycle}
+                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnHrLifecycle: checked })}
+                        disabled={!isAdmin}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Save Button */}
+                  <div className="flex justify-end pt-2">
+                    {isAdmin ? (
+                      <Button
+                        onClick={saveAutomationConfig}
+                        disabled={automationSaving}
+                        className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+                      >
+                        {automationSaving ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                            Saving Automation Settings...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-4 h-4 mr-2" />
+                            Save Automation Settings
+                          </>
+                        )}
+                      </Button>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] opacity-50 cursor-not-allowed" disabled>
+                              <Zap className="w-4 h-4 mr-2" />
+                              Save Automation Settings
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Only administrators can modify SMS automation settings</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          )}
 
           {/* Settings Form Dialog (Directive 1 — creditBalanceLimit field + text field sanitization) */}
           <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
