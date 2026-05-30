@@ -2126,3 +2126,65 @@ Stage Summary:
 - 5 RBAC roles enforced at API level via withApiSecurity()
 - safeFinancialAdd/Subtract/Round() mandatory for all financial arithmetic
 - Master Deployment Ledger compiled and presented
+
+---
+Task ID: Phase-1-Auth-Profile
+Agent: Main Auth/Profile Agent
+Task: Core Authentication & Profile Center Overhaul — 5 Directives
+
+Work Log:
+
+DIRECTIVE 1: Remove Raw Username Blemish from Navigation
+- AppHeader.tsx: Added getCleanDisplayName() and getAvatarInitial() helpers; avatar and top-bar now show proper display names (e.g. "Amit Sharma" not "e"); user menu dropdown shows clean display name + role label (not raw email); Profile button navigates to "profile" page; Change Password button hidden for non-admin roles; breadcrumb support for "profile" page
+- ElectronicsMartApp.tsx: ROLE_CREDENTIALS displayNames updated to proper names (Amit Sharma, Rajesh Kumar, Suresh Roy, Mizan Ahmed, Kamal Hossain); sidebar bottom shows displayName only; ChangePasswordPage has admin-only guard (403 Forbidden card for non-admins); "Change Password" search item conditionally added for admin only; "My Profile" search item added for all users; renderPage() guards change-password route for non-admins; added profile page routing
+
+DIRECTIVE 2: ProfileCenter Component (570+ lines, new file)
+- Tab A: User Profile Card — large avatar with initials from display name, designation from Employee model, role badge, email (only in Profile Center), tenant company metadata from /api/companies, Role Access Summary visual
+- Tab B: User Performance & Action Ledger — dynamic grid of PDF Export, CSV Export, CSV Import activities from AuditLog; paginated (20/page), sortable by timestamp desc, filterable by action type
+- Tab C: Admin-Only Password Reset — lists all 5 default users with avatars/roles; admin selects user and sets new password via dialog; calls /api/auth/reset-password
+
+DIRECTIVE 3: /api/auth/reset-password (new file)
+- POST: Admin-only password reset; withApiSecurity enforcement; validates password >= 6 chars; updates User.password; creates AuditLog with module "Auth-Password-Reset"; sanitizeError for error handling
+
+DIRECTIVE 4: /api/user-activity (new file)
+- GET: Paginated AuditLog entries for EXPORT/IMPORT actions; withApiSecurity auth; non-admin can only view own logs; supports filtering (ALL, PDF_EXPORT, CSV_EXPORT, CSV_IMPORT); returns logs with actionLabel, module, filename, recordLabel, timestamp; sanitizeError for error handling
+
+DIRECTIVE 5: Profile Center Wired into Main App
+- Import ProfileCenter component; added profile search item; renderPage() returns <ProfileCenter /> for "profile"; currentGroupLabel handles "profile"; AppHeader breadcrumb handles "profile"
+
+Additional: /api/users endpoint (new file) — admin-only GET for user listing (used by ProfileCenter password reset)
+
+Verification:
+- bun run lint — ZERO errors
+- Dev server — HTTP 200 on localhost:3000
+- All API endpoints respond correctly (401/403/405 for unauthenticated/wrong-method)
+
+Stage Summary:
+- 7 files created/modified across frontend and backend
+- Raw username completely removed from navigation, sidebar, and dropdown
+- ROLE_CREDENTIALS aligned with DB seed data (proper display names)
+- Change Password hidden from non-admins with 403 Forbidden card
+- ProfileCenter with 3 tabs (Profile, Activity Ledger, Admin Password Reset)
+- 3 new API endpoints (reset-password, user-activity, users)
+- All API routes use withApiSecurity, sanitizeError, logUserActivity
+
+---
+Task ID: Phase-1
+Agent: Main Orchestrator
+Task: PHASE 1 — Core Authentication & Profile Center Overhaul
+
+Work Log:
+- Deep-audited ElectronicsMartApp.tsx (5795 lines), AppHeader.tsx (702 lines), and related auth flow
+- Identified raw username blemishes in 5 locations across 2 files
+- Dispatched full-stack subagent for comprehensive Phase 1 implementation
+- Verified all changes compile with zero lint errors
+- Verified dev server returns HTTP 200 on port 3000
+
+Stage Summary:
+- DIRECTIVE 1 (Raw Username Removal): Fixed in AppHeader.tsx (getCleanDisplayName, getAvatarInitial helpers), ElectronicsMartApp.tsx (ROLE_CREDENTIALS updated to proper names: Amit Sharma, Rajesh Kumar, Suresh Roy, Mizan Ahmed, Kamal Hossain), sidebar bottom, dashboard welcome
+- DIRECTIVE 2 (Profile Center): Created ProfileCenter.tsx (943 lines) with 3 tabs — Profile Card (avatar, designation, role, email, company), Activity Ledger (paginated export/import grid), Admin Password Reset
+- DIRECTIVE 3 (Admin-Only Password Reset): Created /api/auth/reset-password/route.ts with withApiSecurity, admin-only guard, AuditLog entry; ChangePasswordPage now has 403 guard for non-admins; "Change Password" menu item hidden for non-admin roles in AppHeader
+- DIRECTIVE 4 (User Activity API): Created /api/user-activity/route.ts with paginated AuditLog queries, action type filtering, user-scoped access control
+- DIRECTIVE 5 (Profile Center Wiring): ProfileCenter imported, "profile" page route added, "My Profile" search item added, breadcrumb support added, AppHeader Profile button navigates to profile page
+- LINT: ZERO errors
+- DEV SERVER: HTTP 200 on port 3000

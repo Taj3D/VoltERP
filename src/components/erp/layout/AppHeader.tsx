@@ -61,6 +61,22 @@ interface AppHeaderProps {
   onLogout: () => void;
 }
 
+// Helper to get clean display name (never raw username)
+function getCleanDisplayName(user: { name: string; displayName: string } | null): string {
+  if (!user) return "User";
+  // If displayName is a proper name (not the raw username), use it
+  if (user.displayName && user.displayName !== user.name) return user.displayName;
+  // Otherwise use displayName as-is (it may have been set to proper name)
+  return user.displayName || user.name || "User";
+}
+
+// Helper to get avatar initial from display name (not raw username)
+function getAvatarInitial(user: { name: string; displayName: string } | null): string {
+  if (!user) return "U";
+  const cleanName = getCleanDisplayName(user);
+  return cleanName.charAt(0).toUpperCase();
+}
+
 // ────────────────────────────────────────────────────────────
 // ROLE STYLING CONSTANTS
 // ────────────────────────────────────────────────────────────
@@ -378,7 +394,13 @@ export default function AppHeader({
                 <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">Change Password</span>
               </>
             )}
-            {currentPageLabel && currentPage !== "change-password" && (
+            {currentPage === "profile" && (
+              <>
+                <ChevronRight className="w-3 h-3" />
+                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">My Profile</span>
+              </>
+            )}
+            {currentPageLabel && currentPage !== "change-password" && currentPage !== "profile" && (
               <>
                 <ChevronRight className="w-3 h-3" />
                 <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">{currentPageLabel}</span>
@@ -627,10 +649,10 @@ export default function AppHeader({
                   user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
                 } flex items-center justify-center text-white text-xs font-bold`}
               >
-                {user?.name?.charAt(0).toUpperCase() || "U"}
+                {getAvatarInitial(user)}
               </div>
               <span className="hidden md:inline text-sm">
-                {user?.displayName || user?.name || "User"}
+                {getCleanDisplayName(user)}
               </span>
               {user?.role && (
                 <Badge
@@ -650,27 +672,32 @@ export default function AppHeader({
               <div className="absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-4 py-2 border-b">
                   <p className="text-sm font-medium">
-                    {user?.displayName || user?.name || "User"}
+                    {getCleanDisplayName(user)}
                   </p>
-                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  <p className="text-xs text-muted-foreground">{user?.role ? ROLE_LABELS[user.role] : ""}</p>
                 </div>
                 <button
-                  onClick={() => setUserMenuOpen(false)}
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    onNavigate("profile");
+                  }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"
                 >
                   <User className="w-4 h-4" />
                   Profile
                 </button>
-                <button
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    onChangePassword();
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"
-                >
-                  <Lock className="w-4 h-4" />
-                  Change Password
-                </button>
+                {user?.role === "admin" && (
+                  <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      onChangePassword();
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"
+                  >
+                    <Lock className="w-4 h-4" />
+                    Change Password
+                  </button>
+                )}
                 <Separator />
                 <button
                   onClick={() => {

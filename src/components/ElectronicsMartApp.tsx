@@ -57,6 +57,7 @@ import FinancialAuditGroupPage from "@/components/FinancialAuditGroupPage";
 import SystemSettingsGroupPage from "@/components/SystemSettingsGroupPage";
 import AuditTrailViewer from "@/components/AuditTrailViewer";
 import SecurityAuditCenter from "@/components/SecurityAuditCenter";
+import ProfileCenter from "@/components/ProfileCenter";
 import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions } from "@/lib/export-utils";
@@ -116,11 +117,11 @@ interface SidebarGroup {
 // ============================================================
 
 const ROLE_CREDENTIALS: Record<string, { password: string; role: UserRole; displayName: string }> = {
-  "emart.amit": { password: "Test_123", role: "admin", displayName: "emart.amit (Admin)" },
-  "emart.manager": { password: "Manager_123", role: "manager", displayName: "emart.manager (Manager)" },
-  "emart.sr": { password: "SR_123", role: "sr", displayName: "emart.sr (Sales Rep)" },
-  "emart.dealer": { password: "Dealer_123", role: "dealer", displayName: "emart.dealer (Dealer)" },
-  "emart.vat": { password: "VAT_123", role: "vat_auditor", displayName: "VAT Auditor" },
+  "emart.amit": { password: "Test_123", role: "admin", displayName: "Amit Sharma" },
+  "emart.manager": { password: "Manager_123", role: "manager", displayName: "Rajesh Kumar" },
+  "emart.sr": { password: "SR_123", role: "sr", displayName: "Suresh Roy" },
+  "emart.dealer": { password: "Dealer_123", role: "dealer", displayName: "Mizan Ahmed" },
+  "emart.vat": { password: "VAT_123", role: "vat_auditor", displayName: "Kamal Hossain" },
 };
 
 const ROLE_ACCESS: Record<UserRole, string[]> = {
@@ -1718,19 +1719,40 @@ function SendSMSPage({ bulk = false }: { bulk?: boolean }) {
 // ============================================================
 
 function ChangePasswordPage() {
+  const auth = useAuth();
+  const userRole = auth.user?.role;
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
+  // Admin-only guard: non-admins see 403 Forbidden card
+  if (userRole !== "admin") {
+    return (
+      <div className="page-enter space-y-4">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Change Password</h2>
+        <Card className="max-w-lg border-red-300 dark:border-red-800">
+          <CardContent className="p-6 text-center space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <Lock className="w-8 h-8 text-red-500" />
+            </div>
+            <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">Access Denied</h3>
+            <p className="text-sm text-muted-foreground">
+              Only administrators can change passwords. Your role ({userRole}) does not have this permission.
+            </p>
+            <p className="text-xs text-muted-foreground/60">
+              Please contact your system administrator if you need your password reset.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const handleSave = async () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast({ title: "Validation Error", description: "All fields are required", variant: "destructive" });
-      return;
-    }
-    if (currentPassword !== "Test_123") {
-      toast({ title: "Error", description: "Current password is incorrect", variant: "destructive" });
       return;
     }
     if (newPassword.length < 6) {
@@ -1743,13 +1765,22 @@ function ChangePasswordPage() {
     }
     setSaving(true);
     try {
-      await new Promise(r => setTimeout(r, 800));
+      // Call the reset-password API for the current admin user
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-User-Email": auth.user?.email || "" },
+        body: JSON.stringify({ targetUserId: "self", newPassword, adminUserId: auth.user?.email || "" }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Failed to change password" }));
+        throw new Error(errData.error || "Failed to change password");
+      }
       toast({ title: "Success", description: "Password changed successfully" });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-    } catch {
-      toast({ title: "Error", description: "Failed to change password", variant: "destructive" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to change password", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -1761,17 +1792,10 @@ function ChangePasswordPage() {
       <Card className="max-w-lg">
         <CardContent className="p-6 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="currentPassword">Current Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input id="currentPassword" type="password" placeholder="Enter current password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="pl-10" />
-            </div>
-          </div>
-          <div className="space-y-2">
             <Label htmlFor="newPassword">New Password</Label>
             <div className="relative">
               <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input id="newPassword" type="password" placeholder="Enter new password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="pl-10" />
+              <Input id="newPassword" type="password" placeholder="Enter new password (min 6 characters)" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="pl-10" />
             </div>
           </div>
           <div className="space-y-2">
@@ -2279,7 +2303,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
             <UserCircle className="w-4 h-4" />
-            <span className="truncate">{user?.displayName || user?.name || "User"}</span>
+            <span className="truncate">{user?.displayName || "User"}</span>
           </div>
           {isVatAuditor && (
             <div className="mt-1 px-2">
@@ -5569,7 +5593,8 @@ function AppLayout() {
       }
     }
     items.push({ key: "dashboard", label: "Dashboard", group: "Home" });
-    items.push({ key: "change-password", label: "Change Password", group: "Account" });
+    if (user?.role === "admin") items.push({ key: "change-password", label: "Change Password", group: "Account" });
+    items.push({ key: "profile", label: "My Profile", group: "Account" });
     items.push({ key: "audit-logs", label: "Audit Logs", group: "System" });
     items.push({ key: "company-settings", label: "Company Settings", group: "System Settings", parent: "Configuration" });
     items.push({ key: "invoice-templates", label: "Invoice Templates", group: "System Settings", parent: "Configuration" });
@@ -5597,7 +5622,7 @@ function AppLayout() {
   };
 
   const currentPageConfig = findPageConfig(currentPage);
-  const currentGroupLabel = currentPageConfig ? SIDEBAR_CONFIG.find(g => g.items.some(i => i.key === currentPage))?.label : currentPage === "change-password" ? "Account" : "";
+  const currentGroupLabel = currentPageConfig ? SIDEBAR_CONFIG.find(g => g.items.some(i => i.key === currentPage))?.label : (currentPage === "change-password" || currentPage === "profile") ? "Account" : "";
 
   // Render current page content
   const renderPage = () => {
@@ -5612,7 +5637,28 @@ function AppLayout() {
     if (currentPage === "sms-report") return <SMSAnalyticsPage initialTab="dashboard" />;
     if (currentPage === "sms-settings") return <SMSAnalyticsPage initialTab="settings" />;
     if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage initialTab="billing" />;
-    if (currentPage === "change-password") return <ChangePasswordPage />;
+    if (currentPage === "change-password") {
+      if (userRole !== "admin") {
+        return (
+          <div className="page-enter space-y-4">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Change Password</h2>
+            <Card className="max-w-lg border-red-300 dark:border-red-800">
+              <CardContent className="p-6 text-center space-y-4">
+                <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-red-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">Access Denied</h3>
+                <p className="text-sm text-muted-foreground">
+                  Only administrators can change passwords. Your role ({userRole}) does not have this permission.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      }
+      return <ChangePasswordPage />;
+    }
+    if (currentPage === "profile") return <ProfileCenter />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
     const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "stock", "stock-details", "stock-transfers"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
