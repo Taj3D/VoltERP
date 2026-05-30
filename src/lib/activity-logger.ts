@@ -11,9 +11,7 @@ import { db } from '@/lib/db';
  * Creates an AuditLog entry with a module token for fine-grained tracking.
  *
  * Module Tokens:
- * - SMS-Gateway-Dispatch: Single SMS dispatch operations
- * - SMS-Campaign-Marketing: Bulk SMS campaign broadcasts
- * - SMS-Billing-Settle: SMS bill payment adjustments
+ * - Comm-SMS-Marketing: Unified SMS module token for all campaign sheets, dispatch logs, CSV exports, billing operations
  * - Fin-Expense-Head: Expense/Income head management
  * - Fin-Ledger-Transaction: Financial ledger transactions
  * - Fin-Bank-Settlement: Bank balance settlements

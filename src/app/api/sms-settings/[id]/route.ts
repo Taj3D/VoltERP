@@ -1,7 +1,9 @@
 // ============================================================
-// SMS SETTINGS [id] API ROUTE — Stage 11 Rebuild
+// SMS SETTINGS [id] API ROUTE — Block 12 (Domain 19) Audit Rewrite
 // Multi-tenant companyId isolation, RBAC, VAT Auditor masking,
-// Activity logging with module tokens, safe financial arithmetic
+// Input field trim (Directive 1), credit balance fields,
+// Activity logging with Comm-SMS-Marketing module token,
+// safe financial arithmetic
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -15,10 +17,17 @@ import {
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// Helper: convert empty string to null
-function nullIfEmpty(val: string | undefined | null): string | null {
-  if (val === undefined || val === null || val.trim() === '') return null;
-  return val;
+// Helper: convert empty string to null, trim whitespace/line breaks (Directive 1)
+function trimAndNullIfEmpty(val: string | undefined | null): string | null {
+  if (val === undefined || val === null) return null;
+  const trimmed = val.trim().replace(/[\r\n]+$/g, '');
+  return trimmed === '' ? null : trimmed;
+}
+
+// Helper: trim string fields (Directive 1 — strip trailing spaces/line breaks)
+function trimField(val: string | undefined | null): string {
+  if (val === undefined || val === null) return '';
+  return val.trim().replace(/[\r\n]+$/g, '');
 }
 
 // GET /api/sms-settings/[id] — Get single SMS setting
@@ -38,7 +47,7 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // Cross-tenant validation
+    // Cross-tenant validation (Directive 1 — absolute multi-tenant isolation)
     if (companyId && item.companyId && item.companyId !== companyId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -65,6 +74,7 @@ export async function GET(
 }
 
 // PUT /api/sms-settings/[id] — Update SMS setting (admin only)
+// Directive 1: All text fields are trimmed of trailing spaces/line breaks
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -81,7 +91,7 @@ export async function PUT(
     const body = await request.json();
     const companyId = security.user.companyId;
 
-    // Cross-tenant validation
+    // Cross-tenant validation (Directive 1)
     const existing = await db.smsSetting.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -90,27 +100,34 @@ export async function PUT(
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
+    // Directive 1: Trim all string inputs — strip trailing spaces/line breaks
+    const trimmedApiUrl = body.apiUrl !== undefined ? trimField(body.apiUrl) : existing.apiUrl;
+    const trimmedApiKey = body.apiKey !== undefined ? trimField(body.apiKey) : existing.apiKey;
+    const trimmedSenderId = body.senderId !== undefined ? trimField(body.senderId) : existing.senderId;
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.smsSetting.update({
         where: { id },
         data: {
-          apiUrl: body.apiUrl !== undefined ? body.apiUrl : existing.apiUrl,
-          apiKey: body.apiKey !== undefined ? body.apiKey : existing.apiKey,
-          senderId: body.senderId !== undefined ? body.senderId : existing.senderId,
-          maskingName: body.maskingName !== undefined ? nullIfEmpty(body.maskingName) : existing.maskingName,
-          maskingRegId: body.maskingRegId !== undefined ? nullIfEmpty(body.maskingRegId) : existing.maskingRegId,
-          gatewayName: body.gatewayName !== undefined ? nullIfEmpty(body.gatewayName) : existing.gatewayName,
+          apiUrl: trimmedApiUrl,
+          apiKey: trimmedApiKey,
+          senderId: trimmedSenderId,
+          maskingName: body.maskingName !== undefined ? trimAndNullIfEmpty(body.maskingName) : existing.maskingName,
+          maskingRegId: body.maskingRegId !== undefined ? trimAndNullIfEmpty(body.maskingRegId) : existing.maskingRegId,
+          gatewayName: body.gatewayName !== undefined ? trimAndNullIfEmpty(body.gatewayName) : existing.gatewayName,
           ratePerSms: body.ratePerSms !== undefined ? safeFinancialRound(Number(body.ratePerSms) || 0) : existing.ratePerSms,
           unicodeRate: body.unicodeRate !== undefined ? safeFinancialRound(Number(body.unicodeRate) || 0) : existing.unicodeRate,
           setupCost: body.setupCost !== undefined ? safeFinancialRound(Number(body.setupCost) || 0) : existing.setupCost,
+          creditBalanceLimit: body.creditBalanceLimit !== undefined ? safeFinancialRound(Number(body.creditBalanceLimit) || 0) : existing.creditBalanceLimit,
+          lastKnownCreditBalance: body.lastKnownCreditBalance !== undefined ? safeFinancialRound(Number(body.lastKnownCreditBalance) || 0) : existing.lastKnownCreditBalance,
           isActive: body.isActive !== undefined ? body.isActive : existing.isActive,
         },
       });
 
-      // Activity log with SMS-Gateway-Dispatch module token
+      // Activity log with Comm-SMS-Marketing module token (Directive 4)
       await logUserActivity({
         action: 'UPDATE',
-        module: 'SMS-Gateway-Dispatch',
+        module: 'Comm-SMS-Marketing',
         recordId: record.id,
         recordLabel: record.senderId || record.apiUrl || record.id,
         userId: security.user.id,
@@ -120,6 +137,7 @@ export async function PUT(
           senderId: record.senderId,
           gatewayName: record.gatewayName,
           ratePerSms: record.ratePerSms,
+          creditBalanceLimit: record.creditBalanceLimit,
         }),
       });
 
@@ -167,7 +185,7 @@ export async function DELETE(
       const record = await tx.smsSetting.findUnique({ where: { id } });
       if (!record) throw new Error('Not found');
 
-      // Cross-tenant validation
+      // Cross-tenant validation (Directive 1)
       if (companyId && record.companyId && record.companyId !== companyId) {
         throw new Error('Forbidden');
       }
@@ -178,10 +196,10 @@ export async function DELETE(
         data: { isActive: false },
       });
 
-      // Activity log with SMS-Gateway-Dispatch module token
+      // Activity log with Comm-SMS-Marketing module token (Directive 4)
       await logUserActivity({
         action: 'DELETE',
-        module: 'SMS-Gateway-Dispatch',
+        module: 'Comm-SMS-Marketing',
         recordId: record.id,
         recordLabel: record.senderId || record.apiUrl || record.id,
         userId: security.user.id,

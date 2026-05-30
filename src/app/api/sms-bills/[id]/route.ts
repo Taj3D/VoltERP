@@ -138,7 +138,7 @@ export async function PUT(
       // Activity log with SMS-Billing-Settle module token
       await logUserActivity({
         action: 'UPDATE',
-        module: 'SMS-Billing-Settle',
+        module: 'Comm-SMS-Marketing',
         recordId: smsBill.id,
         recordLabel: smsBill.period || smsBill.id,
         userId: security.user.id,
@@ -219,7 +219,7 @@ export async function DELETE(
       // Activity log with SMS-Billing-Settle module token
       await logUserActivity({
         action: 'DELETE',
-        module: 'SMS-Billing-Settle',
+        module: 'Comm-SMS-Marketing',
         recordId: record.id,
         recordLabel: record.period || record.id,
         userId: security.user.id,

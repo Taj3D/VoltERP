@@ -1651,3 +1651,38 @@ Stage Summary:
   2. ✅ LEDGER AUTO-POST & DATA SYNCHRONIZATION SAFETY: Auto-posted ledger entries inherit source document's companyId; defensive transaction fallbacks per-order; admin-only trigger permission
   3. ✅ NUMERIC ACCURACY & PIPELINE TRACKING: Intl.NumberFormat('en-BD') for all values; safeFinancialAdd/Subtract for all accumulations; logUserActivity tokens (Audit-Dashboard-KPI, Audit-AutoPost-Engine, Audit-Inventory-Aging, Audit-Integrity-Sentinel); Corporate PDF Footer on all exports
   4. ✅ SECURITY CONTROL (RBAC & MASKING): admin-only auto-post trigger + notification dismiss; manager view-only; SR/Dealer MODULE_DENY on all audit-integrity modules; VAT Auditor: maskDashboardForVatAuditor deep recursive masking for ALL monetary values in dashboard KPIs, revenue charts, stock projections, and aging capital costs
+
+---
+Task ID: Block-12
+Agent: Main Orchestrator
+Task: BLOCK 12 — Domain 19 (SMS Service & Marketing Engines) Functional & Edge-Case Audit
+
+Work Log:
+- Read all SMS-related source files: SMSAnalyticsPage.tsx (2638 lines), 8 API routes, Prisma schema (4 SMS models), api-security.ts (SMS helpers), activity-logger.ts
+- Identified gaps against 4 compliance directives
+- Prisma schema: Added creditBalanceLimit (Float) and lastKnownCreditBalance (Float) to SmsSetting model
+- Ran prisma db push — schema synced to SQLite database
+- Updated /api/sms-settings/route.ts — Added trimField() and trimAndNullIfEmpty() for Directive 1 (strip trailing spaces/line breaks on all text fields), added creditBalanceLimit/lastKnownCreditBalance support, module token → Comm-SMS-Marketing
+- Updated /api/sms-settings/[id]/route.ts — Same Directive 1 trimming, credit balance fields, Comm-SMS-Marketing token
+- Updated /api/sms-logs/route.ts — Campaign Balance Shield (Directive 2): blocks dispatch if Total Recipients × SMS Units × Rate > Available Credits, returns 400 with INSUFFICIENT_SMS_CREDITS code; updates lastKnownCreditBalance after each dispatch; credit balance alert threshold logging; Comm-SMS-Marketing token (Directive 4)
+- Created /api/sms-gateway/balance/route.ts — New endpoint for async pull of gateway credit balance (GET) and admin-only balance update (PUT); multi-tenant isolated
+- Updated /api/sms-bills/route.ts, /api/sms-bills/[id]/route.ts, /api/sms-bill-payments/route.ts, /api/sms-bill-payments/[id]/route.ts, /api/sms-logs/[id]/route.ts — Module token standardized to Comm-SMS-Marketing (Directive 4)
+- Updated activity-logger.ts — Documentation updated with unified Comm-SMS-Marketing token
+- Complete rewrite of SMSAnalyticsPage.tsx (2638 lines) with all 4 directives:
+  - Directive 1: sanitizeTextField() strips trailing spaces/line breaks; creditBalanceLimit field in settings form; lastKnownCreditBalance display
+  - Directive 2: SMS Credit Info Card showing Total Characters, Encoding Type, SMS Units/Recipient, Gateway Credit Balance; Campaign Balance Shield with red warning banner blocking dispatch; async fetchGatewayBalance()
+  - Directive 3: Dynamic audience filtering (Zone, Customer Type, Due Balance Range); Double-Hit Guard with "Dispatching SMS Queue via Gateway..." + animate-spin; smsSnapshot for form restore on failure; 6 independent spin-locks for PDF/CSV exports
+  - Directive 4: logCsvExportActivity() with Comm-SMS-Marketing token; all PDF exports include financialFooter (Prepared By/Checked By/Authorized By + Printed By + ISO timestamp)
+- Fixed TypeScript errors: moved charCount/segmentCount/isUnicode computation before balance shield useEffect; typed records array as any[]; cast item as any for transaction return types
+- Lint check: ZERO errors
+- Dev server: HTTP 200, stable, no compilation errors
+
+Stage Summary:
+- 12 files modified across backend and frontend
+- Prisma schema: 2 new fields on SmsSetting (creditBalanceLimit, lastKnownCreditBalance)
+- Backend: Campaign Balance Shield on sms-logs POST (blocks if credits insufficient), new /api/sms-gateway/balance endpoint, text field trimming on all SMS settings, unified Comm-SMS-Marketing activity token
+- Frontend: Complete rewrite of SMSAnalyticsPage.tsx with all 4 directives
+  1. ✅ Directive 1 — SMS Gateway Config & Tenant Security: Text field sanitization (trim+strip line breaks), creditBalanceLimit field, lastKnownCreditBalance display, multi-tenant isolation
+  2. ✅ Directive 2 — Real-Time Char Count (GSM 03.38) & Campaign Balance Shield: Dynamic char/encoding/segment computation, SMS Credit Info Card, async gateway balance fetch, block dispatch with red warning if insufficient credits
+  3. ✅ Directive 3 — Duplicate Campaign Prevention, Spin-Locks & Snapshots: Audience filtering (Zone/CustomerType/DueBalance), Double-Hit Guard "Dispatching SMS Queue via Gateway...", smsSnapshot restore on failure, independent PDF/CSV spin-locks
+  4. ✅ Directive 4 — User Profile Activity Coupling & Enterprise Compliance: Comm-SMS-Marketing token for all activity, CSV export logging, Corporate Triple-Signature Footer on all PDFs

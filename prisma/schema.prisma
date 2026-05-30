@@ -1083,8 +1083,10 @@ model SmsSetting {
   gatewayName     String?  // Carrier/gateway provider name (e.g., "BulkSMSBD", "Infobip")
   ratePerSms      Float    @default(0)  // Per-SMS cost in BDT
   unicodeRate     Float    @default(0)  // Per-Unicode-SMS cost in BDT
-  setupCost       Float    @default(0)  // Gateway one-time setup cost
-  companyId       String?  // Multi-tenant isolation
+  setupCost             Float    @default(0)  // Gateway one-time setup cost
+  creditBalanceLimit    Float    @default(0)  // SMS API credit balance alert threshold (BDT)
+  lastKnownCreditBalance Float   @default(0)  // Last fetched gateway credit balance
+  companyId             String?  // Multi-tenant isolation
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
