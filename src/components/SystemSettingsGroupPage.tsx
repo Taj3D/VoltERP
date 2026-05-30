@@ -7,6 +7,7 @@ import {
   Edit, Eye, Shield, CheckCircle, X, Save, Settings,
   Printer, Mail, DollarSign, Percent, Palette, Search,
   Database, Zap, Trash, RotateCcw, Info, Code,
+  Camera, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import { clearCompanyProfileCache } from "@/lib/company-branding-cache";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -179,35 +181,394 @@ function ForbiddenPage() {
 // TAB 1: COMPANY SETTINGS
 // ============================================================
 
+// --- Company Branding Profile Form Interface ---
+interface CompanyProfileForm {
+  id: string;
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  mobile: string;
+  website: string;
+  vatNumber: string;
+  tradeLicense: string;
+  binNumber: string;
+  currencySymbol: string;
+  invoicePrefix: string;
+  thankYouMsg: string;
+  systemNote: string;
+  showBarcode: boolean;
+  showPayInWord: boolean;
+  logoWidth: number;
+  logoHeight: number;
+  logoData: string;
+}
+
+const EMPTY_PROFILE: CompanyProfileForm = {
+  id: "",
+  name: "",
+  address: "",
+  phone: "",
+  email: "",
+  mobile: "",
+  website: "",
+  vatNumber: "",
+  tradeLicense: "",
+  binNumber: "",
+  currencySymbol: "৳",
+  invoicePrefix: "",
+  thankYouMsg: "",
+  systemNote: "",
+  showBarcode: false,
+  showPayInWord: false,
+  logoWidth: 30,
+  logoHeight: 20,
+  logoData: "",
+};
+
+// --- Company Branding Forbidden Card for non-admin roles ---
+function CompanyBrandingForbiddenCard() {
+  return (
+    <Card className="border-red-200 dark:border-red-800">
+      <CardContent className="p-6">
+        <div className="flex flex-col items-center justify-center gap-3 py-4">
+          <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+            <Shield className="h-7 w-7 text-red-500" />
+          </div>
+          <h3 className="text-lg font-bold text-red-600 dark:text-red-400">403 Forbidden — Admin Only</h3>
+          <p className="text-sm text-slate-600 dark:text-slate-400 text-center max-w-sm">
+            Company Branding Profile is restricted to Administrators. Managers and VAT Auditors can only view System Configuration below.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Logo Uploader Component ---
+function LogoUploader({
+  logoData,
+  onLogoChange,
+  onLogoRemove,
+  disabled,
+}: {
+  logoData: string;
+  onLogoChange: (base64: string) => void;
+  onLogoRemove: () => void;
+  disabled: boolean;
+}) {
+  const { toast } = useToast();
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg"];
+  const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+
+  const validateAndConvert = (file: File) => {
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      toast({
+        title: "Invalid File Format",
+        description: "Only .png, .jpg, .jpeg files are allowed.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      toast({
+        title: "File Too Large",
+        description: `File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds the 2MB limit. Please compress the image.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      onLogoChange(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (disabled) return;
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      validateAndConvert(files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!disabled) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      validateAndConvert(files[0]);
+    }
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleClick = () => {
+    if (!disabled && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <Label className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-1.5">
+        <Camera className="h-3.5 w-3.5" /> Company Logo
+      </Label>
+
+      {/* Logo Preview */}
+      {logoData ? (
+        <div className="flex items-center gap-4">
+          <div className="w-24 h-20 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-white flex items-center justify-center shadow-sm">
+            <img
+              src={logoData}
+              alt="Company Logo Preview"
+              className="max-w-full max-h-full object-contain"
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">Logo uploaded</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">PNG, JPG up to 2MB</p>
+            {!disabled && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onLogoRemove}
+                className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 mt-1"
+              >
+                <XCircle className="h-3.5 w-3.5 mr-1" /> Remove Logo
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Drop Zone */
+        <div
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onClick={handleClick}
+          className={`
+            relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer
+            transition-all duration-200 ease-in-out
+            ${isDragOver
+              ? "border-[#2563eb] bg-blue-50 dark:bg-blue-900/20 scale-[1.01]"
+              : "border-slate-300 dark:border-slate-600 hover:border-[#2563eb]/50 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+            }
+            ${disabled ? "opacity-50 cursor-not-allowed" : ""}
+          `}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".png,.jpg,.jpeg"
+            onChange={handleFileSelect}
+            className="hidden"
+            disabled={disabled}
+          />
+          <div className="flex flex-col items-center gap-2">
+            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${isDragOver ? "bg-blue-100 dark:bg-blue-800" : "bg-slate-100 dark:bg-slate-700"}`}>
+              <Upload className={`h-5 w-5 ${isDragOver ? "text-[#2563eb]" : "text-slate-400"}`} />
+            </div>
+            <div>
+              <p className={`text-sm font-medium ${isDragOver ? "text-[#2563eb]" : "text-slate-700 dark:text-slate-300"}`}>
+                {isDragOver ? "Drop image here" : "Drag & drop logo or click to browse"}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                PNG, JPG, JPEG only • Max 2MB
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Main CompanySettingsTab ---
 function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
   const { toast } = useToast();
+
+  // Company Branding State
+  const [profileForm, setProfileForm] = useState<CompanyProfileForm>({ ...EMPTY_PROFILE });
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const brandingSnapshot = useRef<CompanyProfileForm>({ ...EMPTY_PROFILE });
+  const isAdmin = userRole === "admin";
+
+  // System Config State
   const [configs, setConfigs] = useState<SystemConfig[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [configLoading, setConfigLoading] = useState(true);
   const [savingCategory, setSavingCategory] = useState<string | null>(null);
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
 
-  const canMutate = (userRole === "admin" || userRole === "manager") && !isVatAuditor;
+  const canMutateConfig = (userRole === "admin" || userRole === "manager") && !isVatAuditor;
 
+  // --- Load Company Profile ---
+  const loadProfile = useCallback(async () => {
+    setProfileLoading(true);
+    try {
+      const result = await apiFetch("/api/company-profile");
+      const profile = result.profile;
+      if (profile) {
+        const form: CompanyProfileForm = {
+          id: profile.id || "",
+          name: profile.name || "",
+          address: profile.address || "",
+          phone: profile.phone || "",
+          email: profile.email || "",
+          mobile: profile.mobile || "",
+          website: profile.website || "",
+          vatNumber: profile.vatNumber || "",
+          tradeLicense: profile.tradeLicense || "",
+          binNumber: profile.binNumber || "",
+          currencySymbol: profile.currencySymbol || "৳",
+          invoicePrefix: profile.invoicePrefix || "",
+          thankYouMsg: profile.thankYouMsg || "",
+          systemNote: profile.systemNote || "",
+          showBarcode: profile.showBarcode || false,
+          showPayInWord: profile.showPayInWord || false,
+          logoWidth: profile.logoWidth || 30,
+          logoHeight: profile.logoHeight || 20,
+          logoData: profile.logoData || "",
+        };
+        setProfileForm(form);
+        brandingSnapshot.current = { ...form };
+      }
+    } catch (e: any) {
+      // 403 for non-admin is expected — just show empty form
+      if (!e.message?.includes("403") && !e.message?.includes("Access denied")) {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [toast]);
+
+  // --- Load System Configs ---
   const loadConfigs = useCallback(async () => {
-    setLoading(true);
+    setConfigLoading(true);
     try {
       const result = await apiFetch("/api/system-config");
       const configsList = result.configs || result || [];
       setConfigs(Array.isArray(configsList) ? configsList : []);
-      // Initialize edited values
       const vals: Record<string, string> = {};
       configsList.forEach((c: SystemConfig) => { vals[c.configKey] = c.configValue; });
       setEditedValues(vals);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
-      setLoading(false);
+      setConfigLoading(false);
     }
   }, [toast]);
 
-  useEffect(() => { loadConfigs(); }, [loadConfigs]);
+  useEffect(() => { loadProfile(); loadConfigs(); }, [loadProfile, loadConfigs]);
 
-  // Group by category
+  // --- Save Company Branding ---
+  const handleSaveBranding = async () => {
+    if (!profileForm.name.trim()) {
+      toast({ title: "Validation Error", description: "Company Name is required.", variant: "destructive" });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: profileForm.name,
+        address: profileForm.address,
+        phone: profileForm.phone,
+        email: profileForm.email,
+        mobile: profileForm.mobile,
+        website: profileForm.website,
+        vatNumber: profileForm.vatNumber,
+        tradeLicense: profileForm.tradeLicense,
+        binNumber: profileForm.binNumber,
+        currencySymbol: profileForm.currencySymbol,
+        invoicePrefix: profileForm.invoicePrefix,
+        thankYouMsg: profileForm.thankYouMsg,
+        systemNote: profileForm.systemNote,
+        showBarcode: profileForm.showBarcode,
+        showPayInWord: profileForm.showPayInWord,
+        logoWidth: profileForm.logoWidth,
+        logoHeight: profileForm.logoHeight,
+        logoData: profileForm.logoData,
+      };
+
+      const result = await apiFetch("/api/company-profile", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+
+      // Update snapshot on success
+      if (result.profile) {
+        const saved: CompanyProfileForm = {
+          id: result.profile.id || "",
+          name: result.profile.name || "",
+          address: result.profile.address || "",
+          phone: result.profile.phone || "",
+          email: result.profile.email || "",
+          mobile: result.profile.mobile || "",
+          website: result.profile.website || "",
+          vatNumber: result.profile.vatNumber || "",
+          tradeLicense: result.profile.tradeLicense || "",
+          binNumber: result.profile.binNumber || "",
+          currencySymbol: result.profile.currencySymbol || "৳",
+          invoicePrefix: result.profile.invoicePrefix || "",
+          thankYouMsg: result.profile.thankYouMsg || "",
+          systemNote: result.profile.systemNote || "",
+          showBarcode: result.profile.showBarcode || false,
+          showPayInWord: result.profile.showPayInWord || false,
+          logoWidth: result.profile.logoWidth || 30,
+          logoHeight: result.profile.logoHeight || 20,
+          logoData: result.profile.logoData || "",
+        };
+        brandingSnapshot.current = { ...saved };
+        setProfileForm(saved);
+      }
+
+      // Invalidate PDF cache
+      clearCompanyProfileCache();
+
+      toast({ title: "Branding Saved", description: "Company branding profile has been saved successfully. PDF cache cleared." });
+    } catch (e: any) {
+      // Roll back to snapshot
+      setProfileForm({ ...brandingSnapshot.current });
+      toast({
+        title: "Network Error",
+        description: "Branding synchronization failed. Form reverted to last saved state.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // --- Update profile form field helper ---
+  const updateField = <K extends keyof CompanyProfileForm>(key: K, value: CompanyProfileForm[K]) => {
+    setProfileForm(prev => ({ ...prev, [key]: value }));
+  };
+
+  // --- Group configs by category ---
   const groupedConfigs = useMemo(() => {
     const groups: Record<string, SystemConfig[]> = {};
     configs.forEach(c => {
@@ -307,7 +668,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
   const renderConfigField = (config: SystemConfig) => {
     const value = editedValues[config.configKey] ?? config.configValue;
     const sensitive = isVatAuditor && isProfitSensitive(config.configKey);
-    const disabled = !canMutate || sensitive;
+    const disabled = !canMutateConfig || sensitive;
 
     if (sensitive) {
       return (
@@ -368,89 +729,373 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
   };
 
   return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="h-4 w-4 mr-1" /> Export CSV
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <FileDown className="h-4 w-4 mr-1" /> Export PDF
-        </Button>
-        {canMutate && (
-          <Button variant="outline" size="sm" onClick={handleImportCSV}>
-            <Upload className="h-4 w-4 mr-1" /> Import CSV
-          </Button>
-        )}
-        <Button variant="ghost" size="sm" onClick={loadConfigs}>
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
+    <div className="space-y-6">
+      {/* ============================================== */}
+      {/* SECTION 1: COMPANY BRANDING PROFILE (Admin Only) */}
+      {/* ============================================== */}
+      {isAdmin ? (
+        <Card className="border-slate-200 dark:border-slate-700">
+          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+            <CardTitle className="text-white flex items-center gap-2 text-base">
+              <Building2 className="h-4 w-4 text-blue-400" />
+              Company Branding Profile
+              <Badge variant="secondary" className="ml-2 bg-emerald-500/20 text-emerald-300 text-xs border border-emerald-500/30">
+                Admin Only
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 space-y-6">
+            {profileLoading ? (
+              <div className="text-center py-12 text-slate-400">
+                <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
+                Loading company profile...
+              </div>
+            ) : (
+              <>
+                {/* Logo Uploader */}
+                <LogoUploader
+                  logoData={profileForm.logoData}
+                  onLogoChange={(base64) => updateField("logoData", base64)}
+                  onLogoRemove={() => updateField("logoData", "")}
+                  disabled={isSaving}
+                />
 
-      {/* VAT Audit Mode Banner */}
-      {isVatAuditor && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
-          <Shield className="h-4 w-4 text-amber-600" />
-          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
-            VAT AUDIT MODE — Profit/margin/writeoff configurations are masked. You can view but not modify settings.
-          </span>
-        </div>
-      )}
+                <Separator />
 
-      {loading ? (
-        <div className="text-center py-12 text-slate-400">
-          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
-          Loading configurations...
-        </div>
-      ) : (
-        categories.map(category => {
-          const meta = CATEGORY_META[category] || { icon: Settings, color: "text-slate-500" };
-          const CategoryIcon = meta.icon;
-          return (
-            <Card key={category} className="border-slate-200 dark:border-slate-700">
-              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
-                <CardTitle className="text-white flex items-center gap-2 text-base">
-                  <CategoryIcon className={`h-4 w-4 ${meta.color}`} />
-                  {category}
-                  <Badge variant="secondary" className="ml-2 bg-white/10 text-white/70 text-xs">
-                    {groupedConfigs[category].length} settings
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-4 space-y-4">
-                {groupedConfigs[category].map(config => (
-                  <div key={config.id} className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-2 items-start">
-                    <div>
-                      <Label className="text-sm font-medium text-slate-900 dark:text-white">
-                        {config.configKey.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
-                      </Label>
-                      {config.description && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{config.description}</p>
-                      )}
+                {/* Company Details */}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 mb-4">
+                    <Building2 className="h-3.5 w-3.5 text-slate-500" /> Company Details
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Company Name <span className="text-red-500">*</span></Label>
+                      <Input
+                        value={profileForm.name}
+                        onChange={(e) => updateField("name", e.target.value)}
+                        placeholder="e.g. Electronics Mart BD"
+                        disabled={isSaving}
+                      />
                     </div>
-                    {renderConfigField(config)}
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Official Address</Label>
+                      <Textarea
+                        value={profileForm.address}
+                        onChange={(e) => updateField("address", e.target.value)}
+                        placeholder="Full business address"
+                        rows={2}
+                        disabled={isSaving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Contact Phone</Label>
+                      <Input
+                        value={profileForm.phone}
+                        onChange={(e) => updateField("phone", e.target.value)}
+                        placeholder="e.g. +880-2-1234567"
+                        disabled={isSaving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Mobile Number</Label>
+                      <Input
+                        value={profileForm.mobile}
+                        onChange={(e) => updateField("mobile", e.target.value)}
+                        placeholder="e.g. +880171234567 (for invoices)"
+                        disabled={isSaving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Support Email</Label>
+                      <Input
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(e) => updateField("email", e.target.value)}
+                        placeholder="e.g. support@companymart.com"
+                        disabled={isSaving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Website</Label>
+                      <Input
+                        value={profileForm.website}
+                        onChange={(e) => updateField("website", e.target.value)}
+                        placeholder="e.g. https://www.companymart.com"
+                        disabled={isSaving}
+                      />
+                    </div>
                   </div>
-                ))}
-                {canMutate && (
-                  <div className="flex justify-end pt-2">
-                    <Button
-                      onClick={() => handleSaveCategory(category)}
-                      disabled={savingCategory === category}
-                      className="bg-[#2563eb] hover:bg-[#1d4ed8]"
-                    >
-                      {savingCategory === category ? (
-                        <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Saving...</>
-                      ) : (
-                        <><Save className="h-4 w-4 mr-1" /> Save {category}</>
-                      )}
-                    </Button>
+                </div>
+
+                <Separator />
+
+                {/* Business Identification */}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 mb-4">
+                    <FileText className="h-3.5 w-3.5 text-slate-500" /> Business Identification
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">BIN/TIN Number</Label>
+                      <Input
+                        value={profileForm.binNumber}
+                        onChange={(e) => updateField("binNumber", e.target.value)}
+                        placeholder="Business Identification Number"
+                        disabled={isSaving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Trade License</Label>
+                      <Input
+                        value={profileForm.tradeLicense}
+                        onChange={(e) => updateField("tradeLicense", e.target.value)}
+                        placeholder="Trade license number"
+                        disabled={isSaving}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">VAT Number</Label>
+                      <Input
+                        value={profileForm.vatNumber}
+                        onChange={(e) => updateField("vatNumber", e.target.value)}
+                        placeholder="VAT registration number"
+                        disabled={isSaving}
+                      />
+                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })
+                </div>
+
+                <Separator />
+
+                {/* Invoice Settings */}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 mb-4">
+                    <DollarSign className="h-3.5 w-3.5 text-slate-500" /> Invoice Settings
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Currency Symbol</Label>
+                      <Input
+                        value={profileForm.currencySymbol}
+                        onChange={(e) => updateField("currencySymbol", e.target.value)}
+                        placeholder="৳"
+                        disabled={isSaving}
+                        className="max-w-[120px]"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Invoice Prefix</Label>
+                      <Input
+                        value={profileForm.invoicePrefix}
+                        onChange={(e) => updateField("invoicePrefix", e.target.value)}
+                        placeholder="e.g. INV-"
+                        disabled={isSaving}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Invoice Customization */}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5 mb-4">
+                    <Palette className="h-3.5 w-3.5 text-slate-500" /> Invoice Customization
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">Thank You Message</Label>
+                        <Input
+                          value={profileForm.thankYouMsg}
+                          onChange={(e) => updateField("thankYouMsg", e.target.value)}
+                          placeholder="e.g. Thank you for your business!"
+                          disabled={isSaving}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">System Note</Label>
+                        <Input
+                          value={profileForm.systemNote}
+                          onChange={(e) => updateField("systemNote", e.target.value)}
+                          placeholder="e.g. Goods once sold are not returnable"
+                          disabled={isSaving}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+                        <Switch
+                          checked={profileForm.showBarcode}
+                          onCheckedChange={(checked) => updateField("showBarcode", checked)}
+                          disabled={isSaving}
+                        />
+                        <div>
+                          <Label className="text-sm font-medium">Show Barcode</Label>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">On printed invoices</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+                        <Switch
+                          checked={profileForm.showPayInWord}
+                          onCheckedChange={(checked) => updateField("showPayInWord", checked)}
+                          disabled={isSaving}
+                        />
+                        <div>
+                          <Label className="text-sm font-medium">Amount in Words</Label>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">On printed invoices</p>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">Logo Width (mm)</Label>
+                        <Input
+                          type="number"
+                          value={profileForm.logoWidth}
+                          onChange={(e) => updateField("logoWidth", Number(e.target.value))}
+                          disabled={isSaving}
+                          min={5}
+                          max={200}
+                          className="max-w-[120px]"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm font-medium">Logo Height (mm)</Label>
+                        <Input
+                          type="number"
+                          value={profileForm.logoHeight}
+                          onChange={(e) => updateField("logoHeight", Number(e.target.value))}
+                          disabled={isSaving}
+                          min={5}
+                          max={200}
+                          className="max-w-[120px]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Save Button */}
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSaveBranding}
+                    disabled={isSaving || !profileForm.name.trim()}
+                    className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-[240px]"
+                  >
+                    {isSaving ? (
+                      <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Synchronizing Global Tenant Branding...</>
+                    ) : (
+                      <><Save className="h-4 w-4 mr-2" /> Save Company Branding</>
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <CompanyBrandingForbiddenCard />
       )}
+
+      {/* ============================================== */}
+      {/* SECTION 2: SYSTEM CONFIGURATION (Admin + Manager) */}
+      {/* ============================================== */}
+      <Card className="border-slate-200 dark:border-slate-700">
+        <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+          <CardTitle className="text-white flex items-center gap-2 text-base">
+            <Settings className="h-4 w-4 text-slate-400" />
+            System Configuration
+            <Badge variant="secondary" className="ml-2 bg-white/10 text-white/70 text-xs">
+              Admin & Manager
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 space-y-4">
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+              <Download className="h-4 w-4 mr-1" /> Export CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExportPDF}>
+              <FileDown className="h-4 w-4 mr-1" /> Export PDF
+            </Button>
+            {canMutateConfig && (
+              <Button variant="outline" size="sm" onClick={handleImportCSV}>
+                <Upload className="h-4 w-4 mr-1" /> Import CSV
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={loadConfigs}>
+              <RefreshCw className={`h-4 w-4 ${configLoading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
+
+          {/* VAT Audit Mode Banner */}
+          {isVatAuditor && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-amber-600" />
+              <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                VAT AUDIT MODE — Profit/margin/writeoff configurations are masked. You can view but not modify settings.
+              </span>
+            </div>
+          )}
+
+          {configLoading ? (
+            <div className="text-center py-12 text-slate-400">
+              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
+              Loading configurations...
+            </div>
+          ) : (
+            categories.map(category => {
+              const meta = CATEGORY_META[category] || { icon: Settings, color: "text-slate-500" };
+              const CategoryIcon = meta.icon;
+              return (
+                <Card key={category} className="border border-slate-200 dark:border-slate-700">
+                  <CardHeader className="bg-slate-50 dark:bg-slate-800 rounded-t-lg pb-2 pt-3 px-4">
+                    <CardTitle className="text-slate-900 dark:text-white flex items-center gap-2 text-sm">
+                      <CategoryIcon className={`h-4 w-4 ${meta.color}`} />
+                      {category}
+                      <Badge variant="secondary" className="ml-2 text-xs">
+                        {groupedConfigs[category].length} settings
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-4">
+                    {groupedConfigs[category].map(config => (
+                      <div key={config.id} className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-2 items-start">
+                        <div>
+                          <Label className="text-sm font-medium text-slate-900 dark:text-white">
+                            {config.configKey.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+                          </Label>
+                          {config.description && (
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{config.description}</p>
+                          )}
+                        </div>
+                        {renderConfigField(config)}
+                      </div>
+                    ))}
+                    {canMutateConfig && (
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          onClick={() => handleSaveCategory(category)}
+                          disabled={savingCategory === category}
+                          className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+                        >
+                          {savingCategory === category ? (
+                            <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Saving...</>
+                          ) : (
+                            <><Save className="h-4 w-4 mr-1" /> Save {category}</>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -48,10 +48,13 @@ export interface CompanyProfile {
   website?: string;
   logo?: string;       // Base64 data URL
   brandLogo?: string;  // Brand logo (high-res)
+  logoData?: string;   // High-density base64 binary storage (fallback for logo)
   logoWidth?: number;  // mm (default 30)
   logoHeight?: number; // mm (default 20)
   vatNumber?: string;
   tradeLicense?: string;
+  binNumber?: string;       // Business Identification Number
+  currencySymbol?: string;  // Currency symbol for financial documents (e.g. "৳", "$", "€")
   invoicePrefix?: string;
   thankYouMsg?: string;
   systemNote?: string;
@@ -244,10 +247,10 @@ function drawCorporateHeader(
   margin: number,
   company?: CompanyProfile
 ): number {
-  const companyName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+  const companyName = company?.name || "VoltERP";
   const companyAddress = company?.address || "";
   const companyMobile = company?.mobile || company?.phone || "";
-  const headerHeight = 28;
+  const headerHeight = 34;
 
   // Navy blue header bar
   doc.setFillColor(10, 22, 40);
@@ -257,12 +260,14 @@ function drawCorporateHeader(
   let textStartX = margin;
 
   // Company logo (if provided as base64 data URL)
-  if (company?.logo) {
+  // Use logoData as fallback if logo is not present
+  const logoSource = company?.logo || company?.logoData;
+  if (logoSource) {
     const logoW = company.logoWidth || 30;
     const logoH = company.logoHeight || 20;
     const logoY = (headerHeight - logoH) / 2; // vertically centered in header
     try {
-      const logoUrl = company.logo.startsWith("data:") ? company.logo : `data:image/png;base64,${company.logo}`;
+      const logoUrl = logoSource.startsWith("data:") ? logoSource : `data:image/png;base64,${logoSource}`;
       doc.addImage(logoUrl, margin, logoY, logoW, logoH);
     } catch {
       // If logo rendering fails, skip it silently
@@ -362,18 +367,34 @@ function drawCorporateHeader(
     doc.text(company.email, pageWidth - margin - emailWidth, 19);
   }
 
+  // BIN Number (right-aligned, below email)
+  if (company?.binNumber) {
+    doc.setFontSize(6);
+    doc.setTextColor(180, 190, 200);
+    const binWidth = doc.getTextWidth(`BIN: ${company.binNumber}`);
+    doc.text(`BIN: ${company.binNumber}`, pageWidth - margin - binWidth, 22);
+  }
+
   // VAT Number and Trade License (right-aligned, below email)
   if (company?.vatNumber) {
     doc.setFontSize(6);
     doc.setTextColor(180, 190, 200);
     const vatWidth = doc.getTextWidth(`VAT: ${company.vatNumber}`);
-    doc.text(`VAT: ${company.vatNumber}`, pageWidth - margin - vatWidth, 23);
+    doc.text(`VAT: ${company.vatNumber}`, pageWidth - margin - vatWidth, 25);
   }
   if (company?.tradeLicense) {
     doc.setFontSize(6);
     doc.setTextColor(180, 190, 200);
     const tradeWidth = doc.getTextWidth(`Trade License: ${company.tradeLicense}`);
-    doc.text(`Trade License: ${company.tradeLicense}`, pageWidth - margin - tradeWidth, 26);
+    doc.text(`Trade License: ${company.tradeLicense}`, pageWidth - margin - tradeWidth, 28);
+  }
+
+  // Currency symbol (right-aligned, below trade license)
+  if (company?.currencySymbol) {
+    doc.setFontSize(6);
+    doc.setTextColor(180, 190, 200);
+    const currWidth = doc.getTextWidth(`Currency: ${company.currencySymbol}`);
+    doc.text(`Currency: ${company.currencySymbol}`, pageWidth - margin - currWidth, 31);
   }
 
   // VAT Auditor badge
@@ -388,7 +409,7 @@ function drawCorporateHeader(
     doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 28);
   }
 
-  return headerHeight + 4; // 32mm start position for table
+  return headerHeight + 4; // 38mm start position for table
 }
 
 // ============================================================
@@ -455,7 +476,7 @@ function drawFooter(
   doc.setFont("helvetica", "normal");
 
   // Left: copyright — use company name when provided, fallback to default
-  const footerName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+  const footerName = company?.name || "VoltERP";
   doc.text(`\u00A9 ${footerName}`, margin, footerY);
 
   // Right: page number (with placeholder for total)

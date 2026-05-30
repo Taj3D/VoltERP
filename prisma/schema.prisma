@@ -90,19 +90,22 @@ model Company {
   address     String?
   phone       String?
   email       String?
-  logo        String?
-  brandLogo     String?       // Brand logo image (high-res)
-  mobile        String?       // Primary mobile number for invoices
-  website       String?       // Company website
-  vatNumber     String?       // VAT/Tax registration number
-  tradeLicense  String?       // Trade license number
-  invoicePrefix String?       // Prefix for invoice numbers (e.g., "EM")
-  thankYouMsg   String?       @default("Thank You Come Again.") // Customizable footer message
-  systemNote    String?       @default("This is a system generated invoice no need to seal & signature.") // System generation note
-  showBarcode   Boolean       @default(true)  // Whether to show barcode on invoices
-  showPayInWord Boolean       @default(true)  // Whether to show amount in words
-  logoWidth     Float         @default(30)    // Logo width in mm for PDF rendering
-  logoHeight    Float         @default(20)    // Logo height in mm for PDF rendering
+  logo        String?       // Company logo - base64 data URL for multi-tenant persistence
+  brandLogo   String?       // Brand logo image (high-res base64)
+  logoData    String?       // High-density base64 binary storage for company logo (multi-tenant safe, no filesystem dependency)
+  mobile      String?       // Primary mobile number for invoices
+  website     String?       // Company website
+  vatNumber   String?       // VAT/Tax registration number (BIN/TIN)
+  tradeLicense String?      // Trade license number
+  binNumber   String?       // Business Identification Number
+  currencySymbol String?    @default("৳")  // Currency symbol for invoices and financial documents
+  invoicePrefix String?     // Prefix for invoice numbers (e.g., "EM")
+  thankYouMsg  String?      @default("Thank You Come Again.") // Customizable footer message
+  systemNote   String?      @default("This is a system generated invoice no need to seal & signature.") // System generation note
+  showBarcode  Boolean      @default(true)  // Whether to show barcode on invoices
+  showPayInWord Boolean     @default(true)  // Whether to show amount in words
+  logoWidth    Float        @default(30)    // Logo width in mm for PDF rendering
+  logoHeight   Float        @default(20)    // Logo height in mm for PDF rendering
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt

@@ -23,12 +23,16 @@ export async function GET() {
         phone: true,
         mobile: true,
         email: true,
+        website: true,
         logo: true,
         brandLogo: true,
+        logoData: true,
         logoWidth: true,
         logoHeight: true,
         vatNumber: true,
         tradeLicense: true,
+        binNumber: true,
+        currencySymbol: true,
         invoicePrefix: true,
         thankYouMsg: true,
         systemNote: true,
@@ -44,7 +48,7 @@ export async function GET() {
       );
     }
 
-    // Return company branding data matching InvoiceCompanyProfile interface
+    // Return company branding data matching CompanyProfile interface
     return NextResponse.json({
       company: {
         id: company.id,
@@ -53,12 +57,16 @@ export async function GET() {
         phone: company.phone,
         mobile: company.mobile,
         email: company.email,
+        website: company.website,
         logo: company.logo,
         brandLogo: company.brandLogo,
+        logoData: company.logoData,
         logoWidth: company.logoWidth,
         logoHeight: company.logoHeight,
         vatNumber: company.vatNumber,
         tradeLicense: company.tradeLicense,
+        binNumber: company.binNumber,
+        currencySymbol: company.currencySymbol,
         invoicePrefix: company.invoicePrefix,
         thankYouMsg: company.thankYouMsg,
         systemNote: company.systemNote,
