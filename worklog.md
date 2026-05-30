@@ -1767,3 +1767,52 @@ Stage Summary:
 - 4 existing API routes modified with auto-SMS trigger integration
 - Frontend SMSAnalyticsPage.tsx updated with Transactional Automation sub-tab
 - Lint passes clean, dev server running error-free on port 3000
+
+---
+Task ID: Block-12-ReAudit
+Agent: Main Orchestrator
+Task: Block 12 Deep Re-Audit — Domain 19 (SMS Service & Marketing Engines) Hardening
+
+Work Log:
+- Read all SMS-related source files: api-security.ts (computeSmsSegments), sms-auto-trigger.ts, sms-automation/route.ts, sms-automation/trigger/route.ts, sms-logs/route.ts, sms-settings/route.ts, SMSAnalyticsPage.tsx, Prisma schema (SmsSetting, SmsLog, SmsAutomationConfig)
+- Directive 1: Fixed GSM 03.38 UDH multi-part boundary calculation
+  - Server: computeSmsSegments() in api-security.ts now uses proper UDH-aware math: GSM Part 1=160, Part 2+=153; Unicode Part 1=70, Part 2+=67
+  - Client: computeClientSmsSegments() in SMSAnalyticsPage.tsx mirrored with identical UDH logic
+  - Added charsPerFirstSegment and charsPerSubsequentSegment to return types
+  - Updated SMS Message Counter Info Card to show Part 1 / Part 2+ (UDH) columns
+  - Updated Important Notes text to reflect UDH-aware limits
+- Directive 2: Atomic Concurrency Guard & Credit Balance Shield
+  - sms-auto-trigger.ts: Complete rewrite with per-company serialization lock (companyLocks Map)
+  - sms-auto-trigger.ts: Credit balance read + SmsLog creation + balance update ALL inside db.$transaction
+  - sms-automation/trigger/route.ts: Same atomic pattern — read activeSetting inside tx, check credits, create SmsLog, update balance — all in one transaction
+  - sms-logs/route.ts: Refactored POST handler to move ALL credit logic inside $transaction (both single and bulk modes)
+  - INSUFFICIENT_SMS_CREDITS thrown from inside transaction, caught and converted to proper 400 response
+- Directive 3: Template Sanitization, Truncation, Invalid Number Handling
+  - sms-auto-trigger.ts: Added sanitizeSmsVariable() — strips <script>, HTML tags, semicolons, quotes, backslashes
+  - sms-auto-trigger.ts: Added truncateSummary() — .substring(0, 50) + "..." for item summaries
+  - sms-auto-trigger.ts: Added isValidPhoneNumber() — validates +?digits(7-15) format
+  - sms-auto-trigger.ts: Invalid number → SmsLog with status "SKIPPED_INVALID_NUMBER" + activity log, NO gateway ping
+  - sms-auto-trigger.ts: Added 5 template builder functions (buildPurchaseSms, buildCollectionSms, buildStockReceiveSms, buildHrExamSms, buildHrJoiningSms)
+  - sms-automation/trigger/route.ts: Same sanitization/truncation/phone validation pattern applied
+- Directive 4: UI Toggle & RBAC Permission Drift Check
+  - sms-automation/route.ts: Added explicit SR and Dealer 403 blocking on both POST and PUT (code: 'ROLE_FORBIDDEN')
+  - SMSAnalyticsPage.tsx: saveAutomationConfig() now captures preSaveSnapshot before save, rolls back on failure
+  - SMSAnalyticsPage.tsx: Error toast shows "Toggle state has been rolled back to the last saved configuration" with 8s duration
+- Fixed logUserActivity action type: Added 'AUTO_SMS_DISPATCH' | 'AUTO_SMS_SKIPPED' to action union
+- Fixed SMSAnalyticsPage.tsx: Moved loadAutomationConfig useCallback definition above the useEffect that references it (was causing TS2454)
+- Removed duplicate loadAutomationConfig definition
+- Extended computeSmsSegments return type with charsPerFirstSegment and charsPerSubsequentSegment
+
+Stage Summary:
+- 7 files modified:
+  1. /src/lib/api-security.ts — computeSmsSegments() UDH-aware rewrite
+  2. /src/lib/sms-auto-trigger.ts — Complete rewrite with concurrency guard, sanitization, truncation, SKIPPED_INVALID_NUMBER, template builders
+  3. /src/lib/activity-logger.ts — Extended action type union with AUTO_SMS_DISPATCH, AUTO_SMS_SKIPPED
+  4. /src/app/api/sms-automation/route.ts — SR/Dealer explicit 403 blocking
+  5. /src/app/api/sms-automation/trigger/route.ts — Atomic credit + sanitization + invalid number handling
+  6. /src/app/api/sms-logs/route.ts — Atomic credit deduction inside $transaction
+  7. /src/components/SMSAnalyticsPage.tsx — UDH-aware counter, rollback on save failure, moved useCallback
+- Lint: ZERO errors
+- TypeScript: ZERO SMS-related errors
+- Dev server: HTTP 200, stable on port 3000
+- Cron: Continuous review task created (job_id: 176953, 15-minute interval)

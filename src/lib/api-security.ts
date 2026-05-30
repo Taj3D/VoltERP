@@ -773,23 +773,54 @@ export function checkSmsSettingsWritePermission(role: UserRole): NextResponse | 
 
 /**
  * computeSmsSegments - Safely computes the number of SMS segments based on
- * character count and Unicode detection.
- * Standard SMS: 160 characters per segment
- * Unicode SMS: 70 characters per segment (for Bangla/emoji text)
+ * character count and Unicode detection, respecting GSM 03.38 UDH multi-part
+ * boundary truncation rules.
+ *
+ * GSM 7-bit (English-only):  Part 1 = 160 chars, Part 2+ = 153 chars (UDH takes 7 bytes)
+ * Unicode (Bangla/emoji):    Part 1 = 70 chars,  Part 2+ = 67 chars  (UDH takes 3 chars)
+ *
+ * If even a single character outside the standard GSM 7-bit charset is present
+ * (detected via /[^\x00-\x7F]/), the entire message baseline switches to 70 chars/unit.
  */
 export function computeSmsSegments(message: string): {
   charCount: number;
   isUnicode: boolean;
   segmentCount: number;
   charsPerSegment: number;
+  charsPerFirstSegment: number;
+  charsPerSubsequentSegment: number;
 } {
   const charCount = message.length;
-  // Detect Unicode: Bangla Unicode range (U+0980–U+09FF), CJK, emoji, etc.
-  const unicodeRegex = /[^\x00-\x7F]/;
-  const isUnicode = unicodeRegex.test(message);
-  const charsPerSegment = isUnicode ? 70 : 160;
-  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
-  return { charCount, isUnicode, segmentCount, charsPerSegment };
+  // Explicit regex check for Unicode characters — if even a single Bangla character
+  // or symbol outside the standard GSM 7-bit charset is present, entire message
+  // baseline instantly switches to 70 characters per unit.
+  const isUnicode = /[^\x00-\x7F]/.test(message);
+
+  // UDH (User Data Header) multi-part boundary constants
+  const GSM_FIRST_SEGMENT = 160;
+  const GSM_SUBSEQUENT_SEGMENT = 153;  // 160 - 7 bytes UDH overhead
+  const UNICODE_FIRST_SEGMENT = 70;
+  const UNICODE_SUBSEQUENT_SEGMENT = 67;  // 70 - 3 chars UDH overhead
+
+  const charsPerFirstSegment = isUnicode ? UNICODE_FIRST_SEGMENT : GSM_FIRST_SEGMENT;
+  const charsPerSubsequentSegment = isUnicode ? UNICODE_SUBSEQUENT_SEGMENT : GSM_SUBSEQUENT_SEGMENT;
+  const charsPerSegment = charsPerFirstSegment;  // For backward compat (first segment limit)
+
+  // Correct multi-part calculation: Part 1 uses first-segment limit,
+  // Part 2+ uses subsequent-segment limit (UDH truncation)
+  let segmentCount: number;
+  if (charCount === 0) {
+    segmentCount = 1;
+  } else if (charCount <= charsPerFirstSegment) {
+    segmentCount = 1;
+  } else {
+    // First segment takes charsPerFirstSegment chars,
+    // remaining chars split across charsPerSubsequentSegment per segment
+    const remainingChars = charCount - charsPerFirstSegment;
+    segmentCount = 1 + Math.ceil(remainingChars / charsPerSubsequentSegment);
+  }
+
+  return { charCount, isUnicode, segmentCount, charsPerSegment, charsPerFirstSegment, charsPerSubsequentSegment };
 }
 
 // ============================================================

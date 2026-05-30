@@ -65,12 +65,35 @@ const fmtEmpty = (v: any) => {
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 // SMS Character Bounds Computation (Client-side mirror — GSM 03.38)
+// Directive 1 Re-Audit: Proper UDH multi-part boundary calculation
+// GSM 7-bit (English): Part 1 = 160, Part 2+ = 153 (UDH takes 7 bytes)
+// Unicode (Bangla): Part 1 = 70, Part 2+ = 67 (UDH takes 3 chars)
 const computeClientSmsSegments = (message: string) => {
   const charCount = message.length;
+  // Explicit regex check — if even a single Bangla character or symbol outside
+  // standard GSM 7-bit charset is present, entire baseline switches to 70 chars/unit
   const isUnicode = /[^\x00-\x7F]/.test(message);
-  const charsPerSegment = isUnicode ? 70 : 160;
-  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
-  return { charCount, isUnicode, segmentCount, charsPerSegment };
+
+  const GSM_FIRST = 160;
+  const GSM_SUBSEQUENT = 153;
+  const UNICODE_FIRST = 70;
+  const UNICODE_SUBSEQUENT = 67;
+
+  const charsPerFirstSegment = isUnicode ? UNICODE_FIRST : GSM_FIRST;
+  const charsPerSubsequentSegment = isUnicode ? UNICODE_SUBSEQUENT : GSM_SUBSEQUENT;
+  const charsPerSegment = charsPerFirstSegment;  // backward compat
+
+  let segmentCount: number;
+  if (charCount === 0) {
+    segmentCount = 1;
+  } else if (charCount <= charsPerFirstSegment) {
+    segmentCount = 1;
+  } else {
+    const remainingChars = charCount - charsPerFirstSegment;
+    segmentCount = 1 + Math.ceil(remainingChars / charsPerSubsequentSegment);
+  }
+
+  return { charCount, isUnicode, segmentCount, charsPerSegment, charsPerFirstSegment, charsPerSubsequentSegment };
 };
 
 // Directive 1 — Strip trailing spaces/line breaks before sending to API
@@ -239,7 +262,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [shieldAvailableCredits, setShieldAvailableCredits] = useState(0);
 
   // SMS Character Bounds Computation (computed early for balance shield — Directive 2)
-  const { charCount, isUnicode, segmentCount, charsPerSegment } = computeClientSmsSegments(smsMessage);
+  const { charCount, isUnicode, segmentCount, charsPerSegment, charsPerFirstSegment, charsPerSubsequentSegment } = computeClientSmsSegments(smsMessage);
 
   // SMS Settings form state (Directive 1 — added creditBalanceLimit)
   const [settingsDialog, setSettingsDialog] = useState(false);
@@ -341,6 +364,28 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   // Directive 2 — Fetch gateway balance on mount
   useEffect(() => { fetchGatewayBalance(); }, [fetchGatewayBalance]);
+
+  // ============================================================
+  // DIRECTIVE 3 — TRANSACTIONAL AUTO-SMS AUTOMATION CONFIG
+  // (Defined BEFORE the useEffect that references it)
+  // ============================================================
+
+  const loadAutomationConfig = useCallback(async () => {
+    setAutomationLoading(true);
+    try {
+      const res = await apiFetch("/api/sms-automation").catch(() => null);
+      if (res && res.id) {
+        setAutomationConfig({
+          smsAlertOnPurchase: res.smsAlertOnPurchase || false,
+          smsAlertOnCollection: res.smsAlertOnCollection || false,
+          smsAlertOnStockReceive: res.smsAlertOnStockReceive || false,
+          smsAlertOnHrLifecycle: res.smsAlertOnHrLifecycle || false,
+        });
+      }
+    } catch {} finally {
+      setAutomationLoading(false);
+    }
+  }, []);
 
   // Directive 3 — Load automation config when settings tab is active
   useEffect(() => {
@@ -519,30 +564,18 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   // ============================================================
   // DIRECTIVE 3 — TRANSACTIONAL AUTO-SMS AUTOMATION CONFIG
+  // (loadAutomationConfig is defined above near the useEffect)
   // ============================================================
-
-  const loadAutomationConfig = useCallback(async () => {
-    setAutomationLoading(true);
-    try {
-      const res = await apiFetch("/api/sms-automation").catch(() => null);
-      if (res && res.id) {
-        setAutomationConfig({
-          smsAlertOnPurchase: res.smsAlertOnPurchase || false,
-          smsAlertOnCollection: res.smsAlertOnCollection || false,
-          smsAlertOnStockReceive: res.smsAlertOnStockReceive || false,
-          smsAlertOnHrLifecycle: res.smsAlertOnHrLifecycle || false,
-        });
-      }
-    } catch {} finally {
-      setAutomationLoading(false);
-    }
-  }, []);
 
   const saveAutomationConfig = async () => {
     if (!isAdmin) {
       toast({ title: "Access Denied", description: "Only administrators can modify SMS automation settings", variant: "destructive" });
       return;
     }
+
+    // DIRECTIVE 4: Capture pre-save snapshot for rollback on failure
+    const preSaveSnapshot = { ...automationConfig };
+
     setAutomationSaving(true);
     try {
       await apiFetch("/api/sms-automation", {
@@ -552,7 +585,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       toast({ title: "Automation Settings Saved", description: "Transactional SMS trigger settings updated successfully" });
       logActivityToServer("Comm-SMS-Marketing", "UPDATE_AUTOMATION", "SMS Automation Config Updated", authUser?.displayName);
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      // DIRECTIVE 4: Roll back to database snapshot immediately on failure
+      setAutomationConfig(preSaveSnapshot);
+      toast({
+        title: "Network Error: Automation Settings Update Failed",
+        description: "Toggle state has been rolled back to the last saved configuration. " + (e.message || "Unknown error"),
+        variant: "destructive",
+        duration: 8000,
+      });
     } finally {
       setAutomationSaving(false);
     }
@@ -2140,14 +2180,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   </div>
                 </div>
 
-                {/* Enhancement 4 — SMS Message Counter Info Card */}
+                {/* Enhancement 4 — SMS Message Counter Info Card (Directive 1 Re-Audit: UDH-aware) */}
                 <Card className="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
                   <CardContent className="p-3">
                     <div className="flex items-center gap-2 mb-2">
                       <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">SMS Message Counter</span>
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">SMS Message Counter (GSM 03.38)</span>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs">
                       <div className="space-y-0.5">
                         <span className="text-muted-foreground">Total Characters</span>
                         <p className="font-bold text-slate-900 dark:text-white">{charCount}</p>
@@ -2164,8 +2204,12 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                         </p>
                       </div>
                       <div className="space-y-0.5">
-                        <span className="text-muted-foreground">Chars / Segment</span>
-                        <p className="font-bold text-slate-900 dark:text-white">{charsPerSegment}</p>
+                        <span className="text-muted-foreground">Part 1 Limit</span>
+                        <p className="font-bold text-slate-900 dark:text-white">{charsPerFirstSegment}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Part 2+ Limit (UDH)</span>
+                        <p className="font-bold text-slate-900 dark:text-white">{charsPerSubsequentSegment}</p>
                       </div>
                       <div className="space-y-0.5">
                         <span className="text-muted-foreground">SMS Units / Recipient</span>
@@ -2178,6 +2222,11 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                         </p>
                       </div>
                     </div>
+                    {segmentCount > 1 && (
+                      <p className="text-[10px] text-muted-foreground mt-2">
+                        Multi-part SMS: UDH header reduces Part 2+ capacity to {charsPerSubsequentSegment} chars/segment
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -2949,7 +2998,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </div>
                 <div className="flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
-                  <p>Unicode messages (Bangla, emoji, etc.) have a 70-character limit per segment, while standard messages have 160 characters per segment.</p>
+                  <p>Unicode messages (Bangla, emoji, etc.) have a 70-character limit for Part 1 and 67 characters for Part 2+ per segment (UDH overhead), while standard messages have 160/153 characters per segment.</p>
                 </div>
                 <div className="flex items-start gap-2">
                   <Shield className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />

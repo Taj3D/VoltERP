@@ -81,10 +81,23 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
 
   // RBAC: Only admin can modify automation settings
-  if (security.user.role !== 'admin') {
+  // DIRECTIVE 4: Explicit SR and Dealer block — these roles must NEVER
+  // manipulate transactional auto-SMS toggles, even via manual API fetch
+  const role = security.user.role;
+  if (role === 'sr' || role === 'dealer') {
     return NextResponse.json(
       {
-        error: `Access denied. Only Administrators can create SMS automation configurations. Your role (${security.user.role}) does not have write permission for automation settings.`,
+        error: `Access denied. SR and Dealer roles are strictly prohibited from modifying SMS automation configurations.`,
+        code: 'ROLE_FORBIDDEN',
+      },
+      { status: 403 }
+    );
+  }
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Access denied. Only Administrators can create SMS automation configurations. Your role (${role}) does not have write permission for automation settings.`,
+        code: 'ROLE_FORBIDDEN',
       },
       { status: 403 }
     );
@@ -156,10 +169,22 @@ export async function PUT(request: NextRequest) {
   if (!security.authorized) return security.response;
 
   // RBAC: Only admin can modify automation settings
-  if (security.user.role !== 'admin') {
+  // DIRECTIVE 4: Explicit SR and Dealer block
+  const role = security.user.role;
+  if (role === 'sr' || role === 'dealer') {
     return NextResponse.json(
       {
-        error: `Access denied. Only Administrators can update SMS automation configurations. Your role (${security.user.role}) does not have write permission for automation settings.`,
+        error: `Access denied. SR and Dealer roles are strictly prohibited from modifying SMS automation configurations.`,
+        code: 'ROLE_FORBIDDEN',
+      },
+      { status: 403 }
+    );
+  }
+  if (role !== 'admin') {
+    return NextResponse.json(
+      {
+        error: `Access denied. Only Administrators can update SMS automation configurations. Your role (${role}) does not have write permission for automation settings.`,
+        code: 'ROLE_FORBIDDEN',
       },
       { status: 403 }
     );

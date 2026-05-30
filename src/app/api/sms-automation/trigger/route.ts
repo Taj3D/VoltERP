@@ -1,15 +1,14 @@
 // ============================================================
-// SMS AUTOMATION TRIGGER API ROUTE — Block 12 (Domain 19)
+// SMS AUTOMATION TRIGGER API ROUTE — Block 12 Re-Audit (Domain 19)
 // Auto-SMS dispatch trigger endpoint (server-to-server)
 //
-// This endpoint is called by other API routes (sales, collections,
-// purchase, HR) when an event occurs. It checks the automation
-// config and dispatches auto-SMS if the appropriate toggle is ON.
-//
-// CRITICAL: This route does NOT use withApiSecurity since it's
-// called internally by other API routes (server-to-server).
-// Instead, it validates the companyId directly and checks a
-// header for internal authorization.
+// HARDENED with:
+// - Directive 2: Atomic credit balance check inside $transaction
+//   to prevent concurrent dispatch from draining balance below 0
+// - Directive 3: Template variable sanitization, summary truncation,
+//   invalid phone number handling with SKIPPED_INVALID_NUMBER
+// - Directive 1: UDH-aware GSM 03.38 segment computation
+// - Fire-and-forget: all errors caught, never crashes the caller
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -32,6 +31,48 @@ const VALID_TRIGGER_TYPES = Object.keys(TRIGGER_TOGGLE_MAP);
 
 // Internal auth header key — other API routes must include this header
 const INTERNAL_AUTH_HEADER = 'x-internal-api-call';
+
+// ─────────────────────────────────────────────────────────────
+// DIRECTIVE 3 — Sanitization & Validation Utilities
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * sanitizeSmsVariable — Strips dangerous characters from template variables
+ * before injection into SMS gateway payload.
+ */
+function sanitizeSmsVariable(value: string): string {
+  if (!value) return '';
+  return value
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/;/g, '')
+    .replace(/['"]/g, '')
+    .replace(/\\/g, '')
+    .trim();
+}
+
+/**
+ * truncateSummary — Dynamically slices auto-generated string summaries
+ * to prevent oversized data from consuming 10+ SMS units.
+ */
+function truncateSummary(value: string, maxLength: number = 50): string {
+  if (!value) return '';
+  if (value.length <= maxLength) return value;
+  return value.substring(0, maxLength) + '...';
+}
+
+/**
+ * isValidPhoneNumber — Validates phone number format.
+ * Must be numeric digits, optionally starting with +,
+ * 7-15 digits long.
+ */
+function isValidPhoneNumber(phone: string): boolean {
+  if (!phone || typeof phone !== 'string') return false;
+  const trimmed = phone.trim();
+  if (trimmed === '') return false;
+  const phoneRegex = /^\+?\d{7,15}$/;
+  return phoneRegex.test(trimmed);
+}
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/sms-automation/trigger — Auto-SMS dispatch trigger
@@ -61,7 +102,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ─── Step 2: Validate recipient ───
+    // ─── Step 2: Validate recipient (Directive 3 — enhanced phone validation) ───
     if (!recipient || typeof recipient !== 'string' || recipient.trim() === '') {
       return NextResponse.json(
         { error: 'Missing or invalid recipient phone number.', code: 'INVALID_RECIPIENT' },
@@ -69,23 +110,67 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate phone number format (basic international format check)
-    const phoneRegex = /^\+?\d{7,15}$/;
     const trimmedRecipient = recipient.trim();
-    if (!phoneRegex.test(trimmedRecipient)) {
-      return NextResponse.json(
-        { error: 'Invalid recipient phone number format. Expected international format (e.g., +8801XXXXXXXXX).', code: 'INVALID_RECIPIENT_FORMAT' },
-        { status: 400 }
-      );
+
+    // ─── DIRECTIVE 3: Enhanced phone number format validation ───
+    if (!isValidPhoneNumber(trimmedRecipient)) {
+      // If the recipient phone number format is invalid (e.g., missing country
+      // prefix, text string instead of numeric digits), log an SmsLog entry
+      // with status "SKIPPED_INVALID_NUMBER" and return gracefully without
+      // pinging the gateway API.
+      try {
+        const skippedLog = await db.smsLog.create({
+          data: {
+            recipient: trimmedRecipient,
+            message: sanitizeSmsVariable(truncateSummary(message || '', 160)),
+            charCount: (message || '').length,
+            smsSegmentCount: 1,
+            isUnicode: false,
+            status: 'SKIPPED_INVALID_NUMBER',
+            campaignName: `Auto-SMS: ${triggerType}`,
+            cost: 0,
+            companyId: companyId || '',
+            isActive: true,
+          },
+        });
+
+        await logUserActivity({
+          action: 'AUTO_SMS_SKIPPED',
+          module: 'Comm-SMS-Marketing',
+          recordId: skippedLog.id,
+          recordLabel: `Auto-SMS Skipped: Invalid number ${trimmedRecipient}`,
+          userId: 'system',
+          userName: 'System (Auto-Dispatch)',
+          details: JSON.stringify({
+            triggerType,
+            recipient: trimmedRecipient,
+            reason: 'SKIPPED_INVALID_NUMBER',
+            referenceData: referenceData || null,
+          }),
+        });
+      } catch (logErr) {
+        console.error('[SmsAutomation/Trigger] Failed to log SKIPPED_INVALID_NUMBER:', logErr);
+      }
+
+      return NextResponse.json({
+        dispatched: false,
+        reason: 'Invalid recipient phone number format. Expected international format (e.g., +8801XXXXXXXXX).',
+        code: 'SKIPPED_INVALID_NUMBER',
+        triggerType,
+        recipient: trimmedRecipient,
+      });
     }
 
-    // ─── Step 3: Validate message ───
+    // ─── Step 3: Validate message (Directive 3 — sanitize + truncate) ───
     if (!message || typeof message !== 'string' || message.trim() === '') {
       return NextResponse.json(
         { error: 'Missing or empty message text.', code: 'INVALID_MESSAGE' },
         { status: 400 }
       );
     }
+
+    // DIRECTIVE 3: Sanitize template variables and truncate summary fields
+    const sanitizedMessage = sanitizeSmsVariable(truncateSummary(message, 300));
 
     // ─── Step 4: Validate companyId ───
     if (!companyId || typeof companyId !== 'string') {
@@ -129,51 +214,45 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ─── Step 7: Toggle is ON — look up tenant's active SmsSetting for rate calculation ───
-    const activeSetting = await db.smsSetting.findFirst({
-      where: {
-        isActive: true,
-        companyId,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // ─── Step 7: Compute SMS segments with UDH-aware calculation (Directive 1) ───
+    const { charCount, isUnicode, segmentCount } = computeSmsSegments(sanitizedMessage);
 
-    if (!activeSetting) {
-      return NextResponse.json(
-        {
-          error: 'No active SMS gateway settings found for this tenant. Cannot dispatch auto-SMS.',
-          code: 'NO_SMS_SETTINGS',
+    // ─── Step 8: DIRECTIVE 2 — Atomic credit check + dispatch inside $transaction ───
+    // The entire credit check + SmsLog creation + balance update happens inside
+    // a single database transaction, preventing concurrent requests from reading
+    // stale balance and causing balance to drift below 0.
+    const result = await db.$transaction(async (tx) => {
+      // Re-read the active SmsSetting INSIDE the transaction for latest balance
+      const activeSetting = await tx.smsSetting.findFirst({
+        where: {
+          isActive: true,
+          companyId,
         },
-        { status: 400 }
-      );
-    }
+        orderBy: { createdAt: 'desc' },
+      });
 
-    // ─── Step 8: Compute SMS segments ───
-    const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
-    const applicableRate = isUnicode ? activeSetting.unicodeRate : activeSetting.ratePerSms;
-    const cost = safeFinancialRound(segmentCount * applicableRate);
-    const availableCredits = activeSetting.lastKnownCreditBalance || 0;
+      if (!activeSetting) {
+        throw new Error('NO_SMS_SETTINGS');
+      }
 
-    // ─── Step 9: Credit balance check (Campaign Balance Shield) ───
-    if (availableCredits > 0 && cost > availableCredits) {
-      return NextResponse.json(
-        {
-          dispatched: false,
-          reason: `Insufficient SMS credits. Required: ${cost.toFixed(2)}, Available: ${availableCredits.toFixed(2)}`,
-          code: 'INSUFFICIENT_SMS_CREDITS',
+      const applicableRate = isUnicode ? activeSetting.unicodeRate : activeSetting.ratePerSms;
+      const cost = safeFinancialRound(segmentCount * applicableRate);
+      const availableCredits = activeSetting.lastKnownCreditBalance || 0;
+
+      // ─── Credit balance shield (atomic inside transaction) ───
+      if (availableCredits > 0 && cost > availableCredits) {
+        return {
+          insufficientCredits: true as const,
           required: cost,
           available: availableCredits,
-        },
-        { status: 400 }
-      );
-    }
+        };
+      }
 
-    // ─── Step 10: Create SmsLog entry ───
-    const result = await db.$transaction(async (tx) => {
+      // Create SmsLog entry inside transaction
       const smsLog = await tx.smsLog.create({
         data: {
           recipient: trimmedRecipient,
-          message: message.trim(),
+          message: sanitizedMessage,
           charCount,
           smsSegmentCount: segmentCount,
           isUnicode,
@@ -186,7 +265,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Update the SmsSetting's lastKnownCreditBalance
+      // Update the SmsSetting's lastKnownCreditBalance atomically
       if (availableCredits > 0) {
         const newBalance = Math.max(0, availableCredits - cost);
         await tx.smsSetting.update({
@@ -219,22 +298,50 @@ export async function POST(request: NextRequest) {
         }),
       });
 
-      return smsLog;
+      return {
+        insufficientCredits: false as const,
+        smsLog,
+        cost,
+        creditsRemaining: Math.max(0, availableCredits - cost),
+      };
     });
 
-    // ─── Step 11: Return dispatch confirmation ───
+    // ─── Handle insufficient credits result ───
+    if (result.insufficientCredits) {
+      return NextResponse.json(
+        {
+          dispatched: false,
+          reason: `Insufficient SMS credits. Required: ${result.required.toFixed(2)}, Available: ${result.available.toFixed(2)}`,
+          code: 'INSUFFICIENT_SMS_CREDITS',
+          required: result.required,
+          available: result.available,
+        },
+        { status: 400 }
+      );
+    }
+
+    // ─── Return dispatch confirmation ───
     return NextResponse.json({
       dispatched: true,
-      smsLogId: result.id,
-      cost,
+      smsLogId: result.smsLog!.id,
+      cost: result.cost,
       segmentCount,
       isUnicode,
       charCount,
       triggerType,
       recipient: trimmedRecipient,
-      creditsRemaining: Math.max(0, availableCredits - cost),
+      creditsRemaining: result.creditsRemaining,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === 'NO_SMS_SETTINGS') {
+      return NextResponse.json(
+        {
+          error: 'No active SMS gateway settings found for this tenant. Cannot dispatch auto-SMS.',
+          code: 'NO_SMS_SETTINGS',
+        },
+        { status: 400 }
+      );
+    }
     console.error('[SmsAutomation/Trigger] POST error:', error);
     return NextResponse.json(
       { error: 'Failed to process auto-SMS trigger', code: 'INTERNAL_ERROR' },

@@ -72,24 +72,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const companyId = security.user.companyId;
 
-    // Get tenant's active SmsSetting for rate calculation and credit check
-    const activeSetting = await db.smsSetting.findFirst({
-      where: {
-        isActive: true,
-        ...(companyId ? { companyId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    let ratePerSms = 0;
-    let unicodeRate = 0;
-    let availableCredits = 0;
-    if (activeSetting) {
-      ratePerSms = activeSetting.ratePerSms;
-      unicodeRate = activeSetting.unicodeRate;
-      availableCredits = activeSetting.lastKnownCreditBalance || 0;
-    }
-
     // ─────────────────────────────────────────────────────
     // BULK MODE: array of recipients with same message
     // ─────────────────────────────────────────────────────
@@ -104,49 +86,55 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Compute SMS segments (Directive 2 — GSM 03.38)
+      // Compute SMS segments (Directive 1 Re-Audit — UDH-aware GSM 03.38)
       const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
-      const applicableRate = isUnicode ? unicodeRate : ratePerSms;
-      const costPerRecipient = safeFinancialRound(segmentCount * applicableRate);
-      const totalRequiredCredits = safeFinancialRound(body.recipients.length * costPerRecipient);
 
-      // ─── Directive 2: Campaign Balance Shield ───
-      // Block dispatch if Total Recipients × SMS Units > Available Gateway Credits
-      if (availableCredits > 0 && totalRequiredCredits > availableCredits) {
-        return NextResponse.json(
-          {
-            error: `Action Blocked: Insufficient SMS API credits to dispatch this campaign. Required: ${totalRequiredCredits.toFixed(2)}, Available: ${availableCredits.toFixed(2)}`,
-            code: 'INSUFFICIENT_SMS_CREDITS',
-            required: totalRequiredCredits,
-            available: availableCredits,
-          },
-          { status: 400 }
-        );
-      }
-
-      // Check creditBalanceLimit alert threshold
-      if (activeSetting && activeSetting.creditBalanceLimit > 0) {
-        const remainingAfter = availableCredits - totalRequiredCredits;
-        if (remainingAfter < activeSetting.creditBalanceLimit) {
-          // Allow dispatch but log warning (not blocking, just alert threshold)
-          await logUserActivity({
-            action: 'CREATE',
-            module: 'Comm-SMS-Marketing',
-            recordId: 'CREDIT-ALERT',
-            recordLabel: `Credit Balance Alert: ${remainingAfter.toFixed(2)} BDT remaining after campaign`,
-            userId: security.user.id,
-            userName: security.user.name,
-            details: JSON.stringify({
-              alertType: 'CREDIT_BALANCE_LOW',
-              remainingAfter,
-              creditBalanceLimit: activeSetting.creditBalanceLimit,
-              campaignName,
-            }),
-          });
-        }
-      }
-
+      // DIRECTIVE 2 RE-AUDIT: Move ALL credit logic inside $transaction
+      // to prevent concurrent requests from reading stale balance
       const createdRecords = await db.$transaction(async (tx) => {
+        // Re-read active SmsSetting INSIDE the transaction for latest balance
+        const activeSetting = await tx.smsSetting.findFirst({
+          where: {
+            isActive: true,
+            ...(companyId ? { companyId } : {}),
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        const ratePerSms = activeSetting?.ratePerSms || 0;
+        const unicodeRate = activeSetting?.unicodeRate || 0;
+        const availableCredits = activeSetting?.lastKnownCreditBalance || 0;
+        const applicableRate = isUnicode ? unicodeRate : ratePerSms;
+        const costPerRecipient = safeFinancialRound(segmentCount * applicableRate);
+        const totalRequiredCredits = safeFinancialRound(body.recipients.length * costPerRecipient);
+
+        // ─── Directive 2: Campaign Balance Shield (atomic inside tx) ───
+        if (availableCredits > 0 && totalRequiredCredits > availableCredits) {
+          throw new Error(`INSUFFICIENT_SMS_CREDITS:${totalRequiredCredits}:${availableCredits}`);
+        }
+
+        // Check creditBalanceLimit alert threshold
+        if (activeSetting && activeSetting.creditBalanceLimit > 0) {
+          const remainingAfter = availableCredits - totalRequiredCredits;
+          if (remainingAfter < activeSetting.creditBalanceLimit) {
+            // Allow dispatch but log warning (not blocking, just alert threshold)
+            await logUserActivity({
+              action: 'CREATE',
+              module: 'Comm-SMS-Marketing',
+              recordId: 'CREDIT-ALERT',
+              recordLabel: `Credit Balance Alert: ${remainingAfter.toFixed(2)} BDT remaining after campaign`,
+              userId: security.user.id,
+              userName: security.user.name,
+              details: JSON.stringify({
+                alertType: 'CREDIT_BALANCE_LOW',
+                remainingAfter,
+                creditBalanceLimit: activeSetting.creditBalanceLimit,
+                campaignName,
+              }),
+            });
+          }
+        }
+
         const records: any[] = [];
 
         for (const recipient of body.recipients) {
@@ -171,7 +159,7 @@ export async function POST(request: NextRequest) {
           records.push(record);
         }
 
-        // Update lastKnownCreditBalance on the active setting
+        // Update lastKnownCreditBalance on the active setting atomically
         if (activeSetting && availableCredits > 0) {
           const newBalance = Math.max(0, availableCredits - totalRequiredCredits);
           await tx.smsSetting.update({
@@ -203,6 +191,19 @@ export async function POST(request: NextRequest) {
         });
 
         return records;
+      }).catch((error: Error) => {
+        // Handle INSUFFICIENT_SMS_CREDITS thrown from inside transaction
+        if (error.message.startsWith('INSUFFICIENT_SMS_CREDITS:')) {
+          const parts = error.message.split(':');
+          const required = parseFloat(parts[1]);
+          const available = parseFloat(parts[2]);
+          const err: any = new Error(`Action Blocked: Insufficient SMS API credits to dispatch this campaign. Required: ${required.toFixed(2)}, Available: ${available.toFixed(2)}`);
+          err.code = 'INSUFFICIENT_SMS_CREDITS';
+          err.required = required;
+          err.available = available;
+          throw err;
+        }
+        throw error;
       });
 
       // Apply VAT Auditor masking
@@ -229,25 +230,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Compute SMS segments (Directive 2 — GSM 03.38)
+    // Compute SMS segments (Directive 1 Re-Audit — UDH-aware GSM 03.38)
     const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
-    const applicableRate = isUnicode ? unicodeRate : ratePerSms;
-    const cost = safeFinancialRound(segmentCount * applicableRate);
 
-    // ─── Directive 2: Campaign Balance Shield (single) ───
-    if (availableCredits > 0 && cost > availableCredits) {
-      return NextResponse.json(
-        {
-          error: `Action Blocked: Insufficient SMS API credits to dispatch this message. Required: ${cost.toFixed(2)}, Available: ${availableCredits.toFixed(2)}`,
-          code: 'INSUFFICIENT_SMS_CREDITS',
-          required: cost,
-          available: availableCredits,
-        },
-        { status: 400 }
-      );
-    }
-
+    // DIRECTIVE 2 RE-AUDIT: Move ALL credit logic inside $transaction
     const item = await db.$transaction(async (tx) => {
+      // Re-read active SmsSetting INSIDE the transaction for latest balance
+      const activeSetting = await tx.smsSetting.findFirst({
+        where: {
+          isActive: true,
+          ...(companyId ? { companyId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const ratePerSms = activeSetting?.ratePerSms || 0;
+      const unicodeRate = activeSetting?.unicodeRate || 0;
+      const availableCredits = activeSetting?.lastKnownCreditBalance || 0;
+      const applicableRate = isUnicode ? unicodeRate : ratePerSms;
+      const cost = safeFinancialRound(segmentCount * applicableRate);
+
+      // ─── Directive 2: Campaign Balance Shield (single — atomic inside tx) ───
+      if (availableCredits > 0 && cost > availableCredits) {
+        throw new Error(`INSUFFICIENT_SMS_CREDITS:${cost}:${availableCredits}`);
+      }
+
       const record = await tx.smsLog.create({
         data: {
           recipient: recipient.trim(),
@@ -265,7 +272,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Update lastKnownCreditBalance on the active setting
+      // Update lastKnownCreditBalance on the active setting atomically
       if (activeSetting && availableCredits > 0) {
         const newBalance = Math.max(0, availableCredits - cost);
         await tx.smsSetting.update({
@@ -295,6 +302,18 @@ export async function POST(request: NextRequest) {
       });
 
       return record;
+    }).catch((error: Error) => {
+      if (error.message.startsWith('INSUFFICIENT_SMS_CREDITS:')) {
+        const parts = error.message.split(':');
+        const required = parseFloat(parts[1]);
+        const available = parseFloat(parts[2]);
+        const err: any = new Error(`Action Blocked: Insufficient SMS API credits to dispatch this message. Required: ${required.toFixed(2)}, Available: ${available.toFixed(2)}`);
+        err.code = 'INSUFFICIENT_SMS_CREDITS';
+        err.required = required;
+        err.available = available;
+        throw err;
+      }
+      throw error;
     });
 
     // Apply VAT Auditor masking on response
@@ -310,7 +329,19 @@ export async function POST(request: NextRequest) {
     );
 
     return NextResponse.json(masked[0], { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
+    // Handle INSUFFICIENT_SMS_CREDITS from transaction
+    if (error.code === 'INSUFFICIENT_SMS_CREDITS') {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: 'INSUFFICIENT_SMS_CREDITS',
+          required: error.required,
+          available: error.available,
+        },
+        { status: 400 }
+      );
+    }
     console.error('[SmsLogs] POST error:', error);
     return NextResponse.json(
       { error: 'Failed to create SMS log' },
