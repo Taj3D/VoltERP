@@ -5,7 +5,7 @@ import {
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   ChevronDown, ChevronRight, FileDown, Shield, Landmark,
   Building2, Wallet, ArrowDownCircle, ArrowUpCircle, FileBarChart,
-  Banknote, TrendingUp, CheckCircle,
+  Banknote, TrendingUp, CheckCircle, Calculator, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,8 +29,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
-import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -47,10 +48,12 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) =>
   d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  return `৳${bdCurrencyFmt.format(Number(v))}`;
 };
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -158,7 +161,21 @@ interface InvestmentGroupPageProps {
 export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageProps) {
   const { toast } = useToast();
   const { isVatAuditor, isSR, isDealer } = useAuth();
+  const auth = useAuth();
+  const isAdmin = auth.user?.role === "admin";
   const [activeTab, setActiveTab] = useState(initialTab || "investment-heads");
+
+  // ─── Company Profile for White-Label PDF ───
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding");
+      setCompanyProfile(res);
+    } catch {}
+  }, []);
+
+  // ─── Investment Snapshot for Rollback ───
+  const [investmentSnapshot, setInvestmentSnapshot] = useState<any[]>([]);
 
   // ─── Investment Heads State ───
   const [heads, setHeads] = useState<any[]>([]);
@@ -170,7 +187,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [headsSaving, setHeadsSaving] = useState(false);
   const [expandedHeads, setExpandedHeads] = useState<Set<string>>(new Set());
   const [headsFormData, setHeadsFormData] = useState<Record<string, any>>({
-    name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", isActive: true,
+    name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "",
+    sharePercentage: "", capitalValue: "", isActive: true,
   });
 
   // ─── Investment (Detailed) State ───
@@ -194,7 +212,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [assetsSaving, setAssetsSaving] = useState(false);
   const [assetsFormData, setAssetsFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, assetCategory: "Fixed", description: "", isActive: true,
+    amount: 0, assetCategory: "Fixed", purchaseValue: 0, salvageValue: 0,
+    usefulLifeMonths: 0, depreciationRate: 0, idempotencyKey: "", description: "", isActive: true,
   });
 
   // ─── Current Assets State ───
@@ -242,6 +261,13 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [reportData, setReportData] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [expandedReport, setExpandedReport] = useState<Set<string>>(new Set());
+
+  // ─── Depreciation Ledger State ───
+  const [depreciations, setDepreciations] = useState<any[]>([]);
+  const [depLoading, setDepLoading] = useState(false);
+  const [depGenerating, setDepGenerating] = useState(false);
+  const [depPeriod, setDepPeriod] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [expandedDep, setExpandedDep] = useState<Set<string>>(new Set());
 
   // ─── Shared: Investment Heads for dropdowns ───
   const [headOptions, setHeadOptions] = useState<any[]>([]);
@@ -330,6 +356,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     }
   }, [toast]);
 
+  const loadDepreciations = useCallback(async () => {
+    setDepLoading(true);
+    try {
+      const res = await apiFetch("/api/asset-depreciation");
+      setDepreciations(Array.isArray(res) ? res : []);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setDepLoading(false);
+    }
+  }, [toast]);
+
   // ============================================================
   // INIT
   // ============================================================
@@ -337,7 +375,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   useEffect(() => {
     loadHeads();
     loadHeadOptions();
-  }, [loadHeads, loadHeadOptions]);
+    loadCompanyProfile();
+  }, [loadHeads, loadHeadOptions, loadCompanyProfile]);
 
   useEffect(() => {
     if (activeTab === "investment") loadInvestments();
@@ -345,7 +384,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     if (activeTab === "current-asset") loadCurrentAssets();
     if (activeTab === "liability-receive") loadLiabReceive();
     if (activeTab === "liability-pay") loadLiabPay();
-  }, [activeTab, loadInvestments, loadAssets, loadCurrentAssets, loadLiabReceive, loadLiabPay]);
+    if (activeTab === "depreciation") loadDepreciations();
+  }, [activeTab, loadInvestments, loadAssets, loadCurrentAssets, loadLiabReceive, loadLiabPay, loadDepreciations]);
 
   // ============================================================
   // FILTERED DATA
@@ -456,6 +496,63 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     };
   }, [liabPay]);
 
+  // ─── Depreciation Stats ───
+  const depStats = useMemo(() => {
+    const totalDep = depreciations.reduce((s: number, d: any) => s + (Number(d.depreciationAmount) || 0), 0);
+    const totalAccum = depreciations.length > 0
+      ? Math.max(...depreciations.map((d: any) => Number(d.accumulatedDepreciation) || 0))
+      : 0;
+    const totalNBV = depreciations.length > 0
+      ? depreciations.reduce((s: number, d: any) => s + (Number(d.netBookValue) || 0), 0) / depreciations.filter((d: any) => d.netBookValue > 0).length || 0
+      : 0;
+    return { totalEntries: depreciations.length, totalDep, totalAccum, avgNBV: totalNBV };
+  }, [depreciations]);
+
+  // ─── Generate Monthly Depreciation ───
+  const generateDepreciation = async () => {
+    setDepGenerating(true);
+    try {
+      // Get all fixed assets that haven't been fully depreciated
+      const fixedAssets = await apiFetch("/api/assets?category=Fixed");
+      const activeAssets = (Array.isArray(fixedAssets) ? fixedAssets : []).filter(
+        (a: any) => a.isActive && a.assetCategory === "Fixed" && a.usefulLifeMonths > 0 && Number(a.netBookValue) > Number(a.salvageValue)
+      );
+      if (activeAssets.length === 0) {
+        toast({ title: "No Assets", description: "No active fixed assets requiring depreciation", variant: "destructive" });
+        setDepGenerating(false);
+        return;
+      }
+      let generated = 0;
+      let skipped = 0;
+      for (const asset of activeAssets) {
+        try {
+          await apiFetch("/api/asset-depreciation", {
+            method: "POST",
+            body: JSON.stringify({
+              assetId: asset.id,
+              periodDate: `${depPeriod}-28`, // End of month
+              method: "StraightLine",
+            }),
+          });
+          generated++;
+        } catch (e: any) {
+          skipped++;
+        }
+      }
+      toast({
+        title: "Depreciation Generated",
+        description: `Generated: ${generated}, Skipped (already exists): ${skipped}`,
+        variant: skipped > generated ? "destructive" : "default",
+      });
+      loadDepreciations();
+      loadAssets(); // Refresh asset netBookValue
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setDepGenerating(false);
+    }
+  };
+
   // ============================================================
   // RBAC
   // ============================================================
@@ -492,7 +589,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   // ============================================================
 
   const openHeadsCreate = () => {
-    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", profileImage: null, nidFrontImage: null, nidBackImage: null, isActive: true });
+    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", sharePercentage: "", capitalValue: "", profileImage: null, nidFrontImage: null, nidBackImage: null, isActive: true });
     setHeadsEdit(null);
     setHeadsForm(true);
   };
@@ -504,6 +601,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       openingBalance: item.openingBalance || 0,
       openingType: item.openingType || "None",
       description: item.description || "",
+      sharePercentage: item.sharePercentage ?? "",
+      capitalValue: item.capitalValue ?? "",
       profileImage: item.profileImage || null,
       nidFrontImage: item.nidFrontImage || null,
       nidBackImage: item.nidBackImage || null,
@@ -518,6 +617,26 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       toast({ title: "Error", description: "Name is required", variant: "destructive" });
       return;
     }
+    // Phase 3 Validation: Block negative/zero for financial fields when provided
+    const openingBal = Number(headsFormData.openingBalance);
+    if (headsFormData.openingBalance !== "" && openingBal < 0) {
+      toast({ title: "Validation Error", description: "Opening Balance cannot be negative", variant: "destructive" });
+      return;
+    }
+    if (headsFormData.sharePercentage !== "" && headsFormData.sharePercentage !== null && headsFormData.sharePercentage !== undefined) {
+      const sp = Number(headsFormData.sharePercentage);
+      if (sp <= 0 || sp > 100) {
+        toast({ title: "Validation Error", description: "Share Percentage must be between 0.01 and 100", variant: "destructive" });
+        return;
+      }
+    }
+    if (headsFormData.capitalValue !== "" && headsFormData.capitalValue !== null && headsFormData.capitalValue !== undefined) {
+      const cv = Number(headsFormData.capitalValue);
+      if (cv <= 0) {
+        toast({ title: "Validation Error", description: "Capital Value must be greater than zero", variant: "destructive" });
+        return;
+      }
+    }
     setHeadsSaving(true);
     try {
       const payload = {
@@ -526,6 +645,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         openingBalance: Number(headsFormData.openingBalance) || 0,
         openingType: headsFormData.openingType,
         description: headsFormData.description || null,
+        sharePercentage: headsFormData.sharePercentage ? Number(headsFormData.sharePercentage) : null,
+        capitalValue: headsFormData.capitalValue ? Number(headsFormData.capitalValue) : null,
         profileImage: headsFormData.profileImage || null,
         nidFrontImage: headsFormData.nidFrontImage || null,
         nidBackImage: headsFormData.nidBackImage || null,
@@ -571,7 +692,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     const setFormData = isFixed ? setAssetsFormData : setCurrentAssetsFormData;
     setFormData({
       investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-      amount: 0, assetCategory: category, description: "", isActive: true,
+      amount: 0, assetCategory: category, purchaseValue: 0, salvageValue: 0,
+      usefulLifeMonths: 0, depreciationRate: 0, idempotencyKey: "", description: "", isActive: true,
     });
     if (isFixed) setAssetsEdit(null);
     else setCurrentAssetsEdit(null);
@@ -586,6 +708,11 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       date: item.date ? item.date.split("T")[0] : "",
       amount: item.amount || 0,
       assetCategory: item.assetCategory || category,
+      purchaseValue: item.purchaseValue || 0,
+      salvageValue: item.salvageValue || 0,
+      usefulLifeMonths: item.usefulLifeMonths || 0,
+      depreciationRate: item.depreciationRate || 0,
+      idempotencyKey: item.idempotencyKey || "",
       description: item.description || "",
       isActive: item.isActive ?? true,
     });
@@ -601,10 +728,46 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       toast({ title: "Error", description: "Investment Head, Date and Amount are required", variant: "destructive" });
       return;
     }
+    // Phase 3: Block negative/zero amount
+    if (Number(formData.amount) <= 0) {
+      toast({ title: "Validation Error", description: "Investment Amount must be greater than zero", variant: "destructive" });
+      return;
+    }
+    // Phase 3: Inactive Head Shield
+    const selectedHead = headOptions.find((h: any) => h.id === formData.investmentHeadId);
+    if (selectedHead && !selectedHead.isActive) {
+      toast({ title: "Action Blocked", description: "Chosen Investment Head is inactive or archived.", variant: "destructive" });
+      return;
+    }
+    // Phase 3: Fixed Asset depreciation validation
+    if (isFixed) {
+      const pv = Number(formData.purchaseValue);
+      const sv = Number(formData.salvageValue);
+      const ulm = Number(formData.usefulLifeMonths);
+      if (pv <= 0) {
+        toast({ title: "Validation Error", description: "Purchase Value must be greater than zero for Fixed Assets", variant: "destructive" });
+        return;
+      }
+      if (sv < 0) {
+        toast({ title: "Validation Error", description: "Salvage Value cannot be negative", variant: "destructive" });
+        return;
+      }
+      if (sv >= pv) {
+        toast({ title: "Validation Error", description: "Salvage Value must be less than Purchase Value", variant: "destructive" });
+        return;
+      }
+      if (ulm <= 0) {
+        toast({ title: "Validation Error", description: "Useful Life (Months) must be greater than zero for Fixed Assets", variant: "destructive" });
+        return;
+      }
+    }
+    // Phase 3: Spin-Lock
     if (isFixed) setAssetsSaving(true);
     else setCurrentAssetsSaving(true);
+    // Phase 3: Snapshot for rollback
+    setInvestmentSnapshot(isFixed ? [...assets] : [...currentAssets]);
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         investmentHeadId: formData.investmentHeadId,
         date: formData.date,
         amount: Number(formData.amount) || 0,
@@ -612,6 +775,14 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         description: formData.description || null,
         isActive: formData.isActive ?? true,
       };
+      // Phase 3: Include depreciation fields for Fixed Assets
+      if (isFixed) {
+        payload.purchaseValue = Number(formData.purchaseValue) || 0;
+        payload.salvageValue = Number(formData.salvageValue) || 0;
+        payload.usefulLifeMonths = Number(formData.usefulLifeMonths) || 0;
+        payload.depreciationRate = Number(formData.depreciationRate) || 0;
+        if (formData.idempotencyKey) payload.idempotencyKey = formData.idempotencyKey;
+      }
       if (editItem) {
         await apiFetch(`/api/assets/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
         toast({ title: "Updated", description: `${category} Asset updated` });
@@ -622,6 +793,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       if (isFixed) { setAssetsForm(false); loadAssets(); }
       else { setCurrentAssetsForm(false); loadCurrentAssets(); }
     } catch (e: any) {
+      // Phase 3: Rollback on failure
+      if (isFixed) setAssets(investmentSnapshot);
+      else setCurrentAssets(investmentSnapshot);
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       if (isFixed) setAssetsSaving(false);
@@ -681,6 +855,17 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       toast({ title: "Error", description: "Investment Head, Date and Amount are required", variant: "destructive" });
       return;
     }
+    // Phase 3: Block negative/zero amount
+    if (Number(formData.amount) <= 0) {
+      toast({ title: "Validation Error", description: "Amount must be greater than zero", variant: "destructive" });
+      return;
+    }
+    // Phase 3: Inactive Head Shield
+    const selectedHead = headOptions.find((h: any) => h.id === formData.investmentHeadId);
+    if (selectedHead && !selectedHead.isActive) {
+      toast({ title: "Action Blocked", description: "Chosen Investment Head is inactive or archived.", variant: "destructive" });
+      return;
+    }
     if (isReceive) setLiabReceiveSaving(true);
     else setLiabPaySaving(true);
     try {
@@ -728,6 +913,17 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const saveInvestEntry = async () => {
     if (!investFormData.investmentHeadId || !investFormData.date || !investFormData.amount) {
       toast({ title: "Error", description: "Investment Head, Date and Amount are required", variant: "destructive" });
+      return;
+    }
+    // Phase 3: Block negative/zero amount
+    if (Number(investFormData.amount) <= 0) {
+      toast({ title: "Validation Error", description: "Investment Amount must be greater than zero", variant: "destructive" });
+      return;
+    }
+    // Phase 3: Inactive Head Shield
+    const selectedHead = headOptions.find((h: any) => h.id === investFormData.investmentHeadId);
+    if (selectedHead && !selectedHead.isActive) {
+      toast({ title: "Action Blocked", description: "Chosen Investment Head is inactive or archived.", variant: "destructive" });
       return;
     }
     try {
@@ -801,7 +997,16 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const doExportPDF = (title: string, columns: ExportColumnDef[], data: any[], orientation: "landscape" | "portrait" = "landscape") => {
     try {
       const maskedKeys = getVatMaskedKeys(columns);
-      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation });
+      exportToPDF({
+        title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation,
+        company: companyProfile || undefined,
+        financialFooter: {
+          preparedBy: auth.user?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: auth.user?.displayName || auth.user?.email || "",
+        },
+      });
       toast({ title: "Exported", description: `${title} exported to PDF` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -824,6 +1029,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "investmentHeadName", label: "Investment Head", type: "text" },
     { key: "amount", label: "Amount", type: "currency" },
     { key: "assetCategory", label: "Category", type: "text" },
+    { key: "purchaseValue", label: "Purchase Value", type: "currency" },
+    { key: "salvageValue", label: "Salvage Value", type: "currency" },
+    { key: "usefulLifeMonths", label: "Useful Life (Mo)", type: "number" },
+    { key: "depreciationRate", label: "Dep. Rate (%)", type: "number" },
+    { key: "accumulatedDepreciation", label: "Accum. Dep.", type: "currency" },
+    { key: "netBookValue", label: "Net Book Value", type: "currency" },
     { key: "description", label: "Description", type: "text" },
     { key: "isActive", label: "Status", type: "boolean" },
   ];
@@ -853,6 +1064,15 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "totalReceived", label: "Total Received", type: "currency" },
     { key: "totalPaid", label: "Total Paid", type: "currency" },
     { key: "currentBalance", label: "Current Balance", type: "currency" },
+  ];
+
+  const depExportColumns: ExportColumnDef[] = [
+    { key: "assetName", label: "Asset / Head", type: "text" },
+    { key: "periodDate", label: "Period", type: "date" },
+    { key: "depreciationAmount", label: "Depreciation", type: "currency" },
+    { key: "accumulatedDepreciation", label: "Accum. Dep.", type: "currency" },
+    { key: "netBookValue", label: "Net Book Value", type: "currency" },
+    { key: "method", label: "Method", type: "text" },
   ];
 
   // Prepare data for export (flatten nested relations)
@@ -984,6 +1204,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
           </TabsTrigger>
           <TabsTrigger value="liability-report" className="flex items-center gap-1 text-xs">
             <FileBarChart className="w-3.5 h-3.5" />Liability Report
+          </TabsTrigger>
+          <TabsTrigger value="depreciation" className="flex items-center gap-1 text-xs">
+            <Calculator className="w-3.5 h-3.5" />Depreciation Ledger
           </TabsTrigger>
         </TabsList>
 
@@ -1255,7 +1478,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                     <FileDown className="w-4 h-4 mr-1" />Export PDF
                   </Button>
                   <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openAssetCreate("Fixed")} disabled={isVatAuditor}>
-                    <Plus className="w-4 h-4 mr-1" />Create Fixed Asset
+                    <Plus className="w-4 h-4 mr-1" />Register Corporate Asset
                   </Button>
                 </div>
               </div>
@@ -1275,24 +1498,30 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Date</TableHead>
                       <TableHead>Investment Head</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Description</TableHead>
+                      <TableHead>Purchase Value</TableHead>
+                      <TableHead>Salvage Value</TableHead>
+                      <TableHead>Useful Life</TableHead>
+                      <TableHead>Accum. Dep.</TableHead>
+                      <TableHead>Net Book Value</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {assetsLoading ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredAssets.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
                     ) : filteredAssets.map((item: any) => (
                       <TableRow key={item.id} className="hover:bg-muted/50">
                         <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
                         <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
-                        <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
-                        <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
+                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.purchaseValue)}</TableCell>
+                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.salvageValue)}</TableCell>
+                        <TableCell>{item.usefulLifeMonths ? `${item.usefulLifeMonths} mo` : "—"}</TableCell>
+                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.accumulatedDepreciation)}</TableCell>
+                        <TableCell className="font-mono font-bold">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.netBookValue)}</TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -1301,7 +1530,16 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button variant="ghost" size="sm" onClick={() => openAssetEdit(item, "Fixed")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setAssetsDelete(item)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span tabIndex={0}>
+                                    <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setAssetsDelete(item)} disabled={isVatAuditor || !isAdmin}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                  </span>
+                                </TooltipTrigger>
+                                {!isAdmin && <TooltipContent>Only administrators can delete financial posts</TooltipContent>}
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1310,6 +1548,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </Table>
               </div>
               <div className="mt-2 text-xs text-muted-foreground">Showing {filteredAssets.length} of {assets.length} fixed assets</div>
+              {!isAdmin && <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Manager restriction: Only administrators can delete financial posts</div>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1341,7 +1580,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                     <FileDown className="w-4 h-4 mr-1" />Export PDF
                   </Button>
                   <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openAssetCreate("Current")} disabled={isVatAuditor}>
-                    <Plus className="w-4 h-4 mr-1" />Create Current Asset
+                    <Plus className="w-4 h-4 mr-1" />Post Capital Investment
                   </Button>
                 </div>
               </div>
@@ -1725,6 +1964,105 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════
+            TAB: DEPRECIATION LEDGER (Phase 3)
+        ═══════════════════════════════════════════════════════════ */}
+        <TabsContent value="depreciation">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <StatCard label="Total Entries" value={depStats.totalEntries} icon={Calculator} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+            <StatCard label="Total Depreciation" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(depStats.totalDep)} icon={Banknote} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
+            <StatCard label="Max Accum. Dep." value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(depStats.totalAccum)} icon={TrendingUp} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+            <StatCard label="Avg Net Book Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(depStats.avgNBV)} icon={Building2} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
+          </div>
+
+          <Card className="mt-4">
+            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base flex items-center gap-2"><Calculator className="w-4 h-4" />Asset Depreciation Ledger</CardTitle>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <Input type="month" value={depPeriod} onChange={(e) => setDepPeriod(e.target.value)} className="w-40 text-sm" />
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Depreciation-Ledger", depExportColumns, depreciations.map((d: any) => ({ ...d, assetName: d.asset?.investmentHead?.name || d.assetId || "—" })))}>
+                    <Download className="w-4 h-4 mr-1" />Export CSV
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportPDF("Depreciation-Ledger", depExportColumns, depreciations.map((d: any) => ({ ...d, assetName: d.asset?.investmentHead?.name || d.assetId || "—" })), "landscape")}>
+                    <FileDown className="w-4 h-4 mr-1" />Export PDF
+                  </Button>
+                  <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={generateDepreciation} disabled={depGenerating || isVatAuditor}>
+                    {depGenerating ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Calculator className="w-4 h-4 mr-1" />}
+                    {depGenerating ? "Recalculating Equity Balance & Fixed Asset Ledgers..." : "Generate Monthly Depreciation"}
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={loadDepreciations}>
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              {depLoading ? (
+                <div className="flex items-center justify-center py-16"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+              ) : depreciations.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground">
+                  <Calculator className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>No depreciation entries found. Click &quot;Generate Monthly Depreciation&quot; to create entries for active fixed assets.</p>
+                </div>
+              ) : (
+                <div className="overflow-auto max-h-[65vh] rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead className="w-10"></TableHead>
+                        <TableHead>Asset / Head</TableHead>
+                        <TableHead>Period</TableHead>
+                        <TableHead>Depreciation Amount</TableHead>
+                        <TableHead>Accum. Depreciation</TableHead>
+                        <TableHead>Net Book Value</TableHead>
+                        <TableHead>Method</TableHead>
+                        <TableHead>Notes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {depreciations.map((item: any) => (
+                        <React.Fragment key={item.id}>
+                          <TableRow className="hover:bg-muted/50">
+                            <TableCell>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(setExpandedDep, item.id)}>
+                                {expandedDep.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="text-slate-900 dark:text-white font-medium">{item.asset?.investmentHead?.name || "—"}</TableCell>
+                            <TableCell>{fmtDate(item.periodDate)}</TableCell>
+                            <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.depreciationAmount)}</TableCell>
+                            <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.accumulatedDepreciation)}</TableCell>
+                            <TableCell className="font-mono font-bold">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.netBookValue)}</TableCell>
+                            <TableCell><Badge variant="outline">{item.method || "StraightLine"}</Badge></TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{item.notes || "—"}</TableCell>
+                          </TableRow>
+                          {expandedDep.has(item.id) && (
+                            <TableRow>
+                              <TableCell colSpan={8} className="bg-muted/30 p-3">
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                                  <div><span className="text-muted-foreground">Asset ID:</span> <span className="font-mono text-xs">{item.assetId}</span></div>
+                                  <div><span className="text-muted-foreground">Purchase Value:</span> <span className="font-mono">{fmtCurrency(item.asset?.purchaseValue)}</span></div>
+                                  <div><span className="text-muted-foreground">Salvage Value:</span> <span className="font-mono">{fmtCurrency(item.asset?.salvageValue)}</span></div>
+                                  <div><span className="text-muted-foreground">Useful Life:</span> <span>{item.asset?.usefulLifeMonths ?? 0} months</span></div>
+                                  <div><span className="text-muted-foreground">Dep. Rate:</span> <span>{item.asset?.depreciationRate ?? 0}%</span></div>
+                                  <div><span className="text-muted-foreground">Created:</span> <span>{fmtDate(item.createdAt)}</span></div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              <div className="mt-2 text-xs text-muted-foreground">Showing {depreciations.length} depreciation entries</div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* ═══════════════════════════════════════════════════════════
@@ -1769,7 +2107,21 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             </div>
             <div>
               <Label htmlFor="head-opening-balance">Opening Balance</Label>
-              <Input id="head-opening-balance" type="number" step="0.01" value={headsFormData.openingBalance} onChange={(e) => setHeadsFormData({ ...headsFormData, openingBalance: e.target.value })} />
+              <Input id="head-opening-balance" type="number" step="0.01" min="0" value={headsFormData.openingBalance} onChange={(e) => setHeadsFormData({ ...headsFormData, openingBalance: e.target.value })} className={Number(headsFormData.openingBalance) < 0 ? "border-red-500 focus:border-red-500" : ""} />
+              {Number(headsFormData.openingBalance) < 0 && <p className="text-xs text-red-500 mt-1">Opening Balance cannot be negative</p>}
+            </div>
+            {/* Phase 3: Share Percentage and Capital Value */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="head-share-pct">Share Percentage (%)</Label>
+                <Input id="head-share-pct" type="number" step="0.01" min="0.01" max="100" value={headsFormData.sharePercentage} onChange={(e) => setHeadsFormData({ ...headsFormData, sharePercentage: e.target.value })} placeholder="e.g. 25.5" className={headsFormData.sharePercentage && (Number(headsFormData.sharePercentage) <= 0 || Number(headsFormData.sharePercentage) > 100) ? "border-red-500 focus:border-red-500" : ""} />
+                {headsFormData.sharePercentage && (Number(headsFormData.sharePercentage) <= 0 || Number(headsFormData.sharePercentage) > 100) && <p className="text-xs text-red-500 mt-1">Must be between 0.01 and 100</p>}
+              </div>
+              <div>
+                <Label htmlFor="head-capital-value">Capital Value</Label>
+                <Input id="head-capital-value" type="number" step="0.01" min="0.01" value={headsFormData.capitalValue} onChange={(e) => setHeadsFormData({ ...headsFormData, capitalValue: e.target.value })} placeholder="e.g. 500000" className={headsFormData.capitalValue && Number(headsFormData.capitalValue) <= 0 ? "border-red-500 focus:border-red-500" : ""} />
+                {headsFormData.capitalValue && Number(headsFormData.capitalValue) <= 0 && <p className="text-xs text-red-500 mt-1">Must be greater than zero</p>}
+              </div>
             </div>
             <div>
               <Label htmlFor="head-description">Description</Label>
@@ -1902,19 +2254,31 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Fixed Asset Create/Edit Dialog ─── */}
       <Dialog open={assetsForm} onOpenChange={setAssetsForm}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">{assetsEdit ? "Edit Fixed Asset" : "Create Fixed Asset"}</DialogTitle>
-            <DialogDescription>{assetsEdit ? "Update fixed asset details" : "Add a new fixed asset"}</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">{assetsEdit ? "Edit Fixed Asset" : "Register Corporate Asset"}</DialogTitle>
+            <DialogDescription>{assetsEdit ? "Update fixed asset details and depreciation parameters" : "Register a new corporate fixed asset with depreciation schedule"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {/* Phase 3: Inactive Head Shield Warning */}
+            {assetsFormData.investmentHeadId && (() => {
+              const h = headOptions.find((hd: any) => hd.id === assetsFormData.investmentHeadId);
+              return h && !h.isActive ? (
+                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                  <span className="text-sm text-red-700 dark:text-red-400 font-medium">Action Blocked: Chosen Investment Head is inactive or archived.</span>
+                </div>
+              ) : null;
+            })()}
             <div>
               <Label>Investment Head <span className="text-red-500">*</span></Label>
               <Select value={assetsFormData.investmentHeadId} onValueChange={(v) => setAssetsFormData({ ...assetsFormData, investmentHeadId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select investment head" /></SelectTrigger>
                 <SelectContent>
                   {assetTypeHeads.map((h: any) => (
-                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name}</SelectItem>
+                    <SelectItem key={h.id} value={h.id} className={!h.isActive ? "opacity-50" : ""}>
+                      {h.code} - {h.name} {!h.isActive ? "(Inactive)" : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1926,12 +2290,57 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               </div>
               <div>
                 <Label>Amount <span className="text-red-500">*</span></Label>
-                <Input type="number" step="0.01" value={assetsFormData.amount} onChange={(e) => setAssetsFormData({ ...assetsFormData, amount: e.target.value })} />
+                <Input type="number" step="0.01" min="0.01" value={assetsFormData.amount} onChange={(e) => setAssetsFormData({ ...assetsFormData, amount: e.target.value })} className={Number(assetsFormData.amount) <= 0 && assetsFormData.amount !== "" && assetsFormData.amount !== 0 ? "border-red-500 focus:border-red-500" : ""} />
+                {Number(assetsFormData.amount) <= 0 && assetsFormData.amount !== "" && assetsFormData.amount !== 0 && <p className="text-xs text-red-500 mt-1">Amount must be greater than zero</p>}
               </div>
             </div>
             <div>
               <Label>Asset Category</Label>
               <Input value="Fixed" disabled className="bg-muted" />
+            </div>
+            {/* Phase 3: Depreciation Fields for Fixed Assets */}
+            <Separator />
+            <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <Calculator className="w-4 h-4" />Depreciation Parameters (Fixed Asset)
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Purchase Value <span className="text-red-500">*</span></Label>
+                <Input type="number" step="0.01" min="0.01" value={assetsFormData.purchaseValue} onChange={(e) => setAssetsFormData({ ...assetsFormData, purchaseValue: e.target.value })} className={Number(assetsFormData.purchaseValue) <= 0 && assetsFormData.purchaseValue !== "" && assetsFormData.purchaseValue !== 0 ? "border-red-500 focus:border-red-500" : ""} />
+                {Number(assetsFormData.purchaseValue) <= 0 && assetsFormData.purchaseValue !== "" && assetsFormData.purchaseValue !== 0 && <p className="text-xs text-red-500 mt-1">Must be greater than zero</p>}
+              </div>
+              <div>
+                <Label>Salvage Value <span className="text-red-500">*</span></Label>
+                <Input type="number" step="0.01" min="0" value={assetsFormData.salvageValue} onChange={(e) => setAssetsFormData({ ...assetsFormData, salvageValue: e.target.value })} className={Number(assetsFormData.salvageValue) >= Number(assetsFormData.purchaseValue) && Number(assetsFormData.purchaseValue) > 0 ? "border-red-500 focus:border-red-500" : ""} />
+                {Number(assetsFormData.salvageValue) >= Number(assetsFormData.purchaseValue) && Number(assetsFormData.purchaseValue) > 0 && <p className="text-xs text-red-500 mt-1">Must be less than Purchase Value</p>}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Useful Life (Months) <span className="text-red-500">*</span></Label>
+                <Input type="number" min="1" value={assetsFormData.usefulLifeMonths} onChange={(e) => setAssetsFormData({ ...assetsFormData, usefulLifeMonths: e.target.value })} className={Number(assetsFormData.usefulLifeMonths) <= 0 && assetsFormData.usefulLifeMonths !== "" && assetsFormData.usefulLifeMonths !== 0 ? "border-red-500 focus:border-red-500" : ""} />
+                {Number(assetsFormData.usefulLifeMonths) <= 0 && assetsFormData.usefulLifeMonths !== "" && assetsFormData.usefulLifeMonths !== 0 && <p className="text-xs text-red-500 mt-1">Must be greater than zero</p>}
+              </div>
+              <div>
+                <Label>Depreciation Rate (%)</Label>
+                <Input type="number" step="0.01" min="0" max="100" value={assetsFormData.depreciationRate} onChange={(e) => setAssetsFormData({ ...assetsFormData, depreciationRate: e.target.value })} />
+              </div>
+            </div>
+            {/* Auto-calculated monthly depreciation preview */}
+            {Number(assetsFormData.purchaseValue) > 0 && Number(assetsFormData.usefulLifeMonths) > 0 && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  <strong>Monthly Depreciation:</strong> ৳{bdCurrencyFmt.format(
+                    Math.max(0, (Number(assetsFormData.purchaseValue) - Number(assetsFormData.salvageValue)) / Number(assetsFormData.usefulLifeMonths))
+                  )} | <strong>Total Depreciable:</strong> ৳{bdCurrencyFmt.format(
+                    Math.max(0, Number(assetsFormData.purchaseValue) - Number(assetsFormData.salvageValue))
+                  )}
+                </p>
+              </div>
+            )}
+            <div>
+              <Label>Idempotency Key</Label>
+              <Input value={assetsFormData.idempotencyKey || ""} onChange={(e) => setAssetsFormData({ ...assetsFormData, idempotencyKey: e.target.value })} placeholder="Optional reference key to prevent duplicates" />
             </div>
             <div>
               <Label>Description</Label>
@@ -1945,8 +2354,17 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssetsForm(false)}>Cancel</Button>
             <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => saveAsset("Fixed")} disabled={assetsSaving}>
-              {assetsSaving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : null}
-              {assetsEdit ? "Update" : "Create"}
+              {assetsSaving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                  Recalculating Equity Balance & Fixed Asset Ledgers...
+                </>
+              ) : (
+                <>
+                  <Building2 className="w-4 h-4 mr-1" />
+                  {assetsEdit ? "Update Corporate Asset" : "Register Corporate Asset"}
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1961,7 +2379,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssetsDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteAsset(assetsDelete, "Fixed")}>Delete</Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button variant="destructive" onClick={() => deleteAsset(assetsDelete, "Fixed")} disabled={!isAdmin}>
+                      {isAdmin ? "Delete" : "Admin Only"}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!isAdmin && <TooltipContent>Only administrators can delete financial posts</TooltipContent>}
+              </Tooltip>
+            </TooltipProvider>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1970,17 +2399,29 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       <Dialog open={currentAssetsForm} onOpenChange={setCurrentAssetsForm}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">{currentAssetsEdit ? "Edit Current Asset" : "Create Current Asset"}</DialogTitle>
-            <DialogDescription>{currentAssetsEdit ? "Update current asset details" : "Add a new current asset"}</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">{currentAssetsEdit ? "Edit Current Asset" : "Post Capital Investment"}</DialogTitle>
+            <DialogDescription>{currentAssetsEdit ? "Update current asset details" : "Record a new short-term liquid capital investment"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {/* Phase 3: Inactive Head Shield */}
+            {currentAssetsFormData.investmentHeadId && (() => {
+              const h = headOptions.find((hd: any) => hd.id === currentAssetsFormData.investmentHeadId);
+              return h && !h.isActive ? (
+                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                  <span className="text-sm text-red-700 dark:text-red-400 font-medium">Action Blocked: Chosen Investment Head is inactive or archived.</span>
+                </div>
+              ) : null;
+            })()}
             <div>
               <Label>Investment Head <span className="text-red-500">*</span></Label>
               <Select value={currentAssetsFormData.investmentHeadId} onValueChange={(v) => setCurrentAssetsFormData({ ...currentAssetsFormData, investmentHeadId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select investment head" /></SelectTrigger>
                 <SelectContent>
                   {assetTypeHeads.map((h: any) => (
-                    <SelectItem key={h.id} value={h.id}>{h.code} - {h.name}</SelectItem>
+                    <SelectItem key={h.id} value={h.id} className={!h.isActive ? "opacity-50" : ""}>
+                      {h.code} - {h.name} {!h.isActive ? "(Inactive)" : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1992,12 +2433,14 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               </div>
               <div>
                 <Label>Amount <span className="text-red-500">*</span></Label>
-                <Input type="number" step="0.01" value={currentAssetsFormData.amount} onChange={(e) => setCurrentAssetsFormData({ ...currentAssetsFormData, amount: e.target.value })} />
+                <Input type="number" step="0.01" min="0.01" value={currentAssetsFormData.amount} onChange={(e) => setCurrentAssetsFormData({ ...currentAssetsFormData, amount: e.target.value })} className={Number(currentAssetsFormData.amount) <= 0 && currentAssetsFormData.amount !== "" && currentAssetsFormData.amount !== 0 ? "border-red-500 focus:border-red-500" : ""} />
+                {Number(currentAssetsFormData.amount) <= 0 && currentAssetsFormData.amount !== "" && currentAssetsFormData.amount !== 0 && <p className="text-xs text-red-500 mt-1">Amount must be greater than zero</p>}
               </div>
             </div>
             <div>
               <Label>Asset Category</Label>
               <Input value="Current" disabled className="bg-muted" />
+              <p className="text-xs text-muted-foreground mt-1">Current assets bypass depreciation schedules</p>
             </div>
             <div>
               <Label>Description</Label>
@@ -2011,8 +2454,17 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
           <DialogFooter>
             <Button variant="outline" onClick={() => setCurrentAssetsForm(false)}>Cancel</Button>
             <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => saveAsset("Current")} disabled={currentAssetsSaving}>
-              {currentAssetsSaving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : null}
-              {currentAssetsEdit ? "Update" : "Create"}
+              {currentAssetsSaving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                  Recalculating Equity Balance & Fixed Asset Ledgers...
+                </>
+              ) : (
+                <>
+                  <Wallet className="w-4 h-4 mr-1" />
+                  {currentAssetsEdit ? "Update" : "Post Capital Investment"}
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

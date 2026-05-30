@@ -2413,3 +2413,186 @@ Stage Summary:
   2. ✅ LOGO UPLOADER ENGINE & DATABASE BASE64 PERSISTENCE: Drag-drop uploader with .png/.jpg validation, 2MB max, base64 conversion, stored in Company.logoData field, instant preview badge
   3. ✅ GLOBAL PRINT & PDF LAYOUT WHITE-LABEL SYNC ENGINE: Hardcoded "Electronics Mart" eliminated from PDF fallbacks, dynamic Company context injection via company-branding-cache, logoData fallback support
   4. ✅ UI STATE LOCKS & FAILURE SNAPSHOTS & AUDIT ACTIVITY LINKING: Save button locks with isLoading=true + RefreshCw animate-spin, rollback to brandingSnapshot on API failure, logUserActivity with "Sys-Branding-Setup" module token on backend
+
+---
+Task ID: 6
+Agent: Backend Investment API Routes Agent
+Task: Rewrite Investment Module API routes (8 files) with strict validation, safe financial arithmetic, multi-tenant isolation, and audit logging
+
+Work Log:
+- Read worklog.md for prior context (Tasks 1-13)
+- Read api-security.ts for withApiSecurity, checkPeriodClose, checkFinancialDeletePermission, safeFinancialRound/Add/Subtract, maskForVatAuditorFinancial, maskFinancialArray, validateImageFields
+- Read activity-logger.ts for logUserActivity API
+- Read Prisma schema for InvestmentHead, Asset, AssetDepreciation, Liability models (with companyId, idempotencyKey, depreciation fields)
+- Read all 6 existing Investment API route files to understand current patterns
+
+File 1: /api/investment-heads/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter `where: { isActive: true, ...(companyId ? { companyId } : {}) }`
+- GET: Includes _count for assets and liabilities relations
+- POST: Validates openingBalance >= 0 (rejects negative with 400)
+- POST: Validates sharePercentage > 0 and <= 100 if provided
+- POST: Validates capitalValue > 0 if provided
+- POST: Creates with companyId from security.user.companyId via null-safe spread
+- POST: safeFinancialRound on openingBalance, sharePercentage, capitalValue
+- POST: batchMode support (body.batchMode === true with body.data array)
+- POST: AuditLog module = 'Inv-Asset-Ledger' (was 'InvestmentHeads')
+- POST: logUserActivity with module 'Inv-Asset-Ledger' for both single and batch
+
+File 2: /api/investment-heads/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation (returns 404 on mismatch)
+- PUT: Cross-tenant validation before any modification
+- PUT: Same financial field validation as POST (openingBalance, sharePercentage, capitalValue)
+- PUT: safeFinancialRound on updated financial fields
+- PUT: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+- DELETE: checkFinancialDeletePermission(security.user.role) — only admin can delete
+- DELETE: Cross-tenant validation before soft delete
+- DELETE: FK check for active assets/liabilities referencing the head
+- DELETE: Soft delete (isActive=false) with AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+
+File 3: /api/assets/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter by security.user.companyId
+- GET: Category filter (assetCategory) and headType filter (via investmentHead relation)
+- GET: Includes depreciationSchedules in response
+- GET: Applies maskFinancialArray for VAT Auditor on INVESTMENT_ASSET_MASKED_FIELDS
+- POST: CRITICAL — Checks Investment Head exists AND isActive
+  - If not active: returns 400 "Action Blocked: Chosen Investment Head is inactive or archived."
+- POST: Fixed Asset mandatory validation: purchaseValue > 0, salvageValue >= 0, salvageValue < purchaseValue (400 on violation), usefulLifeMonths > 0, depreciationRate >= 0
+- POST: Current Asset: bypasses depreciation fields validation
+- POST: Idempotency guard: if body.idempotencyKey provided, checks for existing Asset; returns existing record (400 with message) if found
+- POST: Amount must be > 0 (rejects zero/negative with 400)
+- POST: Auto-calculates: netBookValue = purchaseValue (initial), accumulatedDepreciation = 0
+- POST: Monthly depreciation = (purchaseValue - salvageValue) / usefulLifeMonths using safeFinancialRound/safeFinancialSubtract
+- POST: Creates with companyId from security.user.companyId
+- POST: safeFinancialRound on all financial values
+- POST: $transaction: create asset + auto-post to Chart of Accounts (Equity node) + AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+- POST: batchMode support with createSingleAsset helper
+- POST: Period close check via checkPeriodClose
+
+File 4: /api/assets/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation, includes depreciationSchedules
+- GET: Applies maskForVatAuditorFinancial for VAT Auditor masking
+- PUT: Cross-tenant validation before any modification
+- PUT: Investment Head isActive check if changing head
+- PUT: Amount > 0 validation if provided
+- PUT: Fixed Asset validation same as POST (purchaseValue, salvageValue, usefulLifeMonths, depreciationRate)
+- PUT: Recalculates depreciation if purchaseValue/salvageValue/usefulLifeMonths change
+- PUT: Rebuilds running accumulatedDepreciation and netBookValue from schedule count
+- PUT: Current Asset: resets depreciation fields, uses amount directly
+- PUT: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+- DELETE: checkFinancialDeletePermission(security.user.role) — only admin can delete
+- DELETE: Cross-tenant validation, soft delete
+- DELETE: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+
+File 5: /api/liabilities/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter by security.user.companyId
+- GET: Type and headId filters
+- GET: Includes investmentHead in response
+- GET: Applies maskFinancialArray for VAT Auditor on LIABILITY_MASKED_FIELDS
+- POST: Checks Investment Head isActive (same block as assets)
+- POST: Amount must be > 0
+- POST: Creates with companyId, safeFinancialRound on amount
+- POST: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+- POST: batchMode support with createSingleLiability helper
+- POST: Period close check via checkPeriodClose
+
+File 6: /api/liabilities/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation, maskForVatAuditorFinancial
+- PUT: Cross-tenant validation, Investment Head isActive check if changing head
+- PUT: Amount > 0 validation, safeFinancialRound on amount
+- PUT: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+- DELETE: checkFinancialDeletePermission(security.user.role) — only admin can delete
+- DELETE: Cross-tenant validation, soft delete
+- DELETE: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+
+File 7 (NEW): /api/asset-depreciation/route.ts
+- GET: List depreciation schedules with filters (assetId, periodDateFrom/To range)
+- GET: Filters by companyId via Asset relation
+- GET: Applies maskFinancialArray for VAT Auditor on DEPRECIATION_MASKED_FIELDS
+- POST: Generate depreciation schedule for a specific asset and period
+- POST: Only Fixed Assets can have depreciation (Current Assets blocked with 400)
+- POST: Validates usefulLifeMonths > 0 and salvageValue < purchaseValue
+- POST: Calculates: depreciationAmount = (purchaseValue - salvageValue) / usefulLifeMonths
+- POST: Ensures netBookValue doesn't go below salvageValue
+- POST: Duplicate period check (prevents double-depreciation for same month)
+- POST: Updates Asset.accumulatedDepreciation and Asset.netBookValue
+- POST: Cross-tenant validation via Asset relation
+- POST: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+
+File 8 (NEW): /api/asset-depreciation/[id]/route.ts
+- GET: Single depreciation entry with asset and investmentHead included
+- GET: Cross-tenant validation via Asset.companyId
+- GET: Applies maskForVatAuditorFinancial
+- PUT: Updates depreciation entry, recalculates ALL schedule running totals (accumulatedDepreciation, netBookValue) across all active schedules for the asset
+- PUT: Updates Asset running totals from last schedule
+- PUT: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+- DELETE: checkFinancialDeletePermission(security.user.role) — only admin can delete
+- DELETE: Cross-tenant validation, soft delete
+- DELETE: Recalculates Asset totals from remaining active schedules after deletion
+- DELETE: If no schedules remain, resets accumulatedDepreciation=0 and netBookValue=purchaseValue
+- DELETE: AuditLog module = 'Inv-Asset-Ledger' + logUserActivity
+
+Verification:
+- `bun run lint` passed with zero errors
+- All 8 route files follow project conventions (Next.js 16 params as Promise, $transaction for atomicity)
+
+Stage Summary:
+- 8 API route files (6 rewritten + 2 new) with complete multi-tenant companyId isolation
+- All financial calculations use safeFinancialRound/Add/Subtract (no raw +/- or Prisma increment/decrement)
+- AuditLog module token standardized to 'Inv-Asset-Ledger' for ALL investment module operations
+- logUserActivity with module 'Inv-Asset-Ledger' for all create/update/delete operations
+- checkFinancialDeletePermission enforced on ALL DELETE routes (admin-only)
+- maskFinancialArray/maskForVatAuditorFinancial applied for VAT Auditor role
+- batchMode support added to investment-heads, assets, and liabilities POST routes
+- Idempotent asset creation via idempotencyKey guard
+- Fixed vs Current Asset classification enforced: Fixed Assets require depreciation fields, Current Assets bypass
+- Depreciation schedule management with automatic running total recalculation
+- Cross-tenant validation on all individual routes (/id)
+- Investment Head isActive check blocks asset/liability creation under deactivated heads
+
+---
+Task ID: Phase-3
+Agent: Main Orchestrator
+Task: PHASE 3 — Investment Module Group: Investment Heads, Capital Investments, Asset Management (Fixed vs Current Assets), Asset Depreciation Ledgers
+
+Work Log:
+- Read existing Prisma schema, API routes (7 files), and InvestmentGroupPage.tsx (2182 lines)
+- Updated Prisma schema with Phase 3 models:
+  - InvestmentHead: Added sharePercentage, capitalValue, companyId fields
+  - Asset: Added purchaseValue, salvageValue, usefulLifeMonths, depreciationRate, accumulatedDepreciation, netBookValue, idempotencyKey, companyId
+  - AssetDepreciation: NEW model with assetId, periodDate, depreciationAmount, accumulatedDepreciation, netBookValue, method, notes
+  - Liability: Added companyId
+  - Company: Added investmentHeads, assetEntries, liabilityEntries relations
+- Ran prisma db push — schema synced successfully
+- Rewrote 8 API route files via subagent:
+  1. /api/investment-heads/route.ts — companyId filter, financial validation (openingBalance≥0, sharePercentage 0.01-100, capitalValue>0), batchMode, AuditLog "Inv-Asset-Ledger"
+  2. /api/investment-heads/[id]/route.ts — Cross-tenant validation, checkFinancialDeletePermission, FK check, logUserActivity
+  3. /api/assets/route.ts — Investment Head isActive check ("Action Blocked:"), Fixed Asset validation (purchaseValue>0, salvageValue<purchaseValue, usefulLifeMonths>0), idempotencyKey guard, monthly depreciation auto-calc, Equity ledger auto-post, batchMode
+  4. /api/assets/[id]/route.ts — Cross-tenant validation, depreciation recalculation on value changes, depreciationSchedules included, maskForVatAuditorFinancial
+  5. /api/liabilities/route.ts — Investment Head isActive check, amount>0, companyId filter, batchMode, maskFinancialArray
+  6. /api/liabilities/[id]/route.ts — Cross-tenant validation, checkFinancialDeletePermission, maskForVatAuditorFinancial
+  7. /api/asset-depreciation/route.ts — NEW: GET with filters, POST generates depreciation schedule, duplicate period check, netBookValue floor at salvageValue, auto-updates Asset totals
+  8. /api/asset-depreciation/[id]/route.ts — NEW: GET/PUT/DELETE for single depreciation entry, recalculates running totals
+- Fixed import errors: logUserActivity moved from @/lib/api-security to @/lib/activity-logger across all 8 route files
+- Updated InvestmentGroupPage.tsx frontend with all Phase 3 directives:
+  - Intl.NumberFormat('en-BD') for all currency formatting
+  - CompanyProfile state for White-Label PDF with financialFooter (Triple-Signature Layout)
+  - investmentSnapshot rollback pattern for network failure recovery
+  - sharePercentage and capitalValue fields in Investment Head form with red-border validation
+  - Depreciation fields (purchaseValue, salvageValue, usefulLifeMonths, depreciationRate, idempotencyKey) in Fixed Asset dialog
+  - Inactive Head Shield warning banner ("Action Blocked: Chosen Investment Head is inactive or archived.")
+  - Spin-Lock pattern on save buttons ("Recalculating Equity Balance & Fixed Asset Ledgers...")
+  - Fixed Asset table with depreciation columns (Purchase Value, Salvage Value, Useful Life, Accum. Dep., Net Book Value)
+  - New "Depreciation Ledger" tab with monthly generation, export CSV/PDF, expanded detail rows
+  - Manager delete restriction with tooltip ("Only administrators can delete financial posts")
+  - Current Asset "Post Capital Investment" button with spin-lock
+  - Auto-calculated monthly depreciation preview in Fixed Asset dialog
+- Lint: ZERO errors
+- Dev server: HTTP 200 on port 3000
+
+Stage Summary:
+- ✅ DIRECTIVE 1: Capital Investment & Investment Heads Validation — Negative/zero/null blocked client-side (red borders + error messages) and server-side (400 Bad Request). Inactive Head Shield blocks submissions. Atomic $transaction with Equity ledger auto-post.
+- ✅ DIRECTIVE 2: Fixed vs Current Asset Architecture — Strict classification toggle. Current assets bypass depreciation (hidden fields). Fixed Assets: mandatory purchaseValue>0, salvageValue<purchaseValue (400 on violation), usefulLifeMonths>0. IdempotencyKey guard prevents duplicate allocation.
+- ✅ DIRECTIVE 3: Optimistic UI & Spin-Locks — "Register Corporate Asset" and "Post Capital Investment" buttons freeze with animate-spin RefreshCw + "Recalculating Equity Balance..." text. investmentSnapshot rollback on failure. White-Label integration with companyProfile + financialFooter (Triple-Signature: Prepared By / Checked By / Authorized By).
+- ✅ DIRECTIVE 4: Activity Coupling & Compliance — logUserActivity with "Inv-Asset-Ledger" token on all mutations. investmentSnapshot grid rollback pattern for network drops.
+- New AssetDepreciation model and 2 API routes for depreciation schedule management
+- All 8 API routes rewritten with safeFinancialRound/Add/Subtract, companyId isolation, cross-tenant validation, admin-only delete

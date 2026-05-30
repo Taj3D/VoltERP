@@ -35,32 +35,68 @@ model InvestmentHead {
   code            String       @unique
   name            String
   description     String?
-  type            String       @default("Liability")
+  type            String       @default("Liability") // "Liability", "Asset", "Investment"
   openingBalance  Float        @default(0)
   openingType     String       @default("")
+  sharePercentage Float?       // Share ownership percentage for equity heads
+  capitalValue    Float?       // Capital value of the investment head
+  companyId       String?      // Multi-tenant isolation
   profileImage    String?      // Profile photo (base64 or URL)
   nidFrontImage   String?      // National ID front card image
   nidBackImage    String?      // National ID back card image
   isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+  company         Company?     @relation(fields: [companyId], references: [id])
   assets          Asset[]
   liabilities     Liability[]
+
+  @@index([companyId])
 }
 
 model Asset {
-  id              String         @id @default(cuid())
-  investmentHeadId String
-  date            DateTime
-  amount          Float
-  assetCategory   String         @default("Fixed") // "Fixed" or "Current"
-  description     String?
-  isActive        Boolean        @default(true)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+  id                String            @id @default(cuid())
+  investmentHeadId  String
+  date              DateTime
+  amount            Float             // Purchase value / capital injection amount
+  assetCategory     String            @default("Fixed") // "Fixed" or "Current"
+  purchaseValue     Float             @default(0) // Original purchase/acquisition value (Fixed assets)
+  salvageValue      Float             @default(0) // Estimated salvage/residual value at end of useful life
+  usefulLifeMonths  Int               @default(0) // Useful life in months for depreciation calculation
+  depreciationRate  Float             @default(0) // Annual depreciation rate (%)
+  accumulatedDepreciation Float       @default(0) // Running accumulated depreciation
+  netBookValue      Float             @default(0) // Current net book value (purchaseValue - accumulatedDepreciation)
+  idempotencyKey    String?           @unique // Idempotent reference key to prevent duplicate asset allocation
+  description       String?
+  companyId         String?           // Multi-tenant isolation
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  investmentHead    InvestmentHead    @relation(fields: [investmentHeadId], references: [id])
+  company           Company?          @relation(fields: [companyId], references: [id])
+  depreciationSchedules AssetDepreciation[]
 
   @@index([investmentHeadId])
+  @@index([companyId])
+  @@index([assetCategory])
+}
+
+model AssetDepreciation {
+  id              String     @id @default(cuid())
+  assetId         String
+  periodDate      DateTime   // The accounting period date (typically month-end)
+  depreciationAmount Float   @default(0) // Depreciation amount for this period
+  accumulatedDepreciation Float @default(0) // Running total accumulated depreciation after this entry
+  netBookValue    Float      @default(0) // Net book value after this period's depreciation
+  method          String     @default("StraightLine") // "StraightLine" or "DecliningBalance"
+  notes           String?
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  asset           Asset      @relation(fields: [assetId], references: [id])
+
+  @@index([assetId])
+  @@index([periodDate])
 }
 
 model Liability {
@@ -71,12 +107,15 @@ model Liability {
   type            String         @default("received") // "received" or "pay"
   paymentMethod   String?        // "Cash", "Bank Transfer", "Cheque", etc.
   description     String?
+  companyId       String?        // Multi-tenant isolation
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+  company         Company?       @relation(fields: [companyId], references: [id])
 
   @@index([investmentHeadId])
+  @@index([companyId])
 }
 
 // ============================================================
@@ -139,6 +178,9 @@ model Company {
   purchaseReturns    PurchaseReturn[]
   srTargetSetups     SRTargetSetup[]
   paymentOptions     PaymentOption[]
+  investmentHeads    InvestmentHead[]
+  assetEntries       Asset[]
+  liabilityEntries   Liability[]
 }
 
 model Category {
