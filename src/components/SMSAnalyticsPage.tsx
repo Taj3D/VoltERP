@@ -96,10 +96,19 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-// Directive 4 — Lightweight client-side activity logger for CSV exports
-function logCsvExportActivity(moduleToken: string, exportName: string, userDisplayName?: string) {
+// Enhancement 3 — Server-side activity logger for CSV/PDF exports (Directive 4)
+async function logActivityToServer(moduleToken: string, action: string, details: string, userName?: string) {
   try {
-    console.log(`[Activity Log] Module: ${moduleToken} | Action: CSV Export | Export: ${exportName} | User: ${userDisplayName || 'Unknown'} | Timestamp: ${new Date().toISOString()}`);
+    await fetch("/api/audit-logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        module: moduleToken,
+        recordLabel: details,
+        details: JSON.stringify({ exportAction: action, user: userName || 'Unknown' }),
+      }),
+    });
   } catch {}
 }
 
@@ -209,6 +218,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [audienceDueBalance, setAudienceDueBalance] = useState<string>("All");
   const [filteredRecipientCount, setFilteredRecipientCount] = useState<number>(0);
 
+  // Bug Fix 2 — Real customer data for audience filtering
+  const [customers, setCustomers] = useState<any[]>([]);
+
   // Directive 3 — Snapshot for form restore on failure
   const smsSnapshotRef = useRef<SmsSnapshot | null>(null);
 
@@ -268,10 +280,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
     setBalanceLoading(true);
     try {
       const res = await apiFetch("/api/sms-gateway/balance").catch(() => null);
-      if (res && res.balance !== undefined) {
-        setGatewayCreditBalance(Number(res.balance));
-      } else if (res && res.data?.balance !== undefined) {
-        setGatewayCreditBalance(Number(res.data.balance));
+      if (res && res.creditBalance !== undefined) {
+        setGatewayCreditBalance(Number(res.creditBalance));
+      } else if (res && res.data?.creditBalance !== undefined) {
+        setGatewayCreditBalance(Number(res.data.creditBalance));
       }
     } catch {
       // Silently fail — balance may not be available from all gateways
@@ -323,33 +335,59 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   // DIRECTIVE 3 — COMPUTE FILTERED RECIPIENT COUNT
   // ============================================================
 
+  // Bug Fix 2 — Load customers when send tab is active with bulk mode
+  useEffect(() => {
+    if (activeTab === "send" && sendMode === "bulk") {
+      apiFetch("/api/customers").then(res => {
+        setCustomers(Array.isArray(res) ? res : res?.data || []);
+      }).catch(() => {});
+    }
+  }, [activeTab, sendMode]);
+
+  // Bug Fix 2 — Compute filtered recipient count using real customer data
   useEffect(() => {
     if (sendMode !== "bulk") {
       setFilteredRecipientCount(0);
       return;
     }
     const baseCount = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean).length;
-    // Simulate audience filtering — in production this would query backend
-    let count = baseCount;
-    if (audienceZone !== "all") {
-      // Simulate ~70% of recipients in selected zone
-      count = Math.round(count * 0.7);
-    }
-    if (audienceCustomerType !== "All") {
-      // Simulate ~60% of recipients matching customer type
-      count = Math.round(count * 0.6);
-    }
-    if (audienceDueBalance !== "All") {
-      if (audienceDueBalance === "No Due") {
-        count = Math.round(count * 0.3);
-      } else if (audienceDueBalance === "10000+") {
-        count = Math.round(count * 0.1);
-      } else {
-        count = Math.round(count * 0.5);
+
+    // If we have customer data and audience filters are applied, use real filtering
+    if (customers.length > 0 && (audienceZone !== "all" || audienceCustomerType !== "All" || audienceDueBalance !== "All")) {
+      let filtered = [...customers];
+      if (audienceZone !== "all") {
+        filtered = filtered.filter(c =>
+          (c.zone === audienceZone) ||
+          (c.address && c.address.includes(audienceZone)) ||
+          (c.area === audienceZone)
+        );
       }
+      if (audienceCustomerType !== "All") {
+        filtered = filtered.filter(c =>
+          (c.type === audienceCustomerType) ||
+          (c.customerType === audienceCustomerType)
+        );
+      }
+      if (audienceDueBalance !== "All") {
+        filtered = filtered.filter(c => {
+          const due = Number(c.dueBalance) || Number(c.outstandingBalance) || Number(c.balance) || 0;
+          switch (audienceDueBalance) {
+            case "No Due": return due <= 0;
+            case "1-1000": return due >= 1 && due <= 1000;
+            case "1001-5000": return due >= 1001 && due <= 5000;
+            case "5001-10000": return due >= 5001 && due <= 10000;
+            case "10000+": return due > 10000;
+            default: return true;
+          }
+        });
+      }
+      // Count customers with phone numbers
+      const withPhones = filtered.filter(c => c.phone || c.mobile || c.contactNumber);
+      setFilteredRecipientCount(withPhones.length || baseCount);
+    } else {
+      setFilteredRecipientCount(baseCount);
     }
-    setFilteredRecipientCount(count);
-  }, [sendMode, smsBulkRecipients, audienceZone, audienceCustomerType, audienceDueBalance]);
+  }, [sendMode, smsBulkRecipients, audienceZone, audienceCustomerType, audienceDueBalance, customers]);
 
   // ============================================================
   // DIRECTIVE 2 — CAMPAIGN BALANCE SHIELD CHECK
@@ -788,8 +826,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         vatMaskedColumns: ["cost"],
         filename: "sms-logs",
       });
-      // Directive 4 — Activity logging for CSV exports
-      logCsvExportActivity("Comm-SMS-Marketing", "SMS Logs CSV", authUser?.displayName);
+      // Enhancement 3 — Server-side activity logging for CSV exports
+      logActivityToServer("Comm-SMS-Marketing", "CSV_EXPORT", "SMS Logs CSV", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Logs exported to CSV" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -817,6 +855,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
+      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Logs PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Logs exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -836,8 +875,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
         filename: "sms-bills",
       });
-      // Directive 4 — Activity logging for CSV exports
-      logCsvExportActivity("Comm-SMS-Marketing", "SMS Bills CSV", authUser?.displayName);
+      // Enhancement 3 — Server-side activity logging for CSV exports
+      logActivityToServer("Comm-SMS-Marketing", "CSV_EXPORT", "SMS Bills CSV", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Bills exported to CSV" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -865,6 +904,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
+      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Bills PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Bills exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -900,6 +940,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
+      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Report PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Report exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -937,6 +978,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
+      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Settings PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Settings exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -2038,6 +2080,47 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     </div>
                   </div>
                 </div>
+
+                {/* Enhancement 4 — SMS Message Counter Info Card */}
+                <Card className="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">SMS Message Counter</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Total Characters</span>
+                        <p className="font-bold text-slate-900 dark:text-white">{charCount}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Encoding Type</span>
+                        <p>
+                          <Badge className={isUnicode
+                            ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[10px] px-1.5 py-0"
+                            : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 text-[10px] px-1.5 py-0"
+                          }>
+                            {isUnicode ? "Unicode" : "GSM"}
+                          </Badge>
+                        </p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Chars / Segment</span>
+                        <p className="font-bold text-slate-900 dark:text-white">{charsPerSegment}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">SMS Units / Recipient</span>
+                        <p className="font-bold text-slate-900 dark:text-white">{segmentCount}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Est. Cost / Recipient</span>
+                        <p className="font-bold text-slate-900 dark:text-white">
+                          {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(segmentCount * estimatedCostPerSegment)}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {/* Directive 3 — Double-Hit Guard Send Button */}
                 <Button
