@@ -1198,3 +1198,641 @@ export function isVatMasked(columnKey: string, extraMasked?: string[]): boolean 
 export function getVatMaskedKeys(columns: ColumnDef[], extraMasked?: string[]): string[] {
   return columns.filter((c) => isVatMasked(c.key, extraMasked)).map((c) => c.key);
 }
+
+// ============================================================
+// INVOICE PDF CANVAS ENGINE — Phase 11 Refactoring
+// Corporate criteria: metadata matrix, payment summary,
+// legal compliance footer, invoice export orchestration
+// ============================================================
+
+// ── New Types ──
+
+/** Invoice metadata for two-column metadata matrix rendering */
+export interface InvoiceMetadata {
+  documentNo: string;           // PO Number or Invoice Number
+  counterpartyCode?: string;    // Supplier Code or Customer Code
+  counterpartyName: string;     // Supplier Name or Customer Name
+  counterpartyMobile?: string;  // Counterparty phone
+  counterpartyAddress?: string; // Counterparty address
+  creationDate: string;         // Document creation date
+  dueDate?: string;             // Expected delivery or payment due date
+  previousOutstanding?: number; // Previous outstanding balance
+  balanceStatus?: string;       // "Clear", "Due", "Overdue"
+  branchLocation?: string;      // Specific Branch/Showroom Location
+}
+
+/** Payment type breakdown for invoice rendering */
+export interface PaymentBreakdown {
+  cash: number;     // Cash amount collected
+  bank: number;     // Bank transfer amount
+  mfs: number;      // Mobile Financial Services (bKash/Nagad)
+  card: number;     // Card payment amount
+}
+
+/** Legal compliance footer configuration */
+export interface LegalFooterConfig {
+  legalText?: string;      // Default: "This is a system-generated secure document. No physical seal or manual signature is required."
+  greetingText?: string;   // Default: "Thank you for choosing our enterprise solutions."
+}
+
+/** Extended PDF options for invoice-specific rendering */
+export interface InvoicePDFOptions extends PDFOptions {
+  metadata?: InvoiceMetadata;
+  paymentBreakdown?: PaymentBreakdown;
+  legalFooter?: LegalFooterConfig;
+}
+
+// ── Helper: Format currency for invoice rendering ──
+
+function invoiceCurrencyFmt(value: number, company?: CompanyProfile): string {
+  const symbol = company?.currencySymbol || "\u09F3";
+  const formatted = value.toLocaleString("en-BD", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${symbol}${formatted}`;
+}
+
+// ── New Drawing Functions ──
+
+/**
+ * Draw a two-column metadata matrix BELOW the header block.
+ * LEFT COLUMN:  Document No, Counterparty Code, Counterparty Name, Mobile, Address
+ * RIGHT COLUMN: Creation Date, Due Date, Previous Outstanding (formatted with currency), Balance Status
+ *
+ * Returns the Y position after the metadata matrix.
+ */
+export function drawMetadataMatrix(
+  doc: jsPDF,
+  metadata: InvoiceMetadata,
+  startY: number,
+  pageWidth: number,
+  margin: number,
+  company?: CompanyProfile
+): number {
+  const contentWidth = pageWidth - margin * 2;
+  const colWidth = contentWidth / 2;
+  const labelWidth = 38;
+  const rowHeight = 5.5;
+  const sectionPadding = 2;
+
+  // ── Section title ──
+  let currentY = startY + sectionPadding;
+
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(10, 22, 40);
+  doc.text("Document Information", margin, currentY);
+  currentY += 1;
+
+  // ── Light gray background for the entire matrix ──
+  // Count rows: LEFT has 5 rows, RIGHT has 4 rows → 5 rows total
+  const totalRows = 5;
+  const matrixHeight = totalRows * rowHeight + sectionPadding * 2;
+  doc.setFillColor(248, 249, 250); // #f8f9fa
+  doc.setDrawColor(203, 213, 225); // slate-300
+  doc.setLineWidth(0.2);
+  doc.roundedRect(margin, currentY, contentWidth, matrixHeight, 1, 1, "FD");
+
+  const matrixStartY = currentY + sectionPadding;
+
+  // ── LEFT COLUMN ──
+  const leftRows: Array<{ label: string; value: string }> = [
+    { label: "Document No", value: metadata.documentNo || "\u2014" },
+    { label: "Counterparty Code", value: metadata.counterpartyCode || "\u2014" },
+    { label: "Counterparty Name", value: metadata.counterpartyName || "\u2014" },
+    { label: "Mobile", value: metadata.counterpartyMobile || "\u2014" },
+    { label: "Address", value: metadata.counterpartyAddress || "\u2014" },
+  ];
+
+  // ── RIGHT COLUMN ──
+  const rightRows: Array<{ label: string; value: string }> = [
+    { label: "Creation Date", value: formatCellValue(metadata.creationDate, "date") },
+    {
+      label: "Due Date",
+      value: metadata.dueDate ? formatCellValue(metadata.dueDate, "date") : "\u2014",
+    },
+    {
+      label: "Previous Outstanding",
+      value:
+        metadata.previousOutstanding !== undefined && metadata.previousOutstanding !== null
+          ? invoiceCurrencyFmt(metadata.previousOutstanding, company)
+          : "\u2014",
+    },
+    { label: "Balance Status", value: metadata.balanceStatus || "\u2014" },
+  ];
+
+  // Add branch location to right column if present
+  if (metadata.branchLocation) {
+    rightRows.push({ label: "Branch", value: metadata.branchLocation });
+  }
+
+  doc.setFontSize(7);
+
+  // Draw LEFT column rows
+  leftRows.forEach((row, i) => {
+    const rowY = matrixStartY + i * rowHeight + 3.5;
+
+    // Label (bold)
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(80, 80, 80);
+    doc.text(`${row.label}:`, margin + 3, rowY);
+
+    // Value (normal)
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    const valueX = margin + 3 + labelWidth;
+    const maxValueWidth = colWidth - labelWidth - 6;
+    const displayValue =
+      doc.getTextWidth(row.value) > maxValueWidth
+        ? doc.splitTextToSize(row.value, maxValueWidth)[0]
+        : row.value;
+    doc.text(displayValue, valueX, rowY);
+
+    // Light separator line
+    if (i < leftRows.length - 1) {
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.1);
+      doc.line(margin + 3, rowY + 1.5, margin + colWidth - 3, rowY + 1.5);
+    }
+  });
+
+  // Draw RIGHT column rows
+  rightRows.forEach((row, i) => {
+    const rowY = matrixStartY + i * rowHeight + 3.5;
+    const colX = margin + colWidth;
+
+    // Label (bold)
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(80, 80, 80);
+    doc.text(`${row.label}:`, colX + 3, rowY);
+
+    // Value (normal)
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    const valueX = colX + 3 + labelWidth;
+    const maxValueWidth = colWidth - labelWidth - 6;
+    const displayValue =
+      doc.getTextWidth(row.value) > maxValueWidth
+        ? doc.splitTextToSize(row.value, maxValueWidth)[0]
+        : row.value;
+    doc.text(displayValue, valueX, rowY);
+
+    // Light separator line
+    if (i < rightRows.length - 1) {
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.1);
+      doc.line(colX + 3, rowY + 1.5, colX + colWidth - 3, rowY + 1.5);
+    }
+  });
+
+  // Vertical divider between left and right columns
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.2);
+  doc.line(margin + colWidth, currentY + 1, margin + colWidth, currentY + matrixHeight - 1);
+
+  return currentY + matrixHeight + 3;
+}
+
+/**
+ * Draw a payment summary sub-table at the bottom-left of the invoice.
+ * Maps Payment Type Breakdowns: Cash / Bank / MFS / Card alongside amounts.
+ * Only renders if at least one payment amount > 0.
+ *
+ * Returns the Y position after the payment block.
+ */
+export function drawPaymentSummaryBlock(
+  doc: jsPDF,
+  breakdown: PaymentBreakdown,
+  startY: number,
+  pageWidth: number,
+  margin: number,
+  company?: CompanyProfile
+): number {
+  // Only render if at least one payment amount > 0
+  if (breakdown.cash <= 0 && breakdown.bank <= 0 && breakdown.mfs <= 0 && breakdown.card <= 0) {
+    return startY;
+  }
+
+  const contentWidth = pageWidth - margin * 2;
+  const tableWidth = contentWidth * 0.5; // Left half of the page
+  const rowHeight = 5.5;
+  const sectionPadding = 2;
+
+  let currentY = startY + sectionPadding;
+
+  // ── Section title ──
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(10, 22, 40);
+  doc.text("Payment Summary", margin, currentY);
+  currentY += 1;
+
+  // ── Build rows ──
+  const rows: Array<{ type: string; amount: string }> = [];
+
+  if (breakdown.cash > 0) {
+    rows.push({ type: "Cash", amount: invoiceCurrencyFmt(breakdown.cash, company) });
+  }
+  if (breakdown.bank > 0) {
+    rows.push({ type: "Bank Transfer", amount: invoiceCurrencyFmt(breakdown.bank, company) });
+  }
+  if (breakdown.mfs > 0) {
+    rows.push({ type: "MFS (bKash/Nagad)", amount: invoiceCurrencyFmt(breakdown.mfs, company) });
+  }
+  if (breakdown.card > 0) {
+    rows.push({ type: "Card Payment", amount: invoiceCurrencyFmt(breakdown.card, company) });
+  }
+
+  const total = breakdown.cash + breakdown.bank + breakdown.mfs + breakdown.card;
+
+  // ── Light background for payment block ──
+  const matrixHeight = (rows.length + 1) * rowHeight + sectionPadding * 2; // +1 for total row
+  doc.setFillColor(248, 249, 250); // #f8f9fa
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(margin, currentY, tableWidth, matrixHeight, 1, 1, "FD");
+
+  const matrixStartY = currentY + sectionPadding;
+
+  doc.setFontSize(7);
+
+  // Draw data rows
+  rows.forEach((row, i) => {
+    const rowY = matrixStartY + i * rowHeight + 3.5;
+
+    // Type label
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    doc.text(row.type, margin + 4, rowY);
+
+    // Amount (right-aligned within the block)
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    const amountWidth = doc.getTextWidth(row.amount);
+    doc.text(row.amount, margin + tableWidth - 4 - amountWidth, rowY);
+
+    // Separator line
+    if (i < rows.length - 1) {
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.1);
+      doc.line(margin + 3, rowY + 1.5, margin + tableWidth - 3, rowY + 1.5);
+    }
+  });
+
+  // ── Total row ──
+  const totalY = matrixStartY + rows.length * rowHeight + 3.5;
+
+  // Separator above total
+  doc.setDrawColor(10, 22, 40);
+  doc.setLineWidth(0.3);
+  doc.line(margin + 3, totalY - 3, margin + tableWidth - 3, totalY - 3);
+
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(10, 22, 40);
+  doc.text("Total", margin + 4, totalY);
+
+  const totalAmount = invoiceCurrencyFmt(total, company);
+  const totalAmountWidth = doc.getTextWidth(totalAmount);
+  doc.text(totalAmount, margin + tableWidth - 4 - totalAmountWidth, totalY);
+
+  return currentY + matrixHeight + 3;
+}
+
+/**
+ * Append legal compliance footer text just above the navy footer bar.
+ * - Italicized legal text: system-generated document disclaimer
+ * - Customizable customer greeting
+ *
+ * Returns the Y position after the legal text.
+ */
+export function drawLegalComplianceFooter(
+  doc: jsPDF,
+  config: LegalFooterConfig,
+  pageWidth: number,
+  pageHeight: number,
+  margin: number,
+  _company?: CompanyProfile
+): number {
+  const legalText =
+    config.legalText ||
+    "This is a system-generated secure document. No physical seal or manual signature is required.";
+  const greetingText =
+    config.greetingText || "Thank you for choosing our enterprise solutions.";
+
+  // Position just above the navy footer bar (which starts at pageHeight - 12)
+  // If financial footer is also present, we need to go above the signature block
+  // Default: place legal text at pageHeight - 40 (above financial footer at pageHeight - 28)
+  const legalY = pageHeight - 42;
+  const greetingY = legalY + 4;
+
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "italic");
+  doc.setTextColor(140, 140, 140); // gray
+
+  // Legal text (left-aligned)
+  const maxLegalWidth = pageWidth - margin * 2;
+  const legalLines = doc.splitTextToSize(legalText, maxLegalWidth);
+  legalLines.forEach((line: string, i: number) => {
+    doc.text(line, margin, legalY + i * 3);
+  });
+
+  // Greeting text (left-aligned, after legal lines)
+  const greetingStartY = legalY + legalLines.length * 3 + 1;
+  const greetingLines = doc.splitTextToSize(greetingText, maxLegalWidth);
+  greetingLines.forEach((line: string, i: number) => {
+    doc.text(line, margin, greetingStartY + i * 3);
+  });
+
+  return greetingStartY + greetingLines.length * 3;
+}
+
+// ── Invoice Export Orchestrator ──
+
+/**
+ * High-level invoice PDF export function that orchestrates all new blocks:
+ * 1. Corporate header (existing drawCorporateHeader)
+ * 2. Metadata matrix (NEW drawMetadataMatrix) — if metadata provided
+ * 3. Main table (existing autoTable pattern)
+ * 4. Payment summary block (NEW drawPaymentSummaryBlock) — if breakdown provided
+ * 5. Legal compliance footer (NEW drawLegalComplianceFooter)
+ * 6. Standard footer (existing drawFooter with financialFooter signatures)
+ * 7. Fix Page X of Y (existing fixPageXOfY)
+ * 8. Save PDF
+ */
+export function exportInvoicePDF(options: InvoicePDFOptions): void {
+  const {
+    title,
+    subtitle,
+    orientation = "portrait",
+    columns,
+    data,
+    isVatAuditor = false,
+    vatMaskedColumns = [],
+    filename,
+    summaryRows,
+    customHeader,
+    company,
+    financialFooter,
+    metadata,
+    paymentBreakdown,
+    legalFooter,
+  } = options;
+
+  try {
+    const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    const vatMaskSet = new Set(vatMaskedColumns);
+    const TOTAL_PLACEHOLDER = "{total}";
+
+    // ── 1. Corporate Header ──
+    let currentY = drawCorporateHeader(
+      doc,
+      title,
+      subtitle,
+      isVatAuditor,
+      pageWidth,
+      margin,
+      company
+    );
+
+    // ── 2. Metadata Matrix (if provided) ──
+    if (metadata) {
+      currentY = drawMetadataMatrix(doc, metadata, currentY, pageWidth, margin, company);
+    }
+
+    // ── Adjust bottom margin for financial footer + legal footer ──
+    const bottomMargin = financialFooter ? 44 : legalFooter ? 48 : 18;
+
+    // ── 3. Main Table ──
+    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+    const headers = visibleColumns.map((c) => c.label);
+    const body = data.map((item: any) =>
+      visibleColumns.map((c) =>
+        formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key))
+      )
+    );
+
+    // autoTable Configuration
+    const headStyles: any = {
+      fillColor: [37, 99, 235],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8,
+      halign: "left",
+      cellPadding: 3,
+    };
+
+    const alternateRowStyles: any = {
+      fillColor: [240, 244, 252],
+    };
+
+    const styles: any = {
+      fontSize: 7,
+      cellPadding: 2.5,
+      textColor: [30, 41, 59],
+      lineWidth: 0.1,
+      lineColor: [203, 213, 225],
+    };
+
+    const columnStyles: Record<number, any> = {};
+    const colWidths = calculateColumnWidths(visibleColumns.length, pageWidth, margin);
+    visibleColumns.forEach((c, i) => {
+      const colConfig: any = {};
+      if (c.type === "currency" || c.type === "number") {
+        colConfig.halign = "right";
+      }
+      colConfig.minCellWidth = colWidths[i].minW;
+      colConfig.maxCellWidth = colWidths[i].maxW;
+      columnStyles[i] = colConfig;
+    });
+
+    // Track the last page number to detect page breaks for legal footer placement
+    let lastDrawnPage = 1;
+
+    autoTable(doc, {
+      head: [headers],
+      body,
+      startY: currentY,
+      margin: { left: margin, right: margin, bottom: bottomMargin },
+      styles,
+      headStyles,
+      alternateRowStyles,
+      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+      didDrawPage: (drawData: any) => {
+        lastDrawnPage = drawData.pageNumber;
+
+        // ── 5. Legal Compliance Footer (on every page) ──
+        if (legalFooter) {
+          drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
+        }
+
+        // ── 6. Standard Footer ──
+        drawFooter(
+          doc,
+          drawData.pageNumber,
+          TOTAL_PLACEHOLDER,
+          pageWidth,
+          pageHeight,
+          margin,
+          company,
+          financialFooter
+        );
+
+        // Custom header callback
+        if (customHeader) {
+          customHeader(doc, drawData.pageNumber, pageWidth, pageHeight);
+        }
+      },
+    });
+
+    // ── 4. Payment Summary Block (after main table) ──
+    if (paymentBreakdown) {
+      const lastTable = (doc as any).lastAutoTable;
+      let paymentY = lastTable ? lastTable.finalY + 6 : currentY + 30;
+
+      // Ensure we're on the correct page
+      const currentPage = doc.getNumberOfPages();
+      if (currentPage !== lastDrawnPage) {
+        doc.setPage(lastDrawnPage);
+      }
+
+      // Check if payment block fits on the current page
+      if (paymentY > pageHeight - bottomMargin - 20) {
+        doc.addPage();
+        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+        if (legalFooter) {
+          drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
+        }
+        drawFooter(
+          doc,
+          doc.getNumberOfPages(),
+          TOTAL_PLACEHOLDER,
+          pageWidth,
+          pageHeight,
+          margin,
+          company,
+          financialFooter
+        );
+        paymentY = 38;
+      }
+
+      paymentY = drawPaymentSummaryBlock(
+        doc,
+        paymentBreakdown,
+        paymentY,
+        pageWidth,
+        margin,
+        company
+      );
+    }
+
+    // ── Summary Rows ──
+    if (summaryRows && summaryRows.length > 0) {
+      const lastTable = (doc as any).lastAutoTable;
+      const summaryStartY = lastTable ? lastTable.finalY + 4 : currentY + 30;
+
+      let currentSummaryY: number;
+      if (summaryStartY > pageHeight - (financialFooter ? 50 : legalFooter ? 54 : 30)) {
+        doc.addPage();
+        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+        if (legalFooter) {
+          drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
+        }
+        drawFooter(
+          doc,
+          doc.getNumberOfPages(),
+          TOTAL_PLACEHOLDER,
+          pageWidth,
+          pageHeight,
+          margin,
+          company,
+          financialFooter
+        );
+        currentSummaryY = 36;
+      } else {
+        currentSummaryY = summaryStartY;
+      }
+
+      summaryRows.forEach((summaryRow) => {
+        const rowStyle = summaryRow.style || {
+          fillColor: [10, 22, 40],
+          textColor: [255, 255, 255],
+          fontStyle: "bold" as const,
+          fontSize: 8,
+        };
+
+        if (currentSummaryY > pageHeight - (financialFooter ? 50 : legalFooter ? 54 : 25)) {
+          doc.addPage();
+          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+          if (legalFooter) {
+            drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
+          }
+          drawFooter(
+            doc,
+            doc.getNumberOfPages(),
+            TOTAL_PLACEHOLDER,
+            pageWidth,
+            pageHeight,
+            margin,
+            company,
+            financialFooter
+          );
+          currentSummaryY = 36;
+        }
+
+        autoTable(doc, {
+          body: [summaryRow.cells],
+          startY: currentSummaryY,
+          margin: { left: margin, right: margin, bottom: bottomMargin },
+          styles: {
+            fontSize: rowStyle.fontSize || 8,
+            cellPadding: 3,
+            textColor: rowStyle.textColor || [255, 255, 255],
+            fontStyle: rowStyle.fontStyle || "bold",
+            lineWidth: 0.1,
+            lineColor: [203, 213, 225],
+          },
+          bodyStyles: {
+            fillColor: rowStyle.fillColor || [10, 22, 40],
+          },
+          columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+          didDrawPage: (drawData: any) => {
+            if (legalFooter) {
+              drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
+            }
+            drawFooter(
+              doc,
+              drawData.pageNumber,
+              TOTAL_PLACEHOLDER,
+              pageWidth,
+              pageHeight,
+              margin,
+              company,
+              financialFooter
+            );
+          },
+        });
+
+        const lastSummaryTable = (doc as any).lastAutoTable;
+        if (lastSummaryTable) {
+          currentSummaryY = lastSummaryTable.finalY + 2;
+        }
+      });
+    }
+
+    // ── 7. Fix Page X of Y ──
+    fixPageXOfY(doc, pageHeight, pageWidth, margin);
+
+    // ── 8. Save PDF ──
+    const rawFilename =
+      filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
+    doc.save(`${safeFilename}.pdf`);
+  } catch (error: any) {
+    console.error("Export Invoice PDF Error:", error);
+    throw new Error(`Invoice PDF export failed: ${error.message || "Unknown error"}`);
+  }
+}
