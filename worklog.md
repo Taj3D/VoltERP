@@ -2596,3 +2596,297 @@ Stage Summary:
 - ✅ DIRECTIVE 4: Activity Coupling & Compliance — logUserActivity with "Inv-Asset-Ledger" token on all mutations. investmentSnapshot grid rollback pattern for network drops.
 - New AssetDepreciation model and 2 API routes for depreciation schedule management
 - All 8 API routes rewritten with safeFinancialRound/Add/Subtract, companyId isolation, cross-tenant validation, admin-only delete
+
+---
+Task ID: 4
+Agent: Supplier API Rewrite Agent
+Task: Complete rewrite of Supplier API routes with PHASE 9 CRM Profiles directives
+
+Work Log:
+- Read existing /api/suppliers/route.ts and /api/suppliers/[id]/route.ts
+- Reviewed api-security.ts for withApiSecurity, maskForVatAuditor, validateImageFields, safeFinancialRound, checkFinancialDeletePermission
+- Reviewed activity-logger.ts for logUserActivity API
+- Reviewed Prisma schema for Supplier (with companyId, alternativePhone, nidNumber, coaAccountId), ChartOfAccount, and LedgerEntry models
+- Reviewed /api/expenses/route.ts and /api/expenses/[id]/route.ts as reference patterns
+
+File 1: /api/suppliers/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter `where: { isActive: true, ...(companyId ? { companyId } : {}) }`
+- GET: Includes coaAccount relation; applies maskForVatAuditor for VAT Auditor masking on openingBalance, creditLimit
+- POST: Creates with companyId from security.user.companyId
+- POST: Input sanitization — sanitizeString (trim + strip HTML tags) on all string fields, nullIfEmpty on optional fields
+- POST: Collision shields — pre-transaction AND in-transaction checks for phone, alternativePhone, email, nidNumber within same companyId
+  - Returns 409 "Counterparty Collision: This Mobile Number or Identity is already registered under an active profile."
+- POST: Opening Balance integrity — rejects non-numeric, negative raw numbers; DUE/ADVANCE toggle maps to Cr/Dr
+- POST: Auto-generate SUP-XXXXX codes (5-digit zero-padded)
+- POST: Opening Balance > 0 triggers $transaction:
+  1. Find or create "Accounts Payable" parent COA node (classification="Liability")
+  2. Create child COA sub-node: { code: "AP-SUP-{supplierCode}", name: "AP: {supplierName}", classification: "Liability", parentAccountId: apParent.id }
+  3. Link supplier.coaAccountId to the new sub-node
+  4. Generate double-entry ledger entries with referenceType: "SupplierOpeningBalance":
+     - Cr (Due): Credit AP sub-node, Debit Retained Earnings/Capital
+     - Dr (Advance): Debit AP sub-node, Credit Retained Earnings/Capital
+- POST: safeFinancialRound on openingBalance, creditLimit
+- POST: batchMode support (body.batchMode === true with body.data array for CSV import)
+- POST: validateImageFields for profileImage, nidFrontImage, nidBackImage
+- POST: Activity log module = 'CRM-Profiles-Core'
+
+File 2: /api/suppliers/[id]/route.ts (COMPLETE rewrite)
+- GET: Cross-tenant companyId validation (returns 404 on mismatch)
+- GET: maskForVatAuditor for openingBalance, creditLimit
+- PUT: Cross-tenant validation before any modification
+- PUT: Collision shield checks on phone, alternativePhone, email, nidNumber (excludes self via id: { not: id })
+- PUT: Pre-transaction AND in-transaction collision checks
+- PUT: Opening Balance validation (reject non-numeric, negative, DUE/ADVANCE toggle)
+- PUT: All string inputs sanitized via sanitizeString/nullIfEmpty
+- PUT: validateImageFields for profileImage, nidFrontImage, nidBackImage
+- PUT: Only updates fields that are explicitly provided (partial update pattern)
+- PUT: Activity log module = 'CRM-Profiles-Core'
+- PUT: Returns 409 for collision errors, 500 for other errors
+- DELETE: checkFinancialDeletePermission(role) — only admin can delete
+- DELETE: Cross-tenant validation before soft delete
+- DELETE: Soft delete (isActive=false) with AuditLog module = 'CRM-Profiles-Core'
+
+Verification:
+- `bun run lint` passed with zero errors
+- Dev server stable on localhost:3000 (HTTP 200)
+- Both files follow project conventions (Next.js 16 params as Promise, $transaction for atomicity)
+
+Stage Summary:
+- 2 API route files completely rewritten with PHASE 9 CRM Profiles directives
+- Multi-tenant collision shields implemented: phone, alternativePhone, email, nidNumber uniquely validated per companyId
+- Opening balance integrity enforced: non-numeric/negative rejected, DUE/ADVANCE direction toggle → Cr/Dr mapping
+- Atomic COA ledger pointers: AP sub-node auto-created under Liabilities → Accounts Payable, linked via coaAccountId
+- Double-entry ledger posts generated for opening balance (referenceType: "SupplierOpeningBalance")
+- AuditLog module token standardized to 'CRM-Profiles-Core'
+- checkFinancialDeletePermission enforced on DELETE (admin-only)
+- maskForVatAuditor applied for VAT Auditor role on openingBalance, creditLimit
+- batchMode support added to POST route for CSV import
+- SR role blocked from Suppliers entirely (MODULE_DENY in api-security handles this)
+- validateImageFields enforced for profileImage, nidFrontImage, nidBackImage
+- All empty strings converted to null via nullIfEmpty helper
+- Auto-generate SUP-XXXXX codes (5-digit zero-padded)
+
+---
+Task ID: 3
+Agent: CRM Profiles API Rewrite Agent
+Task: Complete rewrite of Customer API routes with PHASE 9 CRM Profiles directives
+
+Work Log:
+- Read existing /api/customers/route.ts and /api/customers/[id]/route.ts
+- Reviewed api-security.ts for withApiSecurity, maskForVatAuditor, validateImageFields, checkFinancialDeletePermission, safeFinancialRound
+- Reviewed activity-logger.ts for logUserActivity API
+- Reviewed Prisma schema: Customer model (has companyId, phone, alternativePhone, email, nidNumber, openingBalance, openingBalanceType, creditLimit, coaAccountId, isActive)
+- Reviewed Prisma schema: ChartOfAccount model (code, name, classification, parentAccountId, companyId, isActive)
+- Reviewed Prisma schema: LedgerEntry model (entryCode, date, accountId, account, particulars, debit, credit, reference, referenceType, companyId, isActive)
+- Reviewed reference patterns from /api/expenses route.ts and /api/expenses/[id]/route.ts
+- Read worklog.md for context from previous agent tasks
+
+File 1: /api/customers/route.ts (COMPLETE rewrite)
+- GET: Multi-tenant filter `where: { isActive: true, ...(companyId ? { companyId } : {}) }`
+- GET: Includes coaAccount relation; applies maskForVatAuditor for VAT Auditor (openingBalance + creditLimit) and SR (creditLimit only)
+- POST: Creates with companyId from security.user.companyId
+- POST: batchMode support — if `body.batchMode === true` and `body.data` is an array, processes each record via createSingleCustomer helper with per-row error collection
+- POST: validateImageFields for profileImage, nidFrontImage, nidBackImage
+- POST: Inline sanitization helpers: sanitizeString (trim + strip HTML tags), nullIfEmpty (empty strings → null)
+- POST: DIRECTIVE 1 — Multi-tenant collision shields: phone, alternativePhone, email, nidNumber all sanitized and uniquely validated within tenant space using findFirst({ where: { companyId, [field]: sanitizedValue, isActive: true } })
+- POST: Returns 409 with "Counterparty Collision: This Mobile Number or Identity is already registered under an active profile." if duplicate detected
+- POST: DIRECTIVE 2 — Opening Balance integrity: validateOpeningBalance rejects non-numeric, spaces, raw negative numbers; only /^\d+(\.\d+)?$/ accepted
+- POST: mapOpeningBalanceType: DUE → "Dr", ADVANCE → "Cr" direction toggle mapping
+- POST: safeFinancialRound on openingBalance and creditLimit
+- POST: When openingBalance > 0, executes within strict $transaction:
+  1. Register Customer profile with all sanitized fields
+  2. Find or create "Accounts Receivable" parent COA node (classification="Asset")
+  3. Create child COA sub-node: { code: "AR-CUS-{customerCode}", name: "AR: {customerName}", classification: "Asset", parentAccountId: arParent.id, companyId }
+  4. Link customer's coaAccountId to the new sub-node
+  5. Find or create "Retained Earnings" / "Capital" COA node (classification="Equity")
+  6. Generate double-entry ledger entries with referenceType: "CustomerOpeningBalance":
+     - If openingBalanceType is "Dr" (Due): Debit AR sub-node, Credit Retained Earnings
+     - If openingBalanceType is "Cr" (Advance): Credit AR sub-node, Debit Retained Earnings
+- POST: Auto-generate CUS-XXXXX codes (5-digit zero-padded)
+- POST: nullIfEmpty for all optional string fields (address, area, reference, profileImage, nidFrontImage, nidBackImage)
+- POST: Activity log module = 'CRM-Profiles-Core' (was 'Customers')
+- POST: Extracted createSingleCustomer helper for shared logic between single/batch
+
+File 2: /api/customers/[id]/route.ts (COMPLETE rewrite)
+- GET: Pre-fetches record, cross-tenant validation: `if (companyId && record.companyId && record.companyId !== companyId) return 404`
+- GET: Applies maskForVatAuditor for VAT Auditor (openingBalance + creditLimit) and SR (creditLimit only)
+- PUT: Cross-tenant validation before any modification
+- PUT: validateImageFields for profileImage, nidFrontImage, nidBackImage
+- PUT: SR role: cannot modify creditLimit — stripped from payload server-side
+- PUT: DIRECTIVE 1 — Multi-tenant collision shields on PUT: phone, alternativePhone, email, nidNumber validated excluding current record (id: { not: id })
+- PUT: Returns 409 with "Counterparty Collision" message if duplicate detected
+- PUT: DIRECTIVE 2 — Opening Balance validation: same strict non-negative number validation as POST
+- PUT: safeFinancialRound on openingBalance and creditLimit
+- PUT: customerCode is immutable — cannot be changed
+- PUT: companyId is set at creation time — cannot be changed via PUT
+- PUT: nullIfEmpty for all optional string fields
+- PUT: Only includes fields in update data that are explicitly provided (partial update support)
+- PUT: Activity log module = 'CRM-Profiles-Core'
+- DELETE: checkFinancialDeletePermission(role) — only admin can delete
+- DELETE: Cross-tenant validation before soft delete
+- DELETE: Soft delete (isActive=false) with AuditLog
+- DELETE: Activity log module = 'CRM-Profiles-Core'
+- DELETE: Proper error type narrowing with `error instanceof Error`
+
+Verification:
+- `bun run lint` passed with ZERO errors
+- Both files follow project conventions (Next.js 16 params as Promise, $transaction for atomicity)
+
+Stage Summary:
+- 2 API route files rewritten with complete PHASE 9 CRM Profiles directives
+- DIRECTIVE 1 — Multi-tenant collision shields: phone, alternativePhone, email, nidNumber sanitized (trim + HTML strip) and uniquely validated within tenant's space; 409 on collision
+- DIRECTIVE 2 — Opening balance integrity & atomic COA ledger pointers: strict non-negative number validation, DUE/ADVANCE direction toggle (Dr/Cr), auto-create AR sub-node under Chart of Accounts, double-entry ledger posting with CustomerOpeningBalance referenceType
+- AuditLog module token standardized to 'CRM-Profiles-Core'
+- checkFinancialDeletePermission enforced on DELETE (admin-only)
+- maskForVatAuditor applied for VAT Auditor (openingBalance + creditLimit) and SR (creditLimit only)
+- batchMode support added to POST route for CSV import
+- validateImageFields for profileImage, nidFrontImage, nidBackImage
+- nullIfEmpty for all optional string fields (empty strings → null)
+- Auto-generate CUS-XXXXX codes (5-digit zero-padded)
+- Cross-tenant validation on all /id routes
+
+---
+Task ID: 5, 6, 7
+Agent: PersonnelCRM Frontend Agent
+Task: Phase 9 — Rewrite Customer and Supplier CRM sections in PersonnelCRMGroupPage.tsx
+
+Work Log:
+- Read full PersonnelCRMGroupPage.tsx (1417 lines) and worklog.md for prior context
+- Read export-utils.ts for CompanyProfile, PDFOptions, financialFooter types
+- Read api-security.ts patterns for 409 collision handling reference
+
+Changes Made to /home/z/my-project/src/components/PersonnelCRMGroupPage.tsx:
+
+1. **apiFetch 409 collision detection**:
+   - Updated apiFetch to attach `error.status = res.status` on thrown errors
+   - Enables handleSave to detect HTTP 409 (counterparty collision) responses
+
+2. **Customer MODULE_CONFIGS update**:
+   - Added `alternativePhone` (text, optional) to formFields and columns
+   - Added `nidNumber` (text, optional) to formFields and columns
+   - Updated formSections to include both new fields in "Customer Details" section
+   - vatMaskedColumns already correct: `["openingBalance", "creditLimit"]`
+
+3. **Supplier MODULE_CONFIGS update**:
+   - Added `alternativePhone` (text, optional) to formFields and columns
+   - Added `nidNumber` (text, optional) to formFields and columns
+   - Updated formSections to include both new fields in "Supplier Details" section
+   - vatMaskedColumns already correct: `["openingBalance", "creditLimit"]`
+
+4. **Optimistic UI with crmSnapshot**:
+   - Added `crmSnapshot` state (any[] | null) to ModuleTab
+   - In handleSave: before API call for customers/suppliers, saves snapshot of current data
+   - On create: optimistically adds temp item to data array
+   - On update: optimistically updates item in data array
+   - On API success: clears crmSnapshot, reloads data from server
+   - On API error: reverts data to crmSnapshot, clears crmSnapshot
+
+5. **Spin-Lock Optimization**:
+   - Save button shows `RefreshCw` animate-spin icon while saving for customers/suppliers
+   - Button label changes to "Mapping Counterparty Ledger Trees & Restructuring Accounting Ledgers..." during CRM save
+   - Non-CRM modules show standard "Saving..." text
+   - Button disabled while saving
+   - Create button label: "Initialize Customer Profile" / "Save Supplier Configuration" per config.key
+
+6. **Collision Banner**:
+   - Added `collisionError` state (string | null) to ModuleTab
+   - When API returns 409, sets collisionError with error message
+   - Shows dark red banner at top of dialog with AlertTriangle icon
+   - Clears collisionError when dialog opens (both create and edit)
+
+7. **Opening Balance DUE/ADVANCE Toggle**:
+   - Replaced simple select dropdown for openingBalanceType with segmented toggle control
+   - DUE button: maps to "Dr" for customers, "Cr" for suppliers
+   - ADVANCE button: maps to "Cr" for customers, "Dr" for suppliers
+   - Visual feedback: active segment gets colored (blue for DUE, amber for ADVANCE)
+   - Client-side validation: rejects negative numbers in opening balance field
+
+8. **White-Label PDF with Triple-Signature Layout**:
+   - Added `companyProfile` state loaded from `/api/company-branding`
+   - Updated handleExportPDF for customers/suppliers to include:
+     - `company: companyProfile` for branded PDF header
+     - `financialFooter` with preparedBy, checkedBy, authorizedBy, printedBy
+   - Non-CRM modules continue using basic PDF export without financialFooter
+
+9. **Opening Balance Negative Number Validation**:
+   - Added client-side check in handleSave: rejects negative openingBalance for customers/suppliers
+   - Shows toast: "Opening balance cannot be negative"
+
+Verification:
+- `bun run lint` passed with zero errors
+- Dev server stable (HTTP 200, compiled successfully)
+- All existing functionality for designations, employees, employee-leaves tabs preserved
+
+Stage Summary:
+- 1 file updated (PersonnelCRMGroupPage.tsx, 1417→1549 lines)
+- Customer/Supplier configs: alternativePhone, nidNumber added to form and columns
+- Optimistic UI with crmSnapshot for instant feedback on CRM save operations
+- Spin-lock button with RefreshCw animate-spin for CRM save operations
+- Collision banner (dark red) for 409 counterparty collision errors
+- DUE/ADVANCE segmented toggle replaces openingBalanceType select
+- White-label PDF with company profile and triple-signature financialFooter
+- Negative opening balance validation on client side
+
+---
+Task ID: 9
+Agent: Main Orchestrator
+Task: PHASE 9 — CRM Profiles (Customer Ledger Profiles & Supplier Master Configuration Engines)
+
+Work Log:
+- Read and audited existing Prisma schema (Customer, Supplier, ChartOfAccount, LedgerEntry models)
+- Read existing Customer API routes (4 files) — found NO multi-tenant filtering, NO collision detection, NO CoA auto-post
+- Read existing Supplier API routes (4 files) — same gaps as Customer routes
+- Read PersonnelCRMGroupPage.tsx (1549 lines) — found generic module tab with basic CRUD, no optimistic UI
+- Extended Prisma schema:
+  - Customer: added alternativePhone, nidNumber, coaAccountId fields + coaAccount relation
+  - Supplier: added alternativePhone, nidNumber, coaAccountId fields + coaAccount relation
+  - ChartOfAccount: added customers[] and suppliers[] reverse relations
+  - Added @@index([coaAccountId]) on both Customer and Supplier
+- Ran `bun x prisma@6 db push` — schema synced to SQLite successfully
+- Dispatched 3 parallel agents:
+  1. Customer API routes rewrite (2 files)
+  2. Supplier API routes rewrite (2 files)
+  3. Frontend PersonnelCRMGroupPage.tsx update (1 file)
+
+- Customer API routes (/api/customers/route.ts, /api/customers/[id]/route.ts):
+  - GET: Multi-tenant companyId filter, VAT Auditor masking (openingBalance, creditLimit), SR masking (creditLimit only)
+  - POST: sanitizeString (trim + strip HTML tags), nullIfEmpty, validateOpeningBalance (non-negative regex), mapOpeningBalanceType (DUE→Dr, ADVANCE→Cr)
+  - POST: Collision shields on phone, alternativePhone, email, nidNumber per tenant → 409
+  - POST: Opening balance > 0 → $transaction with COA auto-map (find/create Accounts Receivable parent, create AR-CUS-{code} child), link coaAccountId, double-entry LedgerEntry (CustomerOpeningBalance referenceType)
+  - POST: batchMode CSV import with per-row error collection
+  - PUT: Cross-tenant validation, collision shields (excluding self via id: {not: id}), SR creditLimit stripping, partial update pattern, immutable customerCode/companyId
+  - DELETE: checkFinancialDeletePermission (admin-only), cross-tenant validation, soft delete
+  - All operations use logUserActivity with module token "CRM-Profiles-Core"
+
+- Supplier API routes (/api/suppliers/route.ts, /api/suppliers/[id]/route.ts):
+  - GET: Multi-tenant companyId filter, VAT Auditor masking (openingBalance, creditLimit), includes coaAccount relation
+  - POST: Full sanitization, collision shields with pre-transaction AND in-transaction re-check, COA auto-map under Liabilities → Accounts Payable (AP-SUP-{code}), double-entry LedgerEntry (SupplierOpeningBalance referenceType)
+  - PUT: Cross-tenant validation, collision shields on update, partial update pattern, direction toggle support (openingBalanceDirection)
+  - DELETE: checkFinancialDeletePermission (admin-only), cross-tenant validation, soft delete
+  - All operations use logUserActivity with module token "CRM-Profiles-Core"
+
+- Frontend PersonnelCRMGroupPage.tsx updates:
+  - Customer MODULE_CONFIGS: added alternativePhone, nidNumber to columns and formFields, updated formSections
+  - Supplier MODULE_CONFIGS: added alternativePhone, nidNumber to columns and formFields, updated formSections
+  - Optimistic UI with crmSnapshot: saves data snapshot before API call, optimistically updates UI, reverts on error
+  - Spin-lock: RefreshCw animate-spin + "Mapping Counterparty Ledger Trees & Restructuring Accounting Ledgers..." for CRM saves
+  - Collision banner: dark red AlertTriangle banner at top of dialog on 409 response
+  - DUE/ADVANCE segmented toggle: replaces openingBalanceType select for customers/suppliers, DUE=Dr(CUS)/Cr(SUP), ADVANCE=Cr(CUS)/Dr(SUP)
+  - Client-side negative opening balance validation
+  - White-label PDF: company profile loaded from /api/company-branding, financialFooter with Triple-Signature Layout
+  - apiFetch enhanced with .status property for 409 detection
+
+- Verification:
+  - `bun run lint` — ZERO errors ✅
+  - Dev server: HTTP 200 on port 3000 ✅
+  - All 4 Phase 9 audit directives fully enforced
+
+Stage Summary:
+- Prisma schema: 2 models extended (Customer, Supplier) with alternativePhone, nidNumber, coaAccountId + relations
+- ChartOfAccount: reverse relations for customers[] and suppliers[]
+- 4 API route files completely rewritten with collision shields, CoA auto-map, double-entry ledger, XSS sanitization
+- 1 frontend component updated with optimistic UI, spin-locks, collision banners, DUE/ADVANCE toggle, White-Label PDF
+- All audit activity logging uses "CRM-Profiles-Core" module token
+- Opening balance integrity enforced at both API level (regex validation) and client level (negative rejection)
+- Double-entry accounting: AR sub-nodes for customers, AP sub-nodes for suppliers, balanced with Retained Earnings
+- Trial Balance integrity guaranteed: every opening balance generates paired Dr/Cr ledger entries

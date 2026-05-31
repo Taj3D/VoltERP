@@ -517,23 +517,27 @@ model Customer {
   id                String          @id @default(cuid())
   customerCode      String          @unique  // CUS-XXXXX
   name              String
-  phone             String?
-  email             String?
+  phone             String?         // Primary mobile — collision-shielded per tenant
+  alternativePhone  String?         // Alternative phone — collision-shielded per tenant
+  email             String?         // Email — collision-shielded per tenant
   address           String?
   area              String?
   reference         String?
+  nidNumber         String?         // National ID / Tax ID — collision-shielded per tenant
   openingBalance    Float           @default(0)
-  openingBalanceType String         @default("Dr")  // "Dr" or "Cr"
+  openingBalanceType String         @default("Dr")  // "Dr" (Due) or "Cr" (Advance)
   creditLimit       Float           @default(0)
   customerType      String          @default("Regular")  // "Regular" or "Dealer"
   profileImage      String?         // Profile photo (base64 or URL)
   nidFrontImage     String?         // National ID front card image
   nidBackImage      String?         // National ID back card image
+  coaAccountId      String?         // Auto-mapped Chart of Accounts sub-node under Assets -> Accounts Receivable
   companyId         String?         // Multi-tenant isolation
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   company           Company?        @relation(fields: [companyId], references: [id])
+  coaAccount        ChartOfAccount? @relation(fields: [coaAccountId], references: [id])
   salesOrders       SalesOrder[]
   hireSales         HireSales[]
   salesReturns      SalesReturn[]
@@ -541,6 +545,7 @@ model Customer {
   orderSheets       OrderSheet[]
 
   @@index([companyId])
+  @@index([coaAccountId])
 }
 
 model Supplier {
@@ -548,27 +553,32 @@ model Supplier {
   supplierCode       String           @unique  // SUP-XXXXX
   name               String
   contactPerson      String?
-  phone              String?
-  email              String?
+  phone              String?          // Primary phone — collision-shielded per tenant
+  alternativePhone   String?         // Alternative phone — collision-shielded per tenant
+  email              String?          // Email — collision-shielded per tenant
   address            String?
   area               String?
   terms              String?          // Payment terms
+  nidNumber          String?         // National ID / Tax ID — collision-shielded per tenant
   openingBalance     Float            @default(0)
-  openingBalanceType String           @default("Cr")  // "Dr" or "Cr"
+  openingBalanceType String           @default("Cr")  // "Cr" (Due) or "Dr" (Advance)
   creditLimit        Float            @default(0)
   profileImage       String?          // Profile photo (base64 or URL)
   nidFrontImage      String?          // National ID front card image
   nidBackImage       String?          // National ID back card image
+  coaAccountId       String?          // Auto-mapped Chart of Accounts sub-node under Liabilities -> Accounts Payable
   companyId          String?          // Multi-tenant isolation
   isActive           Boolean          @default(true)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   company            Company?         @relation(fields: [companyId], references: [id])
+  coaAccount         ChartOfAccount?  @relation(fields: [coaAccountId], references: [id])
   purchaseOrders     PurchaseOrder[]
   purchaseReturns    PurchaseReturn[]
   cashDeliveries     CashDelivery[]
 
   @@index([companyId])
+  @@index([coaAccountId])
 }
 
 // ============================================================
@@ -1239,6 +1249,8 @@ model ChartOfAccount {
   childAccounts       ChartOfAccount[] @relation("COAHierarchy")
   ledgerEntries       LedgerEntry[]
   company             Company?         @relation(fields: [companyId], references: [id])
+  customers           Customer[]       // Customer sub-nodes under AR
+  suppliers           Supplier[]       // Supplier sub-nodes under AP
 
   @@index([companyId])
 }

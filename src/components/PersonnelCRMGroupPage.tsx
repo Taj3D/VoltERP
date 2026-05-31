@@ -63,7 +63,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
+    const error: any = new Error(err.error || "Request failed");
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -329,9 +331,11 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "customerCode", label: "Customer Code", type: "text" },
       { key: "name", label: "Customer Name", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
+      { key: "alternativePhone", label: "Alt. Phone", type: "text" },
       { key: "email", label: "Email", type: "text" },
       { key: "customerType", label: "Customer Type", type: "text" },
       { key: "area", label: "Area", type: "text" },
+      { key: "nidNumber", label: "NID Number", type: "text" },
       { key: "openingBalance", label: "Opening Balance", type: "currency" },
       { key: "openingBalanceType", label: "Balance Type", type: "text" },
       { key: "creditLimit", label: "Credit Limit", type: "currency" },
@@ -341,11 +345,13 @@ const MODULE_CONFIGS: ModuleConfig[] = [
     formFields: [
       { key: "name", label: "Customer Name", type: "text", required: true },
       { key: "phone", label: "Phone", type: "text" },
+      { key: "alternativePhone", label: "Alternative Phone", type: "text" },
       { key: "email", label: "Email", type: "email" },
       { key: "address", label: "Address", type: "textarea" },
       { key: "area", label: "Area", type: "text" },
       { key: "reference", label: "Reference", type: "text" },
       { key: "customerType", label: "Customer Type", type: "select", required: true, options: CUSTOMER_TYPE_OPTIONS },
+      { key: "nidNumber", label: "NID Number", type: "text" },
       { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_CUSTOMER },
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
@@ -356,7 +362,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit"],
     formSections: [
-      { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Customer Details", fields: ["name", "phone", "alternativePhone", "email", "address", "area", "reference", "customerType", "nidNumber", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
     ],
   },
@@ -372,8 +378,10 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "name", label: "Supplier Name", type: "text" },
       { key: "contactPerson", label: "Contact Person", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
+      { key: "alternativePhone", label: "Alt. Phone", type: "text" },
       { key: "email", label: "Email", type: "text" },
       { key: "area", label: "Area", type: "text" },
+      { key: "nidNumber", label: "NID Number", type: "text" },
       { key: "openingBalance", label: "Opening Balance", type: "currency" },
       { key: "openingBalanceType", label: "Balance Type", type: "text" },
       { key: "creditLimit", label: "Credit Limit", type: "currency" },
@@ -385,10 +393,12 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "name", label: "Supplier Name", type: "text", required: true },
       { key: "contactPerson", label: "Contact Person", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
+      { key: "alternativePhone", label: "Alternative Phone", type: "text" },
       { key: "email", label: "Email", type: "email" },
       { key: "address", label: "Address", type: "textarea" },
       { key: "area", label: "Area", type: "text" },
       { key: "terms", label: "Terms", type: "textarea" },
+      { key: "nidNumber", label: "NID Number", type: "text" },
       { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_SUPPLIER },
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
@@ -399,7 +409,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit"],
     formSections: [
-      { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "alternativePhone", "email", "address", "area", "terms", "nidNumber", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
     ],
   },
@@ -436,6 +446,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, any[]>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [leaveBalances, setLeaveBalances] = useState<Record<string, { used: number; entitled: number; remaining: number }>>({});
+  const [crmSnapshot, setCrmSnapshot] = useState<any[] | null>(null);
+  const [collisionError, setCollisionError] = useState<string | null>(null);
+  const [companyProfile, setCompanyProfile] = useState<any>(null);
 
   // RBAC
   const canMutate = userRole === "admin" || userRole === "manager";
@@ -492,6 +505,19 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadOptions(); }, [loadOptions]);
+
+  // Load company profile for PDF branding
+  useEffect(() => {
+    const loadCompanyProfile = async () => {
+      try {
+        const profile = await apiFetch("/api/company-branding");
+        setCompanyProfile(profile);
+      } catch {
+        // silently ignore
+      }
+    };
+    loadCompanyProfile();
+  }, []);
 
   // Calculate leave balances when employee changes in leave form
   const calculateLeaveBalances = useCallback(async (employeeId: string) => {
@@ -551,6 +577,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   // Open create dialog
   const openCreate = () => {
     setEditingItem(null);
+    setCollisionError(null);
     const defaults: Record<string, any> = {};
     config.formFields.forEach(f => {
       if (f.defaultValue !== undefined) defaults[f.key] = f.defaultValue;
@@ -564,6 +591,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   // Open edit dialog
   const openEdit = (item: any) => {
     setEditingItem(item);
+    setCollisionError(null);
     const values: Record<string, any> = {};
     config.formFields.forEach(f => {
       const val = getNestedValue(item, f.key);
@@ -596,24 +624,61 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         return;
       }
     }
+    // Opening balance: reject negative numbers for customers/suppliers
+    if ((config.key === "customers" || config.key === "suppliers") && formData.openingBalance !== undefined && formData.openingBalance !== "" && Number(formData.openingBalance) < 0) {
+      toast({ title: "Validation Error", description: "Opening balance cannot be negative", variant: "destructive" });
+      return;
+    }
     setSaving(true);
+    setCollisionError(null);
+
+    const isCRM = config.key === "customers" || config.key === "suppliers";
+
+    // Optimistic UI for CRM modules
+    if (isCRM) {
+      setCrmSnapshot([...data]);
+    }
+
     try {
       if (editingItem) {
+        if (isCRM) {
+          // Optimistically update the item in data
+          setData(prev => prev.map(item =>
+            item.id === editingItem.id ? { ...item, ...formData } : item
+          ));
+        }
         await apiFetch(`${config.apiPath}/${editingItem.id}`, {
           method: "PUT",
           body: JSON.stringify(formData),
         });
         toast({ title: "Updated", description: `${config.label} updated successfully` });
       } else {
+        if (isCRM) {
+          // Optimistically add a temporary item
+          const tempItem = { id: `temp-${Date.now()}`, ...formData, isActive: formData.isActive ?? true };
+          setData(prev => [...prev, tempItem]);
+        }
         await apiFetch(config.apiPath, {
           method: "POST",
           body: JSON.stringify(formData),
         });
         toast({ title: "Created", description: `${config.label} created successfully` });
       }
+      if (isCRM) {
+        setCrmSnapshot(null);
+      }
       setDialogOpen(false);
       loadData();
     } catch (e: any) {
+      // Revert optimistic update on error
+      if (isCRM && crmSnapshot) {
+        setData(crmSnapshot);
+        setCrmSnapshot(null);
+      }
+      // Handle 409 collision
+      if (e.status === 409) {
+        setCollisionError(e.message || "Counterparty collision detected — a record with matching details already exists.");
+      }
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
@@ -687,6 +752,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         });
         return row;
       });
+      const isCRM = config.key === "customers" || config.key === "suppliers";
+      const user = authState.user;
       exportToPDF({
         title: config.label,
         subtitle: `Total Records: ${filteredData.length}`,
@@ -695,6 +762,15 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         data: exportData,
         isVatAuditor,
         vatMaskedColumns: maskedColumns,
+        ...(isCRM && companyProfile ? { company: companyProfile } : {}),
+        ...(isCRM ? {
+          financialFooter: {
+            preparedBy: user?.displayName || "",
+            checkedBy: "",
+            authorizedBy: "",
+            printedBy: user?.displayName || user?.email || "System",
+          },
+        } : {}),
       });
       toast({ title: "PDF Exported", description: `${config.label} data exported` });
     } catch (e: any) {
@@ -740,6 +816,44 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           label={field.label}
           placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
         />
+      );
+    }
+
+    // DUE/ADVANCE toggle for openingBalanceType on customers/suppliers
+    if (field.key === "openingBalanceType" && (config.key === "customers" || config.key === "suppliers")) {
+      const isCustomer = config.key === "customers";
+      // DUE = Dr for customers, Cr for suppliers
+      // ADVANCE = Cr for customers, Dr for suppliers
+      const dueValue = isCustomer ? "Dr" : "Cr";
+      const advanceValue = isCustomer ? "Cr" : "Dr";
+      const currentValue = String(val) || dueValue;
+      const isDue = currentValue === dueValue;
+
+      return (
+        <div className="flex items-center gap-0 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
+          <button
+            type="button"
+            onClick={() => setFormData(prev => ({ ...prev, openingBalanceType: dueValue }))}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              isDue
+                ? "bg-[#2563eb] text-white"
+                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+            }`}
+          >
+            DUE
+          </button>
+          <button
+            type="button"
+            onClick={() => setFormData(prev => ({ ...prev, openingBalanceType: advanceValue }))}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              !isDue
+                ? "bg-amber-500 text-white"
+                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+            }`}
+          >
+            ADVANCE
+          </button>
+        </div>
       );
     }
 
@@ -1255,11 +1369,29 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           </DialogHeader>
           {/* Leave Balance Cards inside dialog */}
           {renderLeaveBalanceCards()}
+          {/* Collision Banner */}
+          {collisionError && (
+            <div className="bg-red-900 text-white p-3 rounded-md mb-4 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              <span className="text-sm font-medium">{collisionError}</span>
+            </div>
+          )}
           {renderFormContent()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-              {saving ? "Saving..." : editingItem ? "Update" : "Create"}
+              {saving ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                  {config.key === "customers" || config.key === "suppliers"
+                    ? "Mapping Counterparty Ledger Trees & Restructuring Accounting Ledgers..."
+                    : "Saving..."}
+                </>
+              ) : editingItem ? "Update" : (
+                config.key === "customers" ? "Initialize Customer Profile" :
+                config.key === "suppliers" ? "Save Supplier Configuration" :
+                "Create"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
