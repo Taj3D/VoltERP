@@ -361,6 +361,9 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "replacements", label: "Replacement Order", apiPath: "/api/replacements", columns: [{ key: "replacementNo", label: "Replacement No", type: "text" }, { key: "date", label: "Date", type: "date" }, { key: "reason", label: "Reason", type: "text" }, { key: "status", label: "Status", type: "text" }], formFields: [{ key: "replacementNo", label: "Replacement No", type: "text", required: true }, { key: "salesOrderId", label: "Sales Order", type: "select", options: [] }, { key: "date", label: "Date", type: "date", required: true }, { key: "reason", label: "Reason", type: "textarea" }, { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Completed", label: "Completed" }], defaultValue: "Pending" }] },
       { key: "stock", label: "Stock", icon: Package },
       { key: "stock-details", label: "Stock Details", icon: BarChart3 },
+      { key: "opening-stock", label: "Opening Stock", icon: Package },
+      { key: "batch-master", label: "Batch Master", icon: Hash },
+      { key: "stock-valuation", label: "Valuation", icon: TrendingUp },
       { key: "stock-transfers", label: "Transfer", icon: ArrowLeftRight },
     ],
   },
@@ -5660,7 +5663,7 @@ function AppLayout() {
     }
     if (currentPage === "profile") return <ProfileCenter />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
-    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "stock", "stock-details", "stock-transfers"]);
+    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "opening-stock", "batch-master", "stock", "stock-details", "stock-valuation", "stock-transfers"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
     if (currentPage === "expenses") return <ExpensesIncomesPage />;
     if (currentPage === "incomes") return <ExpensesIncomesPage />;

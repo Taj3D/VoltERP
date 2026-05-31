@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   FileDown, Shield, X, CheckCircle, ClipboardList, ShoppingCart,
   FileBarChart, Receipt, DollarSign, RotateCcw, ArrowLeftRight,
   Package, BarChart3, Truck, AlertTriangle, Ban, PackageCheck,
   Calculator, ArrowRightLeft, Eye, TrendingUp, Clock, Printer,
+  Layers, ChevronDown, ChevronRight, Timer, Hash, CalendarClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +51,20 @@ const fmtCurrency = (v: any) => {
   if (v === "N/A (Audit Mode)") return v;
   return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
 };
+
+const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function validateNumeric(value: any, fieldName: string): { valid: boolean; error?: string } {
+  const num = Number(value);
+  if (value === "" || value === null || value === undefined) return { valid: false, error: `${fieldName} is required` };
+  if (isNaN(num)) return { valid: false, error: `${fieldName} must be a valid number` };
+  if (num <= 0) return { valid: false, error: `${fieldName} must be greater than zero` };
+  return { valid: true };
+}
+
+function sanitizeInput(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -231,8 +246,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     "sales-returns": "sales-returns",
     "purchase-returns": "purchase-returns",
     "replacements": "replacements",
+    "opening-stock": "opening-stock",
+    "batch-master": "batch-master",
     "stock": "stock",
     "stock-details": "stock-details",
+    "stock-valuation": "stock-valuation",
     "stock-transfers": "transfers",
   };
   const [activeTab, setActiveTab] = useState(tabMap[currentPage] || "company-ordersheet");
@@ -390,6 +408,38 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [trnForm, setTrnForm] = useState<Record<string, any>>({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" });
   const [trnLines, setTrnLines] = useState<any[]>([{ productId: "", quantity: 1 }]);
 
+  // ─── Opening Stock State ───
+  const [osData, setOsData] = useState<any[]>([]);
+  const [osLoading, setOsLoading] = useState(true);
+  const [osSearch, setOsSearch] = useState("");
+  const [osDialog, setOsDialog] = useState(false);
+  const [osSaving, setOsSaving] = useState(false);
+  const [osForm, setOsForm] = useState<Record<string, any>>({ productId: "", godownId: "", quantity: "", costPrice: "", batchNumber: "", expiryDate: "", alertLevel: "", date: new Date().toISOString().split("T")[0], notes: "" });
+  const [osNumericErrors, setOsNumericErrors] = useState<Record<string, string>>({});
+
+  // ─── Batch Master State ───
+  const [bmData, setBmData] = useState<any[]>([]);
+  const [bmLoading, setBmLoading] = useState(true);
+  const [bmSearch, setBmSearch] = useState("");
+  const [bmDialog, setBmDialog] = useState(false);
+  const [bmEdit, setBmEdit] = useState<any>(null);
+  const [bmSaving, setBmSaving] = useState(false);
+  const [bmDelete, setBmDelete] = useState<any>(null);
+  const [bmForm, setBmForm] = useState<Record<string, any>>({ batchNumber: "", productId: "", godownId: "", quantity: "", costPrice: "", salePrice: "", expiryDate: "", manufacturingDate: "", supplierId: "", status: "Active" });
+
+  // ─── Stock Valuation State ───
+  const [svData, setSvData] = useState<any[]>([]);
+  const [svLoading, setSvLoading] = useState(false);
+  const [svMethod, setSvMethod] = useState<string>("FIFO");
+  const [svExpandedProduct, setSvExpandedProduct] = useState<string | null>(null);
+  const [svSearch, setSvSearch] = useState("");
+
+  // ─── Company Profile for White-Label PDFs ───
+  const [companyProfile, setCompanyProfile] = useState<any>(null);
+
+  // ─── Inventory Snapshot for Rollback ───
+  const inventorySnapshotRef = useRef<any>(null);
+
   // ============================================================
   // DATA LOADERS
   // ============================================================
@@ -511,6 +561,41 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     finally { setTrnLoading(false); }
   }, [toast]);
 
+  const loadOpeningStock = useCallback(async () => {
+    setOsLoading(true);
+    try {
+      const res = await apiFetch("/api/opening-stock");
+      setOsData(Array.isArray(res) ? res : []);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setOsLoading(false); }
+  }, [toast]);
+
+  const loadBatchMasters = useCallback(async () => {
+    setBmLoading(true);
+    try {
+      const res = await apiFetch("/api/batch-master");
+      setBmData(Array.isArray(res) ? res : []);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setBmLoading(false); }
+  }, [toast]);
+
+  const loadStockValuation = useCallback(async (method?: string) => {
+    setSvLoading(true);
+    try {
+      const m = method || svMethod;
+      const res = await apiFetch(`/api/stock-valuation?method=${m}`);
+      setSvData(Array.isArray(res) ? res : []);
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setSvLoading(false); }
+  }, [toast, svMethod]);
+
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding");
+      setCompanyProfile(res);
+    } catch { /* non-blocking */ }
+  }, []);
+
   // ============================================================
   // INIT: Load data based on active tab
   // ============================================================
@@ -525,9 +610,14 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     if (activeTab === "sales-returns") loadSalesReturns();
     if (activeTab === "purchase-returns") loadPurchaseReturns();
     if (activeTab === "replacements") loadReplacements();
+    if (activeTab === "opening-stock") loadOpeningStock();
+    if (activeTab === "batch-master") loadBatchMasters();
     if (activeTab === "stock") loadStock();
+    if (activeTab === "stock-valuation") loadStockValuation();
     if (activeTab === "transfers") loadTransfers();
-  }, [activeTab, loadCompanyOrdersheets, loadCustomerOrdersheets, loadPurchaseOrders, loadAutoPo, loadSalesOrders, loadHireSales, loadSalesReturns, loadPurchaseReturns, loadReplacements, loadStock, loadTransfers]);
+  }, [activeTab, loadCompanyOrdersheets, loadCustomerOrdersheets, loadPurchaseOrders, loadAutoPo, loadSalesOrders, loadHireSales, loadSalesReturns, loadPurchaseReturns, loadReplacements, loadOpeningStock, loadBatchMasters, loadStock, loadStockValuation, loadTransfers]);
+
+  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
 
   // ============================================================
   // LINE ITEM HELPERS
@@ -2431,7 +2521,644 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     );
   };
 
-  // ─── Stock & Transfer Renders ───
+  // ─── Phase 10: Opening Stock, Batch Master, Stock Valuation Renders ───
+
+  const selectedGodown = useMemo(() => {
+    return godowns.find((g: any) => g.id === osForm.godownId);
+  }, [godowns, osForm.godownId]);
+
+  const isGodownSuspended = selectedGodown?.status === "SUSPENDED";
+
+  const validateOsForm = useCallback(() => {
+    const errors: Record<string, string> = {};
+    if (!osForm.productId) errors.productId = "Product is required";
+    if (!osForm.godownId) errors.godownId = "Godown is required";
+    if (!osForm.batchNumber) errors.batchNumber = "Batch Number is required";
+    const qtyVal = validateNumeric(osForm.quantity, "Quantity");
+    if (!qtyVal.valid) errors.quantity = qtyVal.error!;
+    const cpVal = validateNumeric(osForm.costPrice, "Cost Price");
+    if (!cpVal.valid) errors.costPrice = cpVal.error!;
+    if (osForm.alertLevel && Number(osForm.alertLevel) < 0) errors.alertLevel = "Alert Level cannot be negative";
+    setOsNumericErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [osForm]);
+
+  const handlePostOpeningStock = async () => {
+    if (!validateOsForm()) return;
+    if (isGodownSuspended) {
+      toast({ title: "Blocked", description: "This warehouse is SUSPENDED. Stock operations are blocked.", variant: "destructive" });
+      return;
+    }
+    setOsSaving(true);
+    inventorySnapshotRef.current = { osData, bmData, stockData, svData };
+    try {
+      const payload = {
+        productId: osForm.productId,
+        godownId: osForm.godownId,
+        quantity: Number(osForm.quantity),
+        costPrice: Number(osForm.costPrice),
+        batchNumber: sanitizeInput(osForm.batchNumber),
+        expiryDate: osForm.expiryDate || null,
+        alertLevel: osForm.alertLevel ? Number(osForm.alertLevel) : 0,
+        date: osForm.date,
+        notes: sanitizeInput(osForm.notes || ""),
+      };
+      await apiFetch("/api/opening-stock", { method: "POST", body: JSON.stringify(payload) });
+      toast({ title: "Opening Stock Posted", description: "Perpetual inventory valuations updated & double-entry ledger entries created." });
+      setOsDialog(false);
+      setOsForm({ productId: "", godownId: "", quantity: "", costPrice: "", batchNumber: "", expiryDate: "", alertLevel: "", date: new Date().toISOString().split("T")[0], notes: "" });
+      setOsNumericErrors({});
+      loadOpeningStock();
+      loadStock();
+    } catch (e: any) {
+      if (inventorySnapshotRef.current) {
+        setOsData(inventorySnapshotRef.current.osData);
+        setBmData(inventorySnapshotRef.current.bmData);
+        setStockData(inventorySnapshotRef.current.stockData);
+        setSvData(inventorySnapshotRef.current.svData);
+      }
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setOsSaving(false); }
+  };
+
+  const handleSaveBatch = async () => {
+    if (!bmForm.batchNumber || !bmForm.productId || !bmForm.quantity || !bmForm.costPrice) {
+      toast({ title: "Error", description: "Batch Number, Product, Quantity, and Cost Price are required", variant: "destructive" });
+      return;
+    }
+    const qtyVal = validateNumeric(bmForm.quantity, "Quantity");
+    const cpVal = validateNumeric(bmForm.costPrice, "Cost Price");
+    if (!qtyVal.valid || !cpVal.valid) {
+      toast({ title: "Validation Error", description: `${qtyVal.error || ""} ${cpVal.error || ""}`, variant: "destructive" });
+      return;
+    }
+    setBmSaving(true);
+    inventorySnapshotRef.current = { osData, bmData, stockData, svData };
+    try {
+      const payload = {
+        batchNumber: sanitizeInput(bmForm.batchNumber),
+        productId: bmForm.productId,
+        godownId: bmForm.godownId || null,
+        quantity: Number(bmForm.quantity),
+        costPrice: Number(bmForm.costPrice),
+        salePrice: Number(bmForm.salePrice) || 0,
+        expiryDate: bmForm.expiryDate || null,
+        manufacturingDate: bmForm.manufacturingDate || null,
+        supplierId: bmForm.supplierId || null,
+        status: bmForm.status || "Active",
+      };
+      if (bmEdit) {
+        await apiFetch(`/api/batch-master/${bmEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+        toast({ title: "Batch Updated" });
+      } else {
+        await apiFetch("/api/batch-master", { method: "POST", body: JSON.stringify(payload) });
+        toast({ title: "Batch Created" });
+      }
+      setBmDialog(false);
+      loadBatchMasters();
+    } catch (e: any) {
+      if (inventorySnapshotRef.current) {
+        setBmData(inventorySnapshotRef.current.bmData);
+        setSvData(inventorySnapshotRef.current.svData);
+      }
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setBmSaving(false); }
+  };
+
+  const handleDeleteBatch = async () => {
+    if (!bmDelete) return;
+    try {
+      await apiFetch(`/api/batch-master/${bmDelete.id}`, { method: "DELETE" });
+      toast({ title: "Batch Deleted" });
+      setBmDelete(null);
+      loadBatchMasters();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const getBatchExpiryBadge = (expiryDate: string | null) => {
+    if (!expiryDate) return <Badge className="bg-slate-100 text-slate-600 border-0 text-xs">No Expiry</Badge>;
+    const now = new Date();
+    const expiry = new Date(expiryDate);
+    const daysUntil = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysUntil < 0) return <Badge className="bg-red-100 text-red-700 border-0 text-xs">Expired</Badge>;
+    if (daysUntil <= 30) return <Badge className="bg-amber-100 text-amber-700 border-0 text-xs">Expiring ({daysUntil}d)</Badge>;
+    return <Badge className="bg-emerald-100 text-emerald-700 border-0 text-xs">Valid</Badge>;
+  };
+
+  const BATCH_STATUS_BADGE: Record<string, string> = {
+    Active: "bg-emerald-100 text-emerald-700",
+    Expired: "bg-red-100 text-red-700",
+    Exhausted: "bg-slate-100 text-slate-600",
+    Recalled: "bg-red-200 text-red-800",
+  };
+
+  const renderOpeningStock = () => {
+    const osFiltered = osData.filter((s: any) => {
+      if (!osSearch) return true;
+      const q = osSearch.toLowerCase();
+      return (s.product?.name || "").toLowerCase().includes(q) || (s.product?.productCode || "").toLowerCase().includes(q) || (s.batchNumber || "").toLowerCase().includes(q);
+    });
+
+    const osStats = {
+      total: osData.length,
+      totalQty: osData.reduce((s: number, o: any) => s + (Number(o.quantity) || 0), 0),
+      totalValue: osData.reduce((s: number, o: any) => s + (Number(o.totalCost) || 0), 0),
+      batches: new Set(osData.map((o: any) => o.batchNumber).filter(Boolean)).size,
+    };
+
+    const osExportCols: ExportColumnDef[] = [
+      { key: "productCode", label: "Product Code", type: "text" },
+      { key: "productName", label: "Product", type: "text" },
+      { key: "godownName", label: "Godown", type: "text" },
+      { key: "quantity", label: "Qty", type: "number" },
+      { key: "costPrice", label: "Cost Price", type: "currency" },
+      { key: "totalCost", label: "Total Cost", type: "currency" },
+      { key: "batchNumber", label: "Batch", type: "text" },
+      { key: "expiryDate", label: "Expiry", type: "date" },
+      { key: "date", label: "Date", type: "date" },
+    ];
+    const osExportData = osFiltered.map((s: any) => ({
+      productCode: s.product?.productCode || "",
+      productName: s.product?.name || "",
+      godownName: s.godown?.name || "",
+      quantity: s.quantity || 0,
+      costPrice: s.costPrice || 0,
+      totalCost: s.totalCost || 0,
+      batchNumber: s.batchNumber || "—",
+      expiryDate: s.expiryDate || "",
+      date: s.date || "",
+    }));
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <StatCard label="Total Entries" value={osStats.total} icon={Package} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+          <StatCard label="Total Quantity" value={bdCurrencyFmt.format(osStats.totalQty)} icon={Layers} color="text-emerald-600" bg="bg-emerald-50" />
+          <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(osStats.totalValue)} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
+          <StatCard label="Active Batches" value={osStats.batches} icon={Hash} color="text-purple-600" bg="bg-purple-50" />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+            <Input value={osSearch} onChange={e => setOsSearch(e.target.value)} placeholder="Search opening stock..." className="pl-8" />
+          </div>
+          <Button onClick={() => { setOsForm({ productId: "", godownId: "", quantity: "", costPrice: "", batchNumber: "", expiryDate: "", alertLevel: "", date: new Date().toISOString().split("T")[0], notes: "" }); setOsNumericErrors({}); setOsDialog(true); }} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+            <Plus className="h-4 w-4 mr-1" /> Post Opening Stock
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(osExportCols), "costPrice", "totalCost"]; exportToCSV({ title: "Opening Stock Ledger", columns: osExportCols, data: osExportData, isVatAuditor, vatMaskedColumns: mk }); }}>
+            <Download className="h-4 w-4 mr-1" /> CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(osExportCols), "costPrice", "totalCost"]; exportToPDF({ title: "Opening Stock Ledger", columns: osExportCols, data: osExportData, isVatAuditor, vatMaskedColumns: mk, orientation: "landscape", company: companyProfile, financialFooter: { preparedBy: auth.user?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: auth.user?.displayName || auth.user?.email || "" } }); }}>
+            <FileDown className="h-4 w-4 mr-1" /> PDF
+          </Button>
+          <Button variant="ghost" size="sm" onClick={loadOpeningStock}><RefreshCw className={`h-4 w-4 ${osLoading ? "animate-spin" : ""}`} /></Button>
+        </div>
+
+        <div className="border rounded-lg overflow-auto max-h-[65vh]">
+          <Table>
+            <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+              <TableHead className="text-white text-xs">Product</TableHead>
+              <TableHead className="text-white text-xs">Godown</TableHead>
+              <TableHead className="text-white text-xs text-right">Qty</TableHead>
+              <TableHead className="text-white text-xs text-right">Cost Price</TableHead>
+              <TableHead className="text-white text-xs text-right">Total Cost</TableHead>
+              <TableHead className="text-white text-xs">Batch</TableHead>
+              <TableHead className="text-white text-xs">Expiry</TableHead>
+              <TableHead className="text-white text-xs">Date</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>
+              {osLoading ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
+              osFiltered.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-400">No opening stock entries</TableCell></TableRow> :
+              osFiltered.map((s: any, i: number) => (
+                <TableRow key={i}>
+                  <TableCell className="text-xs font-medium">{s.product?.productCode || ""} — {s.product?.name || ""}</TableCell>
+                  <TableCell className="text-xs">{s.godown?.name || "—"}</TableCell>
+                  <TableCell className="text-xs text-right font-medium">{Number(s.quantity || 0).toLocaleString()}</TableCell>
+                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.costPrice || 0)}</TableCell>
+                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.totalCost || 0)}</TableCell>
+                  <TableCell className="text-xs"><Badge className="bg-blue-50 text-blue-700 border-0 text-xs">{s.batchNumber || "—"}</Badge></TableCell>
+                  <TableCell className="text-xs">{s.expiryDate ? fmt(s.expiryDate, "date") : "—"}</TableCell>
+                  <TableCell className="text-xs">{fmt(s.date, "date")}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Opening Stock Dialog */}
+        <Dialog open={osDialog} onOpenChange={setOsDialog}>
+          <DialogContent className="max-w-xl"><DialogHeader><DialogTitle>Post Product Opening Stock</DialogTitle><DialogDescription>Initialize stock for a product at a specific warehouse location with batch tracking and automatic CoA ledger mapping.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            {isGodownSuspended && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+                <span className="text-sm text-red-700 dark:text-red-400 font-medium">This warehouse is SUSPENDED. Stock operations are blocked.</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Product <span className="text-red-500">*</span></Label>
+                <Select value={osForm.productId} onValueChange={v => setOsForm(p => ({ ...p, productId: v }))}>
+                  <SelectTrigger className={osNumericErrors.productId ? "border-red-500 ring-2 ring-red-200" : ""}><SelectValue placeholder="Select Product" /></SelectTrigger>
+                  <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.productCode} — {p.name}</SelectItem>)}</SelectContent>
+                </Select>
+                {osNumericErrors.productId && <p className="text-xs text-red-500 mt-1">{osNumericErrors.productId}</p>}
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Godown <span className="text-red-500">*</span></Label>
+                <Select value={osForm.godownId} onValueChange={v => setOsForm(p => ({ ...p, godownId: v }))}>
+                  <SelectTrigger className={osNumericErrors.godownId ? "border-red-500 ring-2 ring-red-200" : ""}><SelectValue placeholder="Select Godown" /></SelectTrigger>
+                  <SelectContent>
+                    {godowns.map((g: any) => (
+                      <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
+                        {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {osNumericErrors.godownId && <p className="text-xs text-red-500 mt-1">{osNumericErrors.godownId}</p>}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Quantity <span className="text-red-500">*</span></Label>
+                <Input type="number" min={0.01} step="any" value={osForm.quantity} onChange={e => { setOsForm(p => ({ ...p, quantity: e.target.value })); if (e.target.value && Number(e.target.value) <= 0) setOsNumericErrors(p => ({ ...p, quantity: "Must be greater than zero" })); else setOsNumericErrors(p => { const n = {...p}; delete n.quantity; return n; }); }} className={osNumericErrors.quantity ? "border-red-500 ring-2 ring-red-200 animate-pulse" : ""} placeholder="Enter quantity" />
+                {osNumericErrors.quantity && <p className="text-xs text-red-500 mt-1">{osNumericErrors.quantity}</p>}
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Cost Price (Per Unit) <span className="text-red-500">*</span></Label>
+                <Input type="number" min={0.01} step="0.01" value={osForm.costPrice} onChange={e => { setOsForm(p => ({ ...p, costPrice: e.target.value })); if (e.target.value && Number(e.target.value) <= 0) setOsNumericErrors(p => ({ ...p, costPrice: "Must be greater than zero" })); else setOsNumericErrors(p => { const n = {...p}; delete n.costPrice; return n; }); }} className={osNumericErrors.costPrice ? "border-red-500 ring-2 ring-red-200 animate-pulse" : ""} placeholder="Per unit cost" />
+                {osNumericErrors.costPrice && <p className="text-xs text-red-500 mt-1">{osNumericErrors.costPrice}</p>}
+              </div>
+            </div>
+            {osForm.quantity && osForm.costPrice && Number(osForm.quantity) > 0 && Number(osForm.costPrice) > 0 && (
+              <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <span className="text-sm text-blue-700 dark:text-blue-400 font-medium">Total Inventory Value: {fmtCurrency(Number(osForm.quantity) * Number(osForm.costPrice))}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Batch Number <span className="text-red-500">*</span></Label>
+                <Input type="text" value={osForm.batchNumber} onChange={e => setOsForm(p => ({ ...p, batchNumber: e.target.value }))} className={osNumericErrors.batchNumber ? "border-red-500 ring-2 ring-red-200" : ""} placeholder="Required batch identifier" />
+                {osNumericErrors.batchNumber && <p className="text-xs text-red-500 mt-1">{osNumericErrors.batchNumber}</p>}
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Expiry Date</Label>
+                <Input type="date" value={osForm.expiryDate} onChange={e => setOsForm(p => ({ ...p, expiryDate: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Alert Level</Label>
+                <Input type="number" min={0} value={osForm.alertLevel} onChange={e => setOsForm(p => ({ ...p, alertLevel: e.target.value }))} placeholder="Reorder threshold" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Date</Label>
+                <Input type="date" value={osForm.date} onChange={e => setOsForm(p => ({ ...p, date: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Notes</Label>
+              <Textarea value={osForm.notes} onChange={e => setOsForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOsDialog(false)}>Cancel</Button>
+            <Button onClick={handlePostOpeningStock} disabled={osSaving || isGodownSuspended || Object.keys(osNumericErrors).length > 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+              {osSaving ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Recalculating Perpetual Inventory Valuations & Apportioning Batches...</> : <><Package className="h-4 w-4 mr-2" />Post Product Opening Stock</>}
+            </Button>
+          </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  };
+
+  const renderBatchMaster = () => {
+    const bmFiltered = bmData.filter((b: any) => {
+      if (!bmSearch) return true;
+      const q = bmSearch.toLowerCase();
+      return (b.batchNumber || "").toLowerCase().includes(q) || (b.product?.name || "").toLowerCase().includes(q) || (b.status || "").toLowerCase().includes(q);
+    });
+
+    const bmStats = {
+      total: bmData.length,
+      active: bmData.filter((b: any) => b.status === "Active").length,
+      expired: bmData.filter((b: any) => b.status === "Expired").length,
+      totalValue: bmData.reduce((s: number, b: any) => s + (Number(b.totalCost) || 0), 0),
+    };
+
+    const bmExportCols: ExportColumnDef[] = [
+      { key: "batchNumber", label: "Batch No", type: "text" },
+      { key: "productName", label: "Product", type: "text" },
+      { key: "godownName", label: "Godown", type: "text" },
+      { key: "quantity", label: "Qty", type: "number" },
+      { key: "costPrice", label: "Cost Price", type: "currency" },
+      { key: "totalCost", label: "Total Cost", type: "currency" },
+      { key: "salePrice", label: "Sale Price", type: "currency" },
+      { key: "expiryDate", label: "Expiry", type: "date" },
+      { key: "status", label: "Status", type: "text" },
+    ];
+    const bmExportData = bmFiltered.map((b: any) => ({
+      batchNumber: b.batchNumber || "",
+      productName: b.product?.name || "",
+      godownName: b.godown?.name || "—",
+      quantity: b.quantity || 0,
+      costPrice: b.costPrice || 0,
+      totalCost: b.totalCost || 0,
+      salePrice: b.salePrice || 0,
+      expiryDate: b.expiryDate || "",
+      status: b.status || "Active",
+    }));
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <StatCard label="Total Batches" value={bmStats.total} icon={Hash} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+          <StatCard label="Active Batches" value={bmStats.active} icon={PackageCheck} color="text-emerald-600" bg="bg-emerald-50" />
+          <StatCard label="Expired Batches" value={bmStats.expired} icon={AlertTriangle} color="text-red-600" bg="bg-red-50" />
+          <StatCard label="Batch Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(bmStats.totalValue)} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+            <Input value={bmSearch} onChange={e => setBmSearch(e.target.value)} placeholder="Search batches..." className="pl-8" />
+          </div>
+          <Button onClick={() => { setBmForm({ batchNumber: "", productId: "", godownId: "", quantity: "", costPrice: "", salePrice: "", expiryDate: "", manufacturingDate: "", supplierId: "", status: "Active" }); setBmEdit(null); setBmDialog(true); }} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+            <Plus className="h-4 w-4 mr-1" /> Initialize Batch Variant
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(bmExportCols), "costPrice", "totalCost", "salePrice"]; exportToCSV({ title: "Batch Master Ledger", columns: bmExportCols, data: bmExportData, isVatAuditor, vatMaskedColumns: mk }); }}>
+            <Download className="h-4 w-4 mr-1" /> CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(bmExportCols), "costPrice", "totalCost", "salePrice"]; exportToPDF({ title: "Batch Expiry Forecast", columns: bmExportCols, data: bmExportData, isVatAuditor, vatMaskedColumns: mk, orientation: "landscape", company: companyProfile, financialFooter: { preparedBy: auth.user?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: auth.user?.displayName || auth.user?.email || "" } }); }}>
+            <FileDown className="h-4 w-4 mr-1" /> PDF
+          </Button>
+          <Button variant="ghost" size="sm" onClick={loadBatchMasters}><RefreshCw className={`h-4 w-4 ${bmLoading ? "animate-spin" : ""}`} /></Button>
+        </div>
+
+        <div className="border rounded-lg overflow-auto max-h-[65vh]">
+          <Table>
+            <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+              <TableHead className="text-white text-xs">Batch No</TableHead>
+              <TableHead className="text-white text-xs">Product</TableHead>
+              <TableHead className="text-white text-xs">Godown</TableHead>
+              <TableHead className="text-white text-xs text-right">Qty</TableHead>
+              <TableHead className="text-white text-xs text-right">Cost Price</TableHead>
+              <TableHead className="text-white text-xs text-right">Total Cost</TableHead>
+              <TableHead className="text-white text-xs">Expiry</TableHead>
+              <TableHead className="text-white text-xs">Status</TableHead>
+              {isAdmin && <TableHead className="text-white text-xs">Actions</TableHead>}
+            </TableRow></TableHeader>
+            <TableBody>
+              {bmLoading ? <TableRow><TableCell colSpan={9} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
+              bmFiltered.length === 0 ? <TableRow><TableCell colSpan={9} className="text-center py-8 text-slate-400">No batch records</TableCell></TableRow> :
+              bmFiltered.map((b: any) => (
+                <TableRow key={b.id}>
+                  <TableCell className="text-xs font-medium"><Badge className="bg-blue-50 text-blue-700 border-0 text-xs">{b.batchNumber}</Badge></TableCell>
+                  <TableCell className="text-xs">{b.product?.productCode || ""} — {b.product?.name || ""}</TableCell>
+                  <TableCell className="text-xs">{b.godown?.name || "—"}</TableCell>
+                  <TableCell className="text-xs text-right font-medium">{Number(b.quantity || 0).toLocaleString()}</TableCell>
+                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(b.costPrice || 0)}</TableCell>
+                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(b.totalCost || 0)}</TableCell>
+                  <TableCell className="text-xs">{getBatchExpiryBadge(b.expiryDate)}</TableCell>
+                  <TableCell className="text-xs"><Badge className={`${BATCH_STATUS_BADGE[b.status] || ""} border-0 text-xs`}>{b.status}</Badge></TableCell>
+                  {isAdmin && <TableCell className="text-xs">
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => { setBmEdit(b); setBmForm({ batchNumber: b.batchNumber || "", productId: b.productId || "", godownId: b.godownId || "", quantity: b.quantity || "", costPrice: b.costPrice || "", salePrice: b.salePrice || "", expiryDate: b.expiryDate ? b.expiryDate.split("T")[0] : "", manufacturingDate: b.manufacturingDate ? b.manufacturingDate.split("T")[0] : "", supplierId: b.supplierId || "", status: b.status || "Active" }); setBmDialog(true); }}><Edit className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => setBmDelete(b)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                  </TableCell>}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Batch Master Dialog */}
+        <Dialog open={bmDialog} onOpenChange={setBmDialog}>
+          <DialogContent className="max-w-xl"><DialogHeader><DialogTitle>{bmEdit ? "Edit Batch Variant" : "Initialize Batch Variant"}</DialogTitle><DialogDescription>Register a new product batch with cost tracking and expiry management.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Batch Number <span className="text-red-500">*</span></Label>
+                <Input type="text" value={bmForm.batchNumber} onChange={e => setBmForm(p => ({ ...p, batchNumber: e.target.value }))} placeholder="Unique batch ID" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Product <span className="text-red-500">*</span></Label>
+                <Select value={bmForm.productId} onValueChange={v => setBmForm(p => ({ ...p, productId: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
+                  <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.productCode} — {p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Quantity <span className="text-red-500">*</span></Label>
+                <Input type="number" min={0.01} step="any" value={bmForm.quantity} onChange={e => setBmForm(p => ({ ...p, quantity: e.target.value }))} placeholder="Qty" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Cost Price <span className="text-red-500">*</span></Label>
+                <Input type="number" min={0.01} step="0.01" value={bmForm.costPrice} onChange={e => setBmForm(p => ({ ...p, costPrice: e.target.value }))} placeholder="Per unit" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Sale Price</Label>
+                <Input type="number" min={0} step="0.01" value={bmForm.salePrice} onChange={e => setBmForm(p => ({ ...p, salePrice: e.target.value }))} placeholder="Per unit" />
+              </div>
+            </div>
+            {bmForm.quantity && bmForm.costPrice && Number(bmForm.quantity) > 0 && Number(bmForm.costPrice) > 0 && (
+              <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <span className="text-sm text-blue-700 dark:text-blue-400 font-medium">Batch Total Cost: {fmtCurrency(Number(bmForm.quantity) * Number(bmForm.costPrice))}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Godown</Label>
+                <Select value={bmForm.godownId} onValueChange={v => setBmForm(p => ({ ...p, godownId: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>{g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Status</Label>
+                <Select value={bmForm.status} onValueChange={v => setBmForm(p => ({ ...p, status: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Expired">Expired</SelectItem>
+                    <SelectItem value="Exhausted">Exhausted</SelectItem>
+                    <SelectItem value="Recalled">Recalled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm font-medium">Expiry Date</Label>
+                <Input type="date" value={bmForm.expiryDate} onChange={e => setBmForm(p => ({ ...p, expiryDate: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Manufacturing Date</Label>
+                <Input type="date" value={bmForm.manufacturingDate} onChange={e => setBmForm(p => ({ ...p, manufacturingDate: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Supplier</Label>
+              <Select value={bmForm.supplierId} onValueChange={v => setBmForm(p => ({ ...p, supplierId: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select Supplier (optional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.supplierCode} — {s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBmDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveBatch} disabled={bmSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+              {bmSaving ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Mapping Batch Ledger Trees & Restructuring Accounting Ledgers...</> : <><Hash className="h-4 w-4 mr-2" />{bmEdit ? "Update Batch Variant" : "Initialize Batch Variant"}</>}
+            </Button>
+          </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation */}
+        <Dialog open={!!bmDelete} onOpenChange={() => setBmDelete(null)}>
+          <DialogContent><DialogHeader><DialogTitle>Delete Batch</DialogTitle><DialogDescription>Are you sure you want to delete batch &quot;{bmDelete?.batchNumber}&quot;?</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBmDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteBatch} disabled={!isAdmin}>{isAdmin ? "Delete" : "Admin Only"}</Button>
+          </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  };
+
+  const renderStockValuation = () => {
+    const svFiltered = svData.filter((v: any) => {
+      if (!svSearch) return true;
+      const q = svSearch.toLowerCase();
+      return (v.productName || "").toLowerCase().includes(q) || (v.productCode || "").toLowerCase().includes(q);
+    });
+
+    const svStats = {
+      products: svData.length,
+      totalValue: svData.reduce((s: number, v: any) => s + (Number(v.totalValue) || 0), 0),
+      totalQty: svData.reduce((s: number, v: any) => s + (Number(v.totalQuantity) || 0), 0),
+    };
+
+    const svExportCols: ExportColumnDef[] = [
+      { key: "productCode", label: "Code", type: "text" },
+      { key: "productName", label: "Product", type: "text" },
+      { key: "valuationMethod", label: "Method", type: "text" },
+      { key: "totalQuantity", label: "Total Qty", type: "number" },
+      { key: "totalValue", label: "Total Value", type: "currency" },
+      { key: "averageCost", label: "Avg Cost", type: "currency" },
+    ];
+    const svExportData = svFiltered.map((v: any) => ({
+      productCode: v.productCode || "",
+      productName: v.productName || "",
+      valuationMethod: v.valuationMethod || svMethod,
+      totalQuantity: v.totalQuantity || 0,
+      totalValue: v.totalValue || 0,
+      averageCost: v.averageCost || 0,
+    }));
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <StatCard label="Products Valued" value={svStats.products} icon={Layers} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+          <StatCard label="Total Qty" value={bdCurrencyFmt.format(svStats.totalQty)} icon={Package} color="text-emerald-600" bg="bg-emerald-50" />
+          <StatCard label="Total Inventory Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(svStats.totalValue)} icon={TrendingUp} color="text-amber-600" bg="bg-amber-50" />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+            <Input value={svSearch} onChange={e => setSvSearch(e.target.value)} placeholder="Search valuations..." className="pl-8" />
+          </div>
+          <Select value={svMethod} onValueChange={v => { setSvMethod(v); loadStockValuation(v); }}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="FIFO">FIFO (First In, First Out)</SelectItem>
+              <SelectItem value="WeightedAverage">Weighted Average</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(svExportCols), "totalValue", "averageCost"]; exportToCSV({ title: `Stock Valuation (${svMethod})`, columns: svExportCols, data: svExportData, isVatAuditor, vatMaskedColumns: mk }); }}>
+            <Download className="h-4 w-4 mr-1" /> CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(svExportCols), "totalValue", "averageCost"]; exportToPDF({ title: `Stock Valuation (${svMethod})`, columns: svExportCols, data: svExportData, isVatAuditor, vatMaskedColumns: mk, orientation: "landscape", company: companyProfile, financialFooter: { preparedBy: auth.user?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: auth.user?.displayName || auth.user?.email || "" } }); }}>
+            <FileDown className="h-4 w-4 mr-1" /> PDF
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => loadStockValuation()}><RefreshCw className={`h-4 w-4 ${svLoading ? "animate-spin" : ""}`} /></Button>
+        </div>
+
+        <div className="border rounded-lg overflow-auto max-h-[65vh]">
+          <Table>
+            <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+              <TableHead className="text-white text-xs w-8"></TableHead>
+              <TableHead className="text-white text-xs">Product</TableHead>
+              <TableHead className="text-white text-xs">Method</TableHead>
+              <TableHead className="text-white text-xs text-right">Total Qty</TableHead>
+              <TableHead className="text-white text-xs text-right">Total Value</TableHead>
+              <TableHead className="text-white text-xs text-right">Avg Cost</TableHead>
+              <TableHead className="text-white text-xs">Category</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>
+              {svLoading ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-400">Loading valuations...</TableCell></TableRow> :
+              svFiltered.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-400">No valuation data. Click refresh to calculate.</TableCell></TableRow> :
+              svFiltered.map((v: any) => (
+                <React.Fragment key={v.productId}>
+                  <TableRow className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" onClick={() => setSvExpandedProduct(svExpandedProduct === v.productId ? null : v.productId)}>
+                    <TableCell className="text-xs">
+                      {v.layers && v.layers.length > 0 ? (svExpandedProduct === v.productId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />) : null}
+                    </TableCell>
+                    <TableCell className="text-xs font-medium">{v.productCode} — {v.productName}</TableCell>
+                    <TableCell className="text-xs"><Badge className="bg-purple-50 text-purple-700 border-0 text-xs">{v.valuationMethod || svMethod}</Badge></TableCell>
+                    <TableCell className="text-xs text-right font-medium">{Number(v.totalQuantity || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(v.totalValue || 0)}</TableCell>
+                    <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(v.averageCost || 0)}</TableCell>
+                    <TableCell className="text-xs">{v.category || "—"}</TableCell>
+                  </TableRow>
+                  {svExpandedProduct === v.productId && v.layers && v.layers.length > 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="p-0">
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3">
+                          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">FIFO Inventory Layers</p>
+                          <Table>
+                            <TableHeader><TableRow>
+                              <TableHead className="text-xs h-8">Date</TableHead>
+                              <TableHead className="text-xs text-right">Qty</TableHead>
+                              <TableHead className="text-xs text-right">Cost Price</TableHead>
+                              <TableHead className="text-xs text-right">Layer Cost</TableHead>
+                              <TableHead className="text-xs">Batch</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>
+                              {v.layers.map((l: any, li: number) => (
+                                <TableRow key={li}>
+                                  <TableCell className="text-xs py-1">{l.date ? fmt(l.date, "date") : "—"}</TableCell>
+                                  <TableCell className="text-xs py-1 text-right">{Number(l.quantity || 0).toLocaleString()}</TableCell>
+                                  <TableCell className="text-xs py-1 text-right">{isVatAuditor ? "N/A" : fmtCurrency(l.costPrice || 0)}</TableCell>
+                                  <TableCell className="text-xs py-1 text-right">{isVatAuditor ? "N/A" : fmtCurrency(l.totalCost || 0)}</TableCell>
+                                  <TableCell className="text-xs py-1">{l.batchNumber || "—"}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
+  };
 
   const renderStock = () => (
     <div className="space-y-4">
@@ -2643,8 +3370,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <TabsTrigger value="sales-returns" className="text-xs">Sales Returns</TabsTrigger>
           <TabsTrigger value="purchase-returns" className="text-xs">Purchase Returns</TabsTrigger>
           <TabsTrigger value="replacements" className="text-xs">Replacements</TabsTrigger>
+          <TabsTrigger value="opening-stock" className="text-xs">Opening Stock</TabsTrigger>
+          <TabsTrigger value="batch-master" className="text-xs">Batch Master</TabsTrigger>
           <TabsTrigger value="stock" className="text-xs">Stock</TabsTrigger>
           <TabsTrigger value="stock-details" className="text-xs">Stock Details</TabsTrigger>
+          <TabsTrigger value="stock-valuation" className="text-xs">Valuation</TabsTrigger>
           <TabsTrigger value="transfers" className="text-xs">Transfers</TabsTrigger>
         </TabsList>
         <TabsContent value="company-ordersheet">{renderCompanyOrdersheet()}</TabsContent>
@@ -2657,8 +3387,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <TabsContent value="sales-returns">{renderSalesReturn()}</TabsContent>
         <TabsContent value="purchase-returns">{renderPurchaseReturn()}</TabsContent>
         <TabsContent value="replacements">{renderReplacements()}</TabsContent>
+        <TabsContent value="opening-stock">{renderOpeningStock()}</TabsContent>
+        <TabsContent value="batch-master">{renderBatchMaster()}</TabsContent>
         <TabsContent value="stock">{renderStock()}</TabsContent>
         <TabsContent value="stock-details">{renderStockDetails()}</TabsContent>
+        <TabsContent value="stock-valuation">{renderStockValuation()}</TabsContent>
         <TabsContent value="transfers">{renderTransfers()}</TabsContent>
       </Tabs>
     </div>

@@ -181,6 +181,9 @@ model Company {
   investmentHeads    InvestmentHead[]
   assetEntries       Asset[]
   liabilityEntries   Liability[]
+  godowns            Godown[]
+  productStocks      ProductStock[]
+  batchMasters      BatchMaster[]
 }
 
 model Category {
@@ -246,16 +249,23 @@ model Godown {
   name      String
   address   String?
   inCharge String?
+  status    String   @default("ACTIVE")  // "ACTIVE" or "SUSPENDED" — SUSPENDED blocks all stock operations
+  companyId String?  // Multi-tenant isolation
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  products       Product[]
-  purchaseOrders PurchaseOrder[]
-  salesOrders    SalesOrder[]
-  hireSales      HireSales[]
-  salesReturns   SalesReturn[]
-  transferFrom   StockTransfer[] @relation("TransferFrom")
-  transferTo     StockTransfer[] @relation("TransferTo")
+  company         Company?        @relation(fields: [companyId], references: [id])
+  products        Product[]
+  purchaseOrders  PurchaseOrder[]
+  salesOrders     SalesOrder[]
+  hireSales       HireSales[]
+  salesReturns    SalesReturn[]
+  transferFrom    StockTransfer[] @relation("TransferFrom")
+  transferTo      StockTransfer[] @relation("TransferTo")
+  productStocks   ProductStock[]
+  batchMasters   BatchMaster[]
+
+  @@index([companyId])
 }
 
 model InterestPercentage {
@@ -386,6 +396,8 @@ model Product {
   dealerPrice   Float    @default(0)
   openingStock  Float    @default(0)
   reorderLevel  Float    @default(0)
+  valuationMethod String @default("FIFO")  // "FIFO" or "WeightedAverage" — Perpetual stock valuation engine
+  coaAccountId  String?  // Auto-mapped Chart of Accounts sub-node under Assets -> Inventory Asset
   godownId      String?
   segmentId     String?
   companyId     String?
@@ -400,7 +412,10 @@ model Product {
   godown        Godown?  @relation(fields: [godownId], references: [id])
   segment       Segment? @relation(fields: [segmentId], references: [id])
   company       Company? @relation(fields: [companyId], references: [id])
+  coaAccount    ChartOfAccount? @relation(fields: [coaAccountId], references: [id])
   stockEntries       StockEntry[]
+  productStocks      ProductStock[]
+  batchMasters      BatchMaster[]
   poLines            PurchaseOrderLine[]
   salesLines         SalesOrderLine[]
   orderSheetLines    OrderSheetLine[]
@@ -414,6 +429,7 @@ model Product {
   @@index([brandId])
   @@index([godownId])
   @@index([companyId])
+  @@index([coaAccountId])
   @@index([isActive])
 }
 
@@ -920,19 +936,92 @@ model StockEntry {
   id          String   @id @default(cuid())
   productId   String
   godownId    String?
+  batchId     String?  // Link to BatchMaster for batch-tracked entries
   type        String   // "IN" or "OUT"
   quantity    Float
+  costPrice   Float    @default(0)  // Per-unit cost at time of entry for FIFO/WA valuation
+  totalCost   Float    @default(0)  // quantity * costPrice — perpetual inventory value
   reference   String?  // PO number, Invoice number, etc.
-  referenceType String? // "PurchaseOrder", "SalesOrder", "Transfer", "Return", "Adjustment"
+  referenceType String? // "PurchaseOrder", "SalesOrder", "Transfer", "Return", "Adjustment", "OpeningStock"
+  companyId   String?  // Multi-tenant isolation
   date        DateTime
   notes       String?
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  product     Product  @relation(fields: [productId], references: [id])
+  product     Product     @relation(fields: [productId], references: [id])
+  batch       BatchMaster? @relation(fields: [batchId], references: [id])
 
   @@index([productId])
   @@index([date])
   @@index([type])
+  @@index([companyId])
+  @@index([batchId])
+  @@index([referenceType])
+}
+
+// ============================================================
+// PRODUCT STOCK — Location-Wise Stock Ledger
+// Tracks real-time stock quantities per product per godown
+// with perpetual valuation (FIFO / Weighted Average)
+// ============================================================
+
+model ProductStock {
+  id              String   @id @default(cuid())
+  productId       String
+  godownId        String
+  quantity        Float    @default(0)  // Current stock quantity at this location
+  costPrice       Float    @default(0)  // Current unit cost (WA average or FIFO latest)
+  totalValue      Float    @default(0)  // quantity * costPrice — perpetual inventory value
+  alertLevel      Float    @default(0)  // Reorder alert level for this product at this location
+  companyId       String?  // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  product         Product  @relation(fields: [productId], references: [id])
+  godown          Godown   @relation(fields: [godownId], references: [id])
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@unique([productId, godownId])  // One stock record per product per location
+  @@index([productId])
+  @@index([godownId])
+  @@index([companyId])
+}
+
+// ============================================================
+// BATCH MASTER — Batch Tracking with Expiry & Valuation
+// Every product opening adjustment must mandate a Batch Number
+// and an explicit Expiry Date (if applicable)
+// ============================================================
+
+model BatchMaster {
+  id              String   @id @default(cuid())
+  batchNumber     String   // Unique batch identifier
+  productId       String
+  godownId        String?  // Location where batch is stored
+  quantity        Float    @default(0)  // Current quantity in this batch
+  costPrice       Float    @default(0)  // Per-unit cost for this batch
+  totalCost       Float    @default(0)  // quantity * costPrice — batch inventory value
+  salePrice       Float    @default(0)  // Selling price for this batch
+  expiryDate      DateTime?  // Expiry date (null if not applicable)
+  manufacturingDate DateTime?  // Manufacturing date
+  supplierId      String?  // Source supplier for this batch
+  purchaseOrderId String?  // Source PO for this batch
+  status          String   @default("Active")  // "Active", "Expired", "Exhausted", "Recalled"
+  companyId       String?  // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  product         Product     @relation(fields: [productId], references: [id])
+  godown          Godown?     @relation(fields: [godownId], references: [id])
+  company         Company?    @relation(fields: [companyId], references: [id])
+  stockEntries    StockEntry[]
+
+  @@index([productId])
+  @@index([godownId])
+  @@index([companyId])
+  @@index([status])
+  @@index([expiryDate])
 }
 
 model StockTransfer {
@@ -1251,6 +1340,7 @@ model ChartOfAccount {
   company             Company?         @relation(fields: [companyId], references: [id])
   customers           Customer[]       // Customer sub-nodes under AR
   suppliers           Supplier[]       // Supplier sub-nodes under AP
+  products            Product[]        // Product sub-nodes under Inventory Asset
 
   @@index([companyId])
 }

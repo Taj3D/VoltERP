@@ -16,6 +16,8 @@ import { db } from '@/lib/db';
  * - Fin-Ledger-Transaction: Financial ledger transactions
  * - Fin-Bank-Settlement: Bank balance settlements
  * - Sec-Audit-Overhaul: Security audit log viewing, backup operations, and compliance center activities
+ * - CRM-Profiles-Core: Customer and Supplier profile management, collision shields, CoA auto-mapping
+ * - Inv-Stock-Core: Inventory stock operations, opening stock adjustments, batch master management, stock valuations, godown management
  *
  * @param params - Activity log parameters
  */
