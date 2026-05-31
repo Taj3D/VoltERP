@@ -35,6 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { CommandDialog, CommandInput, CommandList, CommandGroup, CommandItem, CommandEmpty } from "@/components/ui/command";
@@ -366,6 +367,7 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "batch-master", label: "Batch Master", icon: Hash },
       { key: "stock-valuation", label: "Valuation", icon: TrendingUp },
       { key: "stock-transfers", label: "Transfer", icon: ArrowLeftRight },
+      { key: "damage-logs", label: "Damage Log", icon: AlertTriangle },
     ],
   },
   {
@@ -5888,6 +5890,10 @@ function StockTransfersPage() {
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<Record<string, string>>({});
+  const [logisticsSnapshot, setLogisticsSnapshot] = useState<any[] | null>(null);
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
 
   // Dynamic options
   const [godowns, setGodowns] = useState<any[]>([]);
@@ -5895,11 +5901,24 @@ function StockTransfersPage() {
 
   // Form state
   const [formData, setFormData] = useState<Record<string, any>>({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], notes: "", transferNo: "" });
-  const [lines, setLines] = useState<any[]>([{ productId: "", quantity: 1 }]);
+  const [lines, setLines] = useState<any[]>([{ productId: "", quantity: 1, batchNumber: "" }]);
 
   // RBAC
   const isDealer = user?.role === "dealer";
   const isSR = user?.role === "sr";
+  const isAdmin = user?.role === "admin";
+
+  // Intl.NumberFormat for all financial figures
+  const bdFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding");
+      if (res && !res.error) setCompanyProfile(res);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -5937,9 +5956,10 @@ function StockTransfersPage() {
 
   // Stats
   const totalTransfers = data.length;
-  const pendingCount = data.filter((d: any) => d.shippingStatus === "Pending").length;
-  const inTransitCount = data.filter((d: any) => d.shippingStatus === "In-Transit").length;
-  const deliveredCount = data.filter((d: any) => d.shippingStatus === "Delivered").length;
+  const pendingCount = data.filter((d: any) => d.shippingStatus === "Pending" || d.shippingStatus === "PENDING").length;
+  const inTransitCount = data.filter((d: any) => d.shippingStatus === "In-Transit" || d.shippingStatus === "IN_TRANSIT").length;
+  const receivedCount = data.filter((d: any) => d.shippingStatus === "Delivered" || d.shippingStatus === "RECEIVED").length;
+  const rejectedCount = data.filter((d: any) => d.shippingStatus === "REJECTED").length;
 
   // Auto-calculate totals
   const totalItems = lines.filter(l => l.productId).length;
@@ -5948,10 +5968,16 @@ function StockTransfersPage() {
   // Godown validation
   const sameGodownError = formData.fromGodownId && formData.toGodownId && formData.fromGodownId === formData.toGodownId;
 
+  // SUSPENDED Godown check
+  const fromGodown = godowns.find((g: any) => g.id === formData.fromGodownId);
+  const toGodown = godowns.find((g: any) => g.id === formData.toGodownId);
+  const fromSuspended = fromGodown?.status === "SUSPENDED";
+  const toSuspended = toGodown?.status === "SUSPENDED";
+
   const openCreate = () => {
     const nextNum = data.length > 0 ? String(Math.max(...data.map((d: any) => parseInt(d.transferNo?.replace("TRF-", "") || d.transferNo?.replace("TRN-", "") || "0", 10) || 0)) + 1).padStart(5, "0") : "00001";
     setFormData({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], notes: "", transferNo: `TRN-${nextNum}` });
-    setLines([{ productId: "", quantity: 1 }]);
+    setLines([{ productId: "", quantity: 1, batchNumber: "" }]);
     setEditItem(null);
     setShowForm(true);
     loadOptions();
@@ -5967,8 +5993,8 @@ function StockTransfersPage() {
       shippingStatus: item.shippingStatus || "Pending",
     });
     setLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
-      productId: l.productId, quantity: l.quantity || 1
-    })) : [{ productId: "", quantity: 1 }]);
+      productId: l.productId, quantity: l.quantity || 1, batchNumber: l.batchNumber || ""
+    })) : [{ productId: "", quantity: 1, batchNumber: "" }]);
     setEditItem(item);
     setShowForm(true);
     loadOptions();
@@ -6000,6 +6026,7 @@ function StockTransfersPage() {
         lines: validLines.map(l => ({
           productId: l.productId,
           quantity: Number(l.quantity) || 0,
+          batchNumber: l.batchNumber || null,
         })),
       };
       if (editItem) {
@@ -6022,29 +6049,78 @@ function StockTransfersPage() {
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
+  // ─── Intransit Valuation State Machine with Spin-Lock + Rollback ───
   const handleShippingStatusUpdate = async (item: any, newStatus: string) => {
+    // Save logisticsSnapshot before API call for rollback
+    setLogisticsSnapshot([...data]);
+    setStatusUpdateLoading(item.id);
     try {
       const updateData: Record<string, any> = { shippingStatus: newStatus, status: newStatus };
-      if (newStatus === "In-Transit") updateData.shippedAt = new Date().toISOString();
-      if (newStatus === "Delivered") updateData.deliveredAt = new Date().toISOString();
+      if (newStatus === "IN_TRANSIT") updateData.shippedAt = new Date().toISOString();
+      if (newStatus === "RECEIVED") updateData.deliveredAt = new Date().toISOString();
+      if (newStatus === "REJECTED") {
+        const reason = rejectionReason[item.id] || "";
+        updateData.rejectionReason = reason;
+      }
       await apiFetch(`/api/transfers/${item.id}`, { method: "PUT", body: JSON.stringify(updateData) });
       toast({ title: "Status Updated", description: `Transfer marked as ${newStatus}` });
       load();
     } catch (e: any) {
+      // Rollback from logisticsSnapshot on failure
+      if (logisticsSnapshot) {
+        setData(logisticsSnapshot);
+        setLogisticsSnapshot(null);
+      }
       toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setStatusUpdateLoading(null);
     }
   };
 
   const exportCSV = () => {
-    const headers = ["Transfer No", "From Godown", "To Godown", "Date", "Shipping Status", "Total Items", "Total Qty"];
-    const rows = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0].map(String));
+    const headers = ["Transfer No", "From Godown", "To Godown", "Date", "Shipping Status", "Total Items", "Total Qty", "Value"];
+    const rows = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0, item.totalValue ? bdFmt.format(Number(item.totalValue)) : "0.00"].map(String));
     try { exportToCSVSimple("Stock Transfers", headers, rows); toast({ title: "Exported", description: "Stock Transfers exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
-  const exportPDF = () => {
-    const headers = ["Transfer No", "From", "To", "Date", "Status", "Items", "Qty"];
-    const body = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", String(item.totalItems || 0), String(item.totalQuantity || 0)]);
-    try { exportToPDFSimple("Stock Transfers", headers, body, "landscape"); toast({ title: "Exported", description: "Stock Transfers exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  const exportPDFHandler = async () => {
+    try {
+      const columns: ExportColumnDef[] = [
+        { key: "transferNo", label: "Transfer No", type: "text" },
+        { key: "fromGodown", label: "From Godown", type: "text" },
+        { key: "toGodown", label: "To Godown", type: "text" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "shippingStatus", label: "Status", type: "text" },
+        { key: "totalItems", label: "Items", type: "number" },
+        { key: "totalQuantity", label: "Qty", type: "number" },
+        { key: "totalValue", label: "Value", type: "currency" },
+      ];
+      const pdfData = filtered.map((item: any) => ({
+        transferNo: item.transferNo || "—",
+        fromGodown: item.fromGodown?.name || "—",
+        toGodown: item.toGodown?.name || "—",
+        date: item.date,
+        shippingStatus: item.shippingStatus || "Pending",
+        totalItems: item.totalItems || 0,
+        totalQuantity: item.totalQuantity || 0,
+        totalValue: item.totalValue || 0,
+      }));
+      exportToPDF({
+        title: "Stock Transfers",
+        columns,
+        data: pdfData,
+        isVatAuditor,
+        vatMaskedColumns: ["totalValue"],
+        company: companyProfile || undefined,
+        financialFooter: {
+          preparedBy: user?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: user?.displayName || user?.email || "",
+        },
+      });
+      toast({ title: "Exported", description: "Stock Transfers exported to PDF" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -6069,10 +6145,21 @@ function StockTransfersPage() {
 
   const shippingStatusColor = (status: string) => {
     switch (status) {
-      case "Pending": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
-      case "In-Transit": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-      case "Delivered": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+      case "Pending": case "PENDING": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      case "In-Transit": case "IN_TRANSIT": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      case "Delivered": case "RECEIVED": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+      case "REJECTED": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
       default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
+  const shippingStatusLabel = (status: string) => {
+    switch (status) {
+      case "IN_TRANSIT": return "In-Transit";
+      case "RECEIVED": return "Received";
+      case "REJECTED": return "Rejected";
+      case "PENDING": return "Pending";
+      default: return status || "Pending";
     }
   };
 
@@ -6112,7 +6199,7 @@ function StockTransfersPage() {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={exportPDFHandler}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
           {!isSR && (
             <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create Transfer</Button>
           )}
@@ -6120,12 +6207,13 @@ function StockTransfersPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: "Total Transfers", value: totalTransfers, icon: ArrowLeftRight, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
           { label: "Pending", value: pendingCount, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
           { label: "In-Transit", value: inTransitCount, icon: Truck, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-          { label: "Delivered", value: deliveredCount, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+          { label: "Received", value: receivedCount, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+          { label: "Rejected", value: rejectedCount, icon: XCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
         ].map((stat, i) => (
           <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
             <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
@@ -6155,7 +6243,7 @@ function StockTransfersPage() {
                   <TableHead>Shipping Status</TableHead>
                   <TableHead>Total Items</TableHead>
                   <TableHead>Total Qty</TableHead>
-                  {!isSR && <TableHead className="w-28 text-right">Actions</TableHead>}
+                  {!isSR && <TableHead className="w-40 text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -6163,67 +6251,120 @@ function StockTransfersPage() {
                   <TableRow><TableCell colSpan={isSR ? 8 : 9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow><TableCell colSpan={isSR ? 8 : 9} className="h-24 text-center text-muted-foreground">No stock transfers found</TableCell></TableRow>
-                ) : filtered.map((item: any) => (
-                  <React.Fragment key={item.id}>
-                    <TableRow className="data-table-row hover:bg-muted/50">
-                      <TableCell>
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(item.id)}>
-                          {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                        </Button>
-                      </TableCell>
-                      <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.transferNo}</TableCell>
-                      <TableCell>{item.fromGodown?.name || "—"}</TableCell>
-                      <TableCell>{item.toGodown?.name || "—"}</TableCell>
-                      <TableCell>{fmtDate(item.date)}</TableCell>
-                      <TableCell><Badge className={shippingStatusColor(item.shippingStatus)}>{item.shippingStatus || "Pending"}</Badge></TableCell>
-                      <TableCell className="font-mono">{item.totalItems || item.lines?.length || 0}</TableCell>
-                      <TableCell className="font-mono">{item.totalQuantity || item.lines?.reduce((s: number, l: any) => s + (l.quantity || 0), 0) || 0}</TableCell>
-                      {!isSR && (
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {item.shippingStatus === "Pending" && (
-                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleShippingStatusUpdate(item, "In-Transit")}><Truck className="w-3 h-3 mr-1" />In-Transit</Button>
-                            )}
-                            {item.shippingStatus === "In-Transit" && (
-                              <Button variant="outline" size="sm" className="h-7 text-xs border-green-500 text-green-600" onClick={() => handleShippingStatusUpdate(item, "Delivered")}><CheckCircle className="w-3 h-3 mr-1" />Delivered</Button>
-                            )}
-                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                          </div>
+                ) : filtered.map((item: any) => {
+                  const rawStatus = item.shippingStatus || "Pending";
+                  const normalizedStatus = rawStatus.toUpperCase().replace(/-/g, "_");
+                  const isTerminal = normalizedStatus === "RECEIVED" || normalizedStatus === "REJECTED";
+                  const isLoadingThis = statusUpdateLoading === item.id;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <TableRow className="data-table-row hover:bg-muted/50">
+                        <TableCell>
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(item.id)}>
+                            {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                          </Button>
                         </TableCell>
-                      )}
-                    </TableRow>
-                    {expandedRows.has(item.id) && (
-                      <TableRow>
-                        <TableCell colSpan={isSR ? 8 : 9} className="bg-muted/30 p-3">
-                          {/* Shipping Info */}
-                          <div className="flex flex-wrap gap-4 mb-3 text-sm">
-                            {item.shippedAt && <span className="text-slate-900 dark:text-white">Shipped: <strong>{fmtDate(item.shippedAt)}</strong></span>}
-                            {item.deliveredAt && <span className="text-slate-900 dark:text-white">Delivered: <strong>{fmtDate(item.deliveredAt)}</strong></span>}
-                          </div>
-                          {/* Line Items */}
-                          <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Line Items</div>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Product</TableHead>
-                                <TableHead>Quantity</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {(item.lines || []).map((line: any, li: number) => (
-                                <TableRow key={li}>
-                                  <TableCell>{line.product?.name || line.productId || "—"}</TableCell>
-                                  <TableCell className="font-mono">{line.quantity}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                        <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.transferNo}</TableCell>
+                        <TableCell>
+                          {item.fromGodown?.name || "—"}
+                          {item.fromGodown?.status === "SUSPENDED" && <Badge className="ml-1 bg-red-100 text-red-700 text-[10px]">SUSPENDED</Badge>}
                         </TableCell>
+                        <TableCell>
+                          {item.toGodown?.name || "—"}
+                          {item.toGodown?.status === "SUSPENDED" && <Badge className="ml-1 bg-red-100 text-red-700 text-[10px]">SUSPENDED</Badge>}
+                        </TableCell>
+                        <TableCell>{fmtDate(item.date)}</TableCell>
+                        <TableCell>
+                          {isTerminal && normalizedStatus === "RECEIVED" ? (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">✓ Completed</Badge>
+                          ) : isTerminal && normalizedStatus === "REJECTED" ? (
+                            <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">✗ Rejected{item.rejectionReason ? `: ${item.rejectionReason}` : ""}</Badge>
+                          ) : (
+                            <Badge className={shippingStatusColor(rawStatus)}>{shippingStatusLabel(rawStatus)}</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono">{item.totalItems || item.lines?.length || 0}</TableCell>
+                        <TableCell className="font-mono">{item.totalQuantity || item.lines?.reduce((s: number, l: any) => s + (l.quantity || 0), 0) || 0}</TableCell>
+                        {!isSR && (
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1 flex-wrap">
+                              {/* PENDING → Ship button */}
+                              {(normalizedStatus === "PENDING") && (
+                                <Button variant="outline" size="sm" className="h-7 text-xs border-blue-500 text-blue-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "IN_TRANSIT")}>
+                                  {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating...</> : <><Truck className="w-3 h-3 mr-1" />Ship (→ In-Transit)</>}
+                                </Button>
+                              )}
+                              {/* IN_TRANSIT → Received / Reject buttons */}
+                              {(normalizedStatus === "IN_TRANSIT") && (
+                                <>
+                                  <Button variant="outline" size="sm" className="h-7 text-xs border-green-500 text-green-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "RECEIVED")}>
+                                    {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating Logistical Asset Values & Shifting Intransit Batches...</> : <><CheckCircle className="w-3 h-3 mr-1" />Mark Received ✓</>}
+                                  </Button>
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      className="h-7 text-xs w-28"
+                                      placeholder="Reject reason..."
+                                      value={rejectionReason[item.id] || ""}
+                                      onChange={e => setRejectionReason(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                    />
+                                    <Button variant="outline" size="sm" className="h-7 text-xs border-red-500 text-red-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "REJECTED")}>
+                                      {isLoadingThis ? <RefreshCw className="w-3 h-3 animate-spin" /> : <><XCircle className="w-3 h-3 mr-1" />Reject ✗</>}
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
+                              {/* Terminal states: no actions */}
+                              {!isTerminal && (
+                                <>
+                                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="w-3.5 h-3.5" /></Button>
+                                  <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
-                    )}
-                  </React.Fragment>
-                ))}
+                      {expandedRows.has(item.id) && (
+                        <TableRow>
+                          <TableCell colSpan={isSR ? 8 : 9} className="bg-muted/30 p-3">
+                            {/* Shipping Info */}
+                            <div className="flex flex-wrap gap-4 mb-3 text-sm">
+                              {item.shippedAt && <span className="text-slate-900 dark:text-white">Shipped: <strong>{fmtDate(item.shippedAt)}</strong></span>}
+                              {item.deliveredAt && <span className="text-slate-900 dark:text-white">Delivered: <strong>{fmtDate(item.deliveredAt)}</strong></span>}
+                              {item.totalValue != null && !isVatAuditor && <span className="text-slate-900 dark:text-white">Total Value: <strong>৳{bdFmt.format(Number(item.totalValue))}</strong></span>}
+                              {isVatAuditor && item.totalValue != null && <span className="text-amber-600">Total Value: <strong>N/A (Audit Mode)</strong></span>}
+                            </div>
+                            {/* Line Items */}
+                            <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Line Items</div>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Product</TableHead>
+                                  <TableHead>Batch No</TableHead>
+                                  <TableHead>Quantity</TableHead>
+                                  {!isVatAuditor && <TableHead>Cost Price</TableHead>}
+                                  {!isVatAuditor && <TableHead>Total Cost</TableHead>}
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {(item.lines || []).map((line: any, li: number) => (
+                                  <TableRow key={li}>
+                                    <TableCell>{line.product?.name || line.productId || "—"}</TableCell>
+                                    <TableCell className="font-mono">{line.batchNumber || "—"}</TableCell>
+                                    <TableCell className="font-mono">{line.quantity}</TableCell>
+                                    {!isVatAuditor && <TableCell className="font-mono">{line.costPrice != null ? `৳${bdFmt.format(Number(line.costPrice))}` : "—"}</TableCell>}
+                                    {!isVatAuditor && <TableCell className="font-mono">{line.totalCost != null ? `৳${bdFmt.format(Number(line.totalCost))}` : "—"}</TableCell>}
+                                    {isVatAuditor && <TableCell className="text-amber-600">N/A (Audit Mode)</TableCell>}
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -6234,7 +6375,7 @@ function StockTransfersPage() {
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Stock Transfer</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Stock Transfer</DialogTitle><DialogDescription>Fill in the details to {editItem ? "update" : "create"} a stock transfer.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -6245,14 +6386,22 @@ function StockTransfersPage() {
                 <Label>From Godown <span className="text-red-500">*</span></Label>
                 <Select value={formData.fromGodownId || ""} onValueChange={v => setFormData({ ...formData, fromGodownId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select Source Godown" /></SelectTrigger>
-                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{godowns.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
+                      {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
+                    </SelectItem>
+                  ))}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>To Godown <span className="text-red-500">*</span></Label>
                 <Select value={formData.toGodownId || ""} onValueChange={v => setFormData({ ...formData, toGodownId: v })}>
                   <SelectTrigger className={sameGodownError ? "border-red-500" : ""}><SelectValue placeholder="Select Destination Godown" /></SelectTrigger>
-                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{godowns.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
+                      {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
+                    </SelectItem>
+                  ))}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -6260,6 +6409,19 @@ function StockTransfersPage() {
                 <Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
             </div>
+
+            {/* SUSPENDED Godown Warning */}
+            {(fromSuspended || toSuspended) && (
+              <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
+                <CardContent className="p-3">
+                  <p className="text-red-600 text-sm font-medium flex items-center gap-1"><AlertTriangle className="w-4 h-4" />
+                    {fromSuspended && toSuspended ? "Both source and destination godowns are SUSPENDED!" :
+                     fromSuspended ? "Source godown is SUSPENDED — stock operations are blocked!" :
+                     "Destination godown is SUSPENDED — stock operations are blocked!"}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
             {sameGodownError && (
               <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
@@ -6278,13 +6440,14 @@ function StockTransfersPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <Label className="text-sm font-semibold">Products to Transfer</Label>
-                <Button variant="outline" size="sm" onClick={() => setLines(prev => [...prev, { productId: "", quantity: 1 }])}><Plus className="w-3 h-3 mr-1" />Add Line</Button>
+                <Button variant="outline" size="sm" onClick={() => setLines(prev => [...prev, { productId: "", quantity: 1, batchNumber: "" }])}><Plus className="w-3 h-3 mr-1" />Add Line</Button>
               </div>
               <div className="overflow-auto rounded-md border max-h-60">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>Product</TableHead>
+                      <TableHead className="w-32">Batch No</TableHead>
                       <TableHead className="w-24">Quantity</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
@@ -6300,6 +6463,9 @@ function StockTransfersPage() {
                             <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                           </Select>
                         </TableCell>
+                        <TableCell><Input className="h-8 text-xs" placeholder="Optional" value={line.batchNumber || ""} onChange={e => {
+                          setLines(prev => { const next = [...prev]; next[idx] = { ...next[idx], batchNumber: e.target.value }; return next; });
+                        }} /></TableCell>
                         <TableCell><Input type="number" className="h-8 text-xs w-20" min={1} value={line.quantity} onChange={e => {
                           setLines(prev => { const next = [...prev]; next[idx] = { ...next[idx], quantity: Number(e.target.value) || 1 }; return next; });
                         }} /></TableCell>
@@ -6328,7 +6494,7 @@ function StockTransfersPage() {
                 <Lock className="w-4 h-4 mr-1" />Approval Required
               </Button>
             ) : (
-              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving || sameGodownError}>
+              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving || sameGodownError || fromSuspended || toSuspended}>
                 {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}{editItem ? "Update" : "Create"}
               </Button>
             )}
@@ -6343,7 +6509,16 @@ function StockTransfersPage() {
           <DialogDescription>Delete Stock Transfer {deleteItem?.transferNo}? This cannot be undone.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            {isAdmin ? (
+              <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="destructive" disabled className="cursor-not-allowed opacity-60">Delete</Button>
+                </TooltipTrigger>
+                <TooltipContent>Only administrators can delete stock transfers</TooltipContent>
+              </Tooltip>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -6351,6 +6526,556 @@ function StockTransfersPage() {
   );
 }
 
+// ============================================================
+// DAMAGE LOGS PAGE — Phase 12
+// ============================================================
+
+function DamageLogsPage() {
+  const { toast } = useToast();
+  const { isVatAuditor, user } = useAuth();
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [deleteItem, setDeleteItem] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [authorizingId, setAuthorizingId] = useState<string | null>(null);
+  const [logisticsSnapshot, setLogisticsSnapshot] = useState<any[] | null>(null);
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [quantityError, setQuantityError] = useState(false);
+
+  // Dynamic options
+  const [godowns, setGodowns] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  // Form state
+  const [formData, setFormData] = useState<Record<string, any>>({
+    productId: "",
+    godownId: "",
+    batchNumber: "",
+    quantity: "",
+    lossCostPrice: "",
+    reason: "",
+    description: "",
+    reportDate: new Date().toISOString().split("T")[0],
+  });
+
+  // RBAC
+  const isDealer = user?.role === "dealer";
+  const isSR = user?.role === "sr";
+  const isAdmin = user?.role === "admin";
+
+  // Intl.NumberFormat for all financial figures
+  const bdFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Auto-calculate total loss value
+  const totalLossValue = useMemo(() => {
+    const qty = Number(formData.quantity) || 0;
+    const price = Number(formData.lossCostPrice) || 0;
+    return qty * price;
+  }, [formData.quantity, formData.lossCostPrice]);
+
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding");
+      if (res && !res.error) setCompanyProfile(res);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch("/api/damage-logs");
+      setData(Array.isArray(res) ? res : res.data || []);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setLoading(false); }
+  }, [toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const loadOptions = useCallback(async () => {
+    try {
+      const [gRes, pRes] = await Promise.all([
+        apiFetch("/api/godowns").catch(() => []),
+        apiFetch("/api/products").catch(() => []),
+      ]);
+      setGodowns(Array.isArray(gRes) ? gRes : gRes.data || []);
+      setProducts(Array.isArray(pRes) ? pRes : pRes.data || []);
+    } catch { /* silent */ }
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!search) return data;
+    const s = search.toLowerCase();
+    return data.filter((item: any) =>
+      item.damageCode?.toLowerCase().includes(s) ||
+      item.product?.name?.toLowerCase().includes(s) ||
+      item.godown?.name?.toLowerCase().includes(s) ||
+      item.reason?.toLowerCase().includes(s) ||
+      item.status?.toLowerCase().includes(s)
+    );
+  }, [data, search]);
+
+  // Stats
+  const totalCount = data.length;
+  const pendingCount = data.filter((d: any) => d.status === "Pending").length;
+  const totalLossValueSum = data.reduce((s: number, d: any) => s + (Number(d.totalLossValue) || 0), 0);
+  const brokenCount = data.filter((d: any) => d.reason === "BROKEN").length;
+  const expiredCount = data.filter((d: any) => d.reason === "EXPIRED").length;
+  const theftCount = data.filter((d: any) => d.reason === "THEFT").length;
+  const moistureCount = data.filter((d: any) => d.reason === "MOISTURE").length;
+
+  const openCreate = () => {
+    setFormData({
+      productId: "",
+      godownId: "",
+      batchNumber: "",
+      quantity: "",
+      lossCostPrice: "",
+      reason: "",
+      description: "",
+      reportDate: new Date().toISOString().split("T")[0],
+    });
+    setQuantityError(false);
+    setShowForm(true);
+    loadOptions();
+  };
+
+  const handleSave = async () => {
+    if (!formData.productId || !formData.godownId || !formData.quantity || !formData.lossCostPrice || !formData.reason || !formData.reportDate) {
+      toast({ title: "Error", description: "Product, Godown, Quantity, Loss Cost Price, Reason, and Report Date are required", variant: "destructive" });
+      return;
+    }
+    if (Number(formData.quantity) <= 0) {
+      toast({ title: "Error", description: "Quantity must be greater than 0", variant: "destructive" });
+      return;
+    }
+    if (Number(formData.lossCostPrice) <= 0) {
+      toast({ title: "Error", description: "Loss Cost Price must be greater than 0", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    setQuantityError(false);
+    // Save logisticsSnapshot before API call for rollback
+    setLogisticsSnapshot([...data]);
+    try {
+      const payload = {
+        productId: formData.productId,
+        godownId: formData.godownId,
+        batchNumber: formData.batchNumber || null,
+        quantity: Number(formData.quantity),
+        lossCostPrice: Number(formData.lossCostPrice),
+        totalLossValue,
+        reason: formData.reason,
+        description: formData.description || null,
+        reportDate: formData.reportDate,
+        status: "Pending",
+      };
+      await apiFetch("/api/damage-logs", { method: "POST", body: JSON.stringify(payload) });
+      toast({ title: "Created", description: "Damage Log created" });
+      setShowForm(false);
+      load();
+    } catch (e: any) {
+      // Rollback from logisticsSnapshot on failure
+      if (logisticsSnapshot) {
+        setData(logisticsSnapshot);
+        setLogisticsSnapshot(null);
+      }
+      // Check for quantity exceeds stock error (400)
+      if (e.message && (e.message.includes("Insufficient stock") || e.message.includes("quantity"))) {
+        setQuantityError(true);
+      }
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  // Authorize Damage Write-Off with Spin-Lock
+  const handleAuthorize = async (item: any) => {
+    setLogisticsSnapshot([...data]);
+    setAuthorizingId(item.id);
+    try {
+      await apiFetch(`/api/damage-logs/${item.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "Approved", approvedBy: user?.displayName || user?.email || "" }),
+      });
+      toast({ title: "Authorized", description: `Damage log ${item.damageCode} has been approved for write-off` });
+      load();
+    } catch (e: any) {
+      if (logisticsSnapshot) {
+        setData(logisticsSnapshot);
+        setLogisticsSnapshot(null);
+      }
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setAuthorizingId(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteItem) return;
+    try {
+      await apiFetch(`/api/damage-logs/${deleteItem.id}`, { method: "DELETE" });
+      toast({ title: "Deleted" }); setDeleteItem(null); load();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const reasonBadgeColor = (reason: string) => {
+    switch (reason) {
+      case "BROKEN": return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400";
+      case "EXPIRED": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      case "THEFT": return "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
+      case "MOISTURE": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
+  const exportCSV = () => {
+    const headers = ["Damage Code", "Product", "Godown", "Quantity", "Loss Cost Price", "Total Loss Value", "Reason", "Report Date", "Status"];
+    const rows = filtered.map((item: any) => [
+      item.damageCode || "—",
+      item.product?.name || "—",
+      item.godown?.name || "—",
+      String(item.quantity || 0),
+      isVatAuditor ? "N/A (Audit Mode)" : (item.lossCostPrice != null ? bdFmt.format(Number(item.lossCostPrice)) : "0.00"),
+      isVatAuditor ? "N/A (Audit Mode)" : (item.totalLossValue != null ? bdFmt.format(Number(item.totalLossValue)) : "0.00"),
+      item.reason || "—",
+      fmtDate(item.reportDate),
+      item.status || "—",
+    ]);
+    try { exportToCSVSimple("Damage Logs", headers, rows); toast({ title: "Exported", description: "Damage Logs exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const exportPDFHandler = async () => {
+    try {
+      const columns: ExportColumnDef[] = [
+        { key: "damageCode", label: "Damage Code", type: "text" },
+        { key: "product", label: "Product", type: "text" },
+        { key: "godown", label: "Godown", type: "text" },
+        { key: "quantity", label: "Quantity", type: "number" },
+        { key: "lossCostPrice", label: "Loss Cost Price", type: "currency" },
+        { key: "totalLossValue", label: "Total Loss Value", type: "currency" },
+        { key: "reason", label: "Reason", type: "text" },
+        { key: "reportDate", label: "Report Date", type: "date" },
+        { key: "status", label: "Status", type: "text" },
+      ];
+      const pdfData = filtered.map((item: any) => ({
+        damageCode: item.damageCode || "—",
+        product: item.product?.name || "—",
+        godown: item.godown?.name || "—",
+        quantity: item.quantity || 0,
+        lossCostPrice: item.lossCostPrice || 0,
+        totalLossValue: item.totalLossValue || 0,
+        reason: item.reason || "—",
+        reportDate: item.reportDate,
+        status: item.status || "—",
+      }));
+      exportToPDF({
+        title: "Damage Logs",
+        columns,
+        data: pdfData,
+        isVatAuditor,
+        vatMaskedColumns: ["lossCostPrice", "totalLossValue"],
+        company: companyProfile || undefined,
+        financialFooter: {
+          preparedBy: user?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: user?.displayName || user?.email || "",
+        },
+      });
+      toast({ title: "Exported", description: "Damage Logs exported to PDF" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  // Dealer restriction
+  if (isDealer) {
+    return (
+      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full"><CardContent className="p-8 text-center">
+          <Lock className="w-12 h-12 mx-auto mb-4 text-red-500" />
+          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h3>
+          <p className="text-muted-foreground">You don&apos;t have permission to view damage logs. Please contact your administrator.</p>
+        </CardContent></Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-enter space-y-4">
+      {/* VAT Auditor Mode Badge */}
+      {isVatAuditor && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Loss Cost Price and Total Loss Value are masked — damage tracking only</span>
+        </div>
+      )}
+
+      {/* SR View-Only Banner */}
+      {isSR && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+          <Lock className="w-4 h-4 text-yellow-600" />
+          <span className="text-sm text-yellow-700 dark:text-yellow-400">View-only mode — Damage Logs require Manager approval to create or authorize</span>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><AlertTriangle className="w-6 h-6" />Damage Logs</h2>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={exportPDFHandler}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+          {!isSR && !isVatAuditor && (
+            <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create Damage Log</Button>
+          )}
+        </div>
+      </div>
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        {[
+          { label: "Total Logs", value: totalCount, icon: AlertTriangle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+          { label: "Pending", value: pendingCount, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+          { label: "Total Loss", value: isVatAuditor ? "N/A" : `৳${bdFmt.format(totalLossValueSum)}`, icon: DollarSign, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+          { label: "Broken", value: brokenCount, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-900/30" },
+          { label: "Expired", value: expiredCount, icon: XCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+          { label: "Theft", value: theftCount, icon: ShieldAlert, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
+          { label: "Moisture", value: moistureCount, icon: Activity, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+        ].map((stat, i) => (
+          <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+            <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-sm font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
+          </CardContent></Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Search by damage code, product, godown..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+            </div>
+            <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
+          </div>
+          <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead>Damage Code</TableHead>
+                  <TableHead>Product Name</TableHead>
+                  <TableHead>Godown</TableHead>
+                  <TableHead>Quantity</TableHead>
+                  <TableHead>Loss Cost Price</TableHead>
+                  <TableHead>Total Loss Value</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Report Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  {!isSR && <TableHead className="w-40 text-right">Actions</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow><TableCell colSpan={isSR ? 9 : 10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow><TableCell colSpan={isSR ? 9 : 10} className="h-24 text-center text-muted-foreground">No damage logs found</TableCell></TableRow>
+                ) : filtered.map((item: any) => (
+                  <TableRow key={item.id} className="data-table-row hover:bg-muted/50">
+                    <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.damageCode}</TableCell>
+                    <TableCell>{item.product?.name || "—"}</TableCell>
+                    <TableCell>
+                      {item.godown?.name || "—"}
+                      {item.godown?.status === "SUSPENDED" && <Badge className="ml-1 bg-red-100 text-red-700 text-[10px]">SUSPENDED</Badge>}
+                    </TableCell>
+                    <TableCell className="font-mono">{item.quantity || 0}</TableCell>
+                    <TableCell className="font-mono">
+                      {isVatAuditor ? <span className="text-amber-600">N/A (Audit Mode)</span> : (item.lossCostPrice != null ? `৳${bdFmt.format(Number(item.lossCostPrice))}` : "—")}
+                    </TableCell>
+                    <TableCell className="font-mono">
+                      {isVatAuditor ? <span className="text-amber-600">N/A (Audit Mode)</span> : (item.totalLossValue != null ? `৳${bdFmt.format(Number(item.totalLossValue))}` : "—")}
+                    </TableCell>
+                    <TableCell><Badge className={reasonBadgeColor(item.reason)}>{item.reason}</Badge></TableCell>
+                    <TableCell>{fmtDate(item.reportDate)}</TableCell>
+                    <TableCell>
+                      <Badge className={item.status === "Approved" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : item.status === "Rejected" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"}>
+                        {item.status}
+                      </Badge>
+                    </TableCell>
+                    {!isSR && (
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {item.status === "Pending" && !isVatAuditor && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs border-green-500 text-green-600"
+                              disabled={authorizingId === item.id}
+                              onClick={() => handleAuthorize(item)}
+                            >
+                              {authorizingId === item.id ? (
+                                <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating Logistical Asset Values & Shifting Intransit Batches...</>
+                              ) : (
+                                <><CheckCircle className="w-3 h-3 mr-1" />Authorize Damage Write-Off</>
+                              )}
+                            </Button>
+                          )}
+                          {isAdmin ? (
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="sm" className="text-red-300 cursor-not-allowed" disabled><Trash2 className="w-3.5 h-3.5" /></Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Only administrators can delete damage logs</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {data.length} damage logs</div>
+        </CardContent>
+      </Card>
+
+      {/* Create Dialog */}
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Create Damage Log</DialogTitle><DialogDescription>Record a new damage, loss, or write-off entry.</DialogDescription></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Product <span className="text-red-500">*</span></Label>
+                <Select value={formData.productId || ""} onValueChange={v => setFormData({ ...formData, productId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
+                  <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Godown <span className="text-red-500">*</span></Label>
+                <Select value={formData.godownId || ""} onValueChange={v => setFormData({ ...formData, godownId: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+                  <SelectContent>{godowns.map((g: any) => (
+                    <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
+                      {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
+                    </SelectItem>
+                  ))}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Batch Number <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                <Input placeholder="Optional batch reference" value={formData.batchNumber || ""} onChange={e => setFormData({ ...formData, batchNumber: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Damage Quantity <span className="text-red-500">*</span></Label>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Must be > 0"
+                  value={formData.quantity || ""}
+                  onChange={e => { setFormData({ ...formData, quantity: e.target.value }); setQuantityError(false); }}
+                  className={quantityError ? "border-2 border-red-500 animate-pulse" : ""}
+                />
+                {quantityError && <p className="text-xs text-red-500 mt-1">Quantity exceeds available stock at this location!</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Loss Cost Price <span className="text-red-500">*</span></Label>
+                <Input
+                  type="number"
+                  min={0.01}
+                  step="0.01"
+                  placeholder="Must be > 0"
+                  value={formData.lossCostPrice || ""}
+                  onChange={e => setFormData({ ...formData, lossCostPrice: e.target.value })}
+                  className={isVatAuditor ? "bg-muted cursor-not-allowed" : ""}
+                  disabled={isVatAuditor}
+                />
+                {isVatAuditor && <p className="text-xs text-amber-600">N/A (Audit Mode)</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reason <span className="text-red-500">*</span></Label>
+                <Select value={formData.reason || ""} onValueChange={v => setFormData({ ...formData, reason: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select Reason" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="BROKEN">BROKEN</SelectItem>
+                    <SelectItem value="EXPIRED">EXPIRED</SelectItem>
+                    <SelectItem value="THEFT">THEFT</SelectItem>
+                    <SelectItem value="MOISTURE">MOISTURE</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Report Date <span className="text-red-500">*</span></Label>
+                <Input type="date" value={formData.reportDate || ""} onChange={e => setFormData({ ...formData, reportDate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>Description <span className="text-muted-foreground text-xs">(Optional)</span></Label>
+                <Textarea placeholder="Detailed description of the damage..." value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+              </div>
+            </div>
+
+            {/* Auto-calculated Total Loss Value */}
+            <Card className="bg-muted/30">
+              <CardContent className="p-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Total Loss Value:</span>
+                    <p className="font-mono font-bold text-lg text-red-600">
+                      {isVatAuditor ? "N/A (Audit Mode)" : `৳${bdFmt.format(totalLossValue)}`}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Calculation:</span>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {isVatAuditor ? "Masked" : `${formData.quantity || 0} × ৳${Number(formData.lossCostPrice || 0).toFixed(2)} = ৳${bdFmt.format(totalLossValue)}`}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            {isSR || isVatAuditor ? (
+              <Button className="bg-gray-400 cursor-not-allowed" disabled>
+                <Lock className="w-4 h-4 mr-1" />Approval Required
+              </Button>
+            ) : (
+              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+                {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}Create Damage Log
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
+          <DialogDescription>Delete Damage Log {deleteItem?.damageCode}? This cannot be undone.</DialogDescription>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
+            {isAdmin ? (
+              <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="destructive" disabled className="cursor-not-allowed opacity-60">Delete</Button>
+                </TooltipTrigger>
+                <TooltipContent>Only administrators can delete damage logs</TooltipContent>
+              </Tooltip>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 // ============================================================
 // MAIN APP LAYOUT
 // ============================================================
@@ -6453,8 +7178,10 @@ function AppLayout() {
       return <ChangePasswordPage />;
     }
     if (currentPage === "profile") return <ProfileCenter />;
+    if (currentPage === "stock-transfers") return <StockTransfersPage />;
+    if (currentPage === "damage-logs") return <DamageLogsPage />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
-    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "opening-stock", "batch-master", "stock", "stock-details", "stock-valuation", "stock-transfers"]);
+    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "opening-stock", "batch-master", "stock", "stock-details", "stock-valuation", "stock-transfers", "damage-logs"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
     if (currentPage === "expenses") return <ExpensesIncomesPage />;
     if (currentPage === "incomes") return <ExpensesIncomesPage />;

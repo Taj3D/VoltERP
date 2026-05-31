@@ -49,6 +49,7 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   Stock: 'inventory',
   StockEntries: 'inventory',
   StockTransfers: 'inventory',
+  DamageLogs: 'inventory',
   // Account Management
   ExpenseIncomeHeads: 'account',
   Expenses: 'account',

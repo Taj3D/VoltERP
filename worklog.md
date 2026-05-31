@@ -3554,3 +3554,41 @@ Stage Summary:
 - Activity Logger: "Inv-Orders-Core" compliance token on all order operations
 - Auto-SMS: Toggle dependency check (smsAlertOnPurchase/smsAlertOnCollection/smsAlertOnStockReceive), GSM 03.38 UDH-aware, frontend ON/OFF badges
 - Spin-Lock UI: RefreshCw icon + "Verifying Tenant Credit Shields & Re-calculating Global Stock Layers..." on both PO and SO submit buttons
+
+---
+Task ID: 12
+Agent: Main Orchestrator
+Task: PHASE 12 — Inventory Management Part C: Damage Logs, Warehouse Inter-Transfers, Intransit Valuation Balancing
+
+Work Log:
+- Read all existing source files: Prisma schema (1140+ lines), ElectronicsMartApp.tsx (6635+ lines), transfers API routes, activity-logger.ts, api-security.ts, export-utils.ts
+- Extended Prisma schema with:
+  - DamageLog model (15 fields: damageCode, productId, godownId, batchNumber, quantity, lossCostPrice, totalLossValue, reason BROKEN/EXPIRED/THEFT/MOISTURE, status, companyId, etc.)
+  - StockTransfer enhancements: shippingStatus (PENDING/IN_TRANSIT/RECEIVED/REJECTED), rejectedAt, rejectionReason, totalValue, companyId
+  - StockTransferLine enhancements: batchNumber, costPrice, totalCost for intransit valuation
+  - Added DamageLog relations to Product, Godown, Company models
+  - Added StockTransfer company relation
+- Ran `prisma db push` — schema synced to SQLite successfully
+- Updated activity-logger.ts with Inv-Logistics-Core compliance token
+- Updated api-security.ts MODULE_GROUP_MAP with DamageLogs module
+- Dispatched 2 parallel subagents for API routes:
+  1. DamageLog API routes (2 files, 1398 lines total): POST with 7-step atomic $transaction (validate stock, decrement ProductStock+BatchMaster, StockEntry audit, double-entry ledger Debit Inventory Loss / Credit Inventory Asset)
+  2. Stock Transfers API rewrite (2 files, 1349 lines total): Intransit State Machine with PENDING→IN_TRANSIT→RECEIVED/REJECTED transitions, SUSPENDED godown interlock (403), batch preservation, CoA In-Transit valuation ledger entries
+- Dispatched frontend subagent for ElectronicsMartApp.tsx rewrite:
+  - Complete StockTransfersPage rewrite with state machine UI, spin-locks, logisticsSnapshot rollback, SUSPENDED godown indicators, batch number fields, white-label PDF, Intl.NumberFormat
+  - New DamageLogsPage with 7 stat cards, create dialog, spin-lock on authorize, flashing pulsing borders for validation, reason badge colors, white-label PDF, RBAC
+- Added "damage-logs" sidebar item and page renderer
+- Lint: ZERO errors
+- Dev server: HTTP 200, stable on port 3000
+
+Stage Summary:
+- 7 files modified/created across backend and frontend
+- Prisma schema: DamageLog model (new), StockTransfer enhanced (IN_TRANSIT/RECEIVED/REJECTED state machine), StockTransferLine enhanced (batchNumber, costPrice, totalCost)
+- API routes: 4 new/rewritten route files with atomic double-entry, godown SUSPENDED interlock, intransit CoA valuation
+- Activity logger: Inv-Logistics-Core token registered
+- Frontend: StockTransfersPage rewritten + DamageLogsPage created (7362 total lines in ElectronicsMartApp.tsx)
+- All 4 Phase 12 audit directives fully enforced:
+  1. ✅ DAMAGE & EXPIRY SHRINKAGE DETECTOR: Mandatory fields (qty, loss cost, godown, reason BROKEN/EXPIRED/THEFT/MOISTURE), stock validation against ProductStock+BatchMaster (400 if exceeds), atomic double-entry (Dr Inventory Loss, Cr Inventory Asset)
+  2. ✅ WAREHOUSE-TO-WAREHOUSE INTER-TRANSFERS WITH INTRANSIT LOCK: Batch preservation, SUSPENDED godown interlock (403), IN_TRANSIT/RECEIVED/REJECTED state machine with CoA In-Transit node shifting
+  3. ✅ OPTIMISTIC CLIENT SYNCHRONIZATION & SPIN-LOCKS: logisticsSnapshot rollback protocol, RefreshCw animate-spin with "Recalculating Logistical Asset Values & Shifting Intransit Batches..." text
+  4. ✅ USER PROFILE ACTIVITY STREAM & WHITE-LABEL REPORT: logUserActivity with Inv-Logistics-Core token, exportToPDF with CompanyProfile + financialFooter for Stock Transfer Challans and Loss/Wastage Audit Statements

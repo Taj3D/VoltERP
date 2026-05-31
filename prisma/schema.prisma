@@ -184,6 +184,8 @@ model Company {
   godowns            Godown[]
   productStocks      ProductStock[]
   batchMasters      BatchMaster[]
+  damageLogs        DamageLog[]
+  stockTransfers    StockTransfer[]
 }
 
 model Category {
@@ -264,6 +266,7 @@ model Godown {
   transferTo      StockTransfer[] @relation("TransferTo")
   productStocks   ProductStock[]
   batchMasters   BatchMaster[]
+  damageLogs     DamageLog[]
 
   @@index([companyId])
 }
@@ -425,6 +428,7 @@ model Product {
   replacementLines   ReplacementOrderLine[]
   salesReturnLines   SalesReturnLine[]
   purchaseReturnLines PurchaseReturnLine[]
+  damageLogs         DamageLog[]
 
   @@index([categoryId])
   @@index([brandId])
@@ -1048,24 +1052,34 @@ model StockTransfer {
   fromGodownId    String
   toGodownId      String
   date            DateTime
-  shippingStatus  String              @default("Pending")  // "Pending", "In-Transit", "Delivered"
+  // Intransit Valuation State Machine: IN_TRANSIT → RECEIVED / REJECTED
+  // "PENDING" = draft, "IN_TRANSIT" = shipped (stock deducted from source, asset value in In-Transit CoA)
+  // "RECEIVED" = confirmed at destination (stock added to destination, CoA moved to Inventory Asset)
+  // "REJECTED" = refused at destination (stock must be returned to source)
+  shippingStatus  String              @default("PENDING")  // "PENDING", "IN_TRANSIT", "RECEIVED", "REJECTED"
   shippedAt       DateTime?
   deliveredAt     DateTime?
+  rejectedAt      DateTime?
+  rejectionReason String?
   totalItems      Int                 @default(0)
   totalQuantity   Float               @default(0)
+  totalValue      Float               @default(0)  // Total cost value of transferred stock (for In-Transit CoA)
   status          String              @default("Pending")
   notes           String?
+  companyId       String?             // Multi-tenant isolation
   isActive        Boolean             @default(true)
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   fromGodown      Godown              @relation("TransferFrom", fields: [fromGodownId], references: [id])
   toGodown        Godown              @relation("TransferTo", fields: [toGodownId], references: [id])
+  company         Company?            @relation(fields: [companyId], references: [id])
   lines           StockTransferLine[]
 
   @@index([fromGodownId])
   @@index([toGodownId])
   @@index([date])
   @@index([shippingStatus])
+  @@index([companyId])
 }
 
 model StockTransferLine {
@@ -1073,8 +1087,53 @@ model StockTransferLine {
   stockTransferId String
   productId       String
   quantity        Float
+  batchNumber     String?       // Batch preservation — same Batch Number transfers seamlessly
+  costPrice       Float         @default(0)  // Unit cost at time of transfer for In-Transit valuation
+  totalCost       Float         @default(0)  // quantity * costPrice — line-level intransit asset value
   stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
   product         Product       @relation(fields: [productId], references: [id])
+
+  @@index([stockTransferId])
+  @@index([productId])
+}
+
+// ============================================================
+// DAMAGE LOG — Stock Shrinkage & Wastage Tracker
+// Mandates: Damage Qty, Loss Cost Price, Reporting Godown,
+// Reason Classification: BROKEN / EXPIRED / THEFT / MOISTURE
+// Atomic Double-Entry: Debit Expenses->Inventory Loss,
+//                      Credit Assets->Inventory Asset
+// ============================================================
+
+model DamageLog {
+  id                String   @id @default(cuid())
+  damageCode        String   @unique  // DMG-XXXXX
+  productId         String
+  godownId          String
+  batchNumber       String?  // Optional batch reference for the damaged items
+  quantity          Float    // Damage Quantity — must be > 0, must not exceed available stock
+  lossCostPrice     Float    // Per-unit loss cost price
+  totalLossValue    Float    // quantity * lossCostPrice — total asset write-off value
+  reason            String   // "BROKEN" | "EXPIRED" | "THEFT" | "MOISTURE"
+  description       String?  // Optional detailed description
+  reportDate        DateTime // Date the damage was reported
+  approvedBy        String?  // Admin/Manager who approved the write-off
+  approvedAt        DateTime?
+  status            String   @default("Pending")  // "Pending", "Approved", "Rejected"
+  companyId         String?  // Multi-tenant isolation
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  product           Product  @relation(fields: [productId], references: [id])
+  godown            Godown   @relation(fields: [godownId], references: [id])
+  company           Company? @relation(fields: [companyId], references: [id])
+
+  @@index([productId])
+  @@index([godownId])
+  @@index([reason])
+  @@index([reportDate])
+  @@index([status])
+  @@index([companyId])
 }
 
 // ============================================================

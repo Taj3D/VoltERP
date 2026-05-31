@@ -18,6 +18,8 @@ import { db } from '@/lib/db';
  * - Sec-Audit-Overhaul: Security audit log viewing, backup operations, and compliance center activities
  * - CRM-Profiles-Core: Customer and Supplier profile management, collision shields, CoA auto-mapping
  * - Inv-Stock-Core: Inventory stock operations, opening stock adjustments, batch master management, stock valuations, godown management
+ * - Inv-Orders-Core: Purchase Order, Auto-PO, Sales Order, Credit Shield interlocks, order-to-ledger posting
+ * - Inv-Logistics-Core: Damage logs, wastage write-offs, warehouse inter-transfers, intransit valuation state transitions, consignment tracking
  *
  * @param params - Activity log parameters
  */
