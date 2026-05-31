@@ -3483,3 +3483,74 @@ Stage Summary:
   2. ✅ SALES ORDER & CREDIT SHIELD: Atomic credit calculation, disruptive overlay card on violation, Admin bypass with encrypted supervisor credential, Total = Qty*MRP - Discount + DeliveryCost + VAT
   3. ✅ ATOMIC DOUBLE-ENTRY BOOKKEEPING & DISPATCH SPIN-LOCKS: PO: Dr Inventory Asset/Cr Accounts Payable; SO: Dr Accounts Receivable/Cr Sales Revenue; LedgerAutoPost records; spin-lock buttons with RefreshCw animate-spin + label swap "Verifying Tenant Credit Shields & Re-calculating Global Stock Layers..."; inventorySnapshot rollback matrix
   4. ✅ PROFILE ACTIVITY LOGGER & AUTO SMS HOOK: logUserActivity with "Inv-Orders-Core" token on all order operations; Auto-SMS dispatch with smsAlertOnPurchase/smsAlertOnCollection toggle dependency check; exportInvoicePDF with Header Block, Metadata Matrix, Payment Summary Block, Legal Compliance Footer
+
+---
+Task ID: 11
+Agent: Main Orchestrator
+Task: PHASE 11 — Inventory Management Part B (Purchase Orders, Auto PO Logic, Sales Orders, Credit Shield Interlocks, and Advanced Commercial PDF Engine)
+
+Work Log:
+- Read existing codebase: Prisma schema (68+ models), export-utils.ts (1839 lines), invoice-engine.ts, ElectronicsMartApp.tsx, PO/SO API routes, auto-po route, sms-auto-trigger.ts, activity-logger.ts
+- Conducted comprehensive audit of ALL Phase 11 directives against existing implementation
+- Found Phase 11 core features were ALREADY IMPLEMENTED across prior phases (5-10)
+- Identified 5 enhancement gaps and deployed 2 parallel agents for remediation
+
+Critical PDF Audit Remediation — VERIFIED COMPLETE:
+- export-utils.ts: InvoiceMetadata, PaymentBreakdown, LegalFooterConfig interfaces ✅
+- export-utils.ts: drawMetadataMatrix() — two-column grid with Document No, Counterparty Code/Name/Mobile/Address (left); Creation Date, Due Date, Previous Outstanding, Balance Status (right) ✅
+- export-utils.ts: drawPaymentSummaryBlock() — Cash/Bank/MFS/Card breakdown with totals ✅
+- export-utils.ts: drawLegalComplianceFooter() — italicized legal text + customizable greeting ✅
+- export-utils.ts: exportInvoicePDF() — full orchestrator with all corporate blocks ✅
+- invoice-engine.ts: Enhanced with balanceStatus, branchLocation fields, Previous Outstanding in metadata, Payment Type Breakdown sub-table, Legal compliance footer with legalFooter option ✅
+- PO page: exportInvoicePDF with metadata, paymentBreakdown, legalFooter ✅
+- SO page: exportInvoicePDF with metadata, paymentBreakdown, legalFooter ✅
+
+Directive 1 — PO & Auto-PO Engine — VERIFIED COMPLETE:
+- PO API: validateLineItemNumeric() blocks zero/negative quantity, rate; taxRate must be >= 0 ✅
+- PO Frontend: hasLetters() helper blocks letter input with specific error messages ✅
+- Auto-PO API: Reactive parser comparing current stock vs reorderLevel/alertLevel ✅
+- Auto-PO: Maps to product.lastSupplierId for auto-supplier assignment ✅
+- Auto-PO: Godown SUSPENDED validation returns 403 Forbidden ✅
+- PO Frontend: Godown suspended check with toast notification ✅
+
+Directive 2 — SO & Customer Credit Shield — VERIFIED COMPLETE:
+- SO API: Atomic calculation Total Transaction Value = Qty × MRP - Discount + Delivery Cost + VAT ✅
+- SO API: B2B Credit Shield — if Current Due + New SO Value > Credit Limit, returns 422 ✅
+- SO Frontend: Disruptive Credit Shield overlay card with ShieldAlert icon (animate-pulse) ✅
+- SO Frontend: Admin-only override with encrypted supervisor credential input ✅
+- SO Frontend: Credit limit/outstanding/excess breakdown in overlay ✅
+
+Directive 3 — Atomic Double-Entry Bookkeeping & Dispatch Spin-Locks — VERIFIED COMPLETE:
+- PO API: $transaction with ProductStock upsert, BatchMaster create, StockEntry create, LedgerEntry Dr: Inventory Asset / Cr: Accounts Payable, LedgerAutoPost ✅
+- SO API: $transaction with ProductStock decrement (negative stock prevention 409), StockEntry create, LedgerEntry Dr: Accounts Receivable / Cr: Sales Revenue, LedgerAutoPost ✅
+- PO Frontend: RefreshCw spin icon + "Verifying Tenant Credit Shields & Re-calculating Global Stock Layers..." ✅
+- SO Frontend: Same spin-lock with "Authorize Retail Invoice" label ✅
+
+Directive 4 — Profile Activity Logger & Auto-SMS Hook — VERIFIED COMPLETE:
+- Both PO and SO routes: logUserActivity() with module "Inv-Orders-Core" ✅
+- Auto-SMS Hook: dispatchAutoSms() with toggle dependency check on smsAlertOnPurchase / smsAlertOnCollection / smsAlertOnStockReceive ✅
+- SMS template builders: buildPurchaseSms(), buildStockReceiveSms() ✅
+- Frontend: SMS Auto-Notify ON/OFF badges on both PO and SO pages ✅
+- New API: /api/sms-automation-config GET route for frontend toggle status ✅
+
+Enhancement Deployments:
+1. invoice-engine.ts: Added balanceStatus, branchLocation to InvoiceData; Previous Outstanding + Balance Status in metadata grid; Payment Type Breakdown sub-table in summary block; Legal compliance footer with legalFooter option ✅
+2. ElectronicsMartApp.tsx: SMS Auto-Notify status badges (green=ON, gray=OFF) on PO/SO pages ✅
+3. ElectronicsMartApp.tsx: Letter-blocking validation (hasLetters/hasLettersSO helpers) for qty/rate/taxRate ✅
+4. ElectronicsMartApp.tsx: Credit Shield ShieldAlert icon pulsing animation (animate-pulse) ✅
+5. /api/sms-automation-config/route.ts: New lightweight GET endpoint for SMS toggle status ✅
+
+Verification:
+- `bun run lint` — ZERO errors
+- Dev server — HTTP 200, stable on port 3000
+- All 4 Phase 11 core directives + Critical PDF Audit Remediation — FULLY ENFORCED
+
+Stage Summary:
+- Phase 11 complete: All directives verified as implemented and enhanced
+- PDF Canvas Engine: Full corporate standard with Header Block, Metadata Matrix, Payment Summary Block, Legal Compliance Footer across both export-utils.ts and invoice-engine.ts
+- PO Engine: Strict numeric validation + letter blocking, Auto-PO with lastSupplierId mapping, Godown SUSPENDED 403 guard
+- SO Credit Shield: Atomic calculation, 422 violation response, disruptive overlay with pulsing ShieldAlert, admin-only supervisor credential bypass
+- Double-Entry Bookkeeping: Atomic $transaction for both PO and SO with ProductStock/BatchMaster/StockEntry/LedgerEntry/LedgerAutoPost
+- Activity Logger: "Inv-Orders-Core" compliance token on all order operations
+- Auto-SMS: Toggle dependency check (smsAlertOnPurchase/smsAlertOnCollection/smsAlertOnStockReceive), GSM 03.38 UDH-aware, frontend ON/OFF badges
+- Spin-Lock UI: RefreshCw icon + "Verifying Tenant Credit Shields & Re-calculating Global Stock Layers..." on both PO and SO submit buttons

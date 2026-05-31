@@ -120,6 +120,10 @@ export interface InvoiceData {
   printedBy?: string;
   salesPerson?: string;
   invoiceType: string; // "Sales Invoice", "Purchase Invoice", "Hire Receipt", etc.
+  // Balance status — "Clear" if prevDue <= 0, "Due" if prevDue > 0, "Overdue" if past due date
+  balanceStatus?: string;
+  // Branch/Showroom location for multi-branch businesses
+  branchLocation?: string;
 }
 
 export interface InvoicePDFOptions {
@@ -129,6 +133,11 @@ export interface InvoicePDFOptions {
   filename?: string;
   isVatAuditor?: boolean;
   vatMaskedFields?: string[];
+  /** Legal compliance footer configuration matching the corporate LegalFooterConfig standard */
+  legalFooter?: {
+    legalText?: string;    // Default: "This is a system-generated secure document. No physical seal or manual signature is required."
+    greetingText?: string; // Default: "Thank you for choosing our enterprise solutions."
+  };
 }
 
 // ============================================================
@@ -475,7 +484,29 @@ function drawMetadataGrid(
   rightItems.push({ label: "Invoice Date:", value: fmtDate(invoice.invoiceDate) });
   if (invoice.prevDue !== undefined && template.showPrevDue !== false) {
     const masked = isFieldMasked("prevDue", isVatAuditor, vatMaskedFields);
-    rightItems.push({ label: "Prev.Due:", value: fmtCurrency(invoice.prevDue, masked) });
+    rightItems.push({ label: "Previous Outstanding:", value: fmtCurrency(invoice.prevDue, masked) });
+  }
+  // Balance Status: derived from prevDue and remindDate
+  if (invoice.prevDue !== undefined && template.showPrevDue !== false) {
+    let computedStatus: string;
+    if (invoice.balanceStatus) {
+      computedStatus = invoice.balanceStatus;
+    } else if (invoice.prevDue <= 0) {
+      computedStatus = "Clear";
+    } else if (invoice.remindDate) {
+      const dueDate = new Date(invoice.remindDate);
+      const now = new Date();
+      computedStatus = dueDate < now ? "Overdue" : "Due";
+    } else {
+      computedStatus = "Due";
+    }
+    // Color-code the status text
+    const statusColor = computedStatus === "Clear" ? [22, 163, 74] : computedStatus === "Overdue" ? [220, 38, 38] : [202, 138, 4];
+    rightItems.push({ label: "Balance Status:", value: computedStatus });
+    // Store color for rendering (used below in draw loop)
+    rightItems[rightItems.length - 1] = { label: "Balance Status:", value: computedStatus };
+    // We'll handle the color in the draw loop — save it as a special marker
+    (rightItems[rightItems.length - 1] as any)._statusColor = statusColor;
   }
   if (invoice.totalDue !== undefined && template.showTotalDue !== false) {
     const masked = isFieldMasked("totalDue", isVatAuditor, vatMaskedFields);
@@ -483,6 +514,10 @@ function drawMetadataGrid(
   }
   if (invoice.remindDate && template.showRemindDate) {
     rightItems.push({ label: "Remind Date:", value: fmtDate(invoice.remindDate) });
+  }
+  // Branch/Showroom Location
+  if (invoice.branchLocation) {
+    rightItems.push({ label: "Branch:", value: safeStr(invoice.branchLocation) });
   }
 
   // Draw the grid with light background
@@ -522,7 +557,17 @@ function drawMetadataGrid(
     doc.setFontSize(9);
     doc.text(item.label, rightX + 2 + labelOffset, rowY);
     doc.setFont("helvetica", "normal");
+    // Apply status color for Balance Status field
+    const statusColor = (item as any)._statusColor as number[] | undefined;
+    if (statusColor) {
+      doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
+      doc.setFont("helvetica", "bold");
+    }
     doc.text(item.value, rightX + 2 + valueOffset, rowY);
+    if (statusColor) {
+      // Reset text color after status
+      doc.setTextColor(10, 22, 40);
+    }
     // Row separator
     doc.setDrawColor(230, 230, 230);
     doc.line(rightX + 2, rowY + 2, rightX + colWidth - 2, rowY + 2);
@@ -717,6 +762,7 @@ function drawItemsTable(
 // HELPER: Draw Summary Block
 // Three-section layout:
 //   LEFT: Discount%, Discount Amt, PP Discount Amt, Adjustment Amt
+//         + Payment Type Breakdown sub-table (Cash/Bank/MFS/Card)
 //   MIDDLE: Net Total, Paid Amt, Curr. Due, Deli. Cost
 //   RIGHT: Payment Details table (Payment Type | Paid Amount)
 // Returns the Y position after the summary block
@@ -774,6 +820,101 @@ function drawSummaryBlock(
     doc.setFont("helvetica", "normal");
     doc.text(item.value, leftX + 38, rowY + 4);
     rowY += rowHeight;
+  }
+
+  // ── LEFT SECTION (bottom): Payment Type Breakdown sub-table ──
+  // Aggregate paymentDetails into Cash / Bank / MFS / Card categories
+  let paymentBreakdownEndY = rowY;
+  if (template.showPaymentDetails !== false && invoice.paymentDetails && invoice.paymentDetails.length > 0) {
+    const breakdown: { type: string; amount: number }[] = [];
+    const cashKeywords = ["cash", "cash in hand", "hand cash"];
+    const bankKeywords = ["bank", "cheque", "check", "wire", "transfer", "tt"];
+    const mfsKeywords = ["mfs", "bkash", "nagad", "rocket", "upay", "cellfin", "surecash", "mcash"];
+
+    let cashTotal = 0;
+    let bankTotal = 0;
+    let mfsTotal = 0;
+    let cardTotal = 0;
+
+    for (const pd of invoice.paymentDetails) {
+      const pt = (pd.paymentType || "").toLowerCase().trim();
+      if (cashKeywords.some((k) => pt.includes(k))) {
+        cashTotal += pd.paidAmount;
+      } else if (bankKeywords.some((k) => pt.includes(k))) {
+        bankTotal += pd.paidAmount;
+      } else if (mfsKeywords.some((k) => pt.includes(k))) {
+        mfsTotal += pd.paidAmount;
+      } else if (pt.includes("card") || pt.includes("credit") || pt.includes("debit") || pt.includes("visa") || pt.includes("master")) {
+        cardTotal += pd.paidAmount;
+      } else {
+        // Unknown type — add as a separate row
+        breakdown.push({ type: pd.paymentType, amount: pd.paidAmount });
+      }
+    }
+
+    // Insert standard categories in order
+    const categories: { type: string; amount: number }[] = [];
+    if (cashTotal > 0) categories.push({ type: "Cash", amount: cashTotal });
+    if (bankTotal > 0) categories.push({ type: "Bank", amount: bankTotal });
+    if (mfsTotal > 0) categories.push({ type: "MFS", amount: mfsTotal });
+    if (cardTotal > 0) categories.push({ type: "Card", amount: cardTotal });
+    categories.push(...breakdown);
+
+    if (categories.length > 0) {
+      // Section title
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(10, 22, 40);
+      doc.text("Payment Summary", leftX + 2, rowY + 4);
+      rowY += rowHeight + 1;
+
+      // Sub-table header
+      const subHeaders = ["Type", "Amount"];
+      const subBody = categories.map((cat) => {
+        const masked = isFieldMasked("paidAmount", isVatAuditor, vatMaskedFields);
+        return [cat.type, fmtCurrency(cat.amount, masked)];
+      });
+
+      // Total row for the breakdown
+      const breakdownTotal = categories.reduce((sum, c) => sum + c.amount, 0);
+      const maskedTotal = isFieldMasked("paidAmount", isVatAuditor, vatMaskedFields);
+      subBody.push(["Total", fmtCurrency(breakdownTotal, maskedTotal)]);
+
+      autoTable(doc, {
+        head: [subHeaders],
+        body: subBody,
+        startY: rowY,
+        margin: { left: leftX, right: PAGE_WIDTH - leftX - colWidth, bottom: MARGIN_BOTTOM },
+        styles: {
+          fontSize: 7,
+          cellPadding: 1.5,
+          textColor: [30, 41, 59],
+          lineWidth: 0.15,
+          lineColor: [203, 213, 225],
+        },
+        headStyles: {
+          fillColor: [10, 22, 40],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+          fontSize: 7,
+          cellPadding: 2,
+        },
+        columnStyles: {
+          0: { cellWidth: colWidth * 0.5, halign: "left" },
+          1: { cellWidth: colWidth * 0.5, halign: "right" },
+        },
+        // Style the total row (last row)
+        didParseCell: (data: any) => {
+          if (data.row.index === subBody.length - 1 && data.section === "body") {
+            data.cell.styles.fillColor = [240, 244, 252];
+            data.cell.styles.fontStyle = "bold";
+          }
+        },
+      });
+
+      const lastBreakdownTable = (doc as any).lastAutoTable;
+      paymentBreakdownEndY = lastBreakdownTable ? lastBreakdownTable.finalY + 2 : rowY + 10;
+    }
   }
 
   // ── MIDDLE SECTION: Totals ──
@@ -845,8 +986,8 @@ function drawSummaryBlock(
     });
   }
 
-  // Calculate the max Y used by any of the three sections
-  const leftEndY = y + 2 + leftItems.length * rowHeight;
+  // Calculate the max Y used by any of the three sections (including payment breakdown)
+  const leftEndY = Math.max(y + 2 + leftItems.length * rowHeight, paymentBreakdownEndY);
   const midEndY = y + 2 + midItems.length * rowHeight;
   const lastTable = (doc as any).lastAutoTable;
   const tableEndY = lastTable ? lastTable.finalY + 2 : y + 20;
@@ -970,10 +1111,11 @@ function drawExtraFields(
 
 // ============================================================
 // HELPER: Draw Footer Section
-// - "Thank You Come Again." (bold, centered)
+// - Customer greeting (bold, centered) — uses company.thankYouMsg or legalFooter.greetingText
 // - Signature line: Customer's Signature | Prepared By | Checked By | Authorized By
 // - System note: "Printed By [username] Sales Person: [name] Print Date: [date]"
-// - "This is a system generated invoice no need to seal & signature."
+// - Legal compliance note (italic, centered) — uses company.systemNote or legalFooter.legalText
+// - Terms and conditions, custom footer note
 // ============================================================
 
 function drawFooterSection(
@@ -981,7 +1123,8 @@ function drawFooterSection(
   invoice: InvoiceData,
   company: InvoiceCompanyProfile,
   template: InvoiceTemplateConfig,
-  startY: number
+  startY: number,
+  legalFooter?: { legalText?: string; greetingText?: string }
 ): number {
   let y = startY;
 
@@ -991,13 +1134,14 @@ function drawFooterSection(
   doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
   y += 5;
 
-  // "Thank You Come Again." — bold, centered
-  const thankYouMsg = company.thankYouMsg || "Thank You Come Again.";
+  // Customer greeting — bold, centered
+  // Priority: legalFooter.greetingText > company.thankYouMsg > default
+  const greetingText = legalFooter?.greetingText || company.thankYouMsg || "Thank You Come Again.";
   doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(10, 22, 40);
-  const thankYouWidth = doc.getTextWidth(thankYouMsg);
-  doc.text(thankYouMsg, PAGE_WIDTH / 2 - thankYouWidth / 2, y);
+  const greetingWidth = doc.getTextWidth(greetingText);
+  doc.text(greetingText, PAGE_WIDTH / 2 - greetingWidth / 2, y);
   y += 8;
 
   // Signature line section
@@ -1048,14 +1192,29 @@ function drawFooterSection(
     y += 5;
   }
 
-  // System-generated note
-  const systemNote = company.systemNote || "This is a system generated invoice no need to seal & signature.";
+  // Legal compliance note (italic, centered)
+  // Priority: legalFooter.legalText > company.systemNote > corporate default
+  const legalText = legalFooter?.legalText
+    || company.systemNote
+    || "This is a system-generated secure document. No physical seal or manual signature is required.";
   doc.setFontSize(7);
   doc.setFont("helvetica", "italic");
   doc.setTextColor(130, 130, 130);
-  const noteWidth = doc.getTextWidth(systemNote);
-  doc.text(systemNote, PAGE_WIDTH / 2 - noteWidth / 2, y);
+  const legalNoteWidth = doc.getTextWidth(legalText);
+  doc.text(legalText, PAGE_WIDTH / 2 - legalNoteWidth / 2, y);
   y += 5;
+
+  // Customer greeting line (italic, centered) — secondary greeting below legal note
+  const secondaryGreeting = legalFooter?.greetingText || "Thank you for choosing our enterprise solutions.";
+  if (secondaryGreeting !== greetingText) {
+    // Only show the secondary greeting if it differs from the primary greeting above
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(130, 130, 130);
+    const secGreetingWidth = doc.getTextWidth(secondaryGreeting);
+    doc.text(secondaryGreeting, PAGE_WIDTH / 2 - secGreetingWidth / 2, y);
+    y += 5;
+  }
 
   // Terms and conditions (if provided)
   if (template.termsAndConditions) {
@@ -1152,6 +1311,7 @@ export function exportInvoicePDF(options: InvoicePDFOptions): void {
     filename,
     isVatAuditor = false,
     vatMaskedFields = [],
+    legalFooter,
   } = options;
 
   try {
@@ -1227,7 +1387,7 @@ export function exportInvoicePDF(options: InvoicePDFOptions): void {
     y = overflow6.y;
     currentPage = overflow6.page;
 
-    drawFooterSection(doc, invoice, company, template, y);
+    drawFooterSection(doc, invoice, company, template, y, legalFooter);
 
     // ── 7. Add VAT Auditor Watermark (if applicable) ──
     if (isVatAuditor) {
