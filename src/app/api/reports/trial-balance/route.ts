@@ -12,7 +12,7 @@ import {
 import type { UserRole } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/trial-balance - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
+// GET /api/reports/trial-balance - Phase 14: COA-driven synthesis, fiscal year interlock, accounting equation enforcement
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'TrialBalance', 'GET');
   if (!security.authorized) return security.response;
@@ -135,6 +135,18 @@ export async function GET(request: NextRequest) {
     grandTotalCredit = safeFinancialRound(grandTotalCredit);
     const balanced = safeFinancialSubtract(grandTotalDebit, grandTotalCredit) === 0;
 
+    // PHASE 14: Accounting equation check — if debits ≠ credits, include integrityWarning
+    const equationImbalance = safeFinancialSubtract(grandTotalDebit, grandTotalCredit);
+    const integrityWarning =
+      Math.abs(equationImbalance) >= 0.01
+        ? {
+            message: 'Trial Balance integrity check failed: Total Debits ≠ Total Credits',
+            totalDebits: grandTotalDebit,
+            totalCredits: grandTotalCredit,
+            imbalance: equationImbalance,
+          }
+        : undefined;
+
     // Group by classification for summary
     // STAGE 12: Use safeFinancialAdd for classification summary accumulation
     const classificationSummary = new Map<
@@ -184,6 +196,75 @@ export async function GET(request: NextRequest) {
       classification: formatFinancialField(e.classification),
     }));
 
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Fiscal Year Period Interlock
+    // Check if the query date range falls within any CLOSED fiscal years
+    // ─────────────────────────────────────────────────────────
+    const fiscalYearWhere: Record<string, unknown> = { isActive: true, status: 'CLOSED' };
+    if (companyId) fiscalYearWhere.companyId = companyId;
+
+    const closedFiscalYears = await db.fiscalYear.findMany({
+      where: fiscalYearWhere,
+      orderBy: { startDate: 'asc' },
+    });
+
+    const fiscalYearStatus: Array<{
+      id: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+      status: string;
+      closedAt: string | null;
+    }> = [];
+
+    const queryStartDate = from ? new Date(from) : null;
+    const queryEndDate = to ? new Date(to) : null;
+
+    for (const fy of closedFiscalYears) {
+      // Check if query range overlaps with this closed fiscal year
+      const fyStart = new Date(fy.startDate);
+      const fyEnd = new Date(fy.endDate);
+      let overlaps = false;
+
+      if (queryStartDate && queryEndDate) {
+        // Query range overlaps FY if: queryStart <= fyEnd && queryEnd >= fyStart
+        overlaps = queryStartDate <= fyEnd && queryEndDate >= fyStart;
+      } else if (queryStartDate) {
+        // Only start date — check if it falls within this FY
+        overlaps = queryStartDate >= fyStart && queryStartDate <= fyEnd;
+      } else if (queryEndDate) {
+        // Only end date — check if it falls within this FY
+        overlaps = queryEndDate >= fyStart && queryEndDate <= fyEnd;
+      } else {
+        // No date filter — all closed FYs are relevant
+        overlaps = true;
+      }
+
+      if (overlaps) {
+        fiscalYearStatus.push({
+          id: fy.id,
+          name: fy.name,
+          startDate: fy.startDate.toISOString(),
+          endDate: fy.endDate.toISOString(),
+          status: fy.status,
+          closedAt: fy.closedAt ? fy.closedAt.toISOString() : null,
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: COA-Driven Synthesis
+    // Direct read from ChartOfAccount.currentBalance for real-time cross-check
+    // ─────────────────────────────────────────────────────────
+    const coaBasedEntries = coaRecords.map((coa) => ({
+      code: coa.code,
+      name: coa.name,
+      classification: coa.classification,
+      currentBalance: coa.currentBalance,
+      openingBalance: coa.openingBalance,
+      openingBalanceType: coa.openingBalanceType,
+    }));
+
     // Build response data
     const responseData: Record<string, unknown> = {
       entries: formattedEntries,
@@ -198,6 +279,10 @@ export async function GET(request: NextRequest) {
       pieData: pieData.map((d, i) => ({ ...d, color: PIE_COLORS[i % PIE_COLORS.length] })),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+      // PHASE 14 additions
+      fiscalYearStatus,
+      coaBasedEntries,
+      ...(integrityWarning ? { integrityWarning } : {}),
     };
 
     // STAGE 12: Apply VAT Auditor deep masking
@@ -206,10 +291,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(masked);
     }
 
-    // STAGE 12: Activity logging
+    // PHASE 14: Activity logging with updated module token
     await logUserActivity({
       action: 'EXPORT',
-      module: 'Acc-Trial-Balance',
+      module: 'Fin-Statements-Core',
       userId: security.user.id,
       userName: security.user.name,
       details: 'Trial Balance report generated',

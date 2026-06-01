@@ -12,7 +12,7 @@ import {
 import type { UserRole } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/balance-sheet - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
+// GET /api/reports/balance-sheet - Phase 14: COA-driven synthesis, accounting equation enforcement, fiscal year context
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'BalanceSheet', 'GET');
   if (!security.authorized) return security.response;
@@ -30,6 +30,150 @@ export async function GET(request: NextRequest) {
     const companyId = security.user.companyId;
 
     const asOfDate = asOf ? new Date(asOf) : new Date();
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Fetch COA records for COA-driven balance sheet synthesis
+    // ─────────────────────────────────────────────────────────
+    const coaWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) coaWhere.companyId = companyId;
+
+    const coaRecords = await db.chartOfAccount.findMany({
+      where: coaWhere,
+    });
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: COA-Driven Balance Sheet Synthesis
+    // ─────────────────────────────────────────────────────────
+
+    // Asset accounts
+    const assetAccounts = coaRecords.filter(c => c.classification === 'Asset');
+    let coaTotalAssets = 0;
+    for (const acc of assetAccounts) {
+      coaTotalAssets = safeFinancialAdd(coaTotalAssets, acc.currentBalance);
+    }
+
+    // Liability accounts
+    const liabilityAccounts = coaRecords.filter(c => c.classification === 'Liability');
+    let coaTotalLiabilities = 0;
+    for (const acc of liabilityAccounts) {
+      coaTotalLiabilities = safeFinancialAdd(coaTotalLiabilities, acc.currentBalance);
+    }
+
+    // Equity accounts
+    const equityAccounts = coaRecords.filter(c => c.classification === 'Equity');
+    let coaTotalEquity = 0;
+    for (const acc of equityAccounts) {
+      coaTotalEquity = safeFinancialAdd(coaTotalEquity, acc.currentBalance);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Accounting Equation Enforcement (CRITICAL)
+    // Calculate net profit from Income Statement using COA
+    // ─────────────────────────────────────────────────────────
+    const revenueAccounts = coaRecords.filter(c => ['Income', 'Revenue'].includes(c.classification));
+    const expenseAccounts = coaRecords.filter(c => ['Expense', 'Expenses'].includes(c.classification));
+    let coaRevenue = 0;
+    let coaExpenses = 0;
+    for (const acc of revenueAccounts) coaRevenue = safeFinancialAdd(coaRevenue, acc.currentBalance);
+    for (const acc of expenseAccounts) coaExpenses = safeFinancialAdd(coaExpenses, acc.currentBalance);
+    const runtimeNetProfit = safeFinancialSubtract(coaRevenue, coaExpenses);
+
+    // If unallocated net profit exists, map it into Equity as 'Retained Earnings (Current Period)'
+    const equityWithRetainedEarnings = safeFinancialAdd(coaTotalEquity, runtimeNetProfit);
+
+    // Verify: Assets = Liabilities + Equity (with Retained Earnings)
+    const totalLiabilitiesAndEquity = safeFinancialAdd(coaTotalLiabilities, equityWithRetainedEarnings);
+    const equationBalance = safeFinancialSubtract(coaTotalAssets, totalLiabilitiesAndEquity);
+    const isBalanced = Math.abs(equationBalance) < 0.01;
+
+    const accountingEquation = {
+      totalAssets: safeFinancialRound(coaTotalAssets),
+      totalLiabilities: safeFinancialRound(coaTotalLiabilities),
+      totalEquity: safeFinancialRound(coaTotalEquity),
+      runtimeNetProfit: safeFinancialRound(runtimeNetProfit),
+      retainedEarningsCurrentPeriod: safeFinancialRound(runtimeNetProfit),
+      equityWithRetainedEarnings: safeFinancialRound(equityWithRetainedEarnings),
+      totalLiabilitiesAndEquity: safeFinancialRound(totalLiabilitiesAndEquity),
+      isBalanced,
+      imbalance: isBalanced ? 0 : safeFinancialRound(equationBalance),
+    };
+
+    // If imbalance detected, compute equityAdjustment
+    const equityAdjustment = isBalanced
+      ? null
+      : {
+          message: 'Accounting equation imbalance detected: Assets ≠ Liabilities + Equity',
+          amount: safeFinancialRound(equationBalance),
+          direction: equationBalance > 0 ? 'Equity needs increase' : 'Equity needs decrease',
+        };
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: COA Detailed Breakdown
+    // Full transparency per classification
+    // ─────────────────────────────────────────────────────────
+    const coaAssetBreakdown = assetAccounts.map(acc => ({
+      id: acc.id,
+      code: acc.code,
+      name: acc.name,
+      currentBalance: acc.currentBalance,
+      openingBalance: acc.openingBalance,
+      openingBalanceType: acc.openingBalanceType,
+    }));
+
+    const coaLiabilityBreakdown = liabilityAccounts.map(acc => ({
+      id: acc.id,
+      code: acc.code,
+      name: acc.name,
+      currentBalance: acc.currentBalance,
+      openingBalance: acc.openingBalance,
+      openingBalanceType: acc.openingBalanceType,
+    }));
+
+    const coaEquityBreakdown = equityAccounts.map(acc => ({
+      id: acc.id,
+      code: acc.code,
+      name: acc.name,
+      currentBalance: acc.currentBalance,
+      openingBalance: acc.openingBalance,
+      openingBalanceType: acc.openingBalanceType,
+    }));
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Fiscal Year Context
+    // ─────────────────────────────────────────────────────────
+    const fiscalYearWhere: Record<string, unknown> = { isActive: true, status: 'CLOSED' };
+    if (companyId) fiscalYearWhere.companyId = companyId;
+
+    const closedFiscalYears = await db.fiscalYear.findMany({
+      where: fiscalYearWhere,
+      orderBy: { startDate: 'asc' },
+    });
+
+    const fiscalYearContext: Array<{
+      id: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+      status: string;
+      closedAt: string | null;
+      netProfitClosed: number;
+    }> = [];
+
+    for (const fy of closedFiscalYears) {
+      fiscalYearContext.push({
+        id: fy.id,
+        name: fy.name,
+        startDate: fy.startDate.toISOString(),
+        endDate: fy.endDate.toISOString(),
+        status: fy.status,
+        closedAt: fy.closedAt ? fy.closedAt.toISOString() : null,
+        netProfitClosed: fy.netProfitClosed,
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Existing transaction-based Balance Sheet calculation (preserved)
+    // ─────────────────────────────────────────────────────────
 
     // === ASSETS ===
 
@@ -119,50 +263,6 @@ export async function GET(request: NextRequest) {
       for (const d of bank.cashDeliveries) {
         deliveries = safeFinancialAdd(deliveries, d.amount);
       }
-
-      // STAGE 12: Current balance using safe math
-      const currentBalance = safeFinancialRound(
-        safeFinancialAdd(
-          safeFinancialAdd(
-            safeFinancialAdd(
-              safeFinancialAdd(
-                safeFinancialAdd(
-                  safeFinancialSubtract(
-                    safeFinancialAdd(bank.openingBalance, deposits),
-                    withdrawals
-                  ),
-                  bankIncome
-                ),
-                safeFinancialSubtract(0, bankExpense) // -bankExpense
-              ),
-              collections
-            ),
-            safeFinancialSubtract(0, deliveries) // -deliveries
-          ),
-          0
-        )
-      );
-
-      // Simpler approach: openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries
-      const currentBal = safeFinancialSubtract(
-        safeFinancialAdd(
-          safeFinancialSubtract(
-            safeFinancialAdd(
-              safeFinancialSubtract(
-                safeFinancialAdd(
-                  safeFinancialAdd(bank.openingBalance, deposits),
-                  withdrawals
-                ),
-                bankIncome
-              ),
-              bankExpense
-            ),
-            collections
-          ),
-          deliveries
-        ),
-        0
-      );
 
       return {
         bankId: bank.id,
@@ -534,6 +634,20 @@ export async function GET(request: NextRequest) {
         periodMonth: activePeriodClose.periodMonth,
         periodYear: activePeriodClose.periodYear,
       } : null,
+      // PHASE 14 additions — COA-Driven Balance Sheet Synthesis
+      coaBasedBalanceSheet: {
+        totalAssets: safeFinancialRound(coaTotalAssets),
+        totalLiabilities: safeFinancialRound(coaTotalLiabilities),
+        totalEquity: safeFinancialRound(coaTotalEquity),
+        equityWithRetainedEarnings: safeFinancialRound(equityWithRetainedEarnings),
+        runtimeNetProfit: safeFinancialRound(runtimeNetProfit),
+      },
+      accountingEquation,
+      ...(equityAdjustment ? { equityAdjustment } : {}),
+      coaAssetBreakdown,
+      coaLiabilityBreakdown,
+      coaEquityBreakdown,
+      fiscalYearContext,
     };
 
     // STAGE 12: Apply VAT Auditor deep masking (replaces old hideMargins/auditMode)
@@ -542,10 +656,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(masked);
     }
 
-    // STAGE 12: Activity logging
+    // PHASE 14: Activity logging with updated module token
     await logUserActivity({
       action: 'EXPORT',
-      module: 'Acc-Balance-Sheet',
+      module: 'Fin-Statements-Core',
       userId: security.user.id,
       userName: security.user.name,
       details: 'Balance Sheet report generated',

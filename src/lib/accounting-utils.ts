@@ -161,7 +161,7 @@ export async function calculateAccountBalance(
  * @returns The next sequential code string
  */
 export async function generateNextCode(
-  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose' | 'journalVoucher',
+  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose' | 'journalVoucher' | 'fiscalYear',
   prefix: string
 ): Promise<string> {
   // Map model names to their code fields and db accessors
@@ -170,6 +170,7 @@ export async function generateNextCode(
     ledgerEntry: { codeField: 'entryCode', dbModel: 'ledgerEntry' },
     periodClose: { codeField: 'code', dbModel: 'periodClose' },
     journalVoucher: { codeField: 'voucherNo', dbModel: 'journalVoucher' },
+    fiscalYear: { codeField: 'code', dbModel: 'fiscalYear' },
   };
 
   const config = modelConfig[model];
@@ -258,4 +259,32 @@ export async function verifyLedgerBalance(filters?: {
     difference: safeFinancialRound(difference),
     entryCount: countResult,
   };
+}
+
+/**
+ * Phase 14: Fiscal Year Immutable Period Interlock
+ * Checks if a given date falls within any CLOSED fiscal year for the tenant.
+ * If closed, returns an error message. If open or no fiscal year covers the date, returns null.
+ * 
+ * @param date - The date to check
+ * @param companyId - The tenant's companyId
+ * @returns Error message string if date falls in a closed fiscal year, null otherwise
+ */
+export async function checkFiscalYearInterlock(
+  date: Date,
+  companyId: string | null
+): Promise<string | null> {
+  const where: Record<string, unknown> = {
+    status: 'CLOSED',
+    isActive: true,
+    startDate: { lte: date },
+    endDate: { gte: date },
+  };
+  if (companyId) where.companyId = companyId;
+
+  const closedFY = await db.fiscalYear.findFirst({ where });
+  if (closedFY) {
+    return `Immutable Period Interlock: Date ${date.toISOString().split('T')[0]} falls within closed fiscal year "${closedFY.name}" (${closedFY.code}). No mutations are allowed for closed periods.`;
+  }
+  return null;
 }

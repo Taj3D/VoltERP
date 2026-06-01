@@ -188,6 +188,7 @@ model Company {
   stockTransfers    StockTransfer[]
   journalVouchers   JournalVoucher[]
   voucherLines      VoucherLine[]
+  fiscalYears       FiscalYear[]
 }
 
 model Category {
@@ -1424,6 +1425,7 @@ model ChartOfAccount {
   suppliers           Supplier[]       // Supplier sub-nodes under AP
   products            Product[]        // Product sub-nodes under Inventory Asset
   voucherLines        VoucherLine[]    // Voucher lines referencing this account
+  fiscalYearRetainedEarnings FiscalYear[] @relation("FiscalYearRetainedEarnings")  // Phase 14: Retained Earnings target
 
   @@index([companyId])
   @@index([isRoot])
@@ -1482,6 +1484,7 @@ model JournalVoucher {
   bank            Bank?         @relation(fields: [bankId], references: [id])
   company         Company?      @relation(fields: [companyId], references: [id])
   lines           VoucherLine[]
+  fiscalYearCloses FiscalYear[]  // Phase 14: Closing voucher references
 
   @@index([date])
   @@index([type])
@@ -1531,6 +1534,43 @@ model PeriodClose {
 
   @@unique([periodMonth, periodYear])
   @@index([companyId])
+}
+
+// ============================================================
+// FISCAL YEAR — Phase 14
+// Manages full financial year lifecycle: OPEN → CLOSED
+// Immutable Period Interlock: once CLOSED, all API mutations targeting
+// dates within the closed fiscal year are rejected with 400.
+// Year-End Close: generates closing journal voucher that zeroes
+// nominal accounts (Revenue/Expense) and transfers net variance
+// into Equity → Retained Earnings.
+// ============================================================
+
+model FiscalYear {
+  id              String    @id @default(cuid())
+  code            String    @unique  // FY-XXXXX
+  name            String              // e.g., "FY 2024-2025"
+  startDate       DateTime            // Fiscal year start date (inclusive)
+  endDate         DateTime            // Fiscal year end date (inclusive)
+  status          String    @default("OPEN")  // "OPEN" | "CLOSED" — CLOSED triggers immutable period interlock
+  closedAt        DateTime?           // Timestamp when the year was officially closed
+  closedBy        String?             // User ID who closed the fiscal year
+  closingVoucherId String?            // FK to the auto-generated JournalVoucher that zeroed nominal accounts
+  netProfitClosed Float     @default(0)  // Net profit/loss amount transferred to Retained Earnings at close
+  retainedEarningsAccountId String?   // FK to the Equity → Retained Earnings COA node
+  companyId       String?             // Multi-tenant isolation
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company?  @relation(fields: [companyId], references: [id])
+  closingVoucher  JournalVoucher? @relation(fields: [closingVoucherId], references: [id])
+  retainedEarningsAccount ChartOfAccount? @relation("FiscalYearRetainedEarnings", fields: [retainedEarningsAccountId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
 }
 
 // ============================================================

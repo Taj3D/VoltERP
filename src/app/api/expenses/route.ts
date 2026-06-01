@@ -8,6 +8,7 @@ import {
   safeFinancialRound,
   safeFinancialSubtract,
 } from '@/lib/api-security';
+import { checkFiscalYearInterlock } from '@/lib/accounting-utils';
 
 // GET /api/expenses - List all expenses with multi-tenant isolation + VAT Auditor masking
 export async function GET(request: NextRequest) {
@@ -125,6 +126,10 @@ async function createSingleExpense(
   const transactionDate = date ? new Date(date as string) : new Date();
   const periodLock = await checkPeriodClose(transactionDate);
   if (periodLock) throw new Error('Period is locked');
+
+  // Phase 14: Fiscal Year Immutable Period Interlock
+  const fyInterlock = await checkFiscalYearInterlock(transactionDate, companyId);
+  if (fyInterlock) throw new Error(fyInterlock);
 
   // Clean empty optional string fields → null
   const cleanChequeNo = chequeNo && String(chequeNo).trim() !== '' ? String(chequeNo) : null;

@@ -16,6 +16,7 @@ import {
   checkPeriodClose,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { checkFiscalYearInterlock } from '@/lib/accounting-utils';
 
 // Voucher type → prefix mapping for voucherNo generation
 const VOUCHER_TYPE_PREFIX: Record<string, string> = {
@@ -331,6 +332,12 @@ export async function POST(request: NextRequest) {
     // ── Validation: Period lock check ──
     const periodLockError = await checkPeriodClose(new Date(date));
     if (periodLockError) return periodLockError;
+
+    // Phase 14: Fiscal Year Immutable Period Interlock
+    const fyInterlock = await checkFiscalYearInterlock(new Date(date), companyId);
+    if (fyInterlock) {
+      return NextResponse.json({ error: fyInterlock }, { status: 400 });
+    }
 
     // ── Validation: Bank ID required for bank voucher types ──
     const voucherType = type || 'JOURNAL';

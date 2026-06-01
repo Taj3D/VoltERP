@@ -12,7 +12,7 @@ import {
 import type { UserRole } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/reports/profit-loss - Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
+// GET /api/reports/profit-loss - Phase 14: COA-based income statement, fiscal year context, retained earnings
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'ProfitLoss', 'GET');
   if (!security.authorized) return security.response;
@@ -72,6 +72,120 @@ export async function GET(request: NextRequest) {
       ...dateFilterExpense,
       ...(companyId ? { companyId } : {}),
     };
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Fetch COA records for COA-based income statement
+    // ─────────────────────────────────────────────────────────
+    const coaWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) coaWhere.companyId = companyId;
+
+    const coaRecords = await db.chartOfAccount.findMany({
+      where: coaWhere,
+    });
+
+    // PHASE 14: COA-based Income Statement
+    // Revenue accounts: classification is 'Income' or 'Revenue'
+    const revenueAccounts = coaRecords.filter(c => ['Income', 'Revenue'].includes(c.classification));
+    let coaRevenue = 0;
+    for (const acc of revenueAccounts) coaRevenue = safeFinancialAdd(coaRevenue, acc.currentBalance);
+
+    // Expense accounts: classification is 'Expense' or 'Expenses'
+    const expenseAccounts = coaRecords.filter(c => ['Expense', 'Expenses'].includes(c.classification));
+    let coaExpenses = 0;
+    for (const acc of expenseAccounts) coaExpenses = safeFinancialAdd(coaExpenses, acc.currentBalance);
+
+    const coaNetProfit = safeFinancialSubtract(coaRevenue, coaExpenses);
+
+    // Detailed COA-based breakdown for income and expense accounts
+    const coaRevenueBreakdown = revenueAccounts.map(acc => ({
+      code: acc.code,
+      name: acc.name,
+      classification: acc.classification,
+      currentBalance: acc.currentBalance,
+    }));
+
+    const coaExpenseBreakdown = expenseAccounts.map(acc => ({
+      code: acc.code,
+      name: acc.name,
+      classification: acc.classification,
+      currentBalance: acc.currentBalance,
+    }));
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Fiscal Year Context
+    // Check for closed fiscal years overlapping the query date range
+    // ─────────────────────────────────────────────────────────
+    const fiscalYearWhere: Record<string, unknown> = { isActive: true, status: 'CLOSED' };
+    if (companyId) fiscalYearWhere.companyId = companyId;
+
+    const closedFiscalYears = await db.fiscalYear.findMany({
+      where: fiscalYearWhere,
+      orderBy: { startDate: 'asc' },
+    });
+
+    const queryStartDate = from ? new Date(from) : null;
+    const queryEndDate = to ? new Date(to) : null;
+
+    const fiscalYearContext: Array<{
+      id: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+      status: string;
+      closedAt: string | null;
+      netProfitClosed: number;
+    }> = [];
+
+    for (const fy of closedFiscalYears) {
+      const fyStart = new Date(fy.startDate);
+      const fyEnd = new Date(fy.endDate);
+      let overlaps = false;
+
+      if (queryStartDate && queryEndDate) {
+        overlaps = queryStartDate <= fyEnd && queryEndDate >= fyStart;
+      } else if (queryStartDate) {
+        overlaps = queryStartDate >= fyStart && queryStartDate <= fyEnd;
+      } else if (queryEndDate) {
+        overlaps = queryEndDate >= fyStart && queryEndDate <= fyEnd;
+      } else {
+        overlaps = true;
+      }
+
+      if (overlaps) {
+        fiscalYearContext.push({
+          id: fy.id,
+          name: fy.name,
+          startDate: fy.startDate.toISOString(),
+          endDate: fy.endDate.toISOString(),
+          status: fy.status,
+          closedAt: fy.closedAt ? fy.closedAt.toISOString() : null,
+          netProfitClosed: fy.netProfitClosed,
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PHASE 14: Retained Earnings Account
+    // Look up the "Retained Earnings" COA node under Equity
+    // ─────────────────────────────────────────────────────────
+    const retainedEarningsAccount = coaRecords.find(
+      c => c.classification === 'Equity' &&
+           c.name.toLowerCase().includes('retained earnings')
+    );
+
+    const retainedEarningsAccountData = retainedEarningsAccount
+      ? {
+          id: retainedEarningsAccount.id,
+          code: retainedEarningsAccount.code,
+          name: retainedEarningsAccount.name,
+          classification: retainedEarningsAccount.classification,
+          currentBalance: retainedEarningsAccount.currentBalance,
+        }
+      : null;
+
+    // ─────────────────────────────────────────────────────────
+    // Existing transaction-based P&L calculation (preserved)
+    // ─────────────────────────────────────────────────────────
 
     const [confirmedSales, allIncomes, allExpenses] = await Promise.all([
       db.salesOrder.findMany({
@@ -221,6 +335,7 @@ export async function GET(request: NextRequest) {
 
     // Build response data
     const responseData: Record<string, unknown> = {
+      // Existing transaction-based P&L fields
       revenue,
       salesRevenue,
       otherIncome: totalIncome,
@@ -235,6 +350,16 @@ export async function GET(request: NextRequest) {
       monthlyData,
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
+      // PHASE 14 additions
+      coaBasedPL: {
+        revenue: coaRevenue,
+        expenses: coaExpenses,
+        netProfit: coaNetProfit,
+        revenueBreakdown: coaRevenueBreakdown,
+        expenseBreakdown: coaExpenseBreakdown,
+      },
+      fiscalYearContext,
+      retainedEarningsAccount: retainedEarningsAccountData,
     };
 
     // STAGE 12: Apply VAT Auditor deep masking (replaces old hideMargins approach)
@@ -243,10 +368,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(masked);
     }
 
-    // STAGE 12: Activity logging
+    // PHASE 14: Activity logging with updated module token
     await logUserActivity({
       action: 'EXPORT',
-      module: 'Acc-Profit-Loss',
+      module: 'Fin-Statements-Core',
       userId: security.user.id,
       userName: security.user.name,
       details: 'Profit & Loss report generated',
