@@ -1,4 +1,52 @@
-# VoltERP Worklog — Authentication & Profile System Overhaul
+# VoltERP Worklog — Authentication & Profile System Overhaul (v2.0)
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Auth Layout & Profile Subsystem Rebuild — 4 Critical Directives
+
+Work Log:
+- Fixed dev server port conflict (killed stale process on :3000, restarted successfully)
+- **Directive 1 — UI Username Masking Audit**: 
+  - Added comprehensive raw username pattern detection `/^(emart\.|admin\.|user\.|sys\.|test\.)/i` to ALL display surfaces
+  - Enhanced `getCleanDisplayName()` in AppHeader.tsx with expanded regex pattern
+  - Added safety net in login function: if `cleanDisplayName` matches raw pattern, falls back to `cred?.displayName || "User"`
+  - Added localStorage hydration safety net: sanitizes any stale raw username in `ems_auth` on app load, re-saves cleaned state
+  - Added inline safety net in sidebar user section and dashboard welcome message
+  - Verified auth API returns clean names (name="Amit Sharma" not "emart.amit")
+- **Directive 2 — Profile Dashboard Rebuild** (delegated to full-stack-developer subagent):
+  - Company Logo upload in Profile tab with Base64 conversion and server sync via PUT /api/companies/[id]
+  - Enhanced Action Tracking tab with server-side telemetry, Recharts BarChart, 4 summary cards
+  - Enhanced Activity Ledger tab with Live indicator, module filter, date range filtering, expandable detail rows
+  - Password Security tab with security warning banner, user list, recent password activity, non-admin 403 card
+  - Username safety nets with `RAW_USERNAME_PATTERNS` regex and `getSafeDisplayName()` helpers
+  - Profile update with green success animation, Last Updated timestamp, proper localStorage sync
+- **Directive 3 — Telemetry Log Sync**:
+  - Created `/api/auth/telemetry` POST endpoint: validates actionType, module, filename, logs to AuditLog via `logUserActivity()`
+  - Added `logExportTelemetry()` function to export-utils.ts: fire-and-forget POST to telemetry API after every export/import
+  - Integrated telemetry into ALL 6 export/import functions: exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, exportInvoicePDF
+  - Added `getTelemetryUserName()` helper for PDF footers (never leaks raw usernames)
+  - Verified: Telemetry API returns success for both admin and non-admin users
+  - Verified: User-activity API returns telemetry entries with correct actionLabel, module, filename
+- **Directive 4 — Password Change Security Gate**:
+  - Verified `/api/auth/change-password` returns 403 for non-admin roles with `PRIVILEGE_ESCALATION_BLOCKED`
+  - Verified `/api/auth/reset-password` returns 403 for non-admin roles
+  - Tested: ADMIN can change own password ✅, MANAGER gets 403 ✅, password reset back to original ✅
+  - All blocked attempts are audited via `logUserActivity()` with `SECURITY_OVERRIDE` action
+
+Stage Summary:
+- **Username Leak Fix**: Triple-layered safety net — server-side clean names, client-side regex sanitization, localStorage cleanup on hydration
+- **Profile Page**: Fully functional database-driven workspace with Base64 avatar/logo, editable fields, company metadata
+- **Telemetry Pipeline**: Every PDF export, CSV export, and CSV import across ALL modules now logs to server-side AuditLog
+- **Password RBAC**: Strict 403 for non-admin roles on both change-password and reset-password routes, all attempts audited
+- **Lint**: Clean ✅ | **Dev Server**: Running ✅ | **API Tests**: All passing ✅
+
+Files Modified:
+- src/app/api/auth/telemetry/route.ts — NEW: Telemetry logging endpoint
+- src/lib/export-utils.ts — Added logExportTelemetry() + getTelemetryUserName() + telemetry calls in all 6 export/import functions
+- src/components/ElectronicsMartApp.tsx — Username safety nets in login, localStorage hydration, sidebar, dashboard
+- src/components/erp/layout/AppHeader.tsx — Enhanced getCleanDisplayName() with comprehensive regex
+- src/components/ProfileCenter.tsx — Complete rebuild with company logo, enhanced tracking, password security tab
 
 ---
 Task ID: 1
@@ -223,3 +271,80 @@ Files Modified:
 - src/app/api/assets/route.ts — Batch mode pre-validation for negative values and unmapped company IDs
 - src/lib/export-utils.ts — Corporate disclaimer stamp in drawFooter
 - src/components/InvestmentGroupPage.tsx — Fixed summaryRows format for Asset Ledger PDF export
+
+---
+Task ID: 6
+Agent: Profile Center Enhancement Agent
+Task: Rebuild and enhance ProfileCenter.tsx component (v2.0 → v3.0)
+
+Work Log:
+- Read existing ProfileCenter.tsx (1651 lines), API endpoints (/api/companies/[id], /api/user-activity, /api/company-branding, /api/auth/telemetry), and UI component library
+- Upgraded component header from v2.0 to v3.0 with comprehensive feature documentation
+- Added new imports: useMemo from React, Recharts (BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell), new Lucide icons (ImageIcon, ChevronDown, ChevronUp, Zap, Search, ShieldAlert, ShieldCheck, History)
+- Enhanced CompanyInfo interface with logo and brandLogo optional fields
+- Added RAW_USERNAME_PATTERNS constant: /^(emart\.|admin\.|user\.|sys\.|test\.)/i for comprehensive raw username detection
+- Added DATE_RANGE_OPTIONS constant for Activity Ledger date range filtering
+- Added CHART_COLORS constant for Recharts bar chart coloring
+- Created isRawUsername() helper function using RAW_USERNAME_PATTERNS
+- Created getSafeDisplayName() helper that masks raw usernames to "User"
+- Created getDateRangeFilter() helper for client-side date range filtering
+- Enhanced getInitials() to use RAW_USERNAME_PATTERNS instead of simple startsWith("emart.")
+- Added new state variables: saveSuccess, lastUpdated, companyLogoUploading, editCompanyLogo, serverTelemetry, serverTelemetryLoading, activityModuleFilter, activityDateRange, expandedLogId, passwordActivity
+- Added companyLogoInputRef for logo file input
+
+1. Company Logo Upload (Profile Tab):
+- Added company logo upload section in Company Information card header
+- File upload via FileReader → Base64, immediately saved to PUT /api/companies/[id] with logo field
+- Logo displayed as thumbnail (12x12 in header, 20x20 in detail section)
+- Replace and Remove buttons for logo management
+- Remove sends PUT with logo: null to clear from server
+- Company logo uploading state with spinner indicator
+
+2. Enhanced Action Tracking Tab:
+- Server-side telemetry loaded from /api/user-activity (up to 200 records) with 15-second auto-refresh
+- 4 visual summary cards showing: Total PDF Exports, Total CSV Exports, Total CSV Imports, Most Active Module (all from server-side data)
+- Recharts BarChart showing action distribution by module (top 8 modules, colored bars)
+- Client-side action distribution section preserved with localStorage badge
+- Module names stripped of "Telemetry-" prefix for cleaner display
+
+3. Enhanced Activity Ledger Tab:
+- "Live" indicator badge with Zap icon showing auto-refresh status
+- Module filter dropdown dynamically populated from available modules in data
+- Date range filtering: Today, Last 7 Days, Last 30 Days, All Time (client-side filtering)
+- Filename column in table with max-width truncation
+- "View Details" expansion row: click any row to expand showing full JSON details
+  - Shows Action, Module, Record ID, Record Label, Filename, User in grid layout
+  - Full JSON details rendered in formatted <pre> block with max-height scroll
+- ChevronDown/ChevronUp indicators for expandable rows
+- Module names cleaned (Telemetry- prefix removed)
+
+4. Password Security Tab Enhancement:
+- Prominent security warning banner: "⚠️ Password management is restricted to ADMIN role only. All password change attempts are audited."
+- For ADMIN users: Full users table with Reset Password button per user (preserved from before)
+- "Recent Password Activity" section showing last 5 password-related audit log entries
+  - Filtered by module/actionLabel/recordLabel containing "password" or "profile"
+  - Each entry shows icon, label, module/user, and timestamp
+- For non-admin users: Clear "403 — Access Denied" card with large shield icon
+  - Shows role name, explanation, and PRIVILEGE_ESCALATION_BLOCKED error code
+- Tab renamed from "Password Reset" to "Password Security" (visible to all users, content adapts by role)
+- Safe display names used in user list (getSafeDisplayName)
+
+5. Username Safety Nets:
+- RAW_USERNAME_PATTERNS constant: /^(emart\.|admin\.|user\.|sys\.|test\.)/i
+- isRawUsername() function checks against comprehensive pattern
+- getSafeDisplayName() returns "User" for any raw username match
+- getInitials() uses RAW_USERNAME_PATTERNS.test() instead of simple startsWith
+- Profile display NEVER shows raw email as display name — uses safeDisplayName everywhere
+- Save profile blocks raw usernames with validation toast
+- All user list items use getSafeDisplayName for avatar initials and name display
+
+6. Profile Update Enhancement:
+- localStorage auth state updated on every profile save
+- Green "Saved!" success animation with CheckCircle icon (auto-hides after 2.5s)
+- "Last Updated" timestamp at bottom of profile card showing when profile was last saved
+- Uses animate-in fade-in slide-in-from-right for success animation
+
+All existing functionality preserved. Lint clean, dev server running.
+
+Files Modified:
+- src/components/ProfileCenter.tsx — Complete rebuild with 6 enhancement categories

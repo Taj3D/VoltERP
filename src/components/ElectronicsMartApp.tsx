@@ -193,6 +193,20 @@ function useAuth() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
+        // SAFETY NET: Sanitize any raw username leaks in localStorage auth state
+        if (parsed?.user) {
+          const rawPatterns = /^(emart\.|admin\.|user\.|sys\.|test\.)/i;
+          if (rawPatterns.test(parsed.user.name)) {
+            const cred = ROLE_CREDENTIALS[parsed.user.email];
+            parsed.user.name = cred?.displayName || "User";
+          }
+          if (rawPatterns.test(parsed.user.displayName)) {
+            const cred = ROLE_CREDENTIALS[parsed.user.email];
+            parsed.user.displayName = cred?.displayName || "User";
+          }
+          // Re-save sanitized state
+          localStorage.setItem("ems_auth", JSON.stringify(parsed));
+        }
         authState = parsed;
         authListeners.forEach(l => l());
       } catch {}
@@ -212,7 +226,11 @@ function useAuth() {
       // Map server response to client-side auth state
       // CRITICAL: 'name' field stores the CLEAN DISPLAY NAME from DB, NEVER the raw username
       const cred = ROLE_CREDENTIALS[username];
-      const cleanDisplayName = serverUser.name || cred?.displayName || username;
+      let cleanDisplayName = serverUser.name || cred?.displayName || username;
+      // SAFETY NET: If cleanDisplayName looks like a raw login identifier (emart.*, etc.), mask it
+      if (/^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(cleanDisplayName)) {
+        cleanDisplayName = cred?.displayName || "User";
+      }
       authState = {
         isAuthenticated: true,
         user: {
@@ -1970,7 +1988,8 @@ function DashboardPage() {
   ];
 
   const auth = useAuth();
-  const userName = auth.user?.displayName || auth.user?.name || "User";
+  const rawUserName = auth.user?.displayName || auth.user?.name || "User";
+  const userName = /^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(rawUserName) ? "User" : rawUserName;
   const isVatAuditor = auth.isVatAuditor;
   const AUDIT_MASK = "N/A (Audit Mode)";
 
@@ -2365,7 +2384,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
             ) : (
               <UserCircle className="w-4 h-4" />
             )}
-            <span className="truncate">{user?.displayName || "User"}</span>
+            <span className="truncate">{(() => { const dn = user?.displayName || "User"; return /^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(dn) ? "User" : dn; })()}</span>
           </div>
           {isVatAuditor && (
             <div className="mt-1 px-2">

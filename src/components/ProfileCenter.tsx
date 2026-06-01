@@ -1,20 +1,38 @@
 "use client";
 // ============================================================
-// VILTERP — PROFILE CENTER v2.0
+// VILTERP — PROFILE CENTER v3.0 (Enhanced)
 // Features:
 // A. User Profile Card with Avatar Upload (Base64), Editable Name, Phone, Designation
-// B. User Action Tracking Matrix (PDF Export, CSV Export, CSV Import telemetry)
-// C. User Performance & Action Ledger (paginated export/import activity grid)
-// D. Admin-Only Password Reset Section (403 Forbidden for non-admin roles)
+//    + Company Logo Upload in Company Info card
+//    + Save success animation + Last Updated timestamp
+//    + Username safety nets (RAW_USERNAME_PATTERNS)
+// B. Enhanced Action Tracking Tab
+//    - Client-side tracking summary (localStorage)
+//    - Server-side telemetry summary from /api/user-activity
+//    - Visual summary cards: PDF Exports, CSV Exports, CSV Imports, Most Active Module
+//    - Recharts bar chart showing action distribution by module
+//    - Auto-refresh on new telemetry
+// C. Enhanced Activity Ledger Tab
+//    - Live indicator badge
+//    - Module filter dropdown (dynamically populated)
+//    - Date range filtering (Today, Last 7 Days, Last 30 Days, All Time)
+//    - Filename column + View Details expansion row
+// D. Admin Password Reset Tab Enhancement
+//    - Security warning banner
+//    - Admin: all users list + Reset Password button
+//    - Recent Password Activity section
+//    - Non-admin: 403 Access Denied card
 // Theme: Deep Navy Blue (#0a1628, #132240, #2563eb)
 // ============================================================
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   User, Mail, Building2, Phone, MapPin, Shield, KeyRound,
   FileDown, FileUp, FileText, RefreshCw, ChevronLeft, ChevronRight,
   Lock, CheckCircle, AlertTriangle, Activity, Eye, Camera,
-  Pencil, Save, X, Upload, BarChart3, TrendingUp, Clock
+  Pencil, Save, X, Upload, BarChart3, TrendingUp, Clock,
+  Image as ImageIcon, ChevronDown, ChevronUp, Zap, Search,
+  ShieldAlert, ShieldCheck, History
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +46,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, Cell
+} from "recharts";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -65,6 +87,8 @@ interface CompanyInfo {
   address: string | null;
   phone: string | null;
   email: string | null;
+  logo?: string | null;
+  brandLogo?: string | null;
 }
 
 interface EmployeeInfo {
@@ -130,7 +154,19 @@ const ACTION_TYPE_OPTIONS = [
   { value: "CSV_IMPORT", label: "CSV Import" },
 ];
 
+const DATE_RANGE_OPTIONS = [
+  { value: "all", label: "All Time" },
+  { value: "today", label: "Today" },
+  { value: "7d", label: "Last 7 Days" },
+  { value: "30d", label: "Last 30 Days" },
+];
+
 const TRACKING_STORAGE_KEY = "ems_action_tracking";
+
+// Comprehensive raw username pattern check
+const RAW_USERNAME_PATTERNS = /^(emart\.|admin\.|user\.|sys\.|test\.)/i;
+
+const CHART_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
 // ────────────────────────────────────────────────────────────
 // HELPER: get auth headers
@@ -146,7 +182,7 @@ function getAuthHeaders(): Record<string, string> {
           headers["X-User-Email"] = parsed.user.email;
         }
       }
-    } catch {}
+    } catch { /* ignore */ }
   }
   return headers;
 }
@@ -159,20 +195,34 @@ function getAuthUser(): ProfileUser | null {
       const parsed = JSON.parse(stored);
       if (parsed?.user) {
         return {
-          id: parsed.user.email, // We use email as identifier
+          id: parsed.user.email,
           name: parsed.user.name,
           email: parsed.user.email,
           role: parsed.user.role,
           displayName: parsed.user.displayName || parsed.user.name,
-          companyId: null,
+          companyId: parsed.user.companyId || null,
           profileImage: parsed.user.profileImage || null,
           phone: parsed.user.phone || null,
           designation: parsed.user.designation || null,
         };
       }
     }
-  } catch {}
+  } catch { /* ignore */ }
   return null;
+}
+
+// ────────────────────────────────────────────────────────────
+// USERNAME SAFETY: mask raw username patterns
+// ────────────────────────────────────────────────────────────
+function isRawUsername(name: string | null | undefined): boolean {
+  if (!name) return true;
+  return RAW_USERNAME_PATTERNS.test(name);
+}
+
+function getSafeDisplayName(name: string | null | undefined, fallback: string = "User"): string {
+  if (!name) return fallback;
+  if (isRawUsername(name)) return fallback;
+  return name;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -187,17 +237,16 @@ function getActionTracking(): ActionTrackingSummary {
     if (stored) {
       return JSON.parse(stored);
     }
-  } catch {}
+  } catch { /* ignore */ }
   return { pdfExportCount: 0, csvExportCount: 0, csvImportCount: 0, totalActions: 0, recentActions: [] };
 }
 
 function saveActionTracking(tracking: ActionTrackingSummary): void {
   if (typeof window === "undefined") return;
   try {
-    // Keep only last 50 recent actions
     tracking.recentActions = tracking.recentActions.slice(0, 50);
     localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify(tracking));
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function recordAction(actionType: "PDF_EXPORT" | "CSV_EXPORT" | "CSV_IMPORT", module: string, filename: string): ActionTrackingSummary {
@@ -220,6 +269,31 @@ function recordAction(actionType: "PDF_EXPORT" | "CSV_EXPORT" | "CSV_IMPORT", mo
   return tracking;
 }
 
+// ────────────────────────────────────────────────────────────
+// DATE HELPERS
+// ────────────────────────────────────────────────────────────
+function getDateRangeFilter(range: string): Date | null {
+  const now = new Date();
+  switch (range) {
+    case "today": {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return start;
+    }
+    case "7d": {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      return start;
+    }
+    case "30d": {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 30);
+      return start;
+    }
+    default:
+      return null;
+  }
+}
+
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
@@ -237,12 +311,23 @@ export default function ProfileCenter() {
   const [editDesignation, setEditDesignation] = useState("");
   const [editProfileImage, setEditProfileImage] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Action tracking state
+  // Company logo upload state
+  const [companyLogoUploading, setCompanyLogoUploading] = useState(false);
+  const [editCompanyLogo, setEditCompanyLogo] = useState<string | null>(null);
+  const companyLogoInputRef = useRef<HTMLInputElement>(null);
+
+  // Action tracking state (client-side)
   const [actionTracking, setActionTracking] = useState<ActionTrackingSummary>({
     pdfExportCount: 0, csvExportCount: 0, csvImportCount: 0, totalActions: 0, recentActions: []
   });
+
+  // Server-side telemetry state for Action Tracking tab
+  const [serverTelemetry, setServerTelemetry] = useState<ActivityLog[]>([]);
+  const [serverTelemetryLoading, setServerTelemetryLoading] = useState(false);
 
   // Activity ledger state
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -250,7 +335,10 @@ export default function ProfileCenter() {
   const [activityPage, setActivityPage] = useState(1);
   const [activityPageSize] = useState(20);
   const [activityFilter, setActivityFilter] = useState("ALL");
+  const [activityModuleFilter, setActivityModuleFilter] = useState("ALL");
+  const [activityDateRange, setActivityDateRange] = useState("all");
   const [activityLoading, setActivityLoading] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
   // Admin password reset state
   const [allUsers, setAllUsers] = useState<UserForReset[]>([]);
@@ -266,6 +354,9 @@ export default function ProfileCenter() {
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // Recent password activity state
+  const [passwordActivity, setPasswordActivity] = useState<ActivityLog[]>([]);
+
   // ────────────────────────────────────────────────────────
   // INITIAL LOAD
   // ────────────────────────────────────────────────────────
@@ -273,7 +364,7 @@ export default function ProfileCenter() {
     const authUser = getAuthUser();
     if (authUser) {
       setUser(authUser);
-      setEditName(authUser.displayName || authUser.name);
+      setEditName(getSafeDisplayName(authUser.displayName || authUser.name));
       setEditPhone(authUser.phone || "");
       setEditDesignation(authUser.designation || "");
       setEditProfileImage(authUser.profileImage || null);
@@ -289,7 +380,7 @@ export default function ProfileCenter() {
     if (user) {
       loadActivityLogs();
     }
-  }, [user, activityPage, activityFilter]);
+  }, [user, activityPage, activityFilter, activityModuleFilter, activityDateRange]);
 
   // Refresh action tracking periodically
   useEffect(() => {
@@ -298,6 +389,14 @@ export default function ProfileCenter() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-refresh server telemetry when on tracking tab
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (user) loadServerTelemetry();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   // ────────────────────────────────────────────────────────
   // LOAD PROFILE FROM SERVER
@@ -308,39 +407,39 @@ export default function ProfileCenter() {
       const res = await fetch("/api/auth/profile", { headers });
       if (res.ok) {
         const serverProfile = await res.json();
-        // Update local auth state with server data
+        const safeName = getSafeDisplayName(serverProfile.name);
         const updatedUser: ProfileUser = {
           id: serverProfile.id,
           name: serverProfile.name,
           email: serverProfile.email,
           role: serverProfile.role,
-          displayName: serverProfile.name,
+          displayName: safeName,
           companyId: serverProfile.companyId,
           profileImage: serverProfile.profileImage,
           phone: serverProfile.phone,
           designation: serverProfile.designation,
         };
         setUser(updatedUser);
-        setEditName(updatedUser.displayName || updatedUser.name);
+        setEditName(safeName);
         setEditPhone(updatedUser.phone || "");
         setEditDesignation(updatedUser.designation || "");
         setEditProfileImage(updatedUser.profileImage || null);
 
-        // Also update localStorage auth state
+        // Update localStorage auth state
         try {
           const stored = localStorage.getItem("ems_auth");
           if (stored) {
             const parsed = JSON.parse(stored);
             if (parsed?.user) {
-              parsed.user.name = serverProfile.name;
-              parsed.user.displayName = serverProfile.name;
+              parsed.user.name = safeName;
+              parsed.user.displayName = safeName;
               parsed.user.profileImage = serverProfile.profileImage;
               parsed.user.phone = serverProfile.phone;
               parsed.user.designation = serverProfile.designation;
               localStorage.setItem("ems_auth", JSON.stringify(parsed));
             }
           }
-        } catch {}
+        } catch { /* ignore */ }
       }
     } catch (err) {
       console.error("Failed to load server profile:", err);
@@ -364,6 +463,7 @@ export default function ProfileCenter() {
             : companies[0];
           if (userCompany) {
             setCompanyInfo(userCompany);
+            setEditCompanyLogo(userCompany.logo || userCompany.brandLogo || null);
           }
         }
       }
@@ -389,6 +489,87 @@ export default function ProfileCenter() {
   };
 
   // ────────────────────────────────────────────────────────
+  // LOAD SERVER TELEMETRY for Action Tracking tab
+  // ────────────────────────────────────────────────────────
+  const loadServerTelemetry = async () => {
+    if (!user) return;
+    setServerTelemetryLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const params = new URLSearchParams({
+        userId: user.id || user.email,
+        page: "1",
+        pageSize: "200",
+        actionType: "ALL",
+      });
+      const res = await fetch(`/api/user-activity?${params}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setServerTelemetry(data.logs || []);
+      }
+    } catch (err) {
+      console.error("Failed to load server telemetry:", err);
+    } finally {
+      setServerTelemetryLoading(false);
+    }
+  };
+
+  // Load server telemetry on mount
+  useEffect(() => {
+    if (user) loadServerTelemetry();
+  }, [user]);
+
+  // ────────────────────────────────────────────────────────
+  // COMPUTED: Server-side telemetry summary
+  // ────────────────────────────────────────────────────────
+  const serverSummary = useMemo(() => {
+    const pdfCount = serverTelemetry.filter(l => l.actionLabel.includes("PDF")).length;
+    const csvExportCount = serverTelemetry.filter(l => l.actionLabel.includes("CSV Export")).length;
+    const csvImportCount = serverTelemetry.filter(l => l.actionLabel.includes("CSV Import")).length;
+
+    // Module distribution
+    const moduleMap: Record<string, number> = {};
+    serverTelemetry.forEach(l => {
+      const mod = l.module?.replace(/^Telemetry-/, "") || "Unknown";
+      moduleMap[mod] = (moduleMap[mod] || 0) + 1;
+    });
+
+    const mostActiveModule = Object.entries(moduleMap).sort((a, b) => b[1] - a[1])[0];
+
+    // Chart data
+    const chartData = Object.entries(moduleMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, count]) => ({
+        name: name.length > 12 ? name.slice(0, 12) + "…" : name,
+        fullName: name,
+        count,
+      }));
+
+    return {
+      pdfCount,
+      csvExportCount,
+      csvImportCount,
+      total: serverTelemetry.length,
+      mostActiveModule: mostActiveModule ? mostActiveModule[0] : "N/A",
+      mostActiveModuleCount: mostActiveModule ? mostActiveModule[1] : 0,
+      chartData,
+      moduleMap,
+    };
+  }, [serverTelemetry]);
+
+  // ────────────────────────────────────────────────────────
+  // COMPUTED: Available modules for filter dropdown
+  // ────────────────────────────────────────────────────────
+  const availableModules = useMemo(() => {
+    const modules = new Set<string>();
+    activityLogs.forEach(l => {
+      if (l.module) modules.add(l.module.replace(/^Telemetry-/, ""));
+    });
+    return Array.from(modules).sort();
+  }, [activityLogs]);
+
+  // ────────────────────────────────────────────────────────
   // LOAD ACTIVITY LOGS
   // ────────────────────────────────────────────────────────
   const loadActivityLogs = async () => {
@@ -405,13 +586,60 @@ export default function ProfileCenter() {
       const res = await fetch(`/api/user-activity?${params}`, { headers });
       if (res.ok) {
         const data = await res.json();
-        setActivityLogs(data.logs || []);
+        let logs: ActivityLog[] = data.logs || [];
+
+        // Client-side module filter
+        if (activityModuleFilter !== "ALL") {
+          logs = logs.filter(l => {
+            const mod = l.module?.replace(/^Telemetry-/, "") || "";
+            return mod === activityModuleFilter;
+          });
+        }
+
+        // Client-side date range filter
+        const dateThreshold = getDateRangeFilter(activityDateRange);
+        if (dateThreshold) {
+          logs = logs.filter(l => new Date(l.createdAt) >= dateThreshold);
+        }
+
+        setActivityLogs(logs);
         setActivityTotal(data.total || 0);
       }
     } catch (err) {
       console.error("Failed to load activity logs:", err);
     } finally {
       setActivityLoading(false);
+    }
+  };
+
+  // ────────────────────────────────────────────────────────
+  // LOAD PASSWORD ACTIVITY (for Admin Password tab)
+  // ────────────────────────────────────────────────────────
+  const loadPasswordActivity = async () => {
+    if (!user || user.role !== "admin") return;
+    try {
+      const headers = getAuthHeaders();
+      const params = new URLSearchParams({
+        userId: user.id || user.email,
+        page: "1",
+        pageSize: "50",
+        actionType: "ALL",
+      });
+      const res = await fetch(`/api/user-activity?${params}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        const allLogs: ActivityLog[] = data.logs || [];
+        // Filter for password/profile related
+        const pwLogs = allLogs.filter(l =>
+          l.module?.toLowerCase().includes("password") ||
+          l.module?.toLowerCase().includes("profile") ||
+          l.actionLabel?.toLowerCase().includes("password") ||
+          l.recordLabel?.toLowerCase().includes("password")
+        ).slice(0, 5);
+        setPasswordActivity(pwLogs);
+      }
+    } catch (err) {
+      console.error("Failed to load password activity:", err);
     }
   };
 
@@ -438,6 +666,7 @@ export default function ProfileCenter() {
   useEffect(() => {
     if (user?.role === "admin") {
       loadAllUsers();
+      loadPasswordActivity();
     }
   }, [user]);
 
@@ -448,38 +677,76 @@ export default function ProfileCenter() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith("image/")) {
-      toast({
-        title: "Invalid File",
-        description: "Please select an image file (PNG, JPG, GIF, WebP).",
-        variant: "destructive",
-      });
+      toast({ title: "Invalid File", description: "Please select an image file (PNG, JPG, GIF, WebP).", variant: "destructive" });
       return;
     }
 
-    // Validate file size (max 2MB)
     if (file.size > 2 * 1024 * 1024) {
-      toast({
-        title: "File Too Large",
-        description: "Profile image must be smaller than 2MB.",
-        variant: "destructive",
-      });
+      toast({ title: "File Too Large", description: "Profile image must be smaller than 2MB.", variant: "destructive" });
       return;
     }
 
-    // Convert to Base64
     const reader = new FileReader();
     reader.onload = () => {
       const base64 = reader.result as string;
       setEditProfileImage(base64);
     };
     reader.onerror = () => {
-      toast({
-        title: "Upload Failed",
-        description: "Failed to read image file. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Upload Failed", description: "Failed to read image file. Please try again.", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // ────────────────────────────────────────────────────────
+  // COMPANY LOGO UPLOAD HANDLER
+  // ────────────────────────────────────────────────────────
+  const handleCompanyLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid File", description: "Please select an image file (PNG, JPG, GIF, WebP).", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Company logo must be smaller than 2MB.", variant: "destructive" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setEditCompanyLogo(base64);
+
+      // Save to server immediately
+      if (companyInfo) {
+        setCompanyLogoUploading(true);
+        try {
+          const headers = getAuthHeaders();
+          const res = await fetch(`/api/companies/${companyInfo.id}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({ logo: base64 }),
+          });
+          if (res.ok) {
+            const updated = await res.json();
+            setCompanyInfo(prev => prev ? { ...prev, logo: base64 } : prev);
+            toast({ title: "Logo Updated", description: "Company logo has been saved successfully." });
+          } else {
+            const errData = await res.json().catch(() => ({ error: "Failed" }));
+            toast({ title: "Error", description: errData.error || "Failed to upload company logo", variant: "destructive" });
+          }
+        } catch (err) {
+          toast({ title: "Error", description: "Failed to upload company logo", variant: "destructive" });
+        } finally {
+          setCompanyLogoUploading(false);
+        }
+      }
+    };
+    reader.onerror = () => {
+      toast({ title: "Upload Failed", description: "Failed to read logo file. Please try again.", variant: "destructive" });
     };
     reader.readAsDataURL(file);
   };
@@ -489,11 +756,13 @@ export default function ProfileCenter() {
   // ────────────────────────────────────────────────────────
   const handleSaveProfile = async () => {
     if (!editName.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Name cannot be empty.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "Name cannot be empty.", variant: "destructive" });
+      return;
+    }
+
+    // Block raw usernames
+    if (isRawUsername(editName.trim())) {
+      toast({ title: "Invalid Name", description: "This name pattern is not allowed. Please use a proper display name.", variant: "destructive" });
       return;
     }
 
@@ -517,13 +786,14 @@ export default function ProfileCenter() {
       }
 
       const data = await res.json();
+      const safeName = getSafeDisplayName(data.user.name);
 
       // Update local state
       if (user) {
         const updatedUser: ProfileUser = {
           ...user,
           name: data.user.name,
-          displayName: data.user.name,
+          displayName: safeName,
           profileImage: data.user.profileImage,
           phone: data.user.phone,
           designation: data.user.designation,
@@ -537,27 +807,26 @@ export default function ProfileCenter() {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed?.user) {
-            parsed.user.name = data.user.name;
-            parsed.user.displayName = data.user.name;
+            parsed.user.name = safeName;
+            parsed.user.displayName = safeName;
             parsed.user.profileImage = data.user.profileImage;
             parsed.user.phone = data.user.phone;
             parsed.user.designation = data.user.designation;
             localStorage.setItem("ems_auth", JSON.stringify(parsed));
           }
         }
-      } catch {}
+      } catch { /* ignore */ }
 
       setIsEditing(false);
-      toast({
-        title: "Profile Updated",
-        description: "Your profile has been saved successfully.",
-      });
+      setLastUpdated(new Date().toISOString());
+
+      // Show success animation
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+
+      toast({ title: "Profile Updated", description: "Your profile has been saved successfully." });
     } catch (err) {
-      toast({
-        title: "Error",
-        description: err instanceof Error ? err.message : "Failed to update profile",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to update profile", variant: "destructive" });
     } finally {
       setSavingProfile(false);
     }
@@ -569,19 +838,11 @@ export default function ProfileCenter() {
   const handlePasswordReset = async () => {
     if (!resetTargetUser) return;
     if (!resetNewPassword || resetNewPassword.length < 6) {
-      toast({
-        title: "Validation Error",
-        description: "Password must be at least 6 characters long.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "Password must be at least 6 characters long.", variant: "destructive" });
       return;
     }
     if (resetNewPassword !== resetConfirmPassword) {
-      toast({
-        title: "Validation Error",
-        description: "Passwords do not match.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "Passwords do not match.", variant: "destructive" });
       return;
     }
 
@@ -603,20 +864,15 @@ export default function ProfileCenter() {
         throw new Error(errData.error || "Failed to reset password");
       }
 
-      toast({
-        title: "Success",
-        description: `Password reset successfully for ${resetTargetUser.email}`,
-      });
+      toast({ title: "Success", description: `Password reset successfully for ${resetTargetUser.email}` });
       setResetDialogOpen(false);
       setResetTargetUser(null);
       setResetNewPassword("");
       setResetConfirmPassword("");
+      // Refresh password activity
+      loadPasswordActivity();
     } catch (err) {
-      toast({
-        title: "Error",
-        description: err instanceof Error ? err.message : "Failed to reset password",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to reset password", variant: "destructive" });
     } finally {
       setResetSaving(false);
     }
@@ -627,27 +883,15 @@ export default function ProfileCenter() {
   // ────────────────────────────────────────────────────────
   const handleSelfPasswordChange = async () => {
     if (!currentPassword || !newPassword || !confirmNewPassword) {
-      toast({
-        title: "Validation Error",
-        description: "All password fields are required.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "All password fields are required.", variant: "destructive" });
       return;
     }
     if (newPassword.length < 6) {
-      toast({
-        title: "Validation Error",
-        description: "New password must be at least 6 characters.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "New password must be at least 6 characters.", variant: "destructive" });
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      toast({
-        title: "Validation Error",
-        description: "New password and confirmation do not match.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "New password and confirmation do not match.", variant: "destructive" });
       return;
     }
 
@@ -657,35 +901,25 @@ export default function ProfileCenter() {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-          confirmPassword: confirmNewPassword,
-        }),
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword: confirmNewPassword }),
       });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: "Failed to change password" }));
-        // Check for 403 Privilege Escalation Blocked
         if (res.status === 403 && errData.errorCode === "PRIVILEGE_ESCALATION_BLOCKED") {
           throw new Error("403 Forbidden: Privilege Escalation Blocked — Your role is not authorized to change passwords.");
         }
         throw new Error(errData.error || "Failed to change password");
       }
 
-      toast({
-        title: "Password Changed",
-        description: "Your password has been updated successfully.",
-      });
+      toast({ title: "Password Changed", description: "Your password has been updated successfully." });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
+      // Refresh password activity
+      loadPasswordActivity();
     } catch (err) {
-      toast({
-        title: "Error",
-        description: err instanceof Error ? err.message : "Failed to change password",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to change password", variant: "destructive" });
     } finally {
       setChangingPassword(false);
     }
@@ -706,8 +940,8 @@ export default function ProfileCenter() {
   const getInitials = (): string => {
     if (!user?.displayName && !user?.name) return "U";
     const name = user.displayName || user.name;
-    // Safety: never show raw username initials
-    if (name.startsWith("emart.")) return "U";
+    // Comprehensive raw username pattern check
+    if (RAW_USERNAME_PATTERNS.test(name)) return "U";
     const parts = name.split(" ");
     if (parts.length >= 2) {
       return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
@@ -719,11 +953,8 @@ export default function ProfileCenter() {
     try {
       const date = new Date(dateStr);
       return date.toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
       });
     } catch {
       return "—";
@@ -773,6 +1004,9 @@ export default function ProfileCenter() {
     );
   }
 
+  // Safe display name — never show raw username or email
+  const safeDisplayName = getSafeDisplayName(user.displayName || user.name);
+
   // ────────────────────────────────────────────────────────
   // RENDER
   // ────────────────────────────────────────────────────────
@@ -788,7 +1022,7 @@ export default function ProfileCenter() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => { loadProfileFromServer(); loadActivityLogs(); setActionTracking(getActionTracking()); }}
+            onClick={() => { loadProfileFromServer(); loadActivityLogs(); loadServerTelemetry(); setActionTracking(getActionTracking()); }}
             disabled={activityLoading}
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${activityLoading ? "animate-spin" : ""}`} />
@@ -803,7 +1037,7 @@ export default function ProfileCenter() {
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" onClick={() => {
                 setIsEditing(false);
-                setEditName(user.displayName || user.name);
+                setEditName(safeDisplayName);
                 setEditPhone(user.phone || "");
                 setEditDesignation(user.designation || "");
                 setEditProfileImage(user.profileImage || null);
@@ -817,6 +1051,13 @@ export default function ProfileCenter() {
               </Button>
             </div>
           )}
+          {/* Save Success Animation */}
+          {saveSuccess && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 animate-in fade-in slide-in-from-right">
+              <CheckCircle className="w-4 h-4" />
+              <span className="text-sm font-medium">Saved!</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -828,6 +1069,7 @@ export default function ProfileCenter() {
             Action Tracking
           </TabsTrigger>
           <TabsTrigger value="activity">
+            <Activity className="w-3.5 h-3.5 mr-1" />
             Activity Ledger
             {activityTotal > 0 && (
               <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0">
@@ -835,16 +1077,14 @@ export default function ProfileCenter() {
               </Badge>
             )}
           </TabsTrigger>
-          {user.role === "admin" && (
-            <TabsTrigger value="admin-reset">
-              <KeyRound className="w-3.5 h-3.5 mr-1" />
-              Password Reset
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="admin-reset">
+            <KeyRound className="w-3.5 h-3.5 mr-1" />
+            Password Security
+          </TabsTrigger>
         </TabsList>
 
         {/* ════════════════════════════════════════════════════
-            TAB A: USER PROFILE CARD (EDITABLE)
+            TAB A: USER PROFILE CARD (EDITABLE) + COMPANY LOGO
             ════════════════════════════════════════════════════ */}
         <TabsContent value="profile" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -885,7 +1125,7 @@ export default function ProfileCenter() {
                     ) : user.profileImage ? (
                       <img
                         src={user.profileImage}
-                        alt={user.displayName || user.name}
+                        alt={safeDisplayName}
                         className="w-24 h-24 rounded-full object-cover border-4 border-white/20 shadow-lg"
                       />
                     ) : (
@@ -901,7 +1141,7 @@ export default function ProfileCenter() {
                     <span className="absolute bottom-1 right-1 w-5 h-5 bg-green-500 border-2 border-white dark:border-[#132240] rounded-full" />
                   </div>
 
-                  {/* Name (editable or display) */}
+                  {/* Name (editable or display) — NEVER show raw email */}
                   {isEditing ? (
                     <div className="w-full space-y-2">
                       <Input
@@ -914,7 +1154,7 @@ export default function ProfileCenter() {
                   ) : (
                     <div>
                       <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                        {user.displayName || user.name}
+                        {safeDisplayName}
                       </h3>
                       <p className="text-sm text-muted-foreground mt-1">
                         {getDesignation()}
@@ -995,53 +1235,157 @@ export default function ProfileCenter() {
                       Remove Photo
                     </Button>
                   )}
+
+                  {/* Last Updated Timestamp */}
+                  {lastUpdated && (
+                    <div className="w-full pt-2 border-t border-border/50">
+                      <p className="text-[11px] text-muted-foreground/60 text-center flex items-center justify-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        Last updated: {formatTimestamp(lastUpdated)}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Company & Tenant Info */}
+            {/* Company & Tenant Info + Company Logo Upload */}
             <Card className="lg:col-span-2 border-0 shadow-md">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-[#2563eb]" />
-                  Tenant Company Information
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-[#2563eb]" />
+                    Tenant Company Information
+                  </CardTitle>
+                  {/* Company Logo Upload */}
+                  <div className="flex items-center gap-2">
+                    {editCompanyLogo ? (
+                      <div className="relative group">
+                        <img
+                          src={editCompanyLogo}
+                          alt="Company Logo"
+                          className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
+                        />
+                        <div
+                          className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                          onClick={() => companyLogoInputRef.current?.click()}
+                        >
+                          <Camera className="w-4 h-4 text-white" />
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => companyLogoInputRef.current?.click()}
+                        disabled={companyLogoUploading}
+                      >
+                        {companyLogoUploading ? (
+                          <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <ImageIcon className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        Upload Logo
+                      </Button>
+                    )}
+                    <input
+                      ref={companyLogoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleCompanyLogoUpload}
+                    />
+                  </div>
+                </div>
                 <CardDescription>
                   Company details associated with your account
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {companyInfo ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Company Name</Label>
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">
-                        {companyInfo.name || "—"}
-                      </p>
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Company Name</Label>
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {companyInfo.name || "—"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Company Email</Label>
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {companyInfo.email || "—"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Phone className="w-3 h-3" /> Phone
+                        </Label>
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {companyInfo.phone || "—"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                          <MapPin className="w-3 h-3" /> Address
+                        </Label>
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {companyInfo.address || "—"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Company Email</Label>
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">
-                        {companyInfo.email || "—"}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Phone className="w-3 h-3" /> Phone
-                      </Label>
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">
-                        {companyInfo.phone || "—"}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Address
-                      </Label>
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">
-                        {companyInfo.address || "—"}
-                      </p>
-                    </div>
-                  </div>
+                    {/* Company Logo Thumbnail */}
+                    {editCompanyLogo && (
+                      <div className="pt-3 border-t border-border/50">
+                        <Label className="text-xs text-muted-foreground mb-2 block">Company Logo</Label>
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={editCompanyLogo}
+                            alt="Company Logo"
+                            className="w-20 h-20 rounded-lg object-contain border border-border/50 bg-white p-1 shadow-sm"
+                          />
+                          <div className="space-y-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => companyLogoInputRef.current?.click()}
+                              disabled={companyLogoUploading}
+                            >
+                              <Upload className="w-3 h-3 mr-1" />
+                              Replace
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              onClick={async () => {
+                                setEditCompanyLogo(null);
+                                if (companyInfo) {
+                                  try {
+                                    const headers = getAuthHeaders();
+                                    await fetch(`/api/companies/${companyInfo.id}`, {
+                                      method: "PUT",
+                                      headers,
+                                      body: JSON.stringify({ logo: null }),
+                                    });
+                                    setCompanyInfo(prev => prev ? { ...prev, logo: null } : prev);
+                                    toast({ title: "Logo Removed", description: "Company logo has been removed." });
+                                  } catch {
+                                    toast({ title: "Error", description: "Failed to remove logo", variant: "destructive" });
+                                  }
+                                }
+                              }}
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-8">
                     <Building2 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
@@ -1182,10 +1526,10 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB B: USER ACTION TRACKING MATRIX
+            TAB B: ENHANCED ACTION TRACKING
             ════════════════════════════════════════════════════ */}
         <TabsContent value="tracking" className="space-y-4">
-          {/* Summary Cards */}
+          {/* Server-side Visual Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="border-0 shadow-md bg-gradient-to-br from-red-50 to-white dark:from-red-900/10 dark:to-[#132240]">
               <CardContent className="p-4 flex items-center gap-4">
@@ -1193,8 +1537,9 @@ export default function ProfileCenter() {
                   <FileDown className="w-6 h-6 text-red-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{actionTracking.pdfExportCount}</p>
-                  <p className="text-xs text-muted-foreground">PDF Exports</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverSummary.pdfCount}</p>
+                  <p className="text-xs text-muted-foreground">Total PDF Exports</p>
+                  <p className="text-[10px] text-muted-foreground/60">Server-side</p>
                 </div>
               </CardContent>
             </Card>
@@ -1204,8 +1549,9 @@ export default function ProfileCenter() {
                   <FileDown className="w-6 h-6 text-green-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{actionTracking.csvExportCount}</p>
-                  <p className="text-xs text-muted-foreground">CSV Exports</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverSummary.csvExportCount}</p>
+                  <p className="text-xs text-muted-foreground">Total CSV Exports</p>
+                  <p className="text-[10px] text-muted-foreground/60">Server-side</p>
                 </div>
               </CardContent>
             </Card>
@@ -1215,30 +1561,86 @@ export default function ProfileCenter() {
                   <FileUp className="w-6 h-6 text-blue-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{actionTracking.csvImportCount}</p>
-                  <p className="text-xs text-muted-foreground">CSV Imports</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverSummary.csvImportCount}</p>
+                  <p className="text-xs text-muted-foreground">Total CSV Imports</p>
+                  <p className="text-[10px] text-muted-foreground/60">Server-side</p>
                 </div>
               </CardContent>
             </Card>
-            <Card className="border-0 shadow-md bg-gradient-to-br from-purple-50 to-white dark:from-purple-900/10 dark:to-[#132240]">
+            <Card className="border-0 shadow-md bg-gradient-to-br from-amber-50 to-white dark:from-amber-900/10 dark:to-[#132240]">
               <CardContent className="p-4 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                  <TrendingUp className="w-6 h-6 text-purple-500" />
+                <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <TrendingUp className="w-6 h-6 text-amber-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{actionTracking.totalActions}</p>
-                  <p className="text-xs text-muted-foreground">Total Actions</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate max-w-[100px]">{serverSummary.mostActiveModule}</p>
+                  <p className="text-xs text-muted-foreground">Most Active Module</p>
+                  <p className="text-[10px] text-muted-foreground/60">{serverSummary.mostActiveModuleCount} actions</p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Action Distribution Bar */}
+          {/* Module Distribution Bar Chart (Recharts) */}
           <Card className="border-0 shadow-md">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-[#2563eb]" />
-                Action Distribution
+                Action Distribution by Module
+                {serverTelemetryLoading && <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />}
+              </CardTitle>
+              <CardDescription>
+                Server-side telemetry — auto-refreshes every 15 seconds
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {serverSummary.chartData.length > 0 ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={serverSummary.chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 11 }}
+                        angle={-30}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <RechartsTooltip
+                        contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                        formatter={(value: number, _name: string, props: { payload?: { fullName?: string } }) => [
+                          `${value} actions`,
+                          props.payload?.fullName || _name,
+                        ]}
+                      />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        {serverSummary.chartData.map((_entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                  <p className="text-sm text-muted-foreground">No server-side telemetry data yet</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    Your export/import activities across modules will appear here
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Client-side Action Distribution */}
+          <Card className="border-0 shadow-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Clock className="w-5 h-5 text-[#2563eb]" />
+                Client-Side Action Distribution
+                <Badge variant="outline" className="text-[10px] ml-2">localStorage</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1276,23 +1678,20 @@ export default function ProfileCenter() {
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8">
+                <div className="text-center py-6">
                   <BarChart3 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">No actions tracked yet</p>
-                  <p className="text-xs text-muted-foreground/60 mt-1">
-                    Your PDF exports, CSV exports, and CSV imports will be tracked here
-                  </p>
+                  <p className="text-sm text-muted-foreground">No client-side actions tracked yet</p>
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Recent Actions */}
+          {/* Recent Actions (Client-side) */}
           <Card className="border-0 shadow-md">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Clock className="w-5 h-5 text-[#2563eb]" />
-                Recent Actions
+                Recent Client Actions
               </CardTitle>
               <CardDescription>
                 Last {Math.min(actionTracking.recentActions.length, 20)} actions from this browser session
@@ -1335,28 +1734,80 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB C: USER PERFORMANCE & ACTION LEDGER
+            TAB C: ENHANCED ACTIVITY LEDGER
             ════════════════════════════════════════════════════ */}
         <TabsContent value="activity" className="space-y-4">
-          {/* Filter Bar */}
+          {/* Live Indicator + Filter Bar */}
           <Card className="border-0 shadow-md">
             <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                <Label className="text-sm font-medium shrink-0">Filter by Action:</Label>
-                <Select value={activityFilter} onValueChange={(val) => { setActivityFilter(val); setActivityPage(1); }}>
-                  <SelectTrigger className="w-full sm:w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACTION_TYPE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="text-sm text-muted-foreground ml-auto">
-                  {activityTotal} total record{activityTotal !== 1 ? "s" : ""}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
+                {/* Live Badge */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800 text-xs px-2.5 py-0.5 border">
+                    <Zap className="w-3 h-3 mr-1" />
+                    Live
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">Auto-refreshes</span>
+                </div>
+
+                <div className="flex-1" />
+
+                {/* Action Type Filter */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-medium shrink-0">Action:</Label>
+                  <Select value={activityFilter} onValueChange={(val) => { setActivityFilter(val); setActivityPage(1); }}>
+                    <SelectTrigger className="w-36 h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACTION_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Module Filter */}
+                {availableModules.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs font-medium shrink-0">Module:</Label>
+                    <Select value={activityModuleFilter} onValueChange={(val) => { setActivityModuleFilter(val); setActivityPage(1); }}>
+                      <SelectTrigger className="w-40 h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Modules</SelectItem>
+                        {availableModules.map((mod) => (
+                          <SelectItem key={mod} value={mod}>
+                            {mod}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Date Range Filter */}
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-medium shrink-0">Range:</Label>
+                  <Select value={activityDateRange} onValueChange={(val) => { setActivityDateRange(val); setActivityPage(1); }}>
+                    <SelectTrigger className="w-32 h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DATE_RANGE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="text-xs text-muted-foreground">
+                  {activityTotal} record{activityTotal !== 1 ? "s" : ""}
                 </div>
               </div>
             </CardContent>
@@ -1389,43 +1840,97 @@ export default function ProfileCenter() {
                         <TableHead>Filename</TableHead>
                         <TableHead>Record</TableHead>
                         <TableHead>Timestamp</TableHead>
+                        <TableHead className="w-[40px]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {activityLogs.map((log, idx) => (
-                        <TableRow key={log.id} className="hover:bg-muted/50">
-                          <TableCell className="text-xs text-muted-foreground">
-                            {(activityPage - 1) * activityPageSize + idx + 1}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {getActionIcon(log.actionLabel)}
-                              <Badge
-                                className={`${getActionBadgeColor(log.actionLabel)} text-[11px] px-2 py-0.5 border-0`}
-                              >
-                                {log.actionLabel}
-                              </Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm font-medium">{log.module}</span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground">
-                              {log.filename || "—"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground">
-                              {log.recordLabel || "—"}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-sm text-muted-foreground whitespace-nowrap">
-                              {formatTimestamp(log.createdAt)}
-                            </span>
-                          </TableCell>
-                        </TableRow>
+                        <React.Fragment key={log.id}>
+                          <TableRow className="hover:bg-muted/50 cursor-pointer" onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {(activityPage - 1) * activityPageSize + idx + 1}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                {getActionIcon(log.actionLabel)}
+                                <Badge
+                                  className={`${getActionBadgeColor(log.actionLabel)} text-[11px] px-2 py-0.5 border-0`}
+                                >
+                                  {log.actionLabel}
+                                </Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-sm font-medium">{log.module?.replace(/^Telemetry-/, "") || log.module}</span>
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-sm text-muted-foreground max-w-[150px] truncate block">
+                                {log.filename || "—"}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-sm text-muted-foreground">
+                                {log.recordLabel || "—"}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                                {formatTimestamp(log.createdAt)}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              {expandedLogId === log.id ? (
+                                <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                              )}
+                            </TableCell>
+                          </TableRow>
+                          {/* Expanded Details Row */}
+                          {expandedLogId === log.id && (
+                            <TableRow className="bg-muted/20">
+                              <TableCell colSpan={7} className="p-4">
+                                <div className="space-y-2">
+                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Full Details</p>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">Action</Label>
+                                      <p className="text-xs font-medium">{log.action}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">Module</Label>
+                                      <p className="text-xs font-medium">{log.module}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">Record ID</Label>
+                                      <p className="text-xs font-medium font-mono">{log.recordId || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">Record Label</Label>
+                                      <p className="text-xs font-medium">{log.recordLabel || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">Filename</Label>
+                                      <p className="text-xs font-medium">{log.filename || "—"}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">User</Label>
+                                      <p className="text-xs font-medium">{log.userName || "—"}</p>
+                                    </div>
+                                  </div>
+                                  {log.details && Object.keys(log.details).length > 0 && (
+                                    <div className="mt-3">
+                                      <Label className="text-[10px] text-muted-foreground">JSON Details</Label>
+                                      <pre className="text-[10px] bg-muted/50 p-3 rounded-lg mt-1 overflow-x-auto max-h-40 overflow-y-auto">
+                                        {JSON.stringify(log.details, null, 2)}
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
                       ))}
                     </TableBody>
                   </Table>
@@ -1463,187 +1968,274 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB D: ADMIN-ONLY PASSWORD RESET SECTION
+            TAB D: ENHANCED ADMIN PASSWORD SECURITY
             ════════════════════════════════════════════════════ */}
-        {user.role === "admin" && (
-          <TabsContent value="admin-reset" className="space-y-4">
-            <Card className="border-0 shadow-md border-l-4 border-l-[#2563eb]">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <KeyRound className="w-5 h-5 text-[#2563eb]" />
-                  Admin Password Reset
-                </CardTitle>
-                <CardDescription>
-                  Reset passwords for any user in the system. This action is audited. Non-admin roles receive 403 Forbidden.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {allUsers.length === 0 ? (
-                  <div className="text-center py-8">
-                    <RefreshCw className="w-8 h-8 mx-auto text-muted-foreground/30 animate-spin mb-3" />
-                    <p className="text-sm text-muted-foreground">Loading users...</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[40px]">#</TableHead>
-                          <TableHead>User Name</TableHead>
-                          <TableHead>Email / Login ID</TableHead>
-                          <TableHead>Role</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {allUsers.map((u, idx) => (
-                          <TableRow key={u.id} className="hover:bg-muted/50">
-                            <TableCell className="text-xs text-muted-foreground">
-                              {idx + 1}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className={`w-7 h-7 rounded-full ${
-                                    ROLE_COLORS[u.role as UserRole] || "bg-gray-500"
-                                  } flex items-center justify-center text-white text-[10px] font-bold shrink-0`}
-                                >
-                                  {u.name?.charAt(0).toUpperCase() || "U"}
-                                </div>
-                                <span className="text-sm font-medium">{u.name}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-sm text-muted-foreground">{u.email}</span>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                className={`${
-                                  ROLE_BADGE_COLORS[u.role as UserRole] || ""
-                                } text-[11px] px-2 py-0.5 border`}
-                              >
-                                {ROLE_LABELS[u.role as UserRole] || u.role}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setResetTargetUser(u);
-                                  setResetNewPassword("");
-                                  setResetConfirmPassword("");
-                                  setResetDialogOpen(true);
-                                }}
-                              >
-                                <KeyRound className="w-3.5 h-3.5 mr-1" />
-                                Reset Password
-                              </Button>
-                            </TableCell>
+        <TabsContent value="admin-reset" className="space-y-4">
+          {/* Security Warning Banner */}
+          <Card className="border-0 shadow-md bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 border-l-4 border-l-amber-500">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    ⚠️ Password management is restricted to ADMIN role only
+                  </h4>
+                  <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-1">
+                    All password change attempts are audited and logged. Unauthorized access attempts will be reported to the security audit trail.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {user.role === "admin" ? (
+            <>
+              {/* Admin: All Users List with Reset Password */}
+              <Card className="border-0 shadow-md border-l-4 border-l-[#2563eb]">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-[#2563eb]" />
+                    All Users — Password Management
+                  </CardTitle>
+                  <CardDescription>
+                    Reset passwords for any user in the system. This action is audited.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {allUsers.length === 0 ? (
+                    <div className="text-center py-8">
+                      <RefreshCw className="w-8 h-8 mx-auto text-muted-foreground/30 animate-spin mb-3" />
+                      <p className="text-sm text-muted-foreground">Loading users...</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[40px]">#</TableHead>
+                            <TableHead>User Name</TableHead>
+                            <TableHead>Email / Login ID</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                        </TableHeader>
+                        <TableBody>
+                          {allUsers.map((u, idx) => (
+                            <TableRow key={u.id} className="hover:bg-muted/50">
+                              <TableCell className="text-xs text-muted-foreground">
+                                {idx + 1}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className={`w-7 h-7 rounded-full ${
+                                      ROLE_COLORS[u.role as UserRole] || "bg-gray-500"
+                                    } flex items-center justify-center text-white text-[10px] font-bold shrink-0`}
+                                  >
+                                    {getSafeDisplayName(u.name).charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="text-sm font-medium">{getSafeDisplayName(u.name)}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-sm text-muted-foreground">{u.email}</span>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  className={`${
+                                    ROLE_BADGE_COLORS[u.role as UserRole] || ""
+                                  } text-[11px] px-2 py-0.5 border`}
+                                >
+                                  {ROLE_LABELS[u.role as UserRole] || u.role}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setResetTargetUser(u);
+                                    setResetNewPassword("");
+                                    setResetConfirmPassword("");
+                                    setResetDialogOpen(true);
+                                  }}
+                                >
+                                  <KeyRound className="w-3.5 h-3.5 mr-1" />
+                                  Reset Password
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Recent Password Activity */}
+              <Card className="border-0 shadow-md">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <History className="w-5 h-5 text-[#2563eb]" />
+                    Recent Password Activity
+                  </CardTitle>
+                  <CardDescription>
+                    Last 5 password-related audit log entries
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {passwordActivity.length === 0 ? (
+                    <div className="text-center py-6">
+                      <History className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
+                      <p className="text-sm text-muted-foreground">No password activity found</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {passwordActivity.map((log) => (
+                        <div
+                          key={log.id}
+                          className="flex items-center gap-3 p-3 rounded-lg bg-muted/30"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                            <KeyRound className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{log.recordLabel || log.actionLabel}</p>
+                            <p className="text-xs text-muted-foreground">{log.module} — {log.userName || "System"}</p>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap shrink-0">
+                            {formatTimestamp(log.createdAt)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            /* Non-admin: Access Denied Card */
+            <Card className="border-0 shadow-md">
+              <CardContent className="p-8">
+                <div className="max-w-md mx-auto text-center">
+                  <div className="w-20 h-20 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
+                    <ShieldAlert className="w-10 h-10 text-red-500" />
                   </div>
-                )}
+                  <h3 className="text-xl font-bold text-red-600 dark:text-red-400">403 — Access Denied</h3>
+                  <p className="text-sm text-muted-foreground mt-3">
+                    Your role ({ROLE_LABELS[user.role]}) does not have permission to manage passwords.
+                  </p>
+                  <p className="text-xs text-muted-foreground/60 mt-2">
+                    Only users with the ADMIN role can reset passwords and view password activity. 
+                    All access attempts are logged.
+                  </p>
+                  <div className="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800">
+                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
+                      ERROR: PRIVILEGE_ESCALATION_BLOCKED
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
+          )}
 
-            {/* Password Reset Dialog */}
-            <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <KeyRound className="w-5 h-5 text-[#2563eb]" />
-                    Reset Password
-                  </DialogTitle>
-                  <DialogDescription>
-                    Set a new password for {resetTargetUser?.email || "user"}
-                  </DialogDescription>
-                </DialogHeader>
+          {/* Password Reset Dialog */}
+          <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-[#2563eb]" />
+                  Reset Password
+                </DialogTitle>
+                <DialogDescription>
+                  Set a new password for {resetTargetUser?.email || "user"}
+                </DialogDescription>
+              </DialogHeader>
 
-                <div className="space-y-4 py-2">
-                  <div className="p-3 rounded-lg bg-muted/50 border">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-8 h-8 rounded-full ${
-                          resetTargetUser?.role
-                            ? ROLE_COLORS[resetTargetUser.role as UserRole]
-                            : "bg-gray-500"
-                        } flex items-center justify-center text-white text-xs font-bold`}
-                      >
-                        {resetTargetUser?.name?.charAt(0).toUpperCase() || "U"}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{resetTargetUser?.name}</p>
-                        <p className="text-xs text-muted-foreground">{resetTargetUser?.email}</p>
-                      </div>
-                      <Badge
-                        className={`ml-auto ${
-                          ROLE_BADGE_COLORS[resetTargetUser?.role as UserRole] || ""
-                        } text-[10px] px-1.5 py-0 border`}
-                      >
-                        {resetTargetUser?.role ? ROLE_LABELS[resetTargetUser.role as UserRole] : ""}
-                      </Badge>
+              <div className="space-y-4 py-2">
+                <div className="p-3 rounded-lg bg-muted/50 border">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-8 h-8 rounded-full ${
+                        resetTargetUser?.role
+                          ? ROLE_COLORS[resetTargetUser.role as UserRole]
+                          : "bg-gray-500"
+                      } flex items-center justify-center text-white text-xs font-bold`}
+                    >
+                      {getSafeDisplayName(resetTargetUser?.name).charAt(0).toUpperCase()}
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-new-password">New Password</Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="reset-new-password"
-                        type="password"
-                        placeholder="Minimum 6 characters"
-                        value={resetNewPassword}
-                        onChange={(e) => setResetNewPassword(e.target.value)}
-                        className="pl-10"
-                      />
+                    <div>
+                      <p className="text-sm font-medium">{getSafeDisplayName(resetTargetUser?.name)}</p>
+                      <p className="text-xs text-muted-foreground">{resetTargetUser?.email}</p>
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-confirm-password">Confirm Password</Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="reset-confirm-password"
-                        type="password"
-                        placeholder="Confirm new password"
-                        value={resetConfirmPassword}
-                        onChange={(e) => setResetConfirmPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
+                    <Badge
+                      className={`ml-auto ${
+                        ROLE_BADGE_COLORS[resetTargetUser?.role as UserRole] || ""
+                      } text-[10px] px-1.5 py-0 border`}
+                    >
+                      {resetTargetUser?.role ? ROLE_LABELS[resetTargetUser.role as UserRole] : ""}
+                    </Badge>
                   </div>
                 </div>
 
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setResetDialogOpen(false)}
-                    disabled={resetSaving}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    className="bg-[#2563eb] hover:bg-[#1d4ed8]"
-                    onClick={handlePasswordReset}
-                    disabled={resetSaving || !resetNewPassword || !resetConfirmPassword}
-                  >
-                    {resetSaving ? (
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                    )}
-                    Reset Password
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </TabsContent>
-        )}
+                <div className="space-y-2">
+                  <Label htmlFor="reset-new-password">New Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="reset-new-password"
+                      type="password"
+                      placeholder="Minimum 6 characters"
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reset-confirm-password">Confirm Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="reset-confirm-password"
+                      type="password"
+                      placeholder="Confirm new password"
+                      value={resetConfirmPassword}
+                      onChange={(e) => setResetConfirmPassword(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setResetDialogOpen(false)}
+                  disabled={resetSaving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+                  onClick={handlePasswordReset}
+                  disabled={resetSaving || !resetNewPassword || !resetConfirmPassword}
+                >
+                  {resetSaving ? (
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                  )}
+                  Reset Password
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
       </Tabs>
     </div>
   );

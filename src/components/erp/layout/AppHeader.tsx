@@ -69,8 +69,9 @@ function getCleanDisplayName(user: { name: string; displayName: string } | null)
   // But never fall back to raw username patterns like "emart.amit"
   const name = user.displayName || user.name;
   if (!name) return "User";
-  // Safety net: if the name looks like a raw username (contains emart.), mask it
-  if (name.startsWith("emart.")) return "User";
+  // Safety net: comprehensive raw username pattern detection
+  // Matches patterns like: emart.*, admin.*, user.*, sys.*, test.*
+  if (/^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(name)) return "User";
   return name;
 }
 

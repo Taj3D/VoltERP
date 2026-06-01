@@ -10,6 +10,78 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import Papa from "papaparse";
 
+// ============================================================
+// TELEMETRY — Server-side Export/Import Action Logging
+// Every PDF export, CSV export, and CSV import across ALL
+// modules triggers a non-blocking telemetry POST to /api/auth/telemetry
+// which appends metadata, timestamp, and target module to the
+// user's live profile activity logs in the AuditLog table.
+// ============================================================
+
+/**
+ * Log an export/import action to the server-side telemetry API.
+ * This is non-blocking — failures are silently caught to never
+ * disrupt the main export/import flow.
+ */
+function logExportTelemetry(
+  actionType: "PDF_EXPORT" | "CSV_EXPORT" | "CSV_IMPORT",
+  module: string,
+  filename: string,
+  recordCount?: number
+): void {
+  // Fire-and-forget telemetry logging
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    // Attach authenticated user email for RBAC
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("ems_auth");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.user?.email) {
+            headers["X-User-Email"] = parsed.user.email;
+          }
+        }
+      } catch {}
+    }
+
+    fetch("/api/auth/telemetry", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        actionType,
+        module,
+        filename,
+        recordCount: recordCount || null,
+      }),
+    }).catch(() => {
+      // Non-blocking: telemetry failure must never break the export/import
+    });
+  } catch {
+    // Non-blocking: telemetry failure must never break the export/import
+  }
+}
+
+/**
+ * Get the authenticated user's display name for PDF footers.
+ * Returns clean display name, never raw username patterns.
+ */
+function getTelemetryUserName(): string {
+  if (typeof window === "undefined") return "System";
+  try {
+    const stored = localStorage.getItem("ems_auth");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const name = parsed?.user?.displayName || parsed?.user?.name || "System";
+      // Safety net: never leak raw username patterns like "emart.amit"
+      if (typeof name === "string" && name.startsWith("emart.")) return "System";
+      return name;
+    }
+  } catch {}
+  return "System";
+}
+
 // NOTE: We use the standalone autoTable(doc, options) function instead of the
 // applyPlugin(jsPDF) + doc.autoTable() pattern. The applyPlugin approach patches
 // jsPDF.API but breaks in Next.js webpack/turbopack because the bundled jsPDF
@@ -698,6 +770,9 @@ export function exportToPDF(options: PDFOptions): void {
       filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
+
+    // ── Telemetry: Log PDF export to server-side activity trail ──
+    logExportTelemetry("PDF_EXPORT", title, `${safeFilename}.pdf`, data.length);
   } catch (error: any) {
     console.error("Export PDF Error:", error);
     throw new Error(`PDF export failed: ${error.message || "Unknown error"}`);
@@ -769,6 +844,9 @@ export function exportToPDFSimple(
     const rawFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
+
+    // ── Telemetry: Log PDF export to server-side activity trail ──
+    logExportTelemetry("PDF_EXPORT", title, `${safeFilename}.pdf`, rows.length);
   } catch (error: any) {
     console.error("Export PDF Simple Error:", error);
     throw new Error(`PDF export failed: ${error.message || "Unknown error"}`);
@@ -834,6 +912,9 @@ export function exportToCSV(options: CSVOptions): void {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // ── Telemetry: Log CSV export to server-side activity trail ──
+    logExportTelemetry("CSV_EXPORT", title, `${safeCsvFilename}.csv`, data.length);
   } catch (error: any) {
     console.error("Export CSV Error:", error);
     throw new Error(`CSV export failed: ${error.message || "Unknown error"}`);
@@ -870,6 +951,9 @@ export function exportToCSVSimple(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // ── Telemetry: Log CSV export to server-side activity trail ──
+    logExportTelemetry("CSV_EXPORT", title, `${safeSimpleFilename}.csv`, rows.length);
   } catch (error: any) {
     console.error("Export CSV Simple Error:", error);
     throw new Error(`CSV export failed: ${error.message || "Unknown error"}`);
@@ -1151,6 +1235,9 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
             }
           }
         }
+
+        // ── Telemetry: Log CSV import to server-side activity trail ──
+        logExportTelemetry("CSV_IMPORT", apiPath.split("/").pop() || "Unknown", `import-${Date.now()}.csv`, imported);
 
         resolve({ imported, failed, errors, fieldErrors });
       } catch (error: any) {
@@ -1844,6 +1931,9 @@ export function exportInvoicePDF(options: InvoicePDFOptions): void {
       filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
+
+    // ── Telemetry: Log Invoice PDF export to server-side activity trail ──
+    logExportTelemetry("PDF_EXPORT", title, `${safeFilename}.pdf`, data.length);
   } catch (error: any) {
     console.error("Export Invoice PDF Error:", error);
     throw new Error(`Invoice PDF export failed: ${error.message || "Unknown error"}`);
