@@ -45,6 +45,7 @@ interface AppHeaderProps {
     email: string;
     role: UserRole;
     displayName: string;
+    profileImage?: string | null;
   } | null;
   isVatAuditor: boolean;
   currentGroupLabel: string;
@@ -64,10 +65,13 @@ interface AppHeaderProps {
 // Helper to get clean display name (never raw username)
 function getCleanDisplayName(user: { name: string; displayName: string } | null): string {
   if (!user) return "User";
-  // If displayName is a proper name (not the raw username), use it
-  if (user.displayName && user.displayName !== user.name) return user.displayName;
-  // Otherwise use displayName as-is (it may have been set to proper name)
-  return user.displayName || user.name || "User";
+  // Always prefer displayName — since we now store clean names, both should be clean
+  // But never fall back to raw username patterns like "emart.amit"
+  const name = user.displayName || user.name;
+  if (!name) return "User";
+  // Safety net: if the name looks like a raw username (contains emart.), mask it
+  if (name.startsWith("emart.")) return "User";
+  return name;
 }
 
 // Helper to get avatar initial from display name (not raw username)
@@ -644,13 +648,21 @@ export default function AppHeader({
               className="flex items-center gap-2"
               onClick={() => setUserMenuOpen(!userMenuOpen)}
             >
-              <div
-                className={`w-7 h-7 rounded-full ${
-                  user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
-                } flex items-center justify-center text-white text-xs font-bold`}
-              >
-                {getAvatarInitial(user)}
-              </div>
+              {user?.profileImage ? (
+                <img
+                  src={user.profileImage}
+                  alt={getCleanDisplayName(user)}
+                  className="w-7 h-7 rounded-full object-cover border-2 border-white/20"
+                />
+              ) : (
+                <div
+                  className={`w-7 h-7 rounded-full ${
+                    user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
+                  } flex items-center justify-center text-white text-xs font-bold`}
+                >
+                  {getAvatarInitial(user)}
+                </div>
+              )}
               <span className="hidden md:inline text-sm">
                 {getCleanDisplayName(user)}
               </span>

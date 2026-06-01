@@ -76,10 +76,13 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptio
 type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
 interface AuthUser {
-  name: string;
-  email: string;
+  name: string;       // Clean display name (never raw username like "emart.amit")
+  email: string;      // Login email / username for API RBAC
   role: UserRole;
-  displayName: string;
+  displayName: string; // Same as name — always the clean display name
+  profileImage?: string | null;  // Base64 avatar image
+  phone?: string | null;         // Contact number
+  designation?: string | null;   // Job title
 }
 
 interface ColumnDef {
@@ -207,14 +210,19 @@ function useAuth() {
       if (!res.ok) return false;
       const serverUser = await res.json();
       // Map server response to client-side auth state
+      // CRITICAL: 'name' field stores the CLEAN DISPLAY NAME from DB, NEVER the raw username
       const cred = ROLE_CREDENTIALS[username];
+      const cleanDisplayName = serverUser.name || cred?.displayName || username;
       authState = {
         isAuthenticated: true,
         user: {
-          name: username,
+          name: cleanDisplayName,  // Always the clean display name (e.g., "Amit Sharma"), never "emart.amit"
           email: serverUser.email || username, // Use DB email for server-side RBAC lookup
           role: (serverUser.role as UserRole) || cred?.role || "admin",
-          displayName: cred?.displayName || serverUser.name || username,
+          displayName: cleanDisplayName,
+          profileImage: serverUser.profileImage || null,
+          phone: serverUser.phone || null,
+          designation: serverUser.designation || null,
         },
       };
       localStorage.setItem("ems_auth", JSON.stringify(authState));
@@ -224,9 +232,10 @@ function useAuth() {
       // Fallback: client-side validation if server unreachable
       const cred = ROLE_CREDENTIALS[username];
       if (cred && cred.password === password) {
+        // CRITICAL: Use displayName from credentials mapping, never raw username
         authState = {
           isAuthenticated: true,
-          user: { name: username, email: username, role: cred.role, displayName: cred.displayName },
+          user: { name: cred.displayName, email: username, role: cred.role, displayName: cred.displayName, profileImage: null, phone: null, designation: null },
         };
         localStorage.setItem("ems_auth", JSON.stringify(authState));
         authListeners.forEach(l => l());
@@ -1760,7 +1769,7 @@ function ChangePasswordPage() {
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
-  // Admin-only guard: non-admins see 403 Forbidden card
+  // Admin-only guard: non-admins see 403 Forbidden — Privilege Escalation Blocked
   if (userRole !== "admin") {
     return (
       <div className="page-enter space-y-4">
@@ -1768,13 +1777,14 @@ function ChangePasswordPage() {
         <Card className="max-w-lg border-red-300 dark:border-red-800">
           <CardContent className="p-6 text-center space-y-4">
             <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <Lock className="w-8 h-8 text-red-500" />
+              <ShieldAlert className="w-8 h-8 text-red-500" />
             </div>
-            <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">Access Denied</h3>
+            <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">403 Forbidden: Privilege Escalation Blocked</h3>
             <p className="text-sm text-muted-foreground">
-              Only administrators can change passwords. Your role ({userRole}) does not have this permission.
+              Only users with the <strong>ADMIN</strong> role can change passwords. Your role ({userRole}) does not have this permission.
             </p>
             <p className="text-xs text-muted-foreground/60">
+              Any attempt to bypass this interlock via API will be logged and reported to the security audit trail.
               Please contact your system administrator if you need your password reset.
             </p>
           </CardContent>
@@ -1798,14 +1808,18 @@ function ChangePasswordPage() {
     }
     setSaving(true);
     try {
-      // Call the reset-password API for the current admin user
-      const res = await fetch("/api/auth/reset-password", {
+      // Use the dedicated change-password API with RBAC interlock
+      const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-User-Email": auth.user?.email || "" },
-        body: JSON.stringify({ targetUserId: "self", newPassword, adminUserId: auth.user?.email || "" }),
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: "Failed to change password" }));
+        // Handle 403 Privilege Escalation Blocked
+        if (res.status === 403 && errData.errorCode === "PRIVILEGE_ESCALATION_BLOCKED") {
+          throw new Error("403 Forbidden: Privilege Escalation Blocked — Your role is not authorized to change passwords.");
+        }
         throw new Error(errData.error || "Failed to change password");
       }
       toast({ title: "Success", description: "Password changed successfully" });
@@ -1824,6 +1838,13 @@ function ChangePasswordPage() {
       <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Change Password</h2>
       <Card className="max-w-lg">
         <CardContent className="p-6 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="currentPassword">Current Password</Label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input id="currentPassword" type="password" placeholder="Enter current password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="pl-10" />
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="newPassword">New Password</Label>
             <div className="relative">
@@ -2339,7 +2360,11 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
       {!collapsed && (
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
-            <UserCircle className="w-4 h-4" />
+            {user?.profileImage ? (
+              <img src={user.profileImage} alt={user.displayName || "User"} className="w-5 h-5 rounded-full object-cover" />
+            ) : (
+              <UserCircle className="w-4 h-4" />
+            )}
             <span className="truncate">{user?.displayName || "User"}</span>
           </div>
           {isVatAuditor && (

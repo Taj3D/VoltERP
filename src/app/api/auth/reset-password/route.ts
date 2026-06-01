@@ -13,14 +13,40 @@ import { db } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
-    // Enforce authentication and RBAC via withApiSecurity
-    const security = await withApiSecurity(request, "Auth", "POST");
+    // Use "AuditLogs" module (not "Auth" which is exempt and returns system user)
+    const security = await withApiSecurity(request, "AuditLogs", "POST");
     if (!security.authorized) return security.response;
 
-    // Only admin role can reset passwords
+    // Resolve the actual admin user from DB
+    const adminUser = await db.user.findUnique({ where: { email: security.user.email } });
+    if (!adminUser) {
+      return NextResponse.json({ error: "Admin user not found." }, { status: 404 });
+    }
+
+    // Only admin role can reset passwords — strict RBAC interlock
     if (security.user.role !== "admin") {
+      // Audit the blocked privilege escalation attempt
+      await logUserActivity({
+        action: "SECURITY_OVERRIDE",
+        module: "Sys-Profile-Core",
+        recordId: security.user.id,
+        recordLabel: security.user.email,
+        userId: security.user.id,
+        userName: security.user.name,
+        details: JSON.stringify({
+          blockedAction: "PASSWORD_RESET_ATTEMPT",
+          attemptedByRole: security.user.role,
+          blockedAt: new Date().toISOString(),
+          reason: "Privilege escalation blocked — only ADMIN role can modify passwords",
+        }),
+      }).catch(() => {}); // Non-blocking audit
+
       return NextResponse.json(
-        { error: "Access denied. Only administrators can reset user passwords." },
+        {
+          error: "403 Forbidden: Privilege Escalation Blocked",
+          errorCode: "PRIVILEGE_ESCALATION_BLOCKED",
+          message: `Role '${security.user.role}' is not authorized to modify passwords. Only ADMIN role has this privilege.`,
+        },
         { status: 403 }
       );
     }
@@ -47,9 +73,7 @@ export async function POST(request: NextRequest) {
     // Resolve target user — support "self" for admin's own password
     let targetUser;
     if (targetUserId === "self") {
-      targetUser = await db.user.findUnique({
-        where: { id: security.user.id },
-      });
+      targetUser = adminUser;
     } else {
       targetUser = await db.user.findUnique({
         where: { id: targetUserId },
@@ -82,8 +106,8 @@ export async function POST(request: NextRequest) {
       module: "Auth-Password-Reset",
       recordId: targetUser.id,
       recordLabel: targetUser.email,
-      userId: security.user.id,
-      userName: security.user.name,
+      userId: adminUser.id,
+      userName: adminUser.name,
       details: JSON.stringify({
         targetUserEmail: targetUser.email,
         targetUserRole: targetUser.role,

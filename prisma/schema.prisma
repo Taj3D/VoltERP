@@ -12,21 +12,25 @@ datasource db {
 // ============================================================
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  password  String
-  role      String   @default("admin")
-  companyId String?  // Multi-tenant isolation: links user to a company
-  branchId  String?  // Branch assignment for multi-branch infrastructure
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  company   Company? @relation(fields: [companyId], references: [id])
-  branch    Branch?  @relation(fields: [branchId], references: [id])
+  id              String   @id @default(cuid())
+  email           String   @unique
+  name            String   // Clean display name (never raw username)
+  password        String
+  role            String   @default("admin")  // "admin" | "manager" | "sr" | "dealer" | "vat_auditor"
+  companyId       String?  // Multi-tenant isolation: links user to a company
+  branchId        String?  // Branch assignment for multi-branch infrastructure
+  profileImage    String?  // Profile photo / avatar (base64 data URL for multi-tenant persistence)
+  phone           String?  // Contact number
+  designation     String?  // Job title / designation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
+  branch          Branch?  @relation(fields: [branchId], references: [id])
 
   @@index([companyId])
   @@index([branchId])
+  @@index([role])
 }
 
 // ============================================================

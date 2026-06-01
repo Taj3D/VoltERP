@@ -136,8 +136,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       id: user.id,
       email: user.email,
-      name: user.name,
+      name: user.name,           // Clean display name from DB (never raw username)
       role: user.role,
+      profileImage: user.profileImage,  // Base64 avatar for UI rendering
+      phone: user.phone,                // Contact number
+      designation: user.designation,    // Job title
     });
   } catch (error) {
     const sanitized = sanitizeError(error, "auth-login");

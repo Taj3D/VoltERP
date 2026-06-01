@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
         name: true,
         role: true,
         isActive: true,
+        profileImage: true,
+        phone: true,
+        designation: true,
       },
       orderBy: { name: "asc" },
     });
