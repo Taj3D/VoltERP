@@ -1,6 +1,14 @@
+// ============================================================
+// COMPANIES API — Full Master Company Workspace
+// GET: List all active companies with product/order counts
+// POST: Create a new company with ALL model fields
+// Module Token: Sys-Config-Core
+// ============================================================
+
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, validateImageFields } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Companies', 'GET');
@@ -10,7 +18,7 @@ export async function GET(request: NextRequest) {
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { products: true, orderSheets: true } },
+        _count: { select: { products: true, orderSheets: true, users: true, banks: true, branches: true } },
       },
     });
     return NextResponse.json(items);
@@ -24,8 +32,9 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
-    const imgError = validateImageFields(body, ['logo', 'brandLogo']);
+    const imgError = validateImageFields(body, ['logo', 'brandLogo', 'logoData']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
+
     const item = await db.$transaction(async (tx) => {
       // Auto-generate code
       const count = await tx.company.count();
@@ -40,31 +49,35 @@ export async function POST(request: NextRequest) {
           email: body.email || null,
           logo: body.logo || null,
           brandLogo: body.brandLogo || null,
+          logoData: body.logoData || null,
           mobile: body.mobile || null,
           website: body.website || null,
           vatNumber: body.vatNumber || null,
           tradeLicense: body.tradeLicense || null,
+          binNumber: body.binNumber || null,
+          currencySymbol: body.currencySymbol || '৳',
           invoicePrefix: body.invoicePrefix || null,
-          thankYouMsg: body.thankYouMsg || null,
-          systemNote: body.systemNote || null,
+          thankYouMsg: body.thankYouMsg || 'Thank You Come Again.',
+          systemNote: body.systemNote || 'This is a system generated invoice no need to seal & signature.',
           showBarcode: body.showBarcode !== undefined ? body.showBarcode : true,
           showPayInWord: body.showPayInWord !== undefined ? body.showPayInWord : true,
           logoWidth: body.logoWidth ? parseFloat(String(body.logoWidth)) : 30,
           logoHeight: body.logoHeight ? parseFloat(String(body.logoHeight)) : 20,
           isActive: body.isActive ?? true,
         },
+        include: {
+          _count: { select: { products: true, orderSheets: true, users: true, banks: true, branches: true } },
+        },
       });
 
-      await tx.auditLog.create({
-        data: {
-          action: 'CREATE',
-          module: 'Companies',
-          recordId: record.id,
-          recordLabel: record.name || record.code || record.id,
-          userId: security.user?.id || 'system',
-          userName: security.user?.name || 'System',
-          details: JSON.stringify({ code: record.code, name: record.name }),
-        },
+      await logUserActivity({
+        action: 'CREATE',
+        module: 'Sys-Config-Core',
+        recordId: record.id,
+        recordLabel: record.name || record.code,
+        userId: security.user?.id,
+        userName: security.user?.name,
+        details: JSON.stringify({ code: record.code, name: record.name }),
       });
 
       return record;

@@ -747,3 +747,60 @@ Files Modified:
 - src/app/api/liabilities/[id]/route.ts — Enhanced PUT with aging recalculation, payment balance check
 - src/app/api/liabilities/ap-sync/route.ts — NEW: AP aging data endpoint
 - src/components/InvestmentGroupPage.tsx — Rebuilt Liability Receive/Pay/Report tabs with AP sync, aging, charts
+
+---
+Task ID: 9
+Agent: Main Agent
+Task: Core Config Module Overhaul — Companies, Categories, Colors, Brands, Units
+
+Work Log:
+- Audited full codebase: Prisma schema (85+ models), BasicModulesGroupPage.tsx (940 lines), all 5 core API routes, company-branding cache, export-utils.ts, activity-logger.ts
+- **Directive 1 — Parent Company Master Sync**:
+  - Rebuilt Companies API `/api/companies/route.ts` with ALL Company model fields: name, address, phone, mobile, email, website, vatNumber, tradeLicense, binNumber, currencySymbol, invoicePrefix, thankYouMsg, systemNote, showBarcode, showPayInWord, logoWidth, logoHeight, logo, brandLogo, logoData
+  - Rebuilt Companies [id] API `/api/companies/[id]/route.ts` with full field update support + audit diff tracking (changedFields array) + `_brandingCacheInvalidated` flag in response
+  - Companies Workspace frontend: Full 4-section form editor (Company Information, Registration Details, Invoice Branding, System Settings) with Switch toggles for showBarcode/showPayInWord, ImageUploadField for logo/brandLogo, logo dimension inputs
+  - On company save: automatically calls `clearCompanyProfileCache()` from `@/lib/company-branding-cache` + reloads company profile, shows "Branding Synced" green banner for 3 seconds
+  - Added `logUserActivity()` with module token `Sys-Config-Core` for all company CRUD operations
+
+- **Directive 2 — Dynamic Dropdown Population**:
+  - Created `/api/core-config/dropdowns/route.ts`: Returns all categories (with parent name), colors, brands (with code), units (with symbol), and companies as lightweight dropdown options with `_meta` stats
+  - Categories: show parent hierarchy with ChevronRight indicator in table + parent category Select in form
+  - Colors: show color preview swatch + hex code in table + native color picker + hex input + live preview in form
+  - Brands: show product count in table
+  - Units: show symbol as styled badge in table + symbol input in form
+
+- **Directive 3 — Exporter Framework Integration**:
+  - **Elite PDF Export**: All core config modules now load company profile via `loadCompanyProfile()` and pass it to `exportToPDF()` with `company` prop for corporate-branded headers (navy bar, logo, BIN, address), `financialFooter` with Prepared By / Checked By / Authorized By signature blocks
+  - Currency columns right-aligned via export-utils columnStyles
+  - `Intl.NumberFormat('bn-BD', { minimumFractionDigits: 2 })` for currency formatting
+  - **Transactional CSV Router**: Created `/api/core-config/bulk-import/route.ts` with all-or-nothing validation:
+    - Phase 1: Validates ALL rows BEFORE any database writes (name required, hex color validation, malformed numeric rejection, email format validation)
+    - Phase 2: If ALL rows pass, executes in single atomic Prisma transaction
+    - Account hash validation: rejects files with mismatched `CORE-{module}-` prefix
+    - Returns detailed `validationErrors` array with row/field/message on rejection
+  - Created `/api/core-config/bulk-export/route.ts`: Server-side CSV export with UTF-8 BOM, RFC 4180 escaping, account hash generation (`CORE-{module}-{timestamp}-{checksum}`)
+  - Frontend CSV import: PapaParse client-side parsing, hash extraction from last row, bulk-import API call with granular error display panel
+
+- **Frontend Rebuild**: Completely rewrote `BasicModulesGroupPage.tsx` (1100+ lines):
+  - Custom `CompaniesWorkspace` component with full company editor dialog (4 sections, Switch toggles, ImageUploadField)
+  - Custom `CoreModuleTab` component for Categories/Colors/Brands/Units with module-specific column rendering (color swatches, symbol badges, parent hierarchy)
+  - Preserved `ModuleTab` generic component for Structural + Operational modules (Departments, Godowns, Segments, Capacities, SR Targets, Payment Options, Card Types, CardType Setup)
+  - Import errors panel with dismiss button showing up to 10 validation errors
+  - "Branding Synced" animated banner on company save
+  - PDF Sync status card in Companies workspace
+  - All tables use navy header (`bg-[#132240]`), emerald Active badges, right-aligned currency
+
+- **Lint**: Clean ✅ | **Dev Server**: Running ✅ | **API Endpoints**: All responding (401 auth required as expected) ✅
+
+Stage Summary:
+- **Parent Company Master Sync**: Full workspace editor for ALL 20+ Company model fields. Changes cascade to all PDF engines via `clearCompanyProfileCache()` with visual confirmation
+- **Dynamic Dropdown Population**: `/api/core-config/dropdowns` endpoint provides lightweight dropdown data for all 5 core configs. Categories show parent hierarchy, Colors show swatches, Units show symbols
+- **Elite PDF Export**: Corporate-branded PDFs with logo, BIN, address, right-aligned currencies, signature blocks for all core config modules
+- **Transactional CSV Router**: All-or-nothing bulk import with pre-validation phase, account hash verification, malformed numeric rejection. Server-side bulk export with hash generation
+- Files Modified:
+  - `/src/app/api/companies/route.ts` — Full rebuild with all Company model fields + logUserActivity
+  - `/src/app/api/companies/[id]/route.ts` — Full rebuild with all fields + audit diff + branding invalidation flag
+  - `/src/app/api/core-config/dropdowns/route.ts` — NEW: Dynamic dropdown population endpoint
+  - `/src/app/api/core-config/bulk-import/route.ts` — NEW: Transactional all-or-nothing CSV import
+  - `/src/app/api/core-config/bulk-export/route.ts` — NEW: Server-side CSV export with account hash
+  - `/src/components/BasicModulesGroupPage.tsx` — Complete rebuild with CompaniesWorkspace + CoreModuleTab + enterprise PDF/CSV
