@@ -6106,7 +6106,8 @@ function StockTransfersPage() {
         totalValue: item.totalValue || 0,
       }));
       exportToPDF({
-        title: "Stock Transfers",
+        title: "Stock Transfer Challan & Delivery Manifest",
+        subtitle: `Period: All | Total Transfers: ${filtered.length} | In-Transit: ${inTransitCount} | Completed: ${receivedCount}`,
         columns,
         data: pdfData,
         isVatAuditor,
@@ -6222,6 +6223,26 @@ function StockTransfersPage() {
         ))}
       </div>
 
+      {/* In-Transit Valuation Summary */}
+      {inTransitCount > 0 && (
+        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                <Truck className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">In-Transit Asset Valuation</p>
+                <p className="text-xl font-bold text-blue-700 dark:text-blue-400">
+                  {isVatAuditor ? "N/A (Audit Mode)" : `৳${bdFmt.format(data.filter((d: any) => d.shippingStatus === "In-Transit" || d.shippingStatus === "IN_TRANSIT").reduce((s: number, d: any) => s + (Number(d.totalValue) || 0), 0))}`}
+                </p>
+                <p className="text-xs text-muted-foreground">{inTransitCount} shipment(s) in transit — Asset value held in Inventory In-Transit COA node</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -6291,7 +6312,7 @@ function StockTransfersPage() {
                               {/* PENDING → Ship button */}
                               {(normalizedStatus === "PENDING") && (
                                 <Button variant="outline" size="sm" className="h-7 text-xs border-blue-500 text-blue-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "IN_TRANSIT")}>
-                                  {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating...</> : <><Truck className="w-3 h-3 mr-1" />Ship (→ In-Transit)</>}
+                                  {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating Logistical Asset Values & Shifting Intransit Batches...</> : <><Truck className="w-3 h-3 mr-1" />Discharge Inter-Warehouse Transfer</>}
                                 </Button>
                               )}
                               {/* IN_TRANSIT → Received / Reject buttons */}
@@ -6308,7 +6329,7 @@ function StockTransfersPage() {
                                       onChange={e => setRejectionReason(prev => ({ ...prev, [item.id]: e.target.value }))}
                                     />
                                     <Button variant="outline" size="sm" className="h-7 text-xs border-red-500 text-red-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "REJECTED")}>
-                                      {isLoadingThis ? <RefreshCw className="w-3 h-3 animate-spin" /> : <><XCircle className="w-3 h-3 mr-1" />Reject ✗</>}
+                                      {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Reversing Transit...</> : <><XCircle className="w-3 h-3 mr-1" />Reject ✗</>}
                                     </Button>
                                   </div>
                                 </>
@@ -6773,7 +6794,8 @@ function DamageLogsPage() {
         status: item.status || "—",
       }));
       exportToPDF({
-        title: "Damage Logs",
+        title: "Loss / Wastage Audit Statement",
+        subtitle: `Period: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })} | Total Records: ${filtered.length} | Total Loss Value: ৳${bdFmt.format(totalLossValueSum)}`,
         columns,
         data: pdfData,
         isVatAuditor,
@@ -6978,9 +7000,9 @@ function DamageLogsPage() {
                   placeholder="Must be > 0"
                   value={formData.quantity || ""}
                   onChange={e => { setFormData({ ...formData, quantity: e.target.value }); setQuantityError(false); }}
-                  className={quantityError ? "border-2 border-red-500 animate-pulse" : ""}
+                  className={quantityError ? "border-2 border-red-500 ring-2 ring-red-400/50 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" : ""}
                 />
-                {quantityError && <p className="text-xs text-red-500 mt-1">Quantity exceeds available stock at this location!</p>}
+                {quantityError && <p className="text-xs text-red-600 font-semibold mt-1 flex items-center gap-1 animate-pulse">⚠ Quantity exceeds available physical stock at this location! Write-off DENIED — verify available balance first.</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Loss Cost Price <span className="text-red-500">*</span></Label>

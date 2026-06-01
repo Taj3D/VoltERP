@@ -702,6 +702,37 @@ export async function POST() {
         tx.auditLog.create({ data: { action: 'UPDATE', module: 'Banks', recordLabel: 'Dutch Bangla Bank', userName: 'Admin User', createdAt: new Date(today.getTime() - 345600000) } }),
         tx.auditLog.create({ data: { action: 'IMPORT', module: 'Products', recordLabel: '15 records', userName: 'Admin User', createdAt: new Date(today.getTime() - 432000000) } }),
       ]);
+
+      // ============================================================
+      // 20. LOGISTICS CHART OF ACCOUNTS (3)
+      // Required for intransit valuation state machine and damage
+      // write-off double-entry. Check by code, create if not exists.
+      // ============================================================
+      const logisticsCoaNodes = [
+        { code: 'COA-INV-ASSET', name: 'Inventory Asset', classification: 'Asset', openingBalance: 0, openingBalanceType: 'Dr' },
+        { code: 'COA-INV-TRANSIT', name: 'Inventory In-Transit', classification: 'Asset', openingBalance: 0, openingBalanceType: 'Dr' },
+        { code: 'COA-INV-LOSS', name: 'Inventory Loss / Wastage', classification: 'Expense', openingBalance: 0, openingBalanceType: 'Dr' },
+      ];
+
+      for (const coaNode of logisticsCoaNodes) {
+        const existingCoa = await tx.chartOfAccount.findUnique({
+          where: { code: coaNode.code },
+          select: { id: true },
+        });
+
+        if (!existingCoa) {
+          await tx.chartOfAccount.create({
+            data: {
+              code: coaNode.code,
+              name: coaNode.name,
+              classification: coaNode.classification,
+              openingBalance: coaNode.openingBalance,
+              openingBalanceType: coaNode.openingBalanceType,
+              isActive: true,
+            },
+          });
+        }
+      }
     });
 
     return NextResponse.json({

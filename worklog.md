@@ -3592,3 +3592,145 @@ Stage Summary:
   2. ✅ WAREHOUSE-TO-WAREHOUSE INTER-TRANSFERS WITH INTRANSIT LOCK: Batch preservation, SUSPENDED godown interlock (403), IN_TRANSIT/RECEIVED/REJECTED state machine with CoA In-Transit node shifting
   3. ✅ OPTIMISTIC CLIENT SYNCHRONIZATION & SPIN-LOCKS: logisticsSnapshot rollback protocol, RefreshCw animate-spin with "Recalculating Logistical Asset Values & Shifting Intransit Batches..." text
   4. ✅ USER PROFILE ACTIVITY STREAM & WHITE-LABEL REPORT: logUserActivity with Inv-Logistics-Core token, exportToPDF with CompanyProfile + financialFooter for Stock Transfer Challans and Loss/Wastage Audit Statements
+
+---
+Task ID: 2
+Agent: Phase 12 Enhancement Agent
+Task: VoltERP Phase 12 — Enhance StockTransfersPage and DamageLogsPage Components
+
+Work Log:
+- Read worklog.md for prior context (Phase 12 foundation already laid by Task 11)
+- Read ElectronicsMartApp.tsx at targeted line ranges to locate exact code blocks
+- Verified all referenced variables exist: `inTransitCount` (line 5960), `receivedCount` (line 5961), `bdFmt` (line 5912), `totalLossValueSum` (line 6625), `isVatAuditor`, `filtered`
+
+Changes Made to /home/z/my-project/src/components/ElectronicsMartApp.tsx:
+
+1. **StockTransfersPage — Ship Button Text** (line ~6294):
+   - Changed from: `Recalculating...` / `Ship (→ In-Transit)`
+   - Changed to: `Recalculating Logistical Asset Values & Shifting Intransit Batches...` / `Discharge Inter-Warehouse Transfer`
+
+2. **StockTransfersPage — In-Transit Valuation Summary Card** (after stat cards grid, before main table Card):
+   - Added conditional card that appears when `inTransitCount > 0`
+   - Shows total value of all IN_TRANSIT shipments using `bdFmt.format()`
+   - VAT Auditor sees "N/A (Audit Mode)" instead of value
+   - Blue-themed card with Truck icon, asset valuation label, and COA node description
+
+3. **DamageLogsPage — Enhanced Flashing Border** (line ~6981):
+   - Changed quantity error className from `"border-2 border-red-500 animate-pulse"`
+   - To: `"border-2 border-red-500 ring-2 ring-red-400/50 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]"`
+   - Adds ring glow + red box shadow for more dramatic visual feedback
+
+4. **DamageLogsPage — Enhanced Error Message** (line ~6983):
+   - Changed from: `"text-xs text-red-500 mt-1">Quantity exceeds available stock at this location!`
+   - To: `"text-xs text-red-600 font-semibold mt-1 flex items-center gap-1 animate-pulse">⚠ Quantity exceeds available physical stock at this location! Write-off DENIED — verify available balance first.`
+   - More authoritative warning with ⚠ icon, animate-pulse, and DENIED language
+
+5. **DamageLogsPage — Loss/Wastage Audit Statement PDF Export** (line ~6776):
+   - Changed title from `"Damage Logs"` to `"Loss / Wastage Audit Statement"`
+   - Added subtitle: `Period: {date} | Total Records: {filtered.length} | Total Loss Value: ৳{bdFmt.format(totalLossValueSum)}`
+
+6. **StockTransfersPage — PDF Export Title Enhancement** (line ~6108):
+   - Changed title from `"Stock Transfers"` to `"Stock Transfer Challan & Delivery Manifest"`
+   - Added subtitle: `Period: All | Total Transfers: {filtered.length} | In-Transit: {inTransitCount} | Completed: {receivedCount}`
+
+Verification:
+- `bun run lint` passed with ZERO errors
+- Dev server stable on localhost:3000 (HTTP 200)
+
+Stage Summary:
+- 6 targeted edits in ElectronicsMartApp.tsx
+- All edits use existing variables (inTransitCount, receivedCount, bdFmt, totalLossValueSum, isVatAuditor, filtered)
+- Ship button text enhanced with logistics terminology
+- In-Transit Valuation Summary card shows real-time asset valuation with COA node reference
+- Damage quantity error has dramatic visual feedback (ring + shadow + pulse)
+- PDF exports now have professional audit-grade titles and subtitles with period/summary metadata
+
+---
+Task ID: 12
+Agent: COA Logistics Seed Agent
+Task: Phase 12 — Create logistics-specific Chart of Accounts (COA) seed nodes for intransit valuation state machine and damage write-off double-entry
+
+Work Log:
+- Read worklog.md for prior context (Tasks 1-11, Phase 10-13 history)
+- Read existing /api/seed/route.ts (742 lines) — confirmed no COA logistics nodes present
+- Read api-security.ts for withApiSecurity signature, admin-only RBAC pattern
+- Read db.ts for Prisma client import pattern
+- Read Prisma schema for ChartOfAccount model (code @unique, classification, parentAccountId, openingBalance, openingBalanceType, isActive)
+
+File 1: /api/coa-logistics-seed/route.ts (NEW)
+- POST endpoint with withApiSecurity(request, 'ChartOfAccounts', 'POST')
+- Admin-only check: returns 403 if role !== 'admin'
+- Creates 3 COA nodes if they don't already exist (checked by code via findUnique):
+  1. COA-INV-ASSET: "Inventory Asset" (classification: Asset)
+  2. COA-INV-TRANSIT: "Inventory In-Transit" (classification: Asset)
+  3. COA-INV-LOSS: "Inventory Loss / Wastage" (classification: Expense)
+- All nodes: openingBalance=0, openingBalanceType='Dr', isActive=true
+- Returns array of results with status 'created' | 'already_exists' per node
+- Summary message: "X created, Y already existed"
+
+File 2: /api/seed/route.ts (UPDATED)
+- Added Section 20 "LOGISTICS CHART OF ACCOUNTS (3)" after Section 19 (Audit Logs)
+- Inserted inside the existing $transaction, before the closing `});`
+- Same 3 COA nodes with same check-by-code-then-create-if-not-exists pattern
+- Uses `tx.chartOfAccount.findUnique({ where: { code } })` + `tx.chartOfAccount.create()`
+- Idempotent: if COA node already exists by code, skips creation
+
+Verification:
+- `bun run lint` passed with zero errors
+- Both files follow project conventions (Next.js 16, TypeScript, withApiSecurity, $transaction)
+
+Stage Summary:
+- 1 new API route created: /api/coa-logistics-seed/route.ts
+- 1 existing seed route updated: /api/seed/route.ts
+- 3 logistics COA nodes defined: COA-INV-ASSET, COA-INV-TRANSIT, COA-INV-LOSS
+- Both routes use check-by-code idempotent pattern
+- Admin-only RBAC enforced on dedicated logistics seed endpoint
+
+---
+Task ID: 2
+Agent: full-stack-developer (frontend)
+Task: Enhance ElectronicsMartApp.tsx for Phase 12 logistics directives
+
+Work Log:
+- Read ElectronicsMartApp.tsx to understand StockTransfersPage and DamageLogsPage
+- Changed Ship button text from "Ship (→ In-Transit)" to "Discharge Inter-Warehouse Transfer"
+- Changed Ship loading text from "Recalculating..." to "Recalculating Logistical Asset Values & Shifting Intransit Batches..."
+- Changed "Mark Received" loading text to full "Recalculating Logistical Asset Values & Shifting Intransit Batches..."
+- Changed Reject loading text to "Reversing Transit..."
+- Added In-Transit Valuation Summary Card (blue-themed, conditional on inTransitCount > 0)
+- Enhanced damage quantity error styling with ring-2 ring-red-400/50 and shadow-[0_0_10px_rgba(239,68,68,0.5)]
+- Enhanced damage quantity error message with ⚠ icon, font-semibold, and detailed denial text
+- Changed Damage Logs PDF export title to "Loss / Wastage Audit Statement" with subtitle
+- Changed Stock Transfers PDF export title to "Stock Transfer Challan & Delivery Manifest" with subtitle
+- Verified "Authorize Damage Write-Off" spin-lock with proper loading text
+
+Stage Summary:
+- 6 targeted edits to ElectronicsMartApp.tsx (no full rewrites)
+- All spin-lock buttons now show "Recalculating Logistical Asset Values & Shifting Intransit Batches..." when loading
+- In-Transit Valuation Summary card shows real-time intransit asset value
+- Enhanced flashing red glow borders on damage quantity validation failure
+- PDF exports renamed to proper logistics document titles
+- Lint: zero errors
+
+---
+Task ID: 3
+Agent: main (coordinator)
+Task: Phase 12 verification, COA seeding, and final lint
+
+Work Log:
+- Verified all 4 Phase 12 directives are implemented
+- Seeded logistics COA nodes (COA-INV-ASSET, COA-INV-TRANSIT, COA-INV-LOSS) into database
+- Verified spin-lock text on all action buttons (Discharge Inter-Warehouse Transfer, Authorize Damage Write-Off)
+- Verified logisticsSnapshot rollback protocol on both pages
+- Verified Inv-Logistics-Core compliance token on all API routes
+- Enhanced Reject button loading text
+- Final lint: zero errors
+- Dev server: running stable on port 3000
+
+Stage Summary:
+- Phase 12 fully complete: all 4 directives verified and enhanced
+- Backend: Damage log API with atomic double-entry, Stock transfer API with intransit state machine
+- Frontend: Spin-locks, logisticsSnapshot rollback, In-Transit Valuation Summary, enhanced error borders
+- PDF: Stock Transfer Challan & Delivery Manifest, Loss/Wastage Audit Statement
+- COA: Inventory Asset, Inventory In-Transit, Inventory Loss / Wastage nodes seeded
+- Zero lint errors, dev server stable
