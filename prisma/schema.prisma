@@ -197,6 +197,9 @@ model Company {
   branches               Branch[]
   interBranchTransfers   InterBranchTransfer[]
   consolidationLogs      ConsolidationLog[]
+  securityAuditTrails   SecurityAuditTrail[]
+  ledgerHashChains      LedgerHashChain[]
+  securityThreatLogs    SecurityThreatLog[]
 }
 
 model Category {
@@ -1951,6 +1954,98 @@ model PosSaleLine {
   @@index([posSaleId])
   @@index([productId])
   @@index([companyId])
+}
+
+// ============================================================
+// PHASE 18: IMMUTABLE FORENSIC SECURITY AUDIT TRAIL
+// Anti-Tamper: No UPDATE or DELETE allowed — append-only
+// Captures: userId, companyId, branchId, IP, User-Agent,
+//   HTTP Method, Endpoint Target, Before/After Payload Diff
+// ============================================================
+
+model SecurityAuditTrail {
+  id              String   @id @default(cuid())
+  // Actor identification
+  userId          String?  // User who performed the action
+  userName        String?  // Display name
+  companyId       String?  // Multi-tenant isolation
+  branchId        String?  // Branch-level isolation
+  // Request context
+  ipAddress       String?  // Client IP address
+  userAgent       String?  // Browser/client user-agent
+  httpMethod      String?  // "GET", "POST", "PUT", "DELETE"
+  endpoint        String?  // Target API endpoint path
+  // Action details
+  actionType      String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "SECURITY_OVERRIDE", "LEDGER_VERIFY", "RATE_LIMIT_TRIGGERED"
+  targetModel     String?  // Prisma model name
+  targetRecordId  String?  // ID of the affected record
+  // Forensic Diff Matrix — Before/After Payload Snapshots
+  previousState   String?  // JSON string — full record state BEFORE mutation
+  newState        String?  // JSON string — full record state AFTER mutation
+  diffSummary     String?  // JSON string — computed diff (changed fields only)
+  // Metadata
+  moduleToken     String?  // Compliance tracking token (e.g., "Sys-Ops-Security-Vault")
+  severity        String   @default("INFO")  // "INFO", "WARNING", "CRITICAL"
+  metadata        String?  // Additional context (JSON)
+  // Timestamp — immutable
+  createdAt       DateTime @default(now())
+
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([branchId])
+  @@index([actionType])
+  @@index([targetModel])
+  @@index([severity])
+  @@index([createdAt])
+  @@index([moduleToken])
+}
+
+// LedgerHashChain — SHA-256 cryptographic chain verification for high-value ledger entries
+model LedgerHashChain {
+  id              String   @id @default(cuid())
+  ledgerEntryId   String   @unique  // FK to LedgerEntry
+  previousHash    String?  // SHA-256 hash of the previous chain entry
+  currentHash     String   // SHA-256 hash of this entry (computed from: previousHash + entryCode + debit + credit + date)
+  hashAlgorithm   String   @default("SHA-256")
+  verifiedAt      DateTime @default(now())
+  isTampered      Boolean  @default(false)  // True if chain verification detects manipulation
+  verifiedBy      String?  // User ID who ran verification
+  companyId       String?  // Multi-tenant isolation
+  createdAt       DateTime @default(now())
+
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([ledgerEntryId])
+  @@index([isTampered])
+  @@index([companyId])
+  @@index([verifiedAt])
+}
+
+// SecurityThreatLog — Records all detected XSS, SQL injection, and payload tampering attempts
+model SecurityThreatLog {
+  id              String   @id @default(cuid())
+  threatType      String   // "XSS_SCRIPT_TAG", "SQL_INJECTION", "PAYLOAD_TAMPERING", "RATE_LIMIT_BREACH", "UNAUTHORIZED_ACCESS"
+  ipAddress       String?  // Client IP
+  userAgent       String?  // Browser/client user-agent
+  endpoint        String?  // Target API endpoint
+  httpMethod      String?  // HTTP method
+  payload         String?  // Sanitized payload that triggered the threat
+  blockedAction   String?  // Description of what was blocked
+  severity        String   @default("HIGH")  // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+  companyId       String?  // Multi-tenant isolation
+  userId          String?  // User (if authenticated)
+  resolved        Boolean  @default(false)  // Whether the threat was investigated
+  createdAt       DateTime @default(now())
+
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([threatType])
+  @@index([ipAddress])
+  @@index([severity])
+  @@index([resolved])
+  @@index([createdAt])
 }
 
 // ============================================================

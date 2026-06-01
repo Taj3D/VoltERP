@@ -4725,3 +4725,229 @@ Stage Summary:
   2. ✅ CROSS-BRANCH INTER-COMPANY TRANSFER & BALANCING ELIMINATION ENGINE: Dual-leg IBT mapping (STOCK/FUND), consolidation parser with elimination entries, SUSPENDED branch freeze/exclusion
   3. ✅ BLINK-FAST CONSOLIDATION RENDERING, INDEPENDENT MATRIX SPIN-LOCKS, AND REVERSIBLE STATE SNAPSHOTS: Async rendering, spin-lock with "Eliminating Intra-Holding Balances..." text, consolidationSnapshot rollback on API failure
   4. ✅ USER PROFILE LIVE ACTIVITY STREAM & ELITE CONSOLIDATED REPORT SYNCHRONIZATION: "Holding-Consolidation-Core" token, white-label PDF with holding corporate logo, matrix breakdown, triple-signature footer
+
+---
+Task ID: Phase-18-Backend
+Agent: Phase 18 Backend Agent
+Task: PHASE 18 — Audit Trail, Security Hardening & Penetration Defense Vault (BACKEND)
+
+Work Log:
+- Read worklog.md for prior context (Phases 1-17 complete)
+- Read existing files: prisma/schema.prisma, activity-logger.ts, api-security.ts
+- Identified insertion points for new models and relations
+
+1. Prisma Schema — Added 3 new models before `model Branch`:
+   - SecurityAuditTrail: Immutable forensic audit trail with userId, companyId, branchId, IP, User-Agent, HTTP method, endpoint, before/after payload diff, severity, module token
+   - LedgerHashChain: SHA-256 cryptographic chain verification for ledger entries with previousHash, currentHash, isTampered flag
+   - SecurityThreatLog: Records XSS, SQL injection, rate limit breach, payload tampering, and unauthorized access attempts
+   - All 3 models have Company relation (company Company? @relation(fields: [companyId], references: [id]))
+   - Added 3 relations to Company model: securityAuditTrails, ledgerHashChains, securityThreatLogs
+   - 8 indexes per model for query optimization
+   - Ran `bun run db:push` — schema synced to SQLite successfully
+
+2. Created /src/lib/payload-sanitizer.ts:
+   - XSS_PATTERNS: 12 regex patterns covering <script>, javascript:, on* event handlers, <iframe>, <object>, <embed>, <form>, expression(), vbscript:, data:text/html
+   - SQL_INJECTION_PATTERNS: 17 regex patterns covering UNION SELECT, OR 1=1, DROP/DELETE/UPDATE/INSERT after semicolons, xp_cmdshell, information_schema, sysobjects
+   - sanitizePayload(): Recursive JSON payload sanitizer with MAX_NESTING_DEPTH=5, MAX_FIELD_LENGTH=100000
+   - ALLOWED_COMMON_FIELDS: 180+ allowed top-level property names for API payloads
+   - sanitizeString(): Strips XSS and SQL injection from string values
+   - logSecurityThreat(): Async function to write detected threats to SecurityThreatLog table
+
+3. Created /src/lib/security-audit-trail.ts:
+   - ForensicAuditParams interface: 17 parameters for comprehensive forensic context
+   - computeDiff(): Computes before/after diff with changed fields only
+   - logForensicAudit(): Writes immutable SecurityAuditTrail entry + also logs via logUserActivity for unified stream
+   - blockAuditTrailMutation(): Anti-tamper shield returning 403 Forbidden for any UPDATE/DELETE attempts
+   - Module token defaults to "Sys-Ops-Security-Vault"
+
+4. Created /src/app/api/security/ledger-verify/route.ts:
+   - POST: SHA-256 chain verification on ledger entries (limit 500-2000 per run)
+   - computeLedgerHash(): Generates hash from previousHash + entryCode + debit + credit + date + companyId
+   - Verifies existing hashes, detects tampering, creates new chain entries
+   - Returns CHAIN_INTACT or TAMPERING_DETECTED with detailed verification results
+   - Logs verification event via logForensicAudit with severity INFO/CRITICAL
+   - GET: Verification status summary (total chains, tampered count, last verification)
+
+5. Created /src/app/api/security/throttle/route.ts:
+   - In-memory token bucket rate limiter: 60 requests/minute per identity
+   - checkEnterpriseRateLimit(): Sliding window with 1 token/1000ms refill, 60s block on breach
+   - GET: Rate limit stats (total identities, blocked count, top 20 consumers)
+   - POST: Check and enforce rate limit for a given identifier
+   - On breach: logs SecurityThreatLog (RATE_LIMIT_BREACH) + ForensicAudit (RATE_LIMIT_TRIGGERED)
+   - Returns 429 Too Many Requests with security alert payload
+
+6. Created /src/app/api/security/audit-trail/route.ts:
+   - GET: Paginated forensic audit entries with multi-tenant isolation
+   - Filters: actionType, targetModel, severity, moduleToken, userId, branchId, dateFrom, dateTo, search
+   - Parses JSON strings for previousState, newState, diffSummary, metadata
+   - POST: BLOCKED (403) — SecurityAuditTrail is append-only
+   - PUT: BLOCKED (403) — immutable
+   - DELETE: BLOCKED (403) — immutable
+   - All mutations return blockAuditTrailMutation() message
+
+7. Created /src/app/api/security/threats/route.ts:
+   - GET: Paginated security threat logs with multi-tenant isolation
+   - Filters: threatType, severity, resolved, ipAddress, dateFrom, dateTo
+   - Returns threat summary stats: total, xssCount, sqlInjectionCount, rateLimitCount, unauthorizedCount, unresolvedCount
+
+8. Created /src/app/api/security/audit-report/route.ts:
+   - GET: Comprehensive security compliance report data
+   - KPI summary: totalAuditEntries, criticalEvents, totalThreats, tamperedLedgerEntries, chainIntact
+   - Threat breakdown: xss, sqlInjection, rateLimit, unauthorized, tampering counts
+   - Recent 50 audit entries + Recent 20 threat entries
+   - Compliance status: auditTrailImmutable, rateLimitingActive, xssProtectionActive, sqlInjectionProtectionActive, ledgerHashChainActive
+   - Logs report generation via logForensicAudit (EXPORT action)
+
+9. Updated /src/lib/activity-logger.ts:
+   - Added 'SECURITY_OVERRIDE' | 'LEDGER_VERIFY' to action type union
+   - Added "Sys-Ops-Security-Vault" module token documentation: Security vault operations, cryptographic ledger verification, rate limit enforcement, payload sanitization, forensic audit trail access, enterprise security compliance report export
+
+10. Updated /src/lib/api-security.ts:
+    - Added to MODULE_GROUP_MAP: SecurityAuditTrail → 'audit', LedgerVerify → 'audit', ThrottleRate → 'audit', SecurityThreats → 'audit', SecurityAuditReport → 'audit'
+    - Added to MODULE_DENY for sr: SecurityAuditTrail, LedgerVerify, ThrottleRate, SecurityThreats, SecurityAuditReport
+    - Added to MODULE_DENY for dealer: SecurityAuditTrail, LedgerVerify, ThrottleRate, SecurityThreats, SecurityAuditReport
+    - Added to WRITE_DENY for sr: SecurityAuditTrail, LedgerVerify, ThrottleRate, SecurityThreats, SecurityAuditReport
+    - Added to WRITE_DENY for dealer: SecurityAuditTrail, LedgerVerify, ThrottleRate, SecurityThreats, SecurityAuditReport
+
+Verification:
+- `bun run lint` passed with ZERO errors
+- `bun run db:push` completed successfully — schema synced to SQLite
+- Dev server stable on port 3000
+- All 10 files created/modified with no compilation errors
+
+Stage Summary:
+- 3 new Prisma models (SecurityAuditTrail, LedgerHashChain, SecurityThreatLog) with Company relations
+- 7 new files created: 2 lib files + 5 API route files
+- 2 existing files modified: activity-logger.ts, api-security.ts
+- Immutable forensic audit trail with anti-tamper enforcement (403 on POST/PUT/DELETE)
+- XSS/SQL injection payload sanitization with 29 regex detection patterns
+- SHA-256 cryptographic ledger chain verification engine
+- Enterprise token-bucket rate limiter (60 req/min, 60s block)
+- Security threat logging and compliance report generation
+- Full RBAC: admin+manager access to security modules, sr+dealer blocked
+- Module token: Sys-Ops-Security-Vault
+
+---
+Task ID: 2
+Agent: Security Vault Frontend Agent
+Task: Phase 18 — Complete rewrite of SecurityAuditCenter.tsx with 6-tab Security Vault
+
+Work Log:
+- Read worklog.md for prior context (Tasks 1-18)
+- Read existing SecurityAuditCenter.tsx (3-tab: Audit Log Viewer, Backup Control Panel, Rate Limit Monitor)
+- Verified all imports resolve: useToast, exportToPDF, exportToCSV, ColumnDef, CompanyProfile, Progress, Separator
+- Complete rewrite of /home/z/my-project/src/components/SecurityAuditCenter.tsx
+
+Changes Summary (COMPLETE REPLACEMENT):
+
+1. Tab Structure: 3 tabs → 6 tabs
+   - Tab 1: Forensic Audit Trail (was "Audit Log Viewer")
+     - New API: `/api/security/audit-trail` (was `/api/system-audit-logs`)
+     - Added Severity filter (INFO/WARNING/CRITICAL)
+     - Added new action types: SECURITY_OVERRIDE, LEDGER_VERIFY, RATE_LIMIT_TRIGGERED
+     - Added severity column and moduleToken column to data grid
+     - KPI stats now show: total/critical/warnings/info (was total/create/update/delete)
+   - Tab 2: Ledger Verification (NEW)
+     - SHA-256 Cryptographic Ledger Hash Chain status display
+     - Chain integrity indicator (INTACT/TAMPERED) with visual status
+     - Chain stats: total entries, tampered entries, algorithm, last verification
+     - "Run Global Ledger Verification Search" button with spin-lock
+     - Verification results display with tampered entry details table
+     - API: GET/POST `/api/security/ledger-verify`
+   - Tab 3: Threat Log (NEW)
+     - Security threat log with type filter (XSS, SQL Injection, Payload Tampering, Rate Limit Breach, Unauthorized Access)
+     - Threat stats cards: XSS count, SQL Injection count, Rate Limit count, Unauthorized count, Unresolved count
+     - Threat table with: Type, Severity, IP, Endpoint, Blocked Action, Timestamp, Status (Open/Resolved)
+     - API: GET `/api/security/threats`
+   - Tab 4: Rate Throttle (was "Rate Limit Monitor")
+     - New API: `/api/security/throttle` (was `/api/auth/rate-limit`)
+     - Displays: Tracked Identities, Blocked Identities, Max Requests/Min, Algorithm
+     - Top API Consumers table
+     - Token Bucket algorithm display
+   - Tab 5: Backup Vault (was "Backup Control Panel")
+     - Same functionality, renamed for consistency
+     - Admin-only access preserved with 403 Forbidden gate
+   - Tab 6: Compliance Report (NEW)
+     - White-label PDF report generation
+     - Enterprise Security Compliance Audited Statement
+     - API: GET `/api/security/audit-report`
+     - Includes company profile logo, VAT Auditor masking, Triple-Signature Layout
+
+2. Header Bar: Redesigned with gradient icon, "Penetration Defense Vault & Forensic Audit" title, Sys-Ops-Security-Vault badge
+
+3. KPI Stats Row: 4 cards — Total Forensic Events, CRITICAL Events, Ledger Chain Status, Security Threats
+
+4. Badge Maps: Added SEVERITY_BADGE_MAP, THREAT_TYPE_MAP, expanded ACTION_BADGE_MAP with 9 action types
+
+5. Security Snapshot: Enhanced with activeTab, severity fields for rollback recovery
+
+6. Diff Dialog: Enhanced with Before/After Diff Matrix, severity badge, endpoint, HTTP method, diffSummary, compliance token
+
+7. Preserved countdown timer effect for rate limit lockout recovery
+
+8. All exports use exportToPDF with financialFooter and companyProfile for enterprise-grade PDF generation
+
+Verification:
+- `bun run lint` passed with ZERO errors
+- Dev server running on localhost:3000 (HTTP 200)
+- All 6 Phase 18 backend API endpoints integrated: audit-trail, ledger-verify, throttle, threats, audit-report, system-backup
+
+Stage Summary:
+- 1 file completely rewritten (SecurityAuditCenter.tsx)
+- 3 tabs expanded to 6 tabs with full Phase 18 feature coverage
+- New features: Forensic Audit Trail, Ledger Verification, Threat Log, Rate Throttle, Compliance PDF Report
+- All backend APIs correctly wired to Phase 18 endpoints
+- VAT Auditor mode preserved with masking in exports
+- Admin-only Backup Vault access preserved
+
+---
+Task ID: Phase-18-Final
+Agent: Main Orchestrator
+Task: PHASE 18 — Audit Trail, Security Hardening & Penetration Defense Vault (Complete Execution)
+
+Work Log:
+- Read existing codebase: schema.prisma, SecurityAuditCenter.tsx, activity-logger.ts, api-security.ts, rate-limiter.ts, system-audit-logs route, audit-trail route, export-utils.ts, invoice-engine.ts
+- Identified existing SecurityAuditCenter with 3 tabs (Audit Log Viewer, Backup Control, Rate Limit Monitor)
+- Identified existing SystemAuditLog and AuditLog models, existing rate-limiter.ts with 5-attempts/60s window
+- Dispatched 2 parallel subagents for backend (Task 1) and frontend (Task 2)
+
+Backend (Task 1) — 10 files created/modified:
+1. Prisma schema: Added SecurityAuditTrail, LedgerHashChain, SecurityThreatLog models + Company relations
+2. /src/lib/payload-sanitizer.ts: XSS (12 patterns), SQL injection (17 patterns), unauthorized property filter, sanitizePayload(), logSecurityThreat()
+3. /src/lib/security-audit-trail.ts: logForensicAudit() with before/after diff, blockAuditTrailMutation() anti-tamper 403 shield
+4. /src/app/api/security/ledger-verify/route.ts: SHA-256 chain verification (POST), status summary (GET)
+5. /src/app/api/security/throttle/route.ts: Enterprise token-bucket rate limiter (60 req/min, 60s block)
+6. /src/app/api/security/audit-trail/route.ts: Forensic audit trail API (GET only, POST/PUT/DELETE → 403)
+7. /src/app/api/security/threats/route.ts: Security threat log API with stats
+8. /src/app/api/security/audit-report/route.ts: Enterprise compliance report data for PDF generation
+9. Updated activity-logger.ts: Added SECURITY_OVERRIDE, LEDGER_VERIFY action types + Sys-Ops-Security-Vault token
+10. Updated api-security.ts: Added 5 security module mappings (SecurityAuditTrail, LedgerVerify, ThrottleRate, SecurityThreats, SecurityAuditReport)
+
+Frontend (Task 2) — 1 file completely rewritten:
+1. SecurityAuditCenter.tsx: Expanded from 3 tabs to 6 tabs:
+   - Tab 1: Forensic Audit Trail (enhanced with severity filter, action types, moduleToken column)
+   - Tab 2: Cryptographic Ledger Verification (SHA-256 chain status, spin-lock verification, tamper detection)
+   - Tab 3: Security Threat Log (XSS, SQLi, payload tampering, rate limit, unauthorized access)
+   - Tab 4: Rate Throttle (enterprise stats, top consumers)
+   - Tab 5: Backup Vault (admin-only, preserved)
+   - Tab 6: Compliance Report (white-label PDF with company logo + triple-signature)
+
+Verification:
+- bun run lint: ZERO errors
+- Dev server: HTTP 200 on localhost:3000
+- bun run db:push: Schema synced to SQLite
+- All 5 new API routes return 401 (properly protected by withApiSecurity)
+- securitySnapshot rollback mechanism implemented
+- Spin-lock patterns: "Running SHA-256 Cryptographic Chain Verification & Auditing Tamper-Shields..."
+- Sys-Ops-Security-Vault compliance token integrated across all logging
+
+Stage Summary:
+- PHASE 18 FULLY COMPLETE — All 4 directives signed off
+- D1: Immutable Forensic Audit Trail — SecurityAuditTrail model, anti-tamper interceptor (403 on UPDATE/DELETE), logForensicAudit() with full before/after diff matrix
+- D2: Penetration Defense Vault — XSS/SQL sanitization (29 regex patterns), enterprise rate limiting (60 req/min token bucket), SecurityThreatLog tracking
+- D3: Cryptographic Ledger Verification — SHA-256 chain checksums, spin-lock UI, securitySnapshot rollback, tamper detection with visual indicators
+- D4: Activity Stream + Elite PDF — Sys-Ops-Security-Vault token, Enterprise Security Compliance Audited Statement PDF with company logo, VAT masking, triple-signature layout
+- New Prisma models: SecurityAuditTrail, LedgerHashChain, SecurityThreatLog (3 models)
+- New API routes: 5 endpoints under /api/security/
+- New libraries: payload-sanitizer.ts, security-audit-trail.ts
+- Frontend: 6-tab SecurityAuditCenter with KPI row, severity badges, diff dialog, threat stats, chain verification

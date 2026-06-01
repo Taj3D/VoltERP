@@ -95,6 +95,11 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   SystemAuditLogs: 'audit',
   SystemBackup: 'audit',
   RateLimit: 'audit',
+  SecurityAuditTrail: 'audit',
+  LedgerVerify: 'audit',
+  ThrottleRate: 'audit',
+  SecurityThreats: 'audit',
+  SecurityAuditReport: 'audit',
   Auth: 'auth',
   AuditLogs: 'audit',
   AuditTrail: 'audit',
@@ -115,8 +120,8 @@ const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'FiscalYears', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SystemBackup', 'RateLimit'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'FiscalYears', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'SystemBackup', 'RateLimit'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'FiscalYears', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'FiscalYears', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -124,8 +129,8 @@ const MODULE_DENY: Record<UserRole, string[]> = {
 const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'FiscalYears', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SystemAuditLogs', 'SystemBackup', 'RateLimit'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'FiscalYears', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'SystemAuditLogs', 'SystemBackup', 'RateLimit'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'FiscalYears', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SystemAuditLogs', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'FiscalYears', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'SystemAuditLogs', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
   vat_auditor: ['SystemBackup'], // VAT Auditor is read-only; cannot trigger backups (admin only)
 };
 
