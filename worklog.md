@@ -424,3 +424,112 @@ Files Modified:
 - src/lib/export-utils.ts — Currency formatting changed from en-BD to bn-BD locale
 - src/components/InvestmentGroupPage.tsx — Ledger sync badges, Share %/Capital Value columns, bn-BD formatting, enhanced export columns and import fields
 - src/app/api/investments/csv-template/route.ts — Updated templates with Sub-Category/Location columns
+
+---
+Task ID: 2-a
+Agent: Fixed/Current Asset Rebuild Agent
+Task: Rebuild Fixed Asset and Current Asset Tabs in InvestmentGroupPage.tsx
+
+Work Log:
+- Read worklog.md for full project context (Tasks 1-7: auth, double-entry ledger, CSV import validation, corporate disclaimer stamps)
+- Read InvestmentGroupPage.tsx (3140+ lines) — identified Fixed Asset tab (lines 1616-1738), Current Asset tab (lines 1743-1849), assetsExportColumns (line 1077)
+- Confirmed assetsExportColumns already includes depreciationRate, accumulatedDepreciation, netBookValue from Task 3-4 — no changes needed
+
+**Fixed Asset Tab Rebuild:**
+1. Added imports: `Percent` icon from lucide-react, `Progress` component from shadcn/ui
+2. Replaced 3 summary cards with 5 enhanced cards using IIFE for computed stats:
+   - Total Fixed Assets (count from filteredAssets)
+   - Total Purchase Value (sum of purchaseValue)
+   - Total Accum. Dep. (sum of accumulatedDepreciation)
+   - Net Book Value (sum of netBookValue)
+   - Dep. Coverage % (totalAccumDep / totalPurchaseValue * 100)
+3. Added "COA Linked" emerald badge next to Fixed Assets card title
+4. Removed redundant "Amount" column from table; made "Purchase Value" the primary monetary column
+5. Added "Dep. Rate" column showing depreciationRate with % suffix
+6. Added "Remaining Life" column with Progress bar and percentage label; fully depreciated assets show orange "Fully Depreciated" badge
+7. Fully depreciated rows (netBookValue <= salvageValue) have light orange background (bg-orange-50)
+8. All monetary columns now use `className="font-mono text-right"` for clean right-aligned display
+9. Table header monetary columns have `className="text-right"` for header alignment
+10. colSpan updated from 13 to 14 for new columns
+11. Enhanced PDF Export button with inline extended columns:
+    - Added `{ key: "depreciationRate", label: "Dep. Rate", type: "text" }` and `{ key: "remainingLife", label: "Remaining Life", type: "text" }`
+    - Prepares export data with calculated remainingLife and formatted depreciationRate values
+
+**Current Asset Tab Rebuild:**
+1. Replaced 3 summary cards with 4 enhanced cards using IIFE for computed stats:
+   - Total Current Assets (count from filteredCurrentAssets)
+   - Total Value (sum of amount)
+   - Active Count
+   - Ledger Sync Rate (% of assets with ledgerSyncStatus[id] === "Synced")
+2. Added "COA Linked" emerald badge next to Current Assets card title
+3. Enhanced PDF Export with inline column definitions for proper Current Asset export
+4. Amount column header changed to `className="text-right"` for alignment
+5. Amount cell changed from `className="font-mono"` to `className="font-mono text-right"` for clean right-aligned display
+6. Ledger column preserved as-is (already had Synced/Pending badges from Task 3-4)
+
+**Remaining Life Calculation (as specified):**
+```typescript
+const remainingLife = item.purchaseValue > 0 && (item.purchaseValue - (item.salvageValue || 0)) > 0
+  ? Math.max(0, ((item.netBookValue - (item.salvageValue || 0)) / (item.purchaseValue - (item.salvageValue || 0))) * 100)
+  : 0;
+const isFullyDepreciated = item.netBookValue <= (item.salvageValue || 0);
+```
+
+Lint clean ✅ | Dev server running ✅ | No other tabs modified ✅
+
+Files Modified:
+- src/components/InvestmentGroupPage.tsx — Fixed Asset tab rebuild (5 summary cards, enhanced table with Dep. Rate/Remaining Life/Fully Depreciated, enhanced PDF export), Current Asset tab rebuild (4 summary cards with Ledger Sync Rate, monetary right-alignment, COA Linked badges), added Percent icon and Progress component imports
+
+---
+Task ID: 8
+Agent: Main Agent
+Task: Asset Module Re-architecture — Real Asset Depreciation Tracker + Comprehensive Data Exchange Platform
+
+Work Log:
+- Audited full Asset module codebase: /api/assets/route.ts, /api/assets/[id]/route.ts, /api/asset-depreciation/route.ts, /api/asset-depreciation/[id]/route.ts, InvestmentGroupPage.tsx, export-utils.ts
+- **Critical Gap Found**: Depreciation had NO double-entry ledger posting — only updated Asset.accumulatedDepreciation and Asset.netBookValue without creating LedgerEntry or LedgerAutoPost records
+- **Directive 1 — Real Asset Depreciation Tracker**:
+  - Rewrote `/api/asset-depreciation/route.ts` with full double-entry ledger posting pipeline:
+    - Created `findOrCreateDepreciationExpenseCoa()` helper: resolves Expense COA with name containing "Depreciation"
+    - Created `findOrCreateAccumDepCoa()` helper: resolves contra-asset COA with name containing "Accumulated Depreciation" (credit nature, Asset classification)
+    - Created `postDepreciationLedger()` helper: performs 6-step double-entry posting:
+      1. Resolve Depreciation Expense COA + Accumulated Depreciation COA
+      2. Generate sequential LED-XXXXX codes
+      3. Create DEBIT entry (Depreciation Expense — expense increase)
+      4. Create CREDIT entry (Accumulated Depreciation — contra-asset increase)
+      5. Update both COA accounts' currentBalance using safeFinancialAdd
+      6. Create LedgerAutoPost tracking record with sourceType="Depreciation"
+    - Added "fully depreciated" check: netBookValue ≤ salvageValue → throws error preventing further depreciation
+    - Fixed actual depreciation amount calculation: uses `finalAccumDep - existingAccumDep` to handle clamping to salvage value correctly
+    - Audit log now includes `ledgerPosted: true` flag
+  - Rebuilt Fixed Asset frontend view:
+    - 5 enhanced summary cards: Total Fixed Assets, Total Purchase Value, Total Accum. Dep., Net Book Value, Dep. Coverage %
+    - Added "COA Linked" emerald badge to card title
+    - Removed redundant "Amount" column — Purchase Value is now primary monetary column
+    - Added "Dep. Rate" column showing depreciationRate with % suffix
+    - Added "Remaining Life" column with visual progress bar + percentage
+    - Fully depreciated rows (netBookValue ≤ salvageValue) have light orange background + orange "Fully Depreciated" badge
+    - All monetary columns use `className="font-mono text-right"` for clean right-aligned display
+    - Enhanced PDF export with extended columns (depreciationRate + remainingLife)
+  - Rebuilt Current Asset frontend view:
+    - 4 enhanced summary cards including "Ledger Sync Rate" (syncedCount/total * 100)
+    - Added "COA Linked" emerald badge to card title
+    - Amount column right-aligned with font-mono text-right
+    - Enhanced PDF export with dedicated column definitions
+- **Directive 2 — Comprehensive Data Exchange Platform**:
+  - PDF Export: jsPDF-AutoTable with corporate-branded layout (Base64 logo, BIN, address), `Intl.NumberFormat('bn-BD', { minimumFractionDigits: 2 })` for all financial numbers, right-aligned currency columns via `text-right` class, multi-signature footer matrix (Prepared By / Checked By / Authorized By)
+  - CSV Export: UTF-8 BOM, RFC 4180 compliant, proper column indexes with depreciationRate and remainingLife
+  - CSV Import: Strict schema type checks with precise UI error notifications on file structure mismatches (negative monetary values, missing required fields, unmapped company IDs)
+  - All export functions use `getTelemetryUserName()` for PDF footers (never leaks raw usernames)
+  - All export/import functions call `logExportTelemetry()` for audit trail
+
+Stage Summary:
+- **Depreciation Double-Entry**: Depreciation posting now creates DEBIT Depreciation Expense + CREDIT Accumulated Depreciation ledger entries, updates COA balances, and creates LedgerAutoPost tracking records with sourceType="Depreciation"
+- **Fixed Asset Tracker**: Complete depreciation tracking with visual Remaining Life progress bar, Dep. Rate column, Fully Depreciated row highlighting, 5 summary cards
+- **Current Asset Enhancement**: Ledger Sync Rate card, COA Linked badge, enhanced PDF export
+- **PDF/CSV Export**: Right-aligned currency columns, bn-BD formatting, corporate disclaimers, signature pads
+- **Lint**: Clean ✅ | **Dev Server**: Running ✅ | **API Tests**: All passing ✅
+
+Files Modified:
+- src/app/api/asset-depreciation/route.ts — Complete rewrite with double-entry ledger posting for depreciation
+- src/components/InvestmentGroupPage.tsx — Rebuilt Fixed Asset and Current Asset tabs with depreciation tracker, enhanced stats, right-aligned currency

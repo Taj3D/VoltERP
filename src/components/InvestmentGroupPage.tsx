@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, FileDown, Shield, Landmark,
   Building2, Wallet, ArrowDownCircle, ArrowUpCircle, FileBarChart,
   Banknote, TrendingUp, CheckCircle, Calculator, AlertTriangle,
-  BookOpen, MapPin, Tag,
+  BookOpen, MapPin, Tag, Percent,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -1614,18 +1615,28 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             TAB 3: FIXED ASSET
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="fixed-asset">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
-            <StatCard label="Total Fixed Assets" value={assetsStats.total} icon={Building2} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
-            <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(assetsStats.totalValue)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
-            <StatCard label="Active Count" value={assetsStats.activeCount} icon={CheckCircle} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
-          </div>
+          {/* Enhanced Summary Cards — Fixed Asset */}
+          {(() => {
+            const totalPurchaseValue = filteredAssets.reduce((s: number, a: any) => s + (typeof a.purchaseValue === "number" ? a.purchaseValue : 0), 0);
+            const totalAccumDep = filteredAssets.reduce((s: number, a: any) => s + (typeof a.accumulatedDepreciation === "number" ? a.accumulatedDepreciation : 0), 0);
+            const totalNBV = filteredAssets.reduce((s: number, a: any) => s + (typeof a.netBookValue === "number" ? a.netBookValue : 0), 0);
+            const depCoverage = totalPurchaseValue > 0 ? Math.round((totalAccumDep / totalPurchaseValue) * 100) : 0;
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+                <StatCard label="Total Fixed Assets" value={filteredAssets.length} icon={Building2} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+                <StatCard label="Total Purchase Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(totalPurchaseValue)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
+                <StatCard label="Total Accum. Dep." value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(totalAccumDep)} icon={TrendingUp} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+                <StatCard label="Net Book Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(totalNBV)} icon={Calculator} color="text-emerald-600" bg="bg-emerald-50 dark:bg-emerald-900/30" />
+                <StatCard label="Dep. Coverage %" value={`${depCoverage}%`} icon={Percent} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
+              </div>
+            );
+          })()}
 
           {/* Actions Bar */}
           <Card className="mt-4">
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle className="text-base">Fixed Assets</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2">Fixed Assets <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]">COA Linked</Badge></CardTitle>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("assets")}>
                     <Download className="w-4 h-4 mr-1" />CSV Template
@@ -1636,7 +1647,24 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Fixed-Assets", assetsExportColumns, prepareAssetExport(filteredAssets))}>
                     <Download className="w-4 h-4 mr-1" />Export CSV
                   </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportPDF("Fixed-Assets", assetsExportColumns, prepareAssetExport(filteredAssets))}>
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => {
+                    const fixedExportCols = [
+                      ...assetsExportColumns,
+                      { key: "depreciationRate", label: "Dep. Rate", type: "text" as const },
+                      { key: "remainingLife", label: "Remaining Life", type: "text" as const },
+                    ];
+                    const fixedExportData = prepareAssetExport(filteredAssets).map((a: any) => {
+                      const remainingLife = a.purchaseValue > 0 && (a.purchaseValue - (a.salvageValue || 0)) > 0
+                        ? Math.max(0, ((a.netBookValue - (a.salvageValue || 0)) / (a.purchaseValue - (a.salvageValue || 0))) * 100)
+                        : 0;
+                      return {
+                        ...a,
+                        depreciationRate: a.depreciationRate ? `${a.depreciationRate}%` : "—",
+                        remainingLife: `${Math.round(remainingLife)}%`,
+                      };
+                    });
+                    doExportPDF("Fixed-Assets", fixedExportCols, fixedExportData);
+                  }}>
                     <FileDown className="w-4 h-4 mr-1" />Export PDF
                   </Button>
                   <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openAssetCreate("Fixed")} disabled={isVatAuditor}>
@@ -1661,12 +1689,13 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Investment Head</TableHead>
                       <TableHead>Sub-Category</TableHead>
                       <TableHead>Location</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Purchase Value</TableHead>
-                      <TableHead>Salvage Value</TableHead>
+                      <TableHead className="text-right">Purchase Value</TableHead>
+                      <TableHead className="text-right">Salvage Value</TableHead>
                       <TableHead>Useful Life</TableHead>
-                      <TableHead>Accum. Dep.</TableHead>
-                      <TableHead>Net Book Value</TableHead>
+                      <TableHead>Dep. Rate</TableHead>
+                      <TableHead className="text-right">Accum. Dep.</TableHead>
+                      <TableHead className="text-right">Net Book Value</TableHead>
+                      <TableHead>Remaining Life</TableHead>
                       <TableHead>Ledger</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
@@ -1674,60 +1703,76 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   </TableHeader>
                   <TableBody>
                     {assetsLoading ? (
-                      <TableRow><TableCell colSpan={13} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={14} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredAssets.length === 0 ? (
-                      <TableRow><TableCell colSpan={13} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
-                    ) : filteredAssets.map((item: any) => (
-                      <TableRow key={item.id} className="hover:bg-muted/50">
-                        <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
-                        <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
-                        <TableCell>
-                          {item.assetSubCategory ? (
-                            <Badge variant="outline" className="text-xs">{item.assetSubCategory}</Badge>
-                          ) : "—"}
-                        </TableCell>
-                        <TableCell>
-                          {item.locationTag ? (
-                            <Badge variant="outline" className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{item.locationTag}</Badge>
-                          ) : "—"}
-                        </TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.purchaseValue)}</TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.salvageValue)}</TableCell>
-                        <TableCell>{item.usefulLifeMonths ? `${item.usefulLifeMonths} mo` : "—"}</TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.accumulatedDepreciation)}</TableCell>
-                        <TableCell className="font-mono font-bold">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.netBookValue)}</TableCell>
-                        <TableCell>
-                          {ledgerSyncStatus[item.id] === "Synced" ? (
-                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />Synced
+                      <TableRow><TableCell colSpan={14} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
+                    ) : filteredAssets.map((item: any) => {
+                      const remainingLife = item.purchaseValue > 0 && (item.purchaseValue - (item.salvageValue || 0)) > 0
+                        ? Math.max(0, ((item.netBookValue - (item.salvageValue || 0)) / (item.purchaseValue - (item.salvageValue || 0))) * 100)
+                        : 0;
+                      const isFullyDepreciated = item.netBookValue <= (item.salvageValue || 0);
+                      return (
+                        <TableRow key={item.id} className={`hover:bg-muted/50 ${isFullyDepreciated ? "bg-orange-50 dark:bg-orange-900/10" : ""}`}>
+                          <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
+                          <TableCell>
+                            {item.assetSubCategory ? (
+                              <Badge variant="outline" className="text-xs">{item.assetSubCategory}</Badge>
+                            ) : "—"}
+                          </TableCell>
+                          <TableCell>
+                            {item.locationTag ? (
+                              <Badge variant="outline" className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{item.locationTag}</Badge>
+                            ) : "—"}
+                          </TableCell>
+                          <TableCell className="font-mono text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.purchaseValue)}</TableCell>
+                          <TableCell className="font-mono text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.salvageValue)}</TableCell>
+                          <TableCell>{item.usefulLifeMonths ? `${item.usefulLifeMonths} mo` : "—"}</TableCell>
+                          <TableCell>{item.depreciationRate ? `${item.depreciationRate}%` : "—"}</TableCell>
+                          <TableCell className="font-mono text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.accumulatedDepreciation)}</TableCell>
+                          <TableCell className="font-mono text-right font-bold">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.netBookValue)}</TableCell>
+                          <TableCell>
+                            {isFullyDepreciated ? (
+                              <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[10px]">Fully Depreciated</Badge>
+                            ) : (
+                              <div className="flex items-center gap-2 min-w-[100px]">
+                                <Progress value={remainingLife} className="h-2 flex-1" />
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">{Math.round(remainingLife)}%</span>
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {ledgerSyncStatus[item.id] === "Synced" ? (
+                              <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />Synced
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
+                              {item.isActive ? "Active" : "Inactive"}
                             </Badge>
-                          ) : (
-                            <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
-                            {item.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openAssetEdit(item, "Fixed")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span tabIndex={0}>
-                                    <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setAssetsDelete(item)} disabled={isVatAuditor || !isAdmin}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                  </span>
-                                </TooltipTrigger>
-                                {!isAdmin && <TooltipContent>Only administrators can delete financial posts</TooltipContent>}
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => openAssetEdit(item, "Fixed")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span tabIndex={0}>
+                                      <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setAssetsDelete(item)} disabled={isVatAuditor || !isAdmin}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  {!isAdmin && <TooltipContent>Only administrators can delete financial posts</TooltipContent>}
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -1741,18 +1786,25 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             TAB 4: CURRENT ASSET
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="current-asset">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
-            <StatCard label="Total Current Assets" value={currentAssetsStats.total} icon={Wallet} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
-            <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(currentAssetsStats.totalValue)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
-            <StatCard label="Active Count" value={currentAssetsStats.activeCount} icon={CheckCircle} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
-          </div>
+          {/* Enhanced Summary Cards — Current Asset */}
+          {(() => {
+            const syncedCount = filteredCurrentAssets.filter((a: any) => ledgerSyncStatus[a.id] === "Synced").length;
+            const syncRate = filteredCurrentAssets.length > 0 ? Math.round((syncedCount / filteredCurrentAssets.length) * 100) : 0;
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                <StatCard label="Total Current Assets" value={filteredCurrentAssets.length} icon={Wallet} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+                <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(currentAssetsStats.totalValue)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
+                <StatCard label="Active Count" value={currentAssetsStats.activeCount} icon={CheckCircle} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+                <StatCard label="Ledger Sync Rate" value={`${syncRate}%`} icon={BookOpen} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
+              </div>
+            );
+          })()}
 
           {/* Actions Bar */}
           <Card className="mt-4">
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle className="text-base">Current Assets</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2">Current Assets <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]">COA Linked</Badge></CardTitle>
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("assets")}>
                     <Download className="w-4 h-4 mr-1" />CSV Template
@@ -1763,7 +1815,19 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Current-Assets", assetsExportColumns, prepareAssetExport(filteredCurrentAssets))}>
                     <Download className="w-4 h-4 mr-1" />Export CSV
                   </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportPDF("Current-Assets", assetsExportColumns, prepareAssetExport(filteredCurrentAssets))}>
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => {
+                    const currentExportCols = [
+                      { key: "date", label: "Date", type: "date" as const },
+                      { key: "investmentHeadName", label: "Investment Head", type: "text" as const },
+                      { key: "amount", label: "Amount", type: "currency" as const },
+                      { key: "assetCategory", label: "Category", type: "text" as const },
+                      { key: "assetSubCategory", label: "Sub-Category", type: "text" as const },
+                      { key: "locationTag", label: "Location", type: "text" as const },
+                      { key: "description", label: "Description", type: "text" as const },
+                      { key: "isActive", label: "Status", type: "boolean" as const },
+                    ];
+                    doExportPDF("Current-Assets", currentExportCols, prepareAssetExport(filteredCurrentAssets));
+                  }}>
                     <FileDown className="w-4 h-4 mr-1" />Export PDF
                   </Button>
                   <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openAssetCreate("Current")} disabled={isVatAuditor}>
@@ -1788,7 +1852,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Investment Head</TableHead>
                       <TableHead>Sub-Category</TableHead>
                       <TableHead>Location</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead>Ledger</TableHead>
@@ -1815,7 +1879,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                             <Badge variant="outline" className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{item.locationTag}</Badge>
                           ) : "—"}
                         </TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
+                        <TableCell className="font-mono text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
                         <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
                         <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
                         <TableCell>
