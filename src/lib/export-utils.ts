@@ -479,6 +479,19 @@ function drawFooter(
   const footerName = company?.name || "VoltERP";
   doc.text(`\u00A9 ${footerName}`, margin, footerY);
 
+  // Corporate Disclaimer Stamp (just above navy bar, on last page only for cleaner output)
+  if (company?.systemNote && pageNumber === 1) {
+    doc.setFontSize(5);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(160, 160, 170);
+    const maxDisclaimerWidth = pageWidth - margin * 2;
+    const disclaimerLines = doc.splitTextToSize(company.systemNote, maxDisclaimerWidth);
+    const disclaimerStartY = pageHeight - 14 - (disclaimerLines.length * 2.5);
+    disclaimerLines.forEach((line: string, i: number) => {
+      doc.text(line, margin, disclaimerStartY + i * 2.5);
+    });
+  }
+
   // Right: page number (with placeholder for total)
   const pageText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
   doc.text(pageText, pageWidth - margin - doc.getTextWidth(pageText), footerY);

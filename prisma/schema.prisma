@@ -67,12 +67,14 @@ model Asset {
   date              DateTime
   amount            Float             // Purchase value / capital injection amount
   assetCategory     String            @default("Fixed") // "Fixed" or "Current"
+  assetSubCategory  String?           // Sub-classification: "Machinery", "Vehicle", "Furniture", "IT Equipment", "Inventory", "Cash", "Receivable", etc.
   purchaseValue     Float             @default(0) // Original purchase/acquisition value (Fixed assets)
   salvageValue      Float             @default(0) // Estimated salvage/residual value at end of useful life
   usefulLifeMonths  Int               @default(0) // Useful life in months for depreciation calculation
   depreciationRate  Float             @default(0) // Annual depreciation rate (%)
   accumulatedDepreciation Float       @default(0) // Running accumulated depreciation
   netBookValue      Float             @default(0) // Current net book value (purchaseValue - accumulatedDepreciation)
+  locationTag       String?           // Physical location / branch / department tag for asset tracking
   idempotencyKey    String?           @unique // Idempotent reference key to prevent duplicate asset allocation
   description       String?
   companyId         String?           // Multi-tenant isolation
@@ -86,6 +88,8 @@ model Asset {
   @@index([investmentHeadId])
   @@index([companyId])
   @@index([assetCategory])
+  @@index([locationTag])
+  @@index([assetSubCategory])
 }
 
 model AssetDepreciation {

@@ -73,12 +73,59 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const companyId = security.user.companyId;
 
-    // ── Batch mode support ──
+    // ── Batch mode support (CSV Import) ──
     if (body.batchMode && Array.isArray(body.data)) {
+      // Pre-validation: reject negative monetary values and unmapped company identifiers
+      const monetaryFields = ['amount', 'purchaseValue', 'salvageValue'] as const;
+      const validationErrors: Array<{ row: number; field: string; message: string }> = [];
+      const validItems: unknown[] = [];
+
+      for (let i = 0; i < body.data.length; i++) {
+        const item = body.data[i];
+        let rowValid = true;
+
+        // Check negative monetary values
+        for (const field of monetaryFields) {
+          const val = Number(item[field]);
+          if (item[field] !== undefined && item[field] !== null && val < 0) {
+            validationErrors.push({
+              row: i + 1,
+              field,
+              message: `Negative value ${val} not allowed for ${field}`,
+            });
+            rowValid = false;
+          }
+        }
+
+        // Check unmapped company identifier
+        if (item.companyId && companyId && item.companyId !== companyId) {
+          validationErrors.push({
+            row: i + 1,
+            field: 'companyId',
+            message: `Unmapped company identifier: ${item.companyId} does not match authenticated user's company`,
+          });
+          rowValid = false;
+        }
+
+        if (rowValid) {
+          validItems.push(item);
+        }
+      }
+
+      if (validationErrors.length > 0 && validItems.length === 0) {
+        return NextResponse.json({
+          error: 'All rows failed validation',
+          validationErrors,
+          imported: 0,
+          failed: body.data.length,
+        }, { status: 400 });
+      }
+
+      const batchItems = validItems;
       const results = await db.$transaction(async (tx) => {
         const created: unknown[] = [];
-        for (const item of body.data) {
-          const record = await createSingleAsset(tx, item, companyId, security);
+        for (const item of batchItems) {
+          const record = await createSingleAsset(tx, item as Record<string, unknown>, companyId, security);
           created.push(record);
         }
 
@@ -90,7 +137,7 @@ export async function POST(request: NextRequest) {
             recordLabel: `Batch: ${created.length} assets`,
             userId: security.user.id,
             userName: security.user.name,
-            details: JSON.stringify({ count: created.length, batchMode: true }),
+            details: JSON.stringify({ count: created.length, batchMode: true, rejected: validationErrors.length }),
           },
         });
 
@@ -104,10 +151,15 @@ export async function POST(request: NextRequest) {
         recordLabel: `Batch: ${results.length} assets`,
         userId: security.user.id,
         userName: security.user.name,
-        details: `Created ${results.length} assets in batch`,
+        details: `Created ${results.length} assets in batch (${validationErrors.length} rejected)`,
       });
 
-      return NextResponse.json(results, { status: 201 });
+      return NextResponse.json({
+        imported: results.length,
+        failed: validationErrors.length,
+        validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
+        data: results,
+      }, { status: 201 });
     }
 
     // ── Single mode ──
@@ -412,6 +464,7 @@ async function createSingleAsset(
       date: body.date ? new Date(body.date as string) : new Date(),
       amount: safeFinancialRound(amount),
       assetCategory,
+      assetSubCategory: (body.assetSubCategory as string) || null,
       purchaseValue,
       salvageValue,
       usefulLifeMonths,
@@ -419,6 +472,7 @@ async function createSingleAsset(
       accumulatedDepreciation,
       netBookValue,
       idempotencyKey: idempotencyKey || null,
+      locationTag: (body.locationTag as string) || null,
       description: (body.description as string) || null,
       ...(companyId && { companyId }),
       isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,

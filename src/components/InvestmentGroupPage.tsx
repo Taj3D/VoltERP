@@ -6,7 +6,9 @@ import {
   ChevronDown, ChevronRight, FileDown, Shield, Landmark,
   Building2, Wallet, ArrowDownCircle, ArrowUpCircle, FileBarChart,
   Banknote, TrendingUp, CheckCircle, Calculator, AlertTriangle,
+  BookOpen, MapPin, Tag,
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -214,6 +216,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
     amount: 0, assetCategory: "Fixed", purchaseValue: 0, salvageValue: 0,
     usefulLifeMonths: 0, depreciationRate: 0, idempotencyKey: "", description: "", isActive: true,
+    assetSubCategory: "", locationTag: "",
   });
 
   // ─── Current Assets State ───
@@ -227,6 +230,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [currentAssetsFormData, setCurrentAssetsFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
     amount: 0, assetCategory: "Current", description: "", isActive: true,
+    assetSubCategory: "", locationTag: "",
   });
 
   // ─── Liabilities (Receive) State ───
@@ -268,6 +272,14 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [depGenerating, setDepGenerating] = useState(false);
   const [depPeriod, setDepPeriod] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [expandedDep, setExpandedDep] = useState<Set<string>>(new Set());
+
+  // ─── Ledger Sync Status State ───
+  const [ledgerSyncStatus, setLedgerSyncStatus] = useState<Record<string, string>>({});
+
+  // ─── Asset Ledger Tab Filter State ───
+  const [assetLedgerCategoryFilter, setAssetLedgerCategoryFilter] = useState<string>("All");
+  const [assetLedgerLocationFilter, setAssetLedgerLocationFilter] = useState<string>("");
+  const [assetLedgerSubCatFilter, setAssetLedgerSubCatFilter] = useState<string>("");
 
   // ─── Shared: Investment Heads for dropdowns ───
   const [headOptions, setHeadOptions] = useState<any[]>([]);
@@ -368,6 +380,20 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     }
   }, [toast]);
 
+  const loadLedgerSyncStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/ledger-auto-post?sourceType=Asset&limit=1000");
+      const records = res.records || res || [];
+      const mapping: Record<string, string> = {};
+      (Array.isArray(records) ? records : []).forEach((r: any) => {
+        if (r.sourceId && r.status === "Posted") {
+          mapping[r.sourceId] = "Synced";
+        }
+      });
+      setLedgerSyncStatus(mapping);
+    } catch {}
+  }, []);
+
   // ============================================================
   // INIT
   // ============================================================
@@ -380,12 +406,13 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
   useEffect(() => {
     if (activeTab === "investment") loadInvestments();
-    if (activeTab === "fixed-asset") loadAssets();
-    if (activeTab === "current-asset") loadCurrentAssets();
+    if (activeTab === "fixed-asset") { loadAssets(); loadLedgerSyncStatus(); }
+    if (activeTab === "current-asset") { loadCurrentAssets(); loadLedgerSyncStatus(); }
     if (activeTab === "liability-receive") loadLiabReceive();
     if (activeTab === "liability-pay") loadLiabPay();
     if (activeTab === "depreciation") loadDepreciations();
-  }, [activeTab, loadInvestments, loadAssets, loadCurrentAssets, loadLiabReceive, loadLiabPay, loadDepreciations]);
+    if (activeTab === "asset-ledger") { loadAssets(); loadCurrentAssets(); loadLedgerSyncStatus(); }
+  }, [activeTab, loadInvestments, loadAssets, loadCurrentAssets, loadLiabReceive, loadLiabPay, loadDepreciations, loadLedgerSyncStatus]);
 
   // ============================================================
   // FILTERED DATA
@@ -694,6 +721,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       investmentHeadId: "", date: new Date().toISOString().split("T")[0],
       amount: 0, assetCategory: category, purchaseValue: 0, salvageValue: 0,
       usefulLifeMonths: 0, depreciationRate: 0, idempotencyKey: "", description: "", isActive: true,
+      assetSubCategory: "", locationTag: "",
     });
     if (isFixed) setAssetsEdit(null);
     else setCurrentAssetsEdit(null);
@@ -715,6 +743,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       idempotencyKey: item.idempotencyKey || "",
       description: item.description || "",
       isActive: item.isActive ?? true,
+      assetSubCategory: item.assetSubCategory || "",
+      locationTag: item.locationTag || "",
     });
     if (isFixed) { setAssetsEdit(item); setAssetsForm(true); }
     else { setCurrentAssetsEdit(item); setCurrentAssetsForm(true); }
@@ -774,6 +804,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         assetCategory: formData.assetCategory || category,
         description: formData.description || null,
         isActive: formData.isActive ?? true,
+        assetSubCategory: formData.assetSubCategory || null,
+        locationTag: formData.locationTag || null,
       };
       // Phase 3: Include depreciation fields for Fixed Assets
       if (isFixed) {
@@ -1029,6 +1061,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "investmentHeadName", label: "Investment Head", type: "text" },
     { key: "amount", label: "Amount", type: "currency" },
     { key: "assetCategory", label: "Category", type: "text" },
+    { key: "assetSubCategory", label: "Sub-Category", type: "text" },
+    { key: "locationTag", label: "Location", type: "text" },
     { key: "purchaseValue", label: "Purchase Value", type: "currency" },
     { key: "salvageValue", label: "Salvage Value", type: "currency" },
     { key: "usefulLifeMonths", label: "Useful Life (Mo)", type: "number" },
@@ -1105,6 +1139,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "date", label: "Date", type: "date", required: true },
     { key: "amount", label: "Amount", type: "number", required: true },
     { key: "assetCategory", label: "Asset Category", type: "select", options: [{ value: "Fixed", label: "Fixed" }, { value: "Current", label: "Current" }] },
+    { key: "assetSubCategory", label: "Sub-Category", type: "text" },
+    { key: "locationTag", label: "Location Tag", type: "text" },
     { key: "description", label: "Description", type: "textarea" },
   ];
 
@@ -1120,13 +1156,31 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
   const handleImportCSV = (apiPath: string, fields: ExportFieldDef[], reloadFn: () => void) => {
     importFromCSV({ apiPath, formFields: fields }).then((result) => {
+      // Enhanced CSV Import Validation: check for negative monetary values
+      const monetaryKeys = ["amount", "purchaseValue", "salvageValue"];
+      const rejectedRows: string[] = [];
+      if (result.rawRows && Array.isArray(result.rawRows)) {
+        result.rawRows.forEach((row: any, idx: number) => {
+          for (const key of monetaryKeys) {
+            const val = Number(row[key]);
+            if (!isNaN(val) && val < 0) {
+              rejectedRows.push(`Row ${idx + 2}: ${key} cannot be negative (${val})`);
+            }
+          }
+        });
+      }
       const errorDetails = result.fieldErrors && result.fieldErrors.length > 0
         ? result.fieldErrors.slice(0, 5).map((e) => `Row ${e.row} ${e.field}: ${e.message}`).join("; ")
         : "";
+      if (rejectedRows.length > 0) {
+        rejectedRows.slice(0, 5).forEach((msg) => {
+          toast({ title: "Validation Error", description: msg, variant: "destructive" });
+        });
+      }
       toast({
         title: "Import Complete",
-        description: `Imported: ${result.imported}, Failed: ${result.failed}${errorDetails ? ` | Errors: ${errorDetails}` : ""}`,
-        variant: result.failed > 0 ? "destructive" : "default",
+        description: `Imported: ${result.imported}, Failed: ${result.failed}${errorDetails ? ` | Errors: ${errorDetails}` : ""}${rejectedRows.length > 0 ? ` | Rejected: ${rejectedRows.length} rows with negative monetary values` : ""}`,
+        variant: result.failed > 0 || rejectedRows.length > 0 ? "destructive" : "default",
       });
       reloadFn();
     }).catch((e: any) => {
@@ -1233,6 +1287,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
           </TabsTrigger>
           <TabsTrigger value="depreciation" className="flex items-center gap-1 text-xs">
             <Calculator className="w-3.5 h-3.5" />Depreciation Ledger
+          </TabsTrigger>
+          <TabsTrigger value="asset-ledger" className="flex items-center gap-1 text-xs">
+            <BookOpen className="w-3.5 h-3.5" />Asset Ledger
           </TabsTrigger>
         </TabsList>
 
@@ -1558,31 +1615,53 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                     <TableRow className="bg-muted/50">
                       <TableHead>Date</TableHead>
                       <TableHead>Investment Head</TableHead>
+                      <TableHead>Sub-Category</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Purchase Value</TableHead>
                       <TableHead>Salvage Value</TableHead>
                       <TableHead>Useful Life</TableHead>
                       <TableHead>Accum. Dep.</TableHead>
                       <TableHead>Net Book Value</TableHead>
+                      <TableHead>Ledger</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {assetsLoading ? (
-                      <TableRow><TableCell colSpan={10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={13} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredAssets.length === 0 ? (
-                      <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={13} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
                     ) : filteredAssets.map((item: any) => (
                       <TableRow key={item.id} className="hover:bg-muted/50">
                         <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
                         <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
+                        <TableCell>
+                          {item.assetSubCategory ? (
+                            <Badge variant="outline" className="text-xs">{item.assetSubCategory}</Badge>
+                          ) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {item.locationTag ? (
+                            <Badge variant="outline" className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{item.locationTag}</Badge>
+                          ) : "—"}
+                        </TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.purchaseValue)}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.salvageValue)}</TableCell>
                         <TableCell>{item.usefulLifeMonths ? `${item.usefulLifeMonths} mo` : "—"}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.accumulatedDepreciation)}</TableCell>
                         <TableCell className="font-mono font-bold">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.netBookValue)}</TableCell>
+                        <TableCell>
+                          {ledgerSyncStatus[item.id] === "Synced" ? (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />Synced
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</Badge>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -1663,25 +1742,47 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                     <TableRow className="bg-muted/50">
                       <TableHead>Date</TableHead>
                       <TableHead>Investment Head</TableHead>
+                      <TableHead>Sub-Category</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Description</TableHead>
+                      <TableHead>Ledger</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {currentAssetsLoading ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredCurrentAssets.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No current assets found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No current assets found</TableCell></TableRow>
                     ) : filteredCurrentAssets.map((item: any) => (
                       <TableRow key={item.id} className="hover:bg-muted/50">
                         <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
                         <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
+                        <TableCell>
+                          {item.assetSubCategory ? (
+                            <Badge variant="outline" className="text-xs">{item.assetSubCategory}</Badge>
+                          ) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {item.locationTag ? (
+                            <Badge variant="outline" className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{item.locationTag}</Badge>
+                          ) : "—"}
+                        </TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
                         <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
                         <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
+                        <TableCell>
+                          {ledgerSyncStatus[item.id] === "Synced" ? (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />Synced
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</Badge>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -2133,6 +2234,255 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════
+            TAB 9: ASSET LEDGER (Combined Fixed + Current)
+        ═══════════════════════════════════════════════════════════ */}
+        <TabsContent value="asset-ledger">
+          {(() => {
+            const allAssets = [...assets, ...currentAssets];
+            // Filter by category
+            const filtered = allAssets.filter((a: any) => {
+              if (assetLedgerCategoryFilter !== "All" && a.assetCategory !== assetLedgerCategoryFilter) return false;
+              if (assetLedgerLocationFilter && !(a.locationTag || "").toLowerCase().includes(assetLedgerLocationFilter.toLowerCase())) return false;
+              if (assetLedgerSubCatFilter && !(a.assetSubCategory || "").toLowerCase().includes(assetLedgerSubCatFilter.toLowerCase())) return false;
+              return true;
+            });
+            // Stats
+            const totalAssetValue = filtered.reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0);
+            const totalDepreciation = filtered.reduce((s: number, a: any) => s + (Number(a.accumulatedDepreciation) || 0), 0);
+            const totalNBV = filtered.reduce((s: number, a: any) => s + (Number(a.netBookValue) || 0), 0);
+            const depCoverage = totalAssetValue > 0 ? (totalDepreciation / totalAssetValue) * 100 : 0;
+            // Unique filter options
+            const uniqueLocations = [...new Set(allAssets.map((a: any) => a.locationTag).filter(Boolean))];
+            const uniqueSubCats = [...new Set(allAssets.map((a: any) => a.assetSubCategory).filter(Boolean))];
+            // Chart data by sub-category
+            const chartData = Object.values(
+              filtered.reduce((acc: any, a: any) => {
+                const cat = a.assetSubCategory || a.assetCategory || "Unclassified";
+                if (!acc[cat]) acc[cat] = { name: cat, totalDep: 0, totalNBV: 0, totalPV: 0 };
+                acc[cat].totalDep += Number(a.accumulatedDepreciation) || 0;
+                acc[cat].totalNBV += Number(a.netBookValue) || 0;
+                acc[cat].totalPV += Number(a.purchaseValue) || Number(a.amount) || 0;
+                return acc;
+              }, {})
+            ) as { name: string; totalDep: number; totalNBV: number; totalPV: number }[];
+            // Export columns for Asset Ledger
+            const ledgerExportCols: ExportColumnDef[] = [
+              { key: "date", label: "Date", type: "date" },
+              { key: "investmentHeadName", label: "Investment Head", type: "text" },
+              { key: "assetSubCategory", label: "Sub-Category", type: "text" },
+              { key: "locationTag", label: "Location", type: "text" },
+              { key: "assetCategory", label: "Category", type: "text" },
+              { key: "purchaseValue", label: "Purchase Value", type: "currency" },
+              { key: "accumulatedDepreciation", label: "Accum. Dep.", type: "currency" },
+              { key: "netBookValue", label: "Net Book Value", type: "currency" },
+              { key: "depreciationRate", label: "Dep. Rate (%)", type: "number" },
+              { key: "remainingLifePct", label: "Remaining Life %", type: "number" },
+              { key: "isActive", label: "Status", type: "boolean" },
+            ];
+            const ledgerExportData = filtered.map((a: any) => {
+              const pv = Number(a.purchaseValue) || Number(a.amount) || 0;
+              const ad = Number(a.accumulatedDepreciation) || 0;
+              const ulm = Number(a.usefulLifeMonths) || 0;
+              const remLife = pv > 0 && ulm > 0 ? Math.max(0, ((pv - ad) / pv) * 100) : (a.assetCategory === "Current" ? 100 : 0);
+              return {
+                ...a,
+                investmentHeadName: a.investmentHead?.name || "—",
+                remainingLifePct: Math.round(remLife * 100) / 100,
+              };
+            });
+            const doLedgerExportPDF = () => {
+              try {
+                const maskedKeys = getVatMaskedKeys(ledgerExportCols, isVatAuditor);
+                exportToPDF({
+                  title: "Asset Ledger Report",
+                  subtitle: "All Periods",
+                  columns: ledgerExportCols,
+                  data: ledgerExportData,
+                  isVatAuditor,
+                  vatMaskedColumns: maskedKeys,
+                  company: companyProfile || undefined,
+                  financialFooter: {
+                    preparedBy: auth.user?.displayName || "",
+                    checkedBy: "",
+                    authorizedBy: "",
+                    printedBy: auth.user?.displayName || auth.user?.email || "",
+                  },
+                  summaryRows: [
+                    { cells: ["Total Asset Value", "", "", "", "", isVatAuditor ? "N/A" : fmtCurrency(totalAssetValue), isVatAuditor ? "N/A" : fmtCurrency(totalDepreciation), isVatAuditor ? "N/A" : fmtCurrency(totalNBV), "", "", "", ""] },
+                  ],
+                });
+                toast({ title: "Exported", description: "Asset Ledger exported to PDF" });
+              } catch (e: any) {
+                toast({ title: "Error", description: e.message, variant: "destructive" });
+              }
+            };
+            const doLedgerExportCSV = () => {
+              try {
+                exportToCSV({ title: "Asset-Ledger", columns: ledgerExportCols, data: ledgerExportData, isVatAuditor });
+                toast({ title: "Exported", description: "Asset Ledger exported to CSV" });
+              } catch (e: any) {
+                toast({ title: "Error", description: e.message, variant: "destructive" });
+              }
+            };
+
+            return (
+              <>
+                {/* Summary Dashboard */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                  <StatCard label="Total Asset Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(totalAssetValue)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+                  <StatCard label="Total Depreciation" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(totalDepreciation)} icon={Calculator} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
+                  <StatCard label="Net Book Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(totalNBV)} icon={TrendingUp} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
+                  <StatCard label="Dep. Coverage %" value={`${depCoverage.toFixed(1)}%`} icon={CheckCircle} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+                </div>
+
+                {/* Filter Bar */}
+                <Card className="mt-4">
+                  <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <CardTitle className="text-base flex items-center gap-2"><BookOpen className="w-4 h-4" />Asset Ledger</CardTitle>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={doLedgerExportCSV}>
+                          <Download className="w-4 h-4 mr-1" />Export CSV
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={doLedgerExportPDF}>
+                          <FileDown className="w-4 h-4 mr-1" />Export PDF
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                      <Select value={assetLedgerCategoryFilter} onValueChange={setAssetLedgerCategoryFilter}>
+                        <SelectTrigger className="w-[130px]"><SelectValue placeholder="Category" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="All">All Categories</SelectItem>
+                          <SelectItem value="Fixed">Fixed</SelectItem>
+                          <SelectItem value="Current">Current</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select value={assetLedgerSubCatFilter} onValueChange={setAssetLedgerSubCatFilter}>
+                        <SelectTrigger className="w-[150px]"><SelectValue placeholder="Sub-Category" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">All Sub-Categories</SelectItem>
+                          {uniqueSubCats.map((sc: string) => (
+                            <SelectItem key={sc} value={sc}>{sc}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select value={assetLedgerLocationFilter} onValueChange={setAssetLedgerLocationFilter}>
+                        <SelectTrigger className="w-[150px]"><SelectValue placeholder="Location" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">All Locations</SelectItem>
+                          {uniqueLocations.map((loc: string) => (
+                            <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button variant="outline" size="sm" onClick={() => { setAssetLedgerCategoryFilter("All"); setAssetLedgerSubCatFilter(""); setAssetLedgerLocationFilter(""); }}>
+                        <RefreshCw className="w-4 h-4 mr-1" />Reset
+                      </Button>
+                    </div>
+
+                    {/* Combined Table */}
+                    <div className="overflow-auto max-h-[55vh] rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead>Date</TableHead>
+                            <TableHead>Investment Head</TableHead>
+                            <TableHead>Sub-Category</TableHead>
+                            <TableHead>Location</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Purchase Value</TableHead>
+                            <TableHead>Accum. Dep.</TableHead>
+                            <TableHead>Net Book Value</TableHead>
+                            <TableHead>Dep. Rate</TableHead>
+                            <TableHead>Remaining Life %</TableHead>
+                            <TableHead>Ledger</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filtered.length === 0 ? (
+                            <TableRow><TableCell colSpan={12} className="h-24 text-center text-muted-foreground">No assets found</TableCell></TableRow>
+                          ) : filtered.map((item: any) => {
+                            const pv = Number(item.purchaseValue) || Number(item.amount) || 0;
+                            const ad = Number(item.accumulatedDepreciation) || 0;
+                            const ulm = Number(item.usefulLifeMonths) || 0;
+                            const remLife = pv > 0 && ulm > 0 ? Math.max(0, ((pv - ad) / pv) * 100) : (item.assetCategory === "Current" ? 100 : 0);
+                            const isSynced = ledgerSyncStatus[item.id] === "Synced";
+                            return (
+                              <TableRow key={item.id} className="hover:bg-muted/50">
+                                <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
+                                <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
+                                <TableCell>
+                                  {item.assetSubCategory ? (
+                                    <Badge variant="outline" className="text-xs">{item.assetSubCategory}</Badge>
+                                  ) : "—"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.locationTag ? (
+                                    <Badge variant="outline" className="text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{item.locationTag}</Badge>
+                                  ) : "—"}
+                                </TableCell>
+                                <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
+                                <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(pv)}</TableCell>
+                                <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(ad)}</TableCell>
+                                <TableCell className="font-mono font-bold">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.netBookValue)}</TableCell>
+                                <TableCell>{item.depreciationRate ? `${Number(item.depreciationRate).toFixed(1)}%` : "—"}</TableCell>
+                                <TableCell>{remLife.toFixed(1)}%</TableCell>
+                                <TableCell>
+                                  {isSynced ? (
+                                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 flex items-center gap-1">
+                                      <CheckCircle className="w-3 h-3" />Synced
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
+                                    {item.isActive ? "Active" : "Inactive"}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {allAssets.length} assets</div>
+
+                    {/* Depreciation by Sub-Category Chart */}
+                    {chartData.length > 0 && (
+                      <Card className="mt-4">
+                        <CardHeader className="py-3 px-4">
+                          <CardTitle className="text-sm">Depreciation by Sub-Category</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4">
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                              <YAxis tick={{ fontSize: 11 }} />
+                              <RechartsTooltip formatter={(val: number) => fmtCurrency(val)} />
+                              <Legend />
+                              <Bar dataKey="totalPV" name="Purchase Value" fill="#6366f1" />
+                              <Bar dataKey="totalDep" name="Accum. Depreciation" fill="#ef4444" />
+                              <Bar dataKey="totalNBV" name="Net Book Value" fill="#22c55e" />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
+        </TabsContent>
       </Tabs>
 
       {/* ═══════════════════════════════════════════════════════════
@@ -2368,6 +2718,27 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Label>Asset Category</Label>
               <Input value="Fixed" disabled className="bg-muted" />
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Sub-Category</Label>
+                <Select value={assetsFormData.assetSubCategory || ""} onValueChange={(v) => setAssetsFormData({ ...assetsFormData, assetSubCategory: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select sub-category" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Machinery">Machinery</SelectItem>
+                    <SelectItem value="Vehicle">Vehicle</SelectItem>
+                    <SelectItem value="Furniture">Furniture</SelectItem>
+                    <SelectItem value="IT Equipment">IT Equipment</SelectItem>
+                    <SelectItem value="Building">Building</SelectItem>
+                    <SelectItem value="Land">Land</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Location Tag</Label>
+                <Input value={assetsFormData.locationTag || ""} onChange={(e) => setAssetsFormData({ ...assetsFormData, locationTag: e.target.value })} placeholder="e.g. Warehouse A, Floor 2" />
+              </div>
+            </div>
             {/* Phase 3: Depreciation Fields for Fixed Assets */}
             <Separator />
             <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -2511,6 +2882,25 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Label>Asset Category</Label>
               <Input value="Current" disabled className="bg-muted" />
               <p className="text-xs text-muted-foreground mt-1">Current assets bypass depreciation schedules</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Sub-Category</Label>
+                <Select value={currentAssetsFormData.assetSubCategory || ""} onValueChange={(v) => setCurrentAssetsFormData({ ...currentAssetsFormData, assetSubCategory: v })}>
+                  <SelectTrigger><SelectValue placeholder="Select sub-category" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="Inventory">Inventory</SelectItem>
+                    <SelectItem value="Receivable">Receivable</SelectItem>
+                    <SelectItem value="Prepaid">Prepaid</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Location Tag</Label>
+                <Input value={currentAssetsFormData.locationTag || ""} onChange={(e) => setCurrentAssetsFormData({ ...currentAssetsFormData, locationTag: e.target.value })} placeholder="e.g. Vault, Branch B" />
+              </div>
             </div>
             <div>
               <Label>Description</Label>

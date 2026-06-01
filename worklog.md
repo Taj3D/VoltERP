@@ -137,3 +137,89 @@ Stage Summary:
 Files Modified:
 - src/components/InvestmentGroupPage.tsx — CSV template buttons, enhanced Investment tab with edit/delete, double-entry badges, share/capital display
 - src/app/api/investments/csv-template/route.ts — NEW: CSV template download endpoint
+
+---
+Task ID: 3-4
+Agent: full-stack-developer
+Task: Build Asset Module frontend - Asset Ledger Interface, enhanced Fixed/Current Asset tabs
+
+Work Log:
+- Added Recharts imports (BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell) and new Lucide icons (BookOpen, MapPin, Tag)
+- Added `ledgerSyncStatus` state (Record<string, string>) and `loadLedgerSyncStatus` callback that fetches `/api/ledger-auto-post?sourceType=Asset&limit=1000` and maps sourceId -> "Synced" for Posted entries
+- Added Asset Ledger tab filter states: `assetLedgerCategoryFilter`, `assetLedgerLocationFilter`, `assetLedgerSubCatFilter`
+- Updated tab load effect to call `loadLedgerSyncStatus()` for fixed-asset, current-asset, and asset-ledger tabs
+- Updated `assetsFormData` and `currentAssetsFormData` defaults to include `assetSubCategory: ""` and `locationTag: ""`
+- Updated `openAssetCreate` to include `assetSubCategory: ""` and `locationTag: ""` in form reset
+- Updated `openAssetEdit` to populate `assetSubCategory` and `locationTag` from existing item
+- Updated `saveAsset` payload to include `assetSubCategory` and `locationTag` fields
+- Updated `assetsExportColumns` to include `assetSubCategory` (Sub-Category) and `locationTag` (Location) columns
+- Updated `assetsImportFields` to include `assetSubCategory` (Sub-Category, text) and `locationTag` (Location Tag, text)
+- Enhanced `handleImportCSV` with negative monetary value validation: checks amount, purchaseValue, salvageValue for negative values, shows granular validation toasts per rejection
+- Added new "asset-ledger" TabsTrigger with BookOpen icon
+- Built complete Asset Ledger tab (TabsContent "asset-ledger") with IIFE containing:
+  - Combined allAssets array (Fixed + Current)
+  - Category/Location/SubCategory filter logic
+  - Stats: totalAssetValue, totalDepreciation, totalNBV, depCoverage %
+  - 4 StatCards (Total Asset Value, Total Depreciation, Net Book Value, Dep. Coverage %)
+  - Filter bar with Select dropdowns for category, sub-category, location + Reset button
+  - Combined table with 12 columns: Date, Investment Head, Sub-Category, Location, Category, Purchase Value, Accum. Dep., Net Book Value, Dep. Rate, Remaining Life %, Ledger Status, Status
+  - Ledger Status badge showing "Synced" (green with CheckCircle icon) or "Pending" (yellow)
+  - Sub-Category and Location displayed as outline badges with MapPin icon for location
+  - Remaining Life % calculated as ((pv - ad) / pv) * 100 for fixed, 100 for current
+  - Recharts BarChart showing Purchase Value, Accum. Depreciation, Net Book Value by sub-category
+  - Export PDF with subtitle "All Periods", financialFooter with signature blocks, summaryRows for totals
+  - Export CSV button
+- Updated Fixed Asset table header to include Sub-Category, Location, Ledger columns
+- Updated Fixed Asset table rows with assetSubCategory badge, locationTag badge with MapPin, Ledger Synced/Pending badge
+- Updated Fixed Asset colSpan from 10 to 13
+- Updated Current Asset table header to include Sub-Category, Location, Ledger columns
+- Updated Current Asset table rows with assetSubCategory badge, locationTag badge with MapPin, Ledger Synced/Pending badge
+- Updated Current Asset colSpan from 7 to 10
+- Added Fixed Asset form dialog fields: assetSubCategory Select (Machinery/Vehicle/Furniture/IT Equipment/Building/Land/Other), locationTag Input
+- Added Current Asset form dialog fields: assetSubCategory Select (Cash/Inventory/Receivable/Prepaid/Other), locationTag Input
+- Updated `/api/assets/route.ts` createSingleAsset to include `assetSubCategory` and `locationTag` in asset.create data
+- Updated `/api/assets/[id]/route.ts` PUT handler to include `assetSubCategory` and `locationTag` in asset.update data
+- Lint clean, dev server running
+
+Stage Summary:
+- **Asset Ledger Tab**: New comprehensive tab combining Fixed + Current assets with summary dashboard, filterable combined table, Recharts BarChart depreciation visualization, and PDF/CSV export with financial footer
+- **Ledger Sync Indicators**: Every asset row in Fixed Asset, Current Asset, and Asset Ledger tabs shows "Synced" (green) or "Pending" (yellow) badge based on LedgerAutoPost records with sourceType=Asset
+- **Sub-Category & Location Tag Support**: Full support across forms (select/input), tables (outline badges), export columns, and import fields
+- **Enhanced CSV Import Validation**: Negative monetary values (amount, purchaseValue, salvageValue) rejected with granular per-row toasts
+- **API Backend**: Both POST and PUT asset endpoints now accept and persist `assetSubCategory` and `locationTag` fields
+
+Files Modified:
+- src/components/InvestmentGroupPage.tsx — Asset Ledger tab, ledger sync badges, sub-category/location in forms/tables/exports, enhanced CSV import validation
+- src/app/api/assets/route.ts — Added assetSubCategory and locationTag to createSingleAsset
+- src/app/api/assets/[id]/route.ts — Added assetSubCategory and locationTag to PUT handler
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Asset CSV Import Validation Enhancement + Corporate Disclaimer Stamps in PDF Export
+
+Work Log:
+- Enhanced /api/assets/route.ts batch mode with pre-validation pipeline:
+  - Rejects rows where any monetary field (amount, purchaseValue, salvageValue) is negative
+  - Rejects rows where companyId doesn't match authenticated user's company (unmapped company identifier)
+  - Returns detailed validationErrors array with row number, field, and message for each rejection
+  - If all rows fail validation, returns 400 with full error details
+  - If some rows pass, processes only valid items and reports rejected count in response
+  - Batch response now includes imported/failed counts and validationErrors
+- Added corporate disclaimer stamp to export-utils.ts drawFooter function:
+  - Renders company.systemNote as italicized text just above the navy footer bar
+  - Only shown on page 1 for cleaner multi-page output
+  - Uses splitTextToSize for proper line wrapping
+  - Font: 5px italic, gray color (160, 160, 170)
+- Fixed summaryRows format in Asset Ledger PDF export: changed from label/value objects to cells[] arrays matching export-utils SummaryRow interface
+- All changes lint clean, dev server running at localhost:3000
+
+Stage Summary:
+- **CSV Import Validation**: Server-side enforcement rejects negative assets and unmapped company IDs with detailed error reporting
+- **Corporate Disclaimer Stamp**: systemNote from company profile rendered on PDF page 1 above footer bar
+- **PDF Export Fix**: Summary rows now use correct cells[] format for asset ledger exports
+
+Files Modified:
+- src/app/api/assets/route.ts — Batch mode pre-validation for negative values and unmapped company IDs
+- src/lib/export-utils.ts — Corporate disclaimer stamp in drawFooter
+- src/components/InvestmentGroupPage.tsx — Fixed summaryRows format for Asset Ledger PDF export
