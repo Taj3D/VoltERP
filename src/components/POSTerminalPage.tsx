@@ -554,6 +554,7 @@ export default function POSTerminalPage() {
   // ============================================================
 
   useEffect(() => {
+    let isMounted = true;
     async function loadReferenceData() {
       const headers = getAuthHeaders();
       try {
@@ -563,7 +564,7 @@ export default function POSTerminalPage() {
           fetch("/api/customers?pageSize=500", { headers }).catch(() => null),
         ]);
 
-        if (companiesRes?.ok) {
+        if (companiesRes?.ok && isMounted) {
           const data = await companiesRes.json();
           const list = Array.isArray(data) ? data : data.data || [];
           setCompanies(list);
@@ -572,7 +573,7 @@ export default function POSTerminalPage() {
           }
         }
 
-        if (godownsRes?.ok) {
+        if (godownsRes?.ok && isMounted) {
           const data = await godownsRes.json();
           const list = Array.isArray(data) ? data : data.data || [];
           setGodowns(list.filter((g: Godown) => g.status === "ACTIVE"));
@@ -582,7 +583,7 @@ export default function POSTerminalPage() {
           }
         }
 
-        if (customersRes?.ok) {
+        if (customersRes?.ok && isMounted) {
           const data = await customersRes.json();
           const list = Array.isArray(data) ? data : data.data || [];
           setCustomers(list);
@@ -593,6 +594,7 @@ export default function POSTerminalPage() {
     }
 
     loadReferenceData();
+    return () => { isMounted = false; };
   }, []);
 
   // ============================================================

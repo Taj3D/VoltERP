@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw, FlaskConical, Database, ShieldCheck, Trash2, FileDown,
   CheckCircle, XCircle, AlertTriangle, Clock, Activity, Play, Download
@@ -99,15 +99,26 @@ export default function StagingQAPage() {
   // ── Company ID for seeding ──
   const [companyId, setCompanyId] = useState<string>("");
 
+  // ── Ref for progress timeout cleanup ──
+  const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup progress timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (progressTimeoutRef.current) clearTimeout(progressTimeoutRef.current);
+    };
+  }, []);
+
   // ============================================================
   // LOAD COMPANY DATA
   // ============================================================
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
       try {
         const res = await fetch("/api/companies");
-        if (res.ok) {
+        if (res.ok && isMounted) {
           const data = await res.json();
           const companies = Array.isArray(data) ? data : data.data || [];
           if (companies.length > 0) {
@@ -133,6 +144,7 @@ export default function StagingQAPage() {
         // silently fail
       }
     })();
+    return () => { isMounted = false; };
   }, []);
 
   // ============================================================
@@ -220,7 +232,7 @@ export default function StagingQAPage() {
     } finally {
       setIsLoading(false);
       setLoadingText("");
-      setTimeout(() => setProgress(0), 2000);
+      progressTimeoutRef.current = setTimeout(() => setProgress(0), 2000);
     }
   };
 
@@ -260,7 +272,7 @@ export default function StagingQAPage() {
     } finally {
       setIsLoading(false);
       setLoadingText("");
-      setTimeout(() => setProgress(0), 2000);
+      progressTimeoutRef.current = setTimeout(() => setProgress(0), 2000);
     }
   };
 
@@ -307,7 +319,7 @@ export default function StagingQAPage() {
       setIsLoading(false);
       setLoadingText("");
       setWipeConfirmText("");
-      setTimeout(() => setProgress(0), 2000);
+      progressTimeoutRef.current = setTimeout(() => setProgress(0), 2000);
     }
   };
 

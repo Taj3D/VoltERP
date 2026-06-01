@@ -1337,13 +1337,15 @@ function StockPage() {
   const { toast } = useToast();
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
       try {
         const res = await apiFetch("/api/stock");
-        setData(Array.isArray(res) ? res : res.data || []);
-      } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-      finally { setLoading(false); }
+        if (isMounted) setData(Array.isArray(res) ? res : res.data || []);
+      } catch (e: any) { if (isMounted) toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      finally { if (isMounted) setLoading(false); }
     })();
+    return () => { isMounted = false; };
   }, [toast]);
 
   const filtered = useMemo(() => {
@@ -1855,6 +1857,7 @@ function DashboardChart() {
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
       try {
         const res = await apiFetch("/api/dashboard-analytics?type=monthly-trend&months=6");
@@ -1864,9 +1867,9 @@ function DashboardChart() {
           Sales: m.sales || 0,
           Purchase: m.purchases || 0,
         }));
-        setChartData(formatted);
+        if (isMounted) setChartData(formatted);
       } catch {
-        setChartData([
+        if (isMounted) setChartData([
           { name: "6 months ago", Sales: 45000, Purchase: 32000 },
           { name: "5 months ago", Sales: 52000, Purchase: 38000 },
           { name: "4 months ago", Sales: 48000, Purchase: 41000 },
@@ -1875,9 +1878,10 @@ function DashboardChart() {
           { name: "Last month", Sales: 67000, Purchase: 48000 },
         ]);
       } finally {
-        setChartLoading(false);
+        if (isMounted) setChartLoading(false);
       }
     })();
+    return () => { isMounted = false; };
   }, []);
 
   if (chartLoading) {
@@ -1924,11 +1928,13 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
     (async () => {
-      try { const res = await apiFetch("/api/dashboard"); setStats(res); }
-      catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-      finally { setLoading(false); }
+      try { const res = await apiFetch("/api/dashboard"); if (isMounted) setStats(res); }
+      catch (e: any) { if (isMounted) toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      finally { if (isMounted) setLoading(false); }
     })();
+    return () => { isMounted = false; };
   }, [toast]);
 
   const kpis = [
@@ -3245,10 +3251,11 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
   // Fetch customer credit info when customer changes
   useEffect(() => {
     if (!formData.customerId) { setCustomerCreditInfo(null); return; }
+    let isMounted = true;
     const fetchCreditInfo = async () => {
       try {
         const res = await apiFetch(`/api/customers/${formData.customerId}`);
-        if (res && (res.creditLimit !== undefined || res.openingBalance !== undefined)) {
+        if (isMounted && res && (res.creditLimit !== undefined || res.openingBalance !== undefined)) {
           setCustomerCreditInfo({
             outstanding: Number(res.openingBalance) || 0,
             creditLimit: Number(res.creditLimit) || 0,
@@ -3257,17 +3264,20 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       } catch { /* silent fallback */ }
     };
     fetchCreditInfo();
+    return () => { isMounted = false; };
   }, [formData.customerId]);
 
   // Load company profile for PDF
   useEffect(() => {
+    let isMounted = true;
     const loadCompanyProfile = async () => {
       try {
         const res = await apiFetch("/api/company-branding");
-        if (res) setCompanyProfile(res as CompanyProfile);
+        if (isMounted && res) setCompanyProfile(res as CompanyProfile);
       } catch { /* silent */ }
     };
     loadCompanyProfile();
+    return () => { isMounted = false; };
   }, []);
 
   const load = useCallback(async () => {
@@ -3284,17 +3294,21 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
 
   // Fetch SMS automation config for SO page status badge
   useEffect(() => {
+    let isMounted = true;
     const fetchSmsConfig = async () => {
       try {
         const res = await apiFetch("/api/sms-automation-config");
-        if (res && res.smsAlertOnCollection) {
-          setSmsAutoNotifyEnabled(true);
-        } else {
-          setSmsAutoNotifyEnabled(false);
+        if (isMounted) {
+          if (res && res.smsAlertOnCollection) {
+            setSmsAutoNotifyEnabled(true);
+          } else {
+            setSmsAutoNotifyEnabled(false);
+          }
         }
-      } catch { setSmsAutoNotifyEnabled(false); }
+      } catch { if (isMounted) setSmsAutoNotifyEnabled(false); }
     };
     fetchSmsConfig();
+    return () => { isMounted = false; };
   }, []);
 
   const loadOptions = useCallback(async () => {
