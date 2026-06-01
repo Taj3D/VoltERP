@@ -200,6 +200,7 @@ model Company {
   securityAuditTrails   SecurityAuditTrail[]
   ledgerHashChains      LedgerHashChain[]
   securityThreatLogs    SecurityThreatLog[]
+  stagingTestLogs       StagingTestLog[]
 }
 
 model Category {
@@ -2152,4 +2153,54 @@ model ConsolidationLog {
   @@index([status])
   @@index([periodStart])
   @@index([periodEnd])
+}
+
+// ============================================================
+// PHASE 19: STAGING TEST BED & AUTOMATED DATA SEEDER ENGINE
+// ============================================================
+
+// StagingTestLog — Immutable audit record for test bed executions & seeder runs
+model StagingTestLog {
+  id              String   @id @default(cuid())
+  testCode        String   @unique  // STG-XXXXX auto-generated
+  testType        String   // "SEED_ENGINE", "TEST_BED", "SEED_WIPE", "ASSERTION_CHECK"
+  status          String   @default("Running")  // "Running", "Passed", "Failed", "Error", "Warning"
+  moduleUnderTest String?  // Which ERP module was being tested
+  assertionsTotal Int      @default(0)
+  assertionsPassed Int     @default(0)
+  assertionsFailed Int     @default(0)
+  executionTimeMs Int      @default(0)  // Total execution time in milliseconds
+  recordsCreated  Int      @default(0)  // Number of records created (for seeder runs)
+  recordsDeleted  Int      @default(0)  // Number of records deleted (for wipe operations)
+  // Accounting equation validation
+  totalAssets     Float    @default(0)
+  totalLiabilities Float   @default(0)
+  totalEquity     Float    @default(0)
+  balanceDiscrepancy Float @default(0)  // |Assets - (Liabilities + Equity)| — must be <= 0.01
+  // Inventory cross-reference
+  inventoryAssetBalance Float @default(0)  // COA Inventory Asset head balance
+  inventoryStockValue   Float @default(0)  // Sum of all stock layer values
+  inventoryDiscrepancy  Float @default(0)  // |inventoryAssetBalance - inventoryStockValue|
+  // Shield interlock test results
+  underageEmployeeBlocked  Boolean @default(false)  // DOB+15 insertion blocked with 400?
+  creditLimitBlocked       Boolean @default(false)  // Over-credit checkout blocked with 422?
+  suspendedWarehouseBlocked Boolean @default(false)  // SUSPENDED godown transfer blocked with 403?
+  // Metadata
+  triggeredBy     String?  // User ID who triggered the test
+  triggeredByName String?  // Display name
+  companyId       String?  // Multi-tenant isolation
+  moduleToken     String?  // Compliance tracking token — "Sys-Staging-QA-Vault"
+  details         String?  // JSON string with detailed test results, assertion log
+  errorMessage    String?  // Error message if status = "Error"
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([testType])
+  @@index([status])
+  @@index([companyId])
+  @@index([moduleToken])
+  @@index([startedAt])
 }

@@ -64,6 +64,7 @@ import SecurityAuditCenter from "@/components/SecurityAuditCenter";
 import ProfileCenter from "@/components/ProfileCenter";
 import POSTerminalPage from "@/components/POSTerminalPage";
 import MultiBranchConsolidationPage from "@/components/MultiBranchConsolidationPage";
+import StagingQAPage from "@/components/StagingQAPage";
 import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS, exportInvoicePDF } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, InvoiceMetadata, PaymentBreakdown, LegalFooterConfig, InvoicePDFOptions, CompanyProfile } from "@/lib/export-utils";
@@ -510,6 +511,7 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "audit-trail", label: "Audit Trail Viewer", parent: "Audit & Search" },
       { key: "security-center", label: "Security Center", parent: "Audit & Search" },
       { key: "performance-cache", label: "Performance & Cache", parent: "Audit & Search" },
+      { key: "staging-qa", label: "Staging & QA", parent: "Staging & QA" },
     ],
   },
 ];
@@ -7166,6 +7168,7 @@ function AppLayout() {
     items.push({ key: "audit-trail", label: "Audit Trail Viewer", group: "System Settings", parent: "Audit & Search" });
     items.push({ key: "security-center", label: "Security Center", group: "System Settings", parent: "Audit & Search" });
     items.push({ key: "performance-cache", label: "Performance & Cache", group: "System Settings", parent: "Audit & Search" });
+    items.push({ key: "staging-qa", label: "Staging & QA", group: "System Settings", parent: "Staging & QA" });
     return items;
   }, [hasAccess, user]);
 
@@ -7270,6 +7273,7 @@ function AppLayout() {
     if (systemSettingsKeys.has(currentPage)) return <SystemSettingsGroupPage key={currentPage} initialTab={currentPage} />;
     if (currentPage === "audit-trail") return <AuditTrailViewer />;
     if (currentPage === "security-center") return <SecurityAuditCenter />;
+    if (currentPage === "staging-qa") return <StagingQAPage />;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 
