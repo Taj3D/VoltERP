@@ -72,6 +72,8 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   ProfitLoss: 'accounting-report',
   BalanceSheet: 'accounting-report',
   CashInHand: 'accounting-report',
+  JournalVouchers: 'accounting-report',
+  COAAccountsSeed: 'accounting-report',
   // MIS Reports
   MISReports: 'mis-report',
   // Dashboard

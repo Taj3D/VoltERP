@@ -20,6 +20,7 @@ import { db } from '@/lib/db';
  * - Inv-Stock-Core: Inventory stock operations, opening stock adjustments, batch master management, stock valuations, godown management
  * - Inv-Orders-Core: Purchase Order, Auto-PO, Sales Order, Credit Shield interlocks, order-to-ledger posting
  * - Inv-Logistics-Core: Damage logs, wastage write-offs, warehouse inter-transfers, intransit valuation state transitions, consignment tracking
+ * - Fin-Accounts-Core: Manual journal vouchers, cash/bank receipt & payment vouchers, COA tree modifications, real-time financial ledger posting, account activations/deactivations
  *
  * @param params - Activity log parameters
  */

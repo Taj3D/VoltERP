@@ -45,6 +45,7 @@ import ExpensesIncomesPage from "@/components/ExpensesIncomesPage";
 import CashCollectionsDeliveriesPage from "@/components/CashCollectionsDeliveriesPage";
 import BankTransactionsPage from "@/components/BankTransactionsPage";
 import ChartOfAccountsLedgerPage from "@/components/ChartOfAccountsLedgerPage";
+import AccountsLedgerPage from "@/components/AccountsLedgerPage";
 import AccountingReportsPage from "@/components/AccountingReportsPage";
 import BalanceSheetPeriodClosePage from "@/components/BalanceSheetPeriodClosePage";
 import DashboardAnalyticsPage from "@/components/DashboardAnalyticsPage";
@@ -404,6 +405,12 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     items: [
       { key: "chart-of-accounts", label: "Chart of Accounts & Ledger" },
       { key: "cash-in-hand", label: "Cash In Hand" },
+      { key: "journal-voucher", label: "Journal Voucher", parent: "Voucher Entry", icon: FileText },
+      { key: "cash-receipt", label: "Cash Receipt Voucher", parent: "Voucher Entry", icon: ArrowUpCircle },
+      { key: "cash-payment", label: "Cash Payment Voucher", parent: "Voucher Entry", icon: ArrowDownCircle },
+      { key: "bank-receipt", label: "Bank Receipt Voucher", parent: "Voucher Entry", icon: Banknote },
+      { key: "bank-payment", label: "Bank Payment Voucher", parent: "Voucher Entry", icon: Send },
+      { key: "voucher-register", label: "Voucher Register", parent: "Voucher Register", icon: ClipboardList },
       { key: "trial-balance", label: "Trial Balance" },
       { key: "profit-loss", label: "Profit and Loss Account" },
       { key: "balance-sheet", label: "Balance Sheet & Period Close" },
@@ -7210,7 +7217,13 @@ function AppLayout() {
     if (currentPage === "cash-collections") return <CashCollectionsDeliveriesPage />;
     if (currentPage === "cash-deliveries") return <CashCollectionsDeliveriesPage />;
     if (currentPage === "bank-transactions") return <BankTransactionsPage />;
-    if (currentPage === "chart-of-accounts") return <ChartOfAccountsLedgerPage />;
+    if (currentPage === "chart-of-accounts") return <AccountsLedgerPage initialTab="coa-tree" />;
+    if (currentPage === "journal-voucher") return <AccountsLedgerPage initialTab="journal-voucher" />;
+    if (currentPage === "cash-receipt") return <AccountsLedgerPage initialTab="cash-bank" voucherType="CASH_RECEIPT" />;
+    if (currentPage === "cash-payment") return <AccountsLedgerPage initialTab="cash-bank" voucherType="CASH_PAYMENT" />;
+    if (currentPage === "bank-receipt") return <AccountsLedgerPage initialTab="cash-bank" voucherType="BANK_RECEIPT" />;
+    if (currentPage === "bank-payment") return <AccountsLedgerPage initialTab="cash-bank" voucherType="BANK_PAYMENT" />;
+    if (currentPage === "voucher-register") return <AccountsLedgerPage initialTab="voucher-register" />;
     if (currentPage === "cash-in-hand") return <AccountingReportsPage initialTab="cash-in-hand" />;
     if (currentPage === "trial-balance") return <AccountingReportsPage initialTab="trial-balance" />;
     if (currentPage === "profit-loss") return <AccountingReportsPage initialTab="profit-loss" />;

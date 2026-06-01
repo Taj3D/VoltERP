@@ -186,6 +186,8 @@ model Company {
   batchMasters      BatchMaster[]
   damageLogs        DamageLog[]
   stockTransfers    StockTransfer[]
+  journalVouchers   JournalVoucher[]
+  voucherLines      VoucherLine[]
 }
 
 model Category {
@@ -231,6 +233,7 @@ model Bank {
   incomes       Income[]
   cashCollections CashCollection[]
   cashDeliveries CashDelivery[]
+  journalVouchers JournalVoucher[]
 
   @@index([companyId])
 }
@@ -1401,12 +1404,14 @@ model SmsAutomationConfig {
 
 model ChartOfAccount {
   id                  String           @id @default(cuid())
-  code                String           @unique  // COA-XXXXX
+  code                String           @unique  // COA-XXXXX — case-insensitive unique enforced at API gate
   name                String
   classification      String           @default("Asset")  // "Asset", "Liability", "Income", "Expense", "Equity"
   parentAccountId     String?
   openingBalance      Float            @default(0)
   openingBalanceType  String           @default("Dr")  // "Dr" or "Cr"
+  currentBalance      Float            @default(0)  // Real-time running balance — dynamically incremented/decremented on ledger posting
+  isRoot              Boolean          @default(false)  // Root node shield: Assets, Liabilities, Equity, Revenue, Expenses — permanently locked against deletion/remapping
   companyId           String?          // Multi-tenant isolation
   isActive            Boolean          @default(true)
   createdAt           DateTime         @default(now())
@@ -1418,8 +1423,10 @@ model ChartOfAccount {
   customers           Customer[]       // Customer sub-nodes under AR
   suppliers           Supplier[]       // Supplier sub-nodes under AP
   products            Product[]        // Product sub-nodes under Inventory Asset
+  voucherLines        VoucherLine[]    // Voucher lines referencing this account
 
   @@index([companyId])
+  @@index([isRoot])
 }
 
 model LedgerEntry {
@@ -1443,6 +1450,63 @@ model LedgerEntry {
   @@index([accountId])
   @@index([date])
   @@index([referenceType])
+  @@index([companyId])
+}
+
+// ============================================================
+// JOURNAL VOUCHERS & CASH/BANK VOUCHERS — Phase 13
+// Unified voucher header with multi-line debit/credit entries.
+// VoucherType: JOURNAL, CASH_RECEIPT, CASH_PAYMENT, BANK_RECEIPT, BANK_PAYMENT
+// Atomic double-entry: every voucher posts LedgerEntry pairs + increments COA currentBalance
+// ============================================================
+
+model JournalVoucher {
+  id              String        @id @default(cuid())
+  voucherNo       String        @unique  // JV-XXXXX / CR-XXXXX / CP-XXXXX / BR-XXXXX / BP-XXXXX
+  date            DateTime
+  type            String        @default("JOURNAL")  // "JOURNAL" | "CASH_RECEIPT" | "CASH_PAYMENT" | "BANK_RECEIPT" | "BANK_PAYMENT"
+  narration       String?       // Voucher-level narration/description
+  totalDebit      Float         @default(0)  // Sum of all debit lines — must equal totalCredit
+  totalCredit     Float         @default(0)  // Sum of all credit lines — must equal totalDebit
+  status          String        @default("Draft")  // "Draft" | "Posted" — Posted means ledger entries committed
+  postedAt        DateTime?     // Timestamp when voucher was posted to the general ledger
+  postedBy        String?       // User ID who posted the voucher
+  bankId          String?       // For bank vouchers — references the bank account
+  chequeNo        String?       // Cheque reference for bank payments/receipts
+  chequeDate      DateTime?     // Cheque date
+  referenceNo     String?       // External reference number
+  companyId       String?       // Multi-tenant isolation
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  bank            Bank?         @relation(fields: [bankId], references: [id])
+  company         Company?      @relation(fields: [companyId], references: [id])
+  lines           VoucherLine[]
+
+  @@index([date])
+  @@index([type])
+  @@index([status])
+  @@index([companyId])
+  @@index([bankId])
+}
+
+model VoucherLine {
+  id              String        @id @default(cuid())
+  voucherId       String        // FK to JournalVoucher
+  accountId       String?       // FK to ChartOfAccount
+  accountName     String        // Denormalized account name for quick display
+  debit           Float         @default(0)  // Debit amount — must be >= 0, mutually exclusive with credit > 0
+  credit          Float         @default(0)  // Credit amount — must be >= 0, mutually exclusive with debit > 0
+  particulars     String?       // Line-level narration
+  companyId       String?       // Multi-tenant isolation
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  voucher         JournalVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  chartOfAccount  ChartOfAccount? @relation(fields: [accountId], references: [id])
+  company         Company?      @relation(fields: [companyId], references: [id])
+
+  @@index([voucherId])
+  @@index([accountId])
   @@index([companyId])
 }
 

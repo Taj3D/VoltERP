@@ -3734,3 +3734,120 @@ Stage Summary:
 - PDF: Stock Transfer Challan & Delivery Manifest, Loss/Wastage Audit Statement
 - COA: Inventory Asset, Inventory In-Transit, Inventory Loss / Wastage nodes seeded
 - Zero lint errors, dev server stable
+
+---
+Task ID: 2-a
+Agent: API Developer
+Task: Phase 13 — Journal Vouchers API Routes + COA Accounts Seed Route
+
+Work Log:
+- Examined existing codebase: Prisma schema (JournalVoucher, VoucherLine, ChartOfAccount, LedgerEntry models), api-security.ts (withApiSecurity, checkPeriodClose, maskAccountingArray, maskForVatAuditorAccounting, safeFinancialRound/Add/Subtract), accounting-utils.ts (generateNextCode), activity-logger.ts (logUserActivity)
+- Studied existing route patterns from ledger-entries/route.ts, chart-of-accounts/route.ts, chart-of-accounts/[id]/route.ts, coa-logistics-seed/route.ts
+- Created /api/journal-vouchers/route.ts:
+  - GET: List all journal vouchers with filters (type, status, date range), multi-tenant isolation, includes lines + bank relation, VAT Auditor masking via maskAccountingArray
+  - POST: Create journal voucher with balanced validation (min 2 lines, total debits === total credits within 0.01 tolerance, deactivated account interlock, period lock check, $transaction for voucherNo generation + header + lines + optional ledger posting + COA currentBalance updates)
+  - Voucher type prefix mapping: JOURNAL→JV-, CASH_RECEIPT→CR-, CASH_PAYMENT→CP-, BANK_RECEIPT→BR-, BANK_PAYMENT→BP-
+- Created /api/journal-vouchers/[id]/route.ts:
+  - GET: Single voucher with lines + bank relation, cross-tenant validation, VAT Auditor masking
+  - PUT: Update Draft vouchers only (Posted vouchers are immutable), same balanced validation, posting on status change to Posted generates LedgerEntry records + updates COA currentBalance
+  - DELETE: Only Draft vouchers can be deleted (Posted vouchers return 403), soft-delete with activity logging
+- Created /api/coa-accounts-seed/route.ts:
+  - POST: Seeds 5 root COA nodes (Assets, Liabilities, Equity, Revenue, Expenses) with isRoot: true, parentId: null
+  - Admin-only access check, $transaction for atomic creation, returns created/existing status per node
+  - Codes: COA-ROOT-ASSET, COA-ROOT-LIABILITY, COA-ROOT-EQUITY, COA-ROOT-REVENUE, COA-ROOT-EXPENSE
+- All routes use withApiSecurity with correct module names (JournalVouchers, COAAccountsSeed)
+- All routes use logUserActivity with module: 'Fin-Accounts-Core'
+- All financial calculations use safeFinancialRound/Add/Subtract
+- Lint passed with zero errors
+
+---
+Task ID: 3-a
+Agent: Accounts & Ledger Frontend Engineer
+Task: Phase 13 — Accounts & Ledger Management Frontend (AccountsLedgerPage)
+
+Work Log:
+- Read existing codebase: ElectronicsMartApp.tsx (7384+ lines), ChartOfAccountsLedgerPage.tsx, Prisma schema, API routes
+- Reviewed existing API patterns: /api/chart-of-accounts, /api/ledger-entries, /api/banks, /api/coa-logistics-seed
+- Reviewed export-utils.ts for PDF/CSV export patterns
+- Reviewed accounting-utils.ts for generateNextCode, detectCircularParent, calculateAccountBalance
+
+Created 3 new API routes:
+1. /api/coa-accounts-seed/route.ts — POST endpoint to seed 5 root COA nodes (Assets, Liabilities, Equity, Revenue, Expenses) with isRoot=true shield. Admin-only. Idempotent (skips existing nodes, ensures isRoot flag is set).
+2. /api/journal-vouchers/route.ts — GET (list with type/status/date filters) + POST (create with balanced validation). Validates debit=credit before committing. Auto-generates voucher numbers with type-specific prefixes (JV-, CR-, CP-, BR-, BP-). On "Posted" status: creates LedgerEntry pairs + updates COA currentBalance.
+3. /api/journal-vouchers/[id]/route.ts — GET (single voucher with lines), PUT (update draft, post draft to posted), DELETE (soft-delete draft only). Posted vouchers are immutable.
+
+Created AccountsLedgerPage.tsx with 5 tabs:
+- Tab 1: COA Tree Navigation — Collapsible tree with 🔒 shield icons for root nodes, color-coded classification dots/badges (Asset=blue, Liability=red, Equity=purple, Revenue=green, Expense=amber), currentBalance display, detail panel with sub-balances, Add/Edit dialog with parentAccountId dropdown, delete with root-lock tooltip, Seed Root Nodes button
+- Tab 2: Journal Voucher Entry — Dynamic line items table, real-time balance indicator, RED borders (#ef4444) on imbalance with "Ledger Imbalance Detected" text, GREEN indicator when balanced, "Post Ledger Journal" button with spin-lock (RefreshCw animate-spin + "Re-calculating Trial Balances & Committing General Ledger Matrix..."), accountsSnapshot rollback on error
+- Tab 3: Cash/Bank Vouchers — Sub-tabs for Cash Receipt/Payment and Bank Receipt/Payment, auto-generates two Dr/Cr lines, bank dropdown + cheque fields for bank types, "Authorize Cash/Bank Voucher" button with spin-lock
+- Tab 4: Voucher Register — Table with expandable voucher lines, filter by type/status/date range, Export PDF per voucher, Export CSV for full register
+- Tab 5: Ledger Statement — Account selector, date range filter, running balance table, Export PDF/CSV
+
+Updated ElectronicsMartApp.tsx:
+- Added import for AccountsLedgerPage
+- Changed "chart-of-accounts" page to render AccountsLedgerPage instead of ChartOfAccountsLedgerPage
+
+Database verification:
+- Ran prisma db push (schema already in sync)
+- Tested /api/coa-accounts-seed POST: 5 root nodes created successfully
+- Tested /api/chart-of-accounts GET: 8 accounts returned with isRoot field
+- Tested /api/journal-vouchers POST: JV-00001 created with balanced validation
+- Tested /api/journal-vouchers GET: returns voucher list
+
+Lint: ZERO errors
+Dev server: HTTP 200, stable
+
+Stage Summary:
+- 4 new files created (1 component + 3 API routes)
+- 1 file modified (ElectronicsMartApp.tsx — import + routing)
+- Full Phase 13 Accounts & Ledger Management UI with 5 tabs
+- COA Tree with root shield, color-coded classifications, detail panel
+- Journal Voucher with real-time balance indicator and spin-lock posting
+- Cash/Bank Vouchers with auto-generated double-entry lines
+- Voucher Register with expandable lines and PDF/CSV export
+- Ledger Statement with running balance and PDF/CSV export
+- All monetary values formatted with ৳ symbol and 2 decimal places
+- Navy Blue theme (#0a1628, #132240, #2563eb) consistent with main app
+
+---
+Task ID: 13
+Agent: Main Orchestrator
+Task: Phase 13 — Accounts & Ledger Management (Manual Journal Vouchers, Cash/Bank Receipt & Payment Vouchers, Dynamic COA Tree Navigation, Real-Time Financial Ledger Posting Engines)
+
+Work Log:
+- Extended Prisma schema: Added `currentBalance` (Float) and `isRoot` (Boolean) fields to ChartOfAccount model
+- Extended Prisma schema: Added `JournalVoucher` model (voucherNo, date, type, narration, totalDebit, totalCredit, status, postedAt, postedBy, bankId, chequeNo, chequeDate, referenceNo, companyId)
+- Extended Prisma schema: Added `VoucherLine` model (voucherId, accountId, accountName, debit, credit, particulars, companyId)
+- Added Company relations: `journalVouchers`, `voucherLines`; Added Bank relation: `journalVouchers`
+- Ran `prisma db push` successfully — all 3 new models migrated
+- Updated `/src/lib/activity-logger.ts` — Added `Fin-Accounts-Core` compliance tracking token documentation
+- Updated `/src/lib/accounting-utils.ts` — Extended `generateNextCode` to support `journalVoucher` model with `voucherNo` field mapping and `ledgerEntry` with `entryCode` field mapping
+- Updated `/src/lib/api-security.ts` — Added `JournalVouchers` and `COAAccountsSeed` to MODULE_GROUP_MAP under `accounting-report` group
+- Updated `/src/app/api/chart-of-accounts/route.ts` — Added case-insensitive unique constraint validation on COA code scoped by companyId
+- Updated `/src/app/api/chart-of-accounts/[id]/route.ts` — Added Root Node Shield: (1) DELETE blocked for root nodes (400), (2) Parent remapping blocked for root nodes (400), (3) Deactivation blocked for root nodes (400)
+- Created `/src/app/api/journal-vouchers/route.ts` — GET (list with filters) + POST (balanced validation, deactivated account interlock, $transaction with LedgerEntry posting + COA currentBalance updates, Fin-Accounts-Core activity logging)
+- Created `/src/app/api/journal-vouchers/[id]/route.ts` — GET/PUT/DELETE with Posted immutability, Draft-only mutations, posting on status change
+- Created `/src/app/api/coa-accounts-seed/route.ts` — Admin-only POST to seed 5 root COA nodes (Assets, Liabilities, Equity, Revenue, Expenses) with isRoot=true
+- Created `/src/components/AccountsLedgerPage.tsx` — Complete 5-tab SPA component:
+  * Tab 1: COA Tree Navigation (collapsible tree, root shield icons, color-coded classification, currentBalance, detail panel, CRUD with root-lock protection, Seed Root Nodes)
+  * Tab 2: Journal Voucher Entry (dynamic line items, real-time balance indicator, RED borders on imbalance, spin-lock "Post Ledger Journal" button, accountsSnapshot rollback)
+  * Tab 3: Cash/Bank Vouchers (4 sub-tabs, auto-generated Dr/Cr lines, bank/cheque fields, spin-lock "Authorize" button)
+  * Tab 4: Voucher Register (list, filter, expand lines, export PDF/CSV)
+  * Tab 5: Ledger Statement (account selector, running balance, export PDF/CSV)
+- Updated `/src/components/ElectronicsMartApp.tsx` — Added sidebar items for Journal Voucher, Cash Receipt, Cash Payment, Bank Receipt, Bank Payment, Voucher Register; Added routing for all new pages with initialTab/voucherType props
+- Fixed `generateNextCodeInTx` — Transaction-aware code generation for journal voucher and ledger entry code fields within $transaction blocks
+- Verified API endpoints: COA seed (200), Journal Voucher POST (201), Imbalance validation (422)
+- Verified zero lint errors
+
+Stage Summary:
+- Phase 13 complete: Full Accounts & Ledger Management system operational
+- Key models: JournalVoucher, VoucherLine with 5 voucher types (JOURNAL, CASH_RECEIPT, CASH_PAYMENT, BANK_RECEIPT, BANK_PAYMENT)
+- Root COA shield: 5 root nodes permanently protected against deletion, remapping, and deactivation
+- Balanced validation: 422 on any debit/credit mismatch > 0.01
+- Deactivated Account Interlock: Server-side + frontend block on inactive COA nodes
+- Atomic $transaction: Voucher → VoucherLines → LedgerEntries → COA currentBalance updates
+- Spin-locks with RefreshCw animate-spin on "Post Ledger Journal" and "Authorize" buttons
+- accountsSnapshot rollback on gateway timeout
+- Fin-Accounts-Core activity logging across all voucher operations
+- PDF/CSV export for voucher register and ledger statements
+- COA Tree with color-coded classifications and collapsible hierarchy

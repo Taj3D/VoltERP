@@ -161,13 +161,27 @@ export async function calculateAccountBalance(
  * @returns The next sequential code string
  */
 export async function generateNextCode(
-  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose',
+  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose' | 'journalVoucher',
   prefix: string
 ): Promise<string> {
-  const latestRecord = await (db[model] as any).findFirst({
-    where: { code: { startsWith: prefix } },
-    orderBy: { code: 'desc' },
-    select: { code: true },
+  // Map model names to their code fields and db accessors
+  const modelConfig: Record<string, { codeField: string; dbModel: string }> = {
+    chartOfAccount: { codeField: 'code', dbModel: 'chartOfAccount' },
+    ledgerEntry: { codeField: 'entryCode', dbModel: 'ledgerEntry' },
+    periodClose: { codeField: 'code', dbModel: 'periodClose' },
+    journalVoucher: { codeField: 'voucherNo', dbModel: 'journalVoucher' },
+  };
+
+  const config = modelConfig[model];
+  if (!config) {
+    return `${prefix}00001`;
+  }
+
+  const { codeField, dbModel } = config;
+  const latestRecord = await (db as any)[dbModel].findFirst({
+    where: { [codeField]: { startsWith: prefix } },
+    orderBy: { [codeField]: 'desc' },
+    select: { [codeField]: true },
   });
 
   if (!latestRecord) {
@@ -175,7 +189,7 @@ export async function generateNextCode(
   }
 
   // Extract the numeric portion after the prefix
-  const numericPart = latestRecord.code.replace(prefix, '');
+  const numericPart = latestRecord[codeField].replace(prefix, '');
   const lastNumber = parseInt(numericPart, 10) || 0;
   const nextNumber = lastNumber + 1;
 
