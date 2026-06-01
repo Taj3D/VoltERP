@@ -189,6 +189,8 @@ model Company {
   journalVouchers   JournalVoucher[]
   voucherLines      VoucherLine[]
   fiscalYears       FiscalYear[]
+  posSales          PosSale[]
+  posSaleLines      PosSaleLine[]
 }
 
 model Category {
@@ -271,6 +273,7 @@ model Godown {
   productStocks   ProductStock[]
   batchMasters   BatchMaster[]
   damageLogs     DamageLog[]
+  posSales       PosSale[]
 
   @@index([companyId])
 }
@@ -433,6 +436,7 @@ model Product {
   salesReturnLines   SalesReturnLine[]
   purchaseReturnLines PurchaseReturnLine[]
   damageLogs         DamageLog[]
+  posSaleLines       PosSaleLine[]
 
   @@index([categoryId])
   @@index([brandId])
@@ -568,6 +572,7 @@ model Customer {
   salesReturns      SalesReturn[]
   cashCollections   CashCollection[]
   orderSheets       OrderSheet[]
+  posSales          PosSale[]
 
   @@index([companyId])
   @@index([coaAccountId])
@@ -732,6 +737,7 @@ model SalesOrder {
   lines           SalesOrderLine[]
   salesReturns    SalesReturn[]
   replacements    ReplacementOrder[]
+  posSales        PosSale[]
 
   @@index([customerId])
   @@index([godownId])
@@ -1865,4 +1871,75 @@ model NumberFormat {
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+// ============================================================
+// POS — POINT OF SALE TERMINAL
+// Phase 15: Ultra-High-Speed Touchscreen Billing Engine
+// ============================================================
+
+model PosSale {
+  id              String   @id @default(cuid())
+  receiptNo       String   @unique  // POS-XXXXX — auto-generated receipt number
+  customerId      String?           // Walk-in customer can be null
+  godownId        String?           // Retail godown where sale occurred
+  date            DateTime          // Sale timestamp
+  subTotal        Float    @default(0)  // Sum of line totals before discount
+  discountPercent Float    @default(0)  // Global discount percentage
+  discountAmount  Float    @default(0)  // Calculated discount amount
+  vatPercentage   Float    @default(0)  // VAT rate
+  vatAmount       Float    @default(0)  // VAT amount
+  grandTotal      Float    @default(0)  // Final amount due
+  // Split Payment Breakdown
+  cashAmount      Float    @default(0)  // Cash portion
+  cardAmount      Float    @default(0)  // Bank/Card portion
+  mfsAmount       Float    @default(0)  // Mobile Financial Services (bKash/Nagad)
+  cashChange      Float    @default(0)  // Cash change returned
+  // Metadata
+  salesOrderId    String?           // FK to SalesOrder if auto-created
+  status          String   @default("Completed")  // "Completed", "Voided"
+  voidReason      String?           // Reason for voiding
+  voidedBy        String?           // User who voided
+  voidedAt        DateTime?         // When voided
+  cashierName     String?           // Name of the cashier
+  companyId       String?           // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  godown          Godown?   @relation(fields: [godownId], references: [id])
+  company         Company?  @relation(fields: [companyId], references: [id])
+  salesOrder      SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  lines           PosSaleLine[]
+
+  @@index([customerId])
+  @@index([godownId])
+  @@index([date])
+  @@index([companyId])
+  @@index([status])
+}
+
+model PosSaleLine {
+  id              String   @id @default(cuid())
+  posSaleId       String
+  productId       String
+  productName     String              // Snapshot of product name at sale time
+  productCode     String              // Snapshot of product code / barcode
+  quantity        Float               // Quantity sold
+  rate            Float               // Unit selling price at sale time
+  discountPercent Float    @default(0)  // Line-level discount %
+  discountAmount  Float    @default(0)  // Line-level discount amount
+  total           Float               // Line total after discount
+  costPrice       Float    @default(0)  // Unit cost price at sale time (for COGS)
+  companyId       String?             // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  posSale         PosSale  @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
+  product         Product  @relation(fields: [productId], references: [id])
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([posSaleId])
+  @@index([productId])
+  @@index([companyId])
 }

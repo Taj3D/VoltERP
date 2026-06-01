@@ -22,6 +22,7 @@ import { db } from '@/lib/db';
  * - Inv-Logistics-Core: Damage logs, wastage write-offs, warehouse inter-transfers, intransit valuation state transitions, consignment tracking
  * - Fin-Accounts-Core: Manual journal vouchers, cash/bank receipt & payment vouchers, COA tree modifications, real-time financial ledger posting, account activations/deactivations
  * - Fin-Statements-Core: Financial statements generation (Trial Balance, Income Statement/P&L, Balance Sheet), fiscal year management, year-end closing automation, nominal account wipeout, retained earnings transfers, period interlock enforcement
+ * - POS-Retail-Core: POS terminal checkout, receipt generation, split payment processing, stock decrement, auto SalesOrder creation, double-entry ledger auto-post, sale voiding with stock/ledger reversal
  *
  * @param params - Activity log parameters
  */

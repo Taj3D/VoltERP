@@ -62,6 +62,7 @@ import SystemSettingsGroupPage from "@/components/SystemSettingsGroupPage";
 import AuditTrailViewer from "@/components/AuditTrailViewer";
 import SecurityAuditCenter from "@/components/SecurityAuditCenter";
 import ProfileCenter from "@/components/ProfileCenter";
+import POSTerminalPage from "@/components/POSTerminalPage";
 import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS, exportInvoicePDF } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, InvoiceMetadata, PaymentBreakdown, LegalFooterConfig, InvoicePDFOptions, CompanyProfile } from "@/lib/export-utils";
@@ -370,6 +371,7 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "stock-valuation", label: "Valuation", icon: TrendingUp },
       { key: "stock-transfers", label: "Transfer", icon: ArrowLeftRight },
       { key: "damage-logs", label: "Damage Log", icon: AlertTriangle },
+      { key: "pos-terminal", label: "POS Terminal", icon: ShoppingCart },
     ],
   },
   {
@@ -7211,6 +7213,7 @@ function AppLayout() {
     if (currentPage === "profile") return <ProfileCenter />;
     if (currentPage === "stock-transfers") return <StockTransfersPage />;
     if (currentPage === "damage-logs") return <DamageLogsPage />;
+    if (currentPage === "pos-terminal") return <POSTerminalPage />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
     const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "opening-stock", "batch-master", "stock", "stock-details", "stock-valuation", "stock-transfers", "damage-logs"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
