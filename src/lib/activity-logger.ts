@@ -24,6 +24,7 @@ import { db } from '@/lib/db';
  * - Fin-Statements-Core: Financial statements generation (Trial Balance, Income Statement/P&L, Balance Sheet), fiscal year management, year-end closing automation, nominal account wipeout, retained earnings transfers, period interlock enforcement
  * - POS-Retail-Core: POS terminal checkout, receipt generation, split payment processing, stock decrement, auto SalesOrder creation, double-entry ledger auto-post, sale voiding with stock/ledger reversal
  * - BI-Analytics-Core: Operational dashboard metrics, executive KPI computation, financial chart data aggregation, corporate performance report export, multi-tenant cache-isolated analytics queries
+ * - Holding-Consolidation-Core: Multi-branch infrastructure management, inter-branch stock/fund transfers, consolidated financial statement generation, holding-level elimination entries, cross-branch authorization
  *
  * @param params - Activity log parameters
  */

@@ -63,6 +63,7 @@ import AuditTrailViewer from "@/components/AuditTrailViewer";
 import SecurityAuditCenter from "@/components/SecurityAuditCenter";
 import ProfileCenter from "@/components/ProfileCenter";
 import POSTerminalPage from "@/components/POSTerminalPage";
+import MultiBranchConsolidationPage from "@/components/MultiBranchConsolidationPage";
 import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS, exportInvoicePDF } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, InvoiceMetadata, PaymentBreakdown, LegalFooterConfig, InvoicePDFOptions, CompanyProfile } from "@/lib/export-utils";
@@ -131,7 +132,7 @@ const ROLE_CREDENTIALS: Record<string, { password: string; role: UserRole; displ
 
 const ROLE_ACCESS: Record<UserRole, string[]> = {
   admin: ["*"],
-  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report", "system-settings"],
+  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "multi-branch", "mis-report", "system-settings"],
   sr: ["basic-modules", "staff", "customers-suppliers", "inventory", "sms"],
   dealer: ["basic-modules", "customers-suppliers", "inventory"],
   vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report", "system-settings"],
@@ -158,9 +159,9 @@ const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
   sr: ["_placeholder_sr_override_below_"],
-  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "financial-statements", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "security-center", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
-  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "financial-statements", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "security-center", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms"],
-  vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
+  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "financial-statements", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "security-center", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report", "branch-management", "inter-branch-transfers", "consolidated-statements", "consolidation-history"],
+  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "financial-statements", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "security-center", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "branch-management", "inter-branch-transfers", "consolidated-statements", "consolidation-history"],
+  vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report", "inter-branch-transfers"],
 };
 
 function hasItemAccess(role: UserRole, itemKey: string): boolean {
@@ -430,6 +431,17 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "inventory-aging", label: "Inventory Aging", parent: "Audit & Integrity" },
       { key: "product-lifecycle", label: "Product Lifecycle", parent: "Audit & Integrity" },
       { key: "notifications-integrity", label: "Notifications & Integrity", parent: "Audit & Integrity" },
+    ],
+  },
+  {
+    key: "multi-branch",
+    label: "Multi-Branch & Consolidation",
+    icon: Building2,
+    items: [
+      { key: "branch-management", label: "Branch Management", parent: "Branch Setup", icon: Building2 },
+      { key: "inter-branch-transfers", label: "Inter-Branch Transfers", parent: "Branch Setup", icon: ArrowLeftRight },
+      { key: "consolidated-statements", label: "Consolidated Statements", parent: "Holding Reports", icon: BarChart3 },
+      { key: "consolidation-history", label: "Consolidation History", parent: "Holding Reports", icon: FileText },
     ],
   },
   {
@@ -7214,6 +7226,9 @@ function AppLayout() {
     if (currentPage === "stock-transfers") return <StockTransfersPage />;
     if (currentPage === "damage-logs") return <DamageLogsPage />;
     if (currentPage === "pos-terminal") return <POSTerminalPage />;
+    // GROUP: Multi-Branch & Consolidation — dedicated MultiBranchConsolidationPage component
+    const multiBranchKeys = new Set(["branch-management", "inter-branch-transfers", "consolidated-statements", "consolidation-history"]);
+    if (multiBranchKeys.has(currentPage)) return <MultiBranchConsolidationPage key={currentPage} userRole={auth.user?.role || "admin"} userName={auth.user?.displayName || ""} userEmail={auth.user?.email || ""} activeTab={currentPage} />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
     const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "opening-stock", "batch-master", "stock", "stock-details", "stock-valuation", "stock-transfers", "damage-logs"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;

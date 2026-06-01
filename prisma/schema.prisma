@@ -18,12 +18,15 @@ model User {
   password  String
   role      String   @default("admin")
   companyId String?  // Multi-tenant isolation: links user to a company
+  branchId  String?  // Branch assignment for multi-branch infrastructure
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   company   Company? @relation(fields: [companyId], references: [id])
+  branch    Branch?  @relation(fields: [branchId], references: [id])
 
   @@index([companyId])
+  @@index([branchId])
 }
 
 // ============================================================
@@ -191,6 +194,9 @@ model Company {
   fiscalYears       FiscalYear[]
   posSales          PosSale[]
   posSaleLines      PosSaleLine[]
+  branches               Branch[]
+  interBranchTransfers   InterBranchTransfer[]
+  consolidationLogs      ConsolidationLog[]
 }
 
 model Category {
@@ -259,10 +265,12 @@ model Godown {
   inCharge String?
   status    String   @default("ACTIVE")  // "ACTIVE" or "SUSPENDED" — SUSPENDED blocks all stock operations
   companyId String?  // Multi-tenant isolation
+  branchId  String?  // Branch assignment for multi-branch infrastructure
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   company         Company?        @relation(fields: [companyId], references: [id])
+  branch          Branch?         @relation(fields: [branchId], references: [id])
   products        Product[]
   purchaseOrders  PurchaseOrder[]
   salesOrders     SalesOrder[]
@@ -276,6 +284,7 @@ model Godown {
   posSales       PosSale[]
 
   @@index([companyId])
+  @@index([branchId])
 }
 
 model InterestPercentage {
@@ -1942,4 +1951,110 @@ model PosSaleLine {
   @@index([posSaleId])
   @@index([productId])
   @@index([companyId])
+}
+
+// ============================================================
+// PHASE 17: MULTI-BRANCH & CONSOLIDATED REPORTING
+// ============================================================
+
+model Branch {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  address       String?
+  phone         String?
+  email         String?
+  managerName   String?   // Branch manager name
+  companyId     String    // Parent holding company — required
+  status        String    @default("ACTIVE")  // "ACTIVE" or "SUSPENDED" — SUSPENDED freezes all inter-branch transfers
+  isHeadOffice  Boolean   @default(false)  // True if this is the holding/head office branch
+  gstNumber     String?   // Branch-level GST/VAT registration
+  openingDate   DateTime? // Branch inauguration date
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  company       Company   @relation(fields: [companyId], references: [id])
+  users         User[]
+  godowns       Godown[]
+  interBranchTransfersFrom InterBranchTransfer[] @relation("TransferFromBranch")
+  interBranchTransfersTo   InterBranchTransfer[] @relation("TransferToBranch")
+  consolidationLogs ConsolidationLog[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([isActive])
+}
+
+model InterBranchTransfer {
+  id                String   @id @default(cuid())
+  transferNo        String   @unique  // IBT-XXXXX auto-generated
+  fromBranchId      String   // Source branch
+  toBranchId        String   // Destination branch
+  transferType      String   // "STOCK" or "FUND"
+  status            String   @default("Pending")  // "Pending", "Approved", "Completed", "Rejected", "Cancelled"
+  // Stock transfer details
+  productId         String?  // For STOCK transfers
+  quantity          Float    @default(0)
+  unitCost          Float    @default(0)
+  totalValue        Float    @default(0)
+  // Fund transfer details
+  fundAmount        Float    @default(0)  // For FUND transfers
+  fromBankId        String?  // Source bank account for fund transfers
+  toBankId          String?  // Destination bank account for fund transfers
+  // Authorization
+  authorizedBy      String?  // User ID who approved
+  authorizedAt      DateTime?
+  // Audit
+  companyId         String   // Holding company scope
+  notes             String?
+  reason            String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  fromBranch        Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
+  toBranch          Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])
+  company           Company  @relation(fields: [companyId], references: [id])
+
+  @@index([fromBranchId])
+  @@index([toBranchId])
+  @@index([companyId])
+  @@index([status])
+  @@index([transferType])
+}
+
+model ConsolidationLog {
+  id                  String   @id @default(cuid())
+  consolidationNo     String   @unique  // CON-XXXXX auto-generated
+  companyId           String   // Holding company
+  branchIds           String   // Comma-separated branch IDs included in consolidation
+  periodStart         DateTime // Fiscal period start
+  periodEnd           DateTime // Fiscal period end
+  statementType       String   // "TrialBalance", "ProfitAndLoss", "BalanceSheet"
+  status              String   @default("Generated")  // "Generated", "Reviewed", "Approved"
+  // Consolidated totals
+  totalRevenue        Float    @default(0)
+  totalCOGS           Float    @default(0)
+  totalExpenses       Float    @default(0)
+  totalAssets         Float    @default(0)
+  totalLiabilities    Float    @default(0)
+  // Elimination entries
+  eliminationAmount   Float    @default(0)  // Total intra-holding amounts eliminated
+  eliminationCount    Int      @default(0)  // Number of elimination entries applied
+  eliminationDetails  String?  // JSON string of elimination line items
+  // Audit
+  generatedBy         String?  // User ID
+  generatedByName     String?
+  reviewedBy          String?
+  approvedBy          String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  company             Company  @relation(fields: [companyId], references: [id])
+  branch              Branch?  @relation(fields: [companyId], references: [id])  // we use companyId FK
+
+  @@index([companyId])
+  @@index([statementType])
+  @@index([status])
+  @@index([periodStart])
+  @@index([periodEnd])
 }
