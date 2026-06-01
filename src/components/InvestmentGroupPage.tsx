@@ -50,7 +50,7 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) =>
   d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const bdCurrencyFmt = new Intl.NumberFormat("bn-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
@@ -275,6 +275,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
   // ─── Ledger Sync Status State ───
   const [ledgerSyncStatus, setLedgerSyncStatus] = useState<Record<string, string>>({});
+  const [headsLedgerSync, setHeadsLedgerSync] = useState<Record<string, string>>({});
 
   // ─── Asset Ledger Tab Filter State ───
   const [assetLedgerCategoryFilter, setAssetLedgerCategoryFilter] = useState<string>("All");
@@ -394,6 +395,20 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     } catch {}
   }, []);
 
+  const loadHeadsLedgerSync = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/ledger-auto-post?sourceType=InvestmentHead&limit=1000");
+      const records = res.records || res || [];
+      const mapping: Record<string, string> = {};
+      (Array.isArray(records) ? records : []).forEach((r: any) => {
+        if (r.sourceId && r.status === "Posted") {
+          mapping[r.sourceId] = "Synced";
+        }
+      });
+      setHeadsLedgerSync(mapping);
+    } catch {}
+  }, []);
+
   // ============================================================
   // INIT
   // ============================================================
@@ -402,7 +417,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     loadHeads();
     loadHeadOptions();
     loadCompanyProfile();
-  }, [loadHeads, loadHeadOptions, loadCompanyProfile]);
+    loadHeadsLedgerSync();
+  }, [loadHeads, loadHeadOptions, loadCompanyProfile, loadHeadsLedgerSync]);
 
   useEffect(() => {
     if (activeTab === "investment") loadInvestments();
@@ -1052,6 +1068,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "type", label: "Type", type: "text" },
     { key: "openingBalance", label: "Opening Balance", type: "currency" },
     { key: "openingType", label: "Opening Type", type: "text" },
+    { key: "sharePercentage", label: "Share %", type: "number" },
+    { key: "capitalValue", label: "Capital Value", type: "currency" },
     { key: "description", label: "Description", type: "text" },
     { key: "isActive", label: "Status", type: "boolean" },
   ];
@@ -1132,6 +1150,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "openingBalance", label: "Opening Balance", type: "number" },
     { key: "openingType", label: "Opening Type", type: "select", options: [{ value: "None", label: "None" }, { value: "Payment", label: "Payment" }, { value: "Receive", label: "Receive" }] },
     { key: "description", label: "Description", type: "textarea" },
+    { key: "sharePercentage", label: "Share Percentage", type: "number" },
+    { key: "capitalValue", label: "Capital Value", type: "number" },
   ];
 
   const assetsImportFields: ExportFieldDef[] = [
@@ -1345,16 +1365,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Name</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Opening Balance</TableHead>
-                      <TableHead>Opening Type</TableHead>
+                      <TableHead>Share %</TableHead>
+                      <TableHead>Capital Value</TableHead>
+                      <TableHead>Ledger</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {headsLoading ? (
-                      <TableRow><TableCell colSpan={8} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredHeads.length === 0 ? (
-                      <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No investment heads found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No investment heads found</TableCell></TableRow>
                     ) : filteredHeads.map((item: any) => (
                       <React.Fragment key={item.id}>
                         <TableRow className="hover:bg-muted/50">
@@ -1367,7 +1389,19 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                           <TableCell className="text-slate-900 dark:text-white">{item.name}</TableCell>
                           <TableCell><Badge className={TYPE_BADGE[item.type] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>{item.type}</Badge></TableCell>
                           <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.openingBalance)}</TableCell>
-                          <TableCell><Badge variant="outline">{item.openingType || "None"}</Badge></TableCell>
+                          <TableCell className="font-mono text-sm">{item.sharePercentage != null ? `${item.sharePercentage}%` : "—"}</TableCell>
+                          <TableCell className="font-mono">{item.capitalValue != null ? (isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.capitalValue)) : "—"}</TableCell>
+                          <TableCell>
+                            {Number(item.openingBalance) > 0 ? (
+                              headsLedgerSync[item.id] ? (
+                                <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]"><CheckCircle className="w-3 h-3 mr-1" />Synced</Badge>
+                              ) : (
+                                <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px]">Pending</Badge>
+                              )
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">N/A</Badge>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                               {item.isActive ? "Active" : "Inactive"}
@@ -1382,13 +1416,23 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         </TableRow>
                         {expandedHeads.has(item.id) && (
                           <TableRow>
-                            <TableCell colSpan={8} className="bg-muted/30 p-3">
+                            <TableCell colSpan={10} className="bg-muted/30 p-3">
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                 <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Opening Type:</span> <span className="font-medium text-slate-900 dark:text-white">{item.openingType || "None"}</span></div>
                                 <div><span className="text-muted-foreground">Asset Count:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.assets ?? 0}</span></div>
                                 <div><span className="text-muted-foreground">Liability Count:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.liabilities ?? 0}</span></div>
                                 {item.sharePercentage != null && <div><span className="text-muted-foreground">Share %:</span> <span className="font-medium text-slate-900 dark:text-white">{item.sharePercentage}%</span></div>}
                                 {item.capitalValue != null && <div><span className="text-muted-foreground">Capital Value:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.capitalValue)}</span></div>}
+                                {Number(item.openingBalance) > 0 && (
+                                  <div><span className="text-muted-foreground">Ledger:</span>{" "}
+                                    {headsLedgerSync[item.id] ? (
+                                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]">✓ Double-Entry Posted</Badge>
+                                    ) : (
+                                      <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px]">Awaiting Sync</Badge>
+                                    )}
+                                  </div>
+                                )}
                                 {item.profileImage && <div><span className="text-muted-foreground">Profile:</span> <img src={item.profileImage} alt="Profile" className="inline-block w-8 h-8 rounded-full ml-1 object-cover" /></div>}
                               </div>
                             </TableCell>

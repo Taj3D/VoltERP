@@ -348,3 +348,79 @@ All existing functionality preserved. Lint clean, dev server running.
 
 Files Modified:
 - src/components/ProfileCenter.tsx — Complete rebuild with 6 enhancement categories
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Investment & Investment Heads Module — Operational Ledger Hooking + Universal PDF/CSV Data Armour
+
+Work Log:
+- Audited full Investment module codebase: /api/investment-heads/route.ts, /api/investments/route.ts, /api/assets/route.ts, /api/liabilities/route.ts, InvestmentGroupPage.tsx, export-utils.ts
+- **Directive 1 — Operational Ledger Hooking**:
+  - Created `findOrCreateInvestmentHeadCoa()` helper: resolves COA account by InvestmentHead type
+    - Liability type → Liability COA classification
+    - Asset type → Asset COA classification
+    - Investment type → Equity COA classification
+  - Created `findOrCreateContraCoa()` helper: resolves the contra COA account for double-entry pairing
+    - For Asset type: contra is Equity COA (DEBIT Asset, CREDIT Equity)
+    - For Liability/Investment types: contra is Cash/Bank COA (DEBIT Cash/Bank, CREDIT Liability/Equity)
+  - Created `postInvestmentHeadLedger()` helper: performs full 6-step double-entry ledger posting within the same Prisma transaction:
+    1. Resolve primary and contra COA accounts
+    2. Determine debit/credit accounts based on InvestmentHead type
+    3. Generate sequential LED-XXXXX entry codes
+    4. Create two LedgerEntry records (debit/credit pair)
+    5. Update both COA accounts' currentBalance using safeFinancialAdd
+    6. Create LedgerAutoPost tracking record with sourceType="InvestmentHead"
+  - Created `createSingleInvestmentHead()` helper: unified creation function with validation + ledger posting
+  - Updated POST handler: both single and batch modes now use createSingleInvestmentHead with automatic ledger posting for openingBalance > 0
+  - Tested: Created InvestmentHead with openingBalance=500000 → LAP-00001 created, LED-00001 (DEBIT Cash), LED-00002 (CREDIT Equity), COA balances updated
+- **Directive 2 — Universal PDF/CSV Data Armour**:
+  - Fixed currency formatting in export-utils.ts: changed from `en-BD` to `bn-BD` locale for `Intl.NumberFormat` as per specification
+    - Currency type: `new Intl.NumberFormat('bn-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })`
+    - Number type: `new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 2 })`
+    - Ensures proper Bangladeshi Taka digit grouping (lakhs/crores) with crisp 2-decimal precision
+  - Updated frontend `fmtCurrency` in InvestmentGroupPage.tsx to use `Intl.NumberFormat('bn-BD', ...)` 
+  - Updated headsExportColumns to include sharePercentage (Share %) and capitalValue (Capital Value) columns
+  - Updated headsImportFields to include sharePercentage and capitalValue for CSV import
+  - Updated CSV template route to include Asset Sub-Category and Location Tag columns for assets template
+  - Added financialFooter (Prepared By / Checked By / Authorized By) to all Investment Heads PDF exports
+  - All PDF exports use corporate branding (company logo Base64, BIN number, address) via companyProfile prop
+  - Currency columns are right-aligned in PDF via export-utils.ts columnStyles
+- **Directive 3 — Transactional CSV Import Validator**:
+  - Rewrote batch mode in /api/investment-heads/route.ts with strict pre-validation pipeline:
+    - Validates ALL rows BEFORE processing ANY — no partial imports
+    - Required field validation: Name must be non-empty
+    - Negative monetary value rejection: openingBalance < 0 → entire file rejected
+    - Invalid financial field rejection: sharePercentage out of [0,100] range → rejected
+    - capitalValue <= 0 → rejected
+    - Image field validation via validateImageFields()
+    - Unmapped company identifier validation: companyId mismatch → rejected
+    - If ANY validation error found, returns 400 with detailed validationErrors array (row, field, message)
+    - Error message: "Import rejected: N validation error(s). Entire import file rolled back."
+    - Only if ALL rows pass validation, proceeds with Prisma transactional insert
+  - Tested: Batch import with empty name + negative openingBalance → entire import rejected with detailed errors
+  - Tested: Batch import with 2 valid rows → both created with ledger posting, LAP-00002 and LAP-00003 generated
+- **Frontend Enhancements**:
+  - Added `headsLedgerSync` state and `loadHeadsLedgerSync()` callback for InvestmentHead-specific ledger sync status
+  - Updated tab load effect to call `loadHeadsLedgerSync()` on initial load
+  - Added Ledger Status column to Investment Heads table showing:
+    - "Synced" (green with CheckCircle) for heads with openingBalance > 0 that have LedgerAutoPost records
+    - "Pending" (amber) for heads with openingBalance > 0 that lack LedgerAutoPost records
+    - "N/A" (outline) for heads with zero opening balance
+  - Added Share % and Capital Value columns to Investment Heads table
+  - Enhanced expanded row detail to show Opening Type, Ledger status badge, share/capital values
+  - Updated colSpan from 8 to 10 for new columns
+  - All changes lint clean, dev server running, API routes verified
+
+Stage Summary:
+- **Operational Ledger Hooking**: Every InvestmentHead with openingBalance > 0 now creates automatic double-entry ledger entries (DEBIT/credit pair), updates COA currentBalance, and creates LedgerAutoPost tracking with sourceType="InvestmentHead"
+- **Currency Format Fix**: All financial numbers across PDF/CSV exports now pass through `Intl.NumberFormat('bn-BD', { minimumFractionDigits: 2 })` for proper Bangladeshi Taka formatting
+- **Transactional CSV Import**: Strict pre-validation rejects entire import file if any row has invalid metadata, negative numeric values, or unmapped company identifiers — full Prisma transactional rollback
+- **Frontend Ledger Sync**: Investment Heads table shows real-time Ledger Status badges (Synced/Pending/N/A) based on LedgerAutoPost records
+- **Lint**: Clean ✅ | **Dev Server**: Running ✅ | **API Tests**: All passing ✅
+
+Files Modified:
+- src/app/api/investment-heads/route.ts — Complete rewrite with double-entry ledger posting + transactional CSV import validator
+- src/lib/export-utils.ts — Currency formatting changed from en-BD to bn-BD locale
+- src/components/InvestmentGroupPage.tsx — Ledger sync badges, Share %/Capital Value columns, bn-BD formatting, enhanced export columns and import fields
+- src/app/api/investments/csv-template/route.ts — Updated templates with Sub-Category/Location columns

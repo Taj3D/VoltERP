@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
     filename = 'investment-heads-template.csv';
   } else if (type === 'assets') {
     csvContent = [
-      'Investment Head ID,Date,Amount,Asset Category,Purchase Value,Salvage Value,Useful Life (Months),Depreciation Rate,Description',
-      '"head-id-here",2025-01-15,50000,Fixed,50000,5000,60,10,"Fixed asset description"',
-      '"head-id-here",2025-02-01,10000,Current,,,,,,"Current asset description"',
+      'Investment Head ID,Date,Amount,Asset Category,Asset Sub-Category,Location Tag,Purchase Value,Salvage Value,Useful Life (Months),Depreciation Rate,Description',
+      '"head-id-here",2025-01-15,50000,Fixed,Machinery,"Building A",50000,5000,60,10,"Fixed asset description"',
+      '"head-id-here",2025-02-01,10000,Current,Cash,,,,,,"Current asset description"',
     ].join('\n');
     filename = 'assets-template.csv';
   } else if (type === 'liabilities') {

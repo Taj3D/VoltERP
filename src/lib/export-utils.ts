@@ -213,7 +213,10 @@ function formatCellValue(
   if (type === "currency") {
     const num = Number(value);
     if (isNaN(num)) return "\u2014";
-    return `\u09F3${num.toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // Use bn-BD locale for proper Bangladeshi Taka formatting
+    // This ensures correct digit grouping (lakhs/crores) and 2-decimal precision
+    const bdFmt = new Intl.NumberFormat('bn-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `\u09F3${bdFmt.format(num)}`;
   }
   if (type === "boolean") return value ? "Active" : "Inactive";
   if (type === "date") {
@@ -231,7 +234,8 @@ function formatCellValue(
   if (type === "number") {
     const num = Number(value);
     if (isNaN(num)) return String(value);
-    return num.toLocaleString("en-BD", { maximumFractionDigits: 2 });
+    const bdFmt = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 2 });
+    return bdFmt.format(num);
   }
   return String(value);
 }
