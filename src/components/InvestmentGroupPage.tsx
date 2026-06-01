@@ -1120,15 +1120,41 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
   const handleImportCSV = (apiPath: string, fields: ExportFieldDef[], reloadFn: () => void) => {
     importFromCSV({ apiPath, formFields: fields }).then((result) => {
+      const errorDetails = result.fieldErrors && result.fieldErrors.length > 0
+        ? result.fieldErrors.slice(0, 5).map((e) => `Row ${e.row} ${e.field}: ${e.message}`).join("; ")
+        : "";
       toast({
         title: "Import Complete",
-        description: `Imported: ${result.imported}, Failed: ${result.failed}`,
+        description: `Imported: ${result.imported}, Failed: ${result.failed}${errorDetails ? ` | Errors: ${errorDetails}` : ""}`,
         variant: result.failed > 0 ? "destructive" : "default",
       });
       reloadFn();
     }).catch((e: any) => {
       toast({ title: "Import Error", description: e?.message || "Import failed", variant: "destructive" });
     });
+  };
+
+  // ─── CSV Template Download ───
+  const downloadCSVTemplate = (type: "heads" | "assets" | "liabilities") => {
+    try {
+      const authHeaders: Record<string, string> = {};
+      try {
+        const stored = localStorage.getItem("ems_auth");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+        }
+      } catch {}
+      const link = document.createElement("a");
+      link.href = `/api/investments/csv-template?type=${type}`;
+      link.download = `${type}-template.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast({ title: "Template Downloaded", description: `${type} CSV template downloaded` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   // ============================================================
@@ -1227,6 +1253,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base">Investment Heads</CardTitle>
                 <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("heads")}>
+                    <Download className="w-4 h-4 mr-1" />CSV Template
+                  </Button>
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/investment-heads", headsImportFields, loadHeads)}>
                     <Upload className="w-4 h-4 mr-1" />Import CSV
                   </Button>
@@ -1297,10 +1326,13 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         {expandedHeads.has(item.id) && (
                           <TableRow>
                             <TableCell colSpan={8} className="bg-muted/30 p-3">
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                 <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "—"}</span></div>
                                 <div><span className="text-muted-foreground">Asset Count:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.assets ?? 0}</span></div>
                                 <div><span className="text-muted-foreground">Liability Count:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.liabilities ?? 0}</span></div>
+                                {item.sharePercentage != null && <div><span className="text-muted-foreground">Share %:</span> <span className="font-medium text-slate-900 dark:text-white">{item.sharePercentage}%</span></div>}
+                                {item.capitalValue != null && <div><span className="text-muted-foreground">Capital Value:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.capitalValue)}</span></div>}
+                                {item.profileImage && <div><span className="text-muted-foreground">Profile:</span> <img src={item.profileImage} alt="Profile" className="inline-block w-8 h-8 rounded-full ml-1 object-cover" /></div>}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1330,6 +1362,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
           {/* Actions Bar */}
           <div className="flex items-center justify-end gap-2 mt-4 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => downloadCSVTemplate("assets")}>
+              <Download className="w-4 h-4 mr-1" />CSV Template
+            </Button>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Investments", investExportColumns, investments)}>
               <Download className="w-4 h-4 mr-1" />Export CSV
             </Button>
@@ -1369,11 +1404,14 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                           <p className="text-xs text-slate-300 font-mono">{head.code}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 text-xs">
+                      <div className="flex items-center gap-3 text-xs flex-wrap">
                         <span>Opening: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.openingBalance)}</span></span>
                         <span>Assets: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.totalAssets)}</span></span>
                         <span>Liabilities: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.totalLiabilities)}</span></span>
                         <span>Net: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.netValue)}</span></span>
+                        {head.sharePercentage != null && <span>Share: <span className="font-mono">{head.sharePercentage}%</span></span>}
+                        {head.capitalValue != null && <span>Capital: <span className="font-mono font-bold">{isVatAuditor ? "N/A" : fmtCurrency(head.capitalValue)}</span></span>}
+                        <Badge className="bg-emerald-500/20 text-emerald-300 text-[10px]">✓ Double-Entry Linked</Badge>
                       </div>
                     </div>
                   </CardHeader>
@@ -1382,7 +1420,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Assets mini-table */}
                         <div>
-                          <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Assets ({head.assets?.length ?? 0})</h4>
+                          <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                            Assets ({head.assets?.length ?? 0})
+                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]">COA Linked</Badge>
+                          </h4>
                           {head.assets?.length > 0 ? (
                             <div className="overflow-auto max-h-48 rounded-md border">
                               <Table>
@@ -1392,6 +1433,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                                     <TableHead className="text-xs">Category</TableHead>
                                     <TableHead className="text-xs">Amount</TableHead>
                                     <TableHead className="text-xs">Description</TableHead>
+                                    <TableHead className="text-xs w-16">Actions</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1401,6 +1443,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                                       <TableCell className="text-xs"><Badge className={CATEGORY_BADGE[a.assetCategory] || ""}>{a.assetCategory}</Badge></TableCell>
                                       <TableCell className="text-xs font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(a.amount)}</TableCell>
                                       <TableCell className="text-xs">{a.description || "—"}</TableCell>
+                                      <TableCell className="text-xs">
+                                        <div className="flex gap-1">
+                                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => openAssetEdit(a, a.assetCategory || "Fixed")} disabled={isVatAuditor}><Edit className="w-3 h-3" /></Button>
+                                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-red-500" onClick={() => setAssetsDelete(a)} disabled={isVatAuditor || !isAdmin}><Trash2 className="w-3 h-3" /></Button>
+                                        </div>
+                                      </TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
@@ -1412,7 +1460,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         </div>
                         {/* Liabilities mini-table */}
                         <div>
-                          <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Liabilities ({head.liabilities?.length ?? 0})</h4>
+                          <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                            Liabilities ({head.liabilities?.length ?? 0})
+                            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px]">COA Linked</Badge>
+                          </h4>
                           {head.liabilities?.length > 0 ? (
                             <div className="overflow-auto max-h-48 rounded-md border">
                               <Table>
@@ -1423,6 +1474,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                                     <TableHead className="text-xs">Method</TableHead>
                                     <TableHead className="text-xs">Amount</TableHead>
                                     <TableHead className="text-xs">Description</TableHead>
+                                    <TableHead className="text-xs w-16">Actions</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1433,6 +1485,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                                       <TableCell className="text-xs"><Badge className={PAYMENT_METHOD_BADGE[l.paymentMethod] || ""}>{l.paymentMethod || "—"}</Badge></TableCell>
                                       <TableCell className="text-xs font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(l.amount)}</TableCell>
                                       <TableCell className="text-xs">{l.description || "—"}</TableCell>
+                                      <TableCell className="text-xs">
+                                        <div className="flex gap-1">
+                                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => openLiabEdit(l, l.type || "received")} disabled={isVatAuditor}><Edit className="w-3 h-3" /></Button>
+                                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-red-500" onClick={() => l.type === "received" ? setLiabReceiveDelete(l) : setLiabPayDelete(l)} disabled={isVatAuditor || !isAdmin}><Trash2 className="w-3 h-3" /></Button>
+                                        </div>
+                                      </TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
@@ -1468,6 +1526,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base">Fixed Assets</CardTitle>
                 <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("assets")}>
+                    <Download className="w-4 h-4 mr-1" />CSV Template
+                  </Button>
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/assets", assetsImportFields, loadAssets)}>
                     <Upload className="w-4 h-4 mr-1" />Import CSV
                   </Button>
@@ -1570,6 +1631,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base">Current Assets</CardTitle>
                 <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("assets")}>
+                    <Download className="w-4 h-4 mr-1" />CSV Template
+                  </Button>
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/assets", assetsImportFields, loadCurrentAssets)}>
                     <Upload className="w-4 h-4 mr-1" />Import CSV
                   </Button>
@@ -1657,6 +1721,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base">Liability Receive</CardTitle>
                 <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("liabilities")}>
+                    <Download className="w-4 h-4 mr-1" />CSV Template
+                  </Button>
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/liabilities", liabImportFields, loadLiabReceive)}>
                     <Upload className="w-4 h-4 mr-1" />Import CSV
                   </Button>
@@ -1744,6 +1811,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base">Liability Pay</CardTitle>
                 <div className="flex gap-2 flex-wrap">
+                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("liabilities")}>
+                    <Download className="w-4 h-4 mr-1" />CSV Template
+                  </Button>
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/liabilities", liabImportFields, loadLiabPay)}>
                     <Upload className="w-4 h-4 mr-1" />Import CSV
                   </Button>

@@ -4,6 +4,7 @@ import {
   withApiSecurity,
   checkPeriodClose,
   safeFinancialRound,
+  safeFinancialAdd,
   safeFinancialSubtract,
   maskForVatAuditor,
   maskFinancialArray,
@@ -162,8 +163,166 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// ============================================================
+// HELPER: Find or create the appropriate Asset COA account
+// ============================================================
+async function findOrCreateAssetCoa(
+  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
+  assetCategory: string,
+  companyId: string | null
+): Promise<{ id: string; code: string; name: string; currentBalance: number }> {
+  const isFixedAsset = assetCategory === 'Fixed';
+  const searchKeyword = isFixedAsset ? 'Fixed' : 'Current';
+  const defaultAccountName = isFixedAsset ? 'Fixed Assets' : 'Current Assets';
+
+  // Step 1: Try to find an existing COA with classification "Asset" whose name contains the keyword
+  let assetCoa = await tx.chartOfAccount.findFirst({
+    where: {
+      classification: 'Asset',
+      isActive: true,
+      name: { contains: searchKeyword },
+      ...(companyId ? { companyId } : {}),
+    },
+  });
+
+  // Step 2: If not found by name, try to find a child of a root COA with the keyword
+  if (!assetCoa) {
+    const rootAsset = await tx.chartOfAccount.findFirst({
+      where: {
+        classification: 'Asset',
+        isRoot: true,
+        isActive: true,
+        name: { contains: searchKeyword },
+        ...(companyId ? { companyId } : {}),
+      },
+    });
+
+    if (rootAsset) {
+      assetCoa = await tx.chartOfAccount.findFirst({
+        where: {
+          classification: 'Asset',
+          isActive: true,
+          parentAccountId: rootAsset.id,
+          ...(companyId ? { companyId } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+  }
+
+  // Step 3: If still not found, try any root Asset COA and use it directly
+  if (!assetCoa) {
+    assetCoa = await tx.chartOfAccount.findFirst({
+      where: {
+        classification: 'Asset',
+        isActive: true,
+        name: { contains: searchKeyword },
+      },
+    });
+  }
+
+  // Step 4: Create one if nothing exists
+  if (!assetCoa) {
+    // Generate a unique code
+    const lastCoa = await tx.chartOfAccount.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { code: true },
+    });
+    let nextCoaNum = 1;
+    if (lastCoa?.code) {
+      const match = lastCoa.code.match(/COA-(\d+)/);
+      if (match) nextCoaNum = parseInt(match[1], 10) + 1;
+    }
+    const coaCode = `COA-${String(nextCoaNum).padStart(5, '0')}`;
+
+    assetCoa = await tx.chartOfAccount.create({
+      data: {
+        code: coaCode,
+        name: defaultAccountName,
+        classification: 'Asset',
+        openingBalance: 0,
+        openingBalanceType: 'Dr',
+        currentBalance: 0,
+        isRoot: false,
+        isActive: true,
+        ...(companyId ? { companyId } : {}),
+      },
+    });
+  }
+
+  return {
+    id: assetCoa.id,
+    code: assetCoa.code,
+    name: assetCoa.name,
+    currentBalance: assetCoa.currentBalance,
+  };
+}
+
+// ============================================================
+// HELPER: Find or create the Equity COA account
+// ============================================================
+async function findOrCreateEquityCoa(
+  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
+  companyId: string | null
+): Promise<{ id: string; code: string; name: string; currentBalance: number }> {
+  // Step 1: Find existing Equity COA
+  let equityCoa = await tx.chartOfAccount.findFirst({
+    where: {
+      classification: 'Equity',
+      isActive: true,
+      ...(companyId ? { companyId } : {}),
+    },
+  });
+
+  // Step 2: If not found with company filter, try without (global equity account)
+  if (!equityCoa && companyId) {
+    equityCoa = await tx.chartOfAccount.findFirst({
+      where: {
+        classification: 'Equity',
+        isActive: true,
+        companyId: null,
+      },
+    });
+  }
+
+  // Step 3: Create one if nothing exists
+  if (!equityCoa) {
+    const lastCoa = await tx.chartOfAccount.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { code: true },
+    });
+    let nextCoaNum = 1;
+    if (lastCoa?.code) {
+      const match = lastCoa.code.match(/COA-(\d+)/);
+      if (match) nextCoaNum = parseInt(match[1], 10) + 1;
+    }
+    const coaCode = `COA-${String(nextCoaNum).padStart(5, '0')}`;
+
+    equityCoa = await tx.chartOfAccount.create({
+      data: {
+        code: coaCode,
+        name: 'Owner Equity',
+        classification: 'Equity',
+        openingBalance: 0,
+        openingBalanceType: 'Cr',
+        currentBalance: 0,
+        isRoot: false,
+        isActive: true,
+        ...(companyId ? { companyId } : {}),
+      },
+    });
+  }
+
+  return {
+    id: equityCoa.id,
+    code: equityCoa.code,
+    name: equityCoa.name,
+    currentBalance: equityCoa.currentBalance,
+  };
+}
+
 /**
- * Helper: Create a single asset with full validation
+ * Helper: Create a single asset with full validation + double-entry ledger posting
  */
 async function createSingleAsset(
   tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
@@ -246,6 +405,7 @@ async function createSingleAsset(
     }
   }
 
+  // ── Step 1: Insert the Asset record ──
   const record = await tx.asset.create({
     data: {
       investmentHeadId,
@@ -266,32 +426,107 @@ async function createSingleAsset(
     include: { investmentHead: true },
   });
 
-  // Auto-post to Chart of Accounts (Equity node)
-  if (isFixedAsset) {
-    const equityAccount = await tx.chartOfAccount.findFirst({
-      where: {
-        classification: 'Equity',
-        isActive: true,
-        ...(companyId ? { companyId } : {}),
-      },
-    });
+  // ── Step 2: Find the appropriate Chart of Accounts nodes ──
+  const assetCoa = await findOrCreateAssetCoa(tx, assetCategory, companyId);
+  const equityCoa = await findOrCreateEquityCoa(tx, companyId);
 
-    if (equityAccount) {
-      await tx.ledgerEntry.create({
-        data: {
-          accountCode: equityAccount.code,
-          accountId: equityAccount.id,
-          date: record.date,
-          debit: 0,
-          credit: safeFinancialRound(amount),
-          description: `Asset capital allocation: ${record.investmentHead?.name || record.id}`,
-          referenceType: 'Asset',
-          referenceId: record.id,
-          companyId: companyId || null,
-        },
-      });
-    }
+  // ── Step 3: Generate LedgerEntry codes ──
+  const lastLedger = await tx.ledgerEntry.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { entryCode: true },
+  });
+  let nextLedgerNum = 1;
+  if (lastLedger?.entryCode) {
+    const match = lastLedger.entryCode.match(/LED-(\d+)/);
+    if (match) nextLedgerNum = parseInt(match[1], 10) + 1;
   }
+  const ledgerCode1 = `LED-${String(nextLedgerNum).padStart(5, '0')}`;
+  const ledgerCode2 = `LED-${String(nextLedgerNum + 1).padStart(5, '0')}`;
+
+  const roundedAmount = safeFinancialRound(amount);
+  const assetDate = record.date;
+  const headName = record.investmentHead?.name || record.id;
+  const sourceRef = idempotencyKey || record.id;
+
+  // ── Step 4: Create two LedgerEntry records (debit/credit pair) ──
+
+  // DEBIT the Asset COA account (increase asset)
+  const debitEntry = await tx.ledgerEntry.create({
+    data: {
+      entryCode: ledgerCode1,
+      date: assetDate,
+      accountId: assetCoa.id,
+      account: assetCoa.name,
+      particulars: `Asset capital allocation: ${headName}`,
+      debit: roundedAmount,
+      credit: 0,
+      reference: sourceRef,
+      referenceType: 'Asset',
+      ...(companyId ? { companyId } : {}),
+      isActive: true,
+    },
+  });
+
+  // CREDIT the Equity COA account (increase equity/capital)
+  const creditEntry = await tx.ledgerEntry.create({
+    data: {
+      entryCode: ledgerCode2,
+      date: assetDate,
+      accountId: equityCoa.id,
+      account: equityCoa.name,
+      particulars: `Asset capital source: ${headName}`,
+      debit: 0,
+      credit: roundedAmount,
+      reference: sourceRef,
+      referenceType: 'Asset',
+      ...(companyId ? { companyId } : {}),
+      isActive: true,
+    },
+  });
+
+  // ── Step 5: Update both COA accounts' currentBalance ──
+  // Asset COA: debit nature account, increase on debit
+  const newAssetBalance = safeFinancialAdd(assetCoa.currentBalance, roundedAmount);
+  await tx.chartOfAccount.update({
+    where: { id: assetCoa.id },
+    data: { currentBalance: newAssetBalance },
+  });
+
+  // Equity COA: credit nature account, increase on credit
+  const newEquityBalance = safeFinancialAdd(equityCoa.currentBalance, roundedAmount);
+  await tx.chartOfAccount.update({
+    where: { id: equityCoa.id },
+    data: { currentBalance: newEquityBalance },
+  });
+
+  // ── Step 6: Create a LedgerAutoPost tracking record ──
+  const lastLap = await tx.ledgerAutoPost.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { code: true },
+  });
+  let nextLapNum = 1;
+  if (lastLap?.code) {
+    const match = lastLap.code.match(/LAP-(\d+)/);
+    if (match) nextLapNum = parseInt(match[1], 10) + 1;
+  }
+  const lapCode = `LAP-${String(nextLapNum).padStart(5, '0')}`;
+
+  await tx.ledgerAutoPost.create({
+    data: {
+      code: lapCode,
+      sourceType: 'Asset',
+      sourceId: record.id,
+      sourceCode: sourceRef,
+      debitEntryId: debitEntry.id,
+      creditEntryId: creditEntry.id,
+      debitAccount: assetCoa.code,
+      creditAccount: equityCoa.code,
+      amount: roundedAmount,
+      postingDate: assetDate,
+      status: 'Posted',
+      ...(companyId ? { companyId } : {}),
+    },
+  });
 
   return record;
 }

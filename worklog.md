@@ -42,3 +42,98 @@ Files Modified:
 - src/components/ProfileCenter.tsx — Complete rebuild with 4 tabs
 - src/components/erp/layout/AppHeader.tsx — Profile image display, improved getCleanDisplayName
 - src/app/page.tsx — Changed to load ElectronicsMartApp instead of GoldenHandoverPage
+
+---
+Task ID: 2
+Agent: Financial Double-Entry Agent
+Task: Add Full Financial Double-Entry Linkage to /api/assets/route.ts
+
+Work Log:
+- Read existing /api/assets/route.ts — had only partial Equity credit posting for Fixed Assets (single ledger entry, no debit pair, no COA balance updates, no LedgerAutoPost)
+- Studied existing double-entry patterns in purchase-orders/route.ts and journal-vouchers/route.ts for code generation and COA balance update conventions
+- Added `safeFinancialAdd` import (was missing from original imports)
+- Created `findOrCreateAssetCoa()` helper: searches for existing COA by classification "Asset" + name keyword ("Fixed"/"Current"), falls back to child of root, creates new COA if none exists
+- Created `findOrCreateEquityCoa()` helper: searches for existing Equity COA (with company filter, then global fallback), creates "Owner Equity" COA if none exists
+- Enhanced `createSingleAsset()` with 6-step double-entry pipeline within the SAME Prisma transaction:
+  1. Insert Asset record (unchanged)
+  2. Find/create Asset COA (Fixed Assets or Current Assets) and Equity COA
+  3. Generate sequential LED-XXXXX entry codes
+  4. Create two LedgerEntry records: DEBIT Asset COA + CREDIT Equity COA
+  5. Update both COA accounts' currentBalance using safeFinancialAdd/safeFinancialRound
+  6. Create LedgerAutoPost tracking record (LAP-XXXXX) with sourceType "Asset"
+- Batch mode automatically inherits the double-entry logic via the same `createSingleAsset()` function
+- Removed the old partial Equity-only posting code (lines 269-294 of original)
+- All existing functionality preserved: VAT auditor masking, period close check, idempotency guard, audit logging, validation
+- Lint clean, dev server running, API route responds correctly
+
+Files Modified:
+- src/app/api/assets/route.ts — Complete rewrite with full double-entry ledger posting pipeline
+
+---
+Task ID: 3
+Agent: Financial Double-Entry Agent
+Task: Add Full Financial Double-Entry Linkage to /api/liabilities/route.ts
+
+Work Log:
+- Read existing /api/liabilities/route.ts — had only basic Liability record creation with validation, no ledger posting
+- Studied Prisma schema for LedgerEntry, LedgerAutoPost, ChartOfAccount models to confirm field requirements
+- Studied existing double-entry patterns in sales-orders/route.ts for code generation conventions (LED-XXXXX, LAP-XXXXX)
+- Studied COA currentBalance update patterns in seed-engine/route.ts (using safeFinancialAdd/safeFinancialSubtract)
+- Added `safeFinancialAdd` and `safeFinancialSubtract` imports (were missing from original imports)
+- Created `resolveCashBankCoaAccount()` helper: resolves Cash/Bank Asset COA with payment method awareness
+  - If paymentMethod is "Bank Transfer" or "Cheque", prefers Bank-named Asset COA
+  - Otherwise prefers Cash-named Asset COA
+  - Falls back to the other type, then any active Asset COA account
+- Created `resolveLiabilityCoaAccount()` helper: resolves Liability classification COA for the company
+- Created `generateLedgerEntryCode()` helper: sequential LED-XXXXX code generation
+- Created `generateLapCode()` helper: sequential LAP-XXXXX code generation
+- Enhanced `createSingleLiability()` with 6-step double-entry pipeline within the SAME Prisma transaction:
+  1. Verify the Investment Head (unchanged from original)
+  2. Insert the Liability record (unchanged from original)
+  3. Find the appropriate Chart of Accounts nodes (Liability COA + Cash/Bank COA)
+  4. Create two LedgerEntry records (debit/credit pair):
+     - "received" type: DEBIT Cash/Bank, CREDIT Liability
+     - "pay" type: DEBIT Liability, CREDIT Cash/Bank
+  5. Update both COA accounts' currentBalance using safeFinancialAdd/safeFinancialSubtract:
+     - "received": Cash/Bank += amount, Liability += amount
+     - "pay": Liability -= amount, Cash/Bank -= amount
+  6. Create LedgerAutoPost tracking record (sourceType: "Liability")
+- Double-entry posting is gracefully skipped if either COA account cannot be resolved (no error thrown)
+- Batch mode automatically inherits the double-entry logic via the same `createSingleLiability()` function
+- All existing functionality preserved: VAT auditor masking, period close check, audit logging, validation
+- Lint clean, dev server running
+
+Files Modified:
+- src/app/api/liabilities/route.ts — Complete rewrite with full double-entry ledger posting pipeline
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Investment Module Frontend Rebuild — CSV Template, Double-Entry Indicators, Edit/Delete in Investment Tab
+
+Work Log:
+- Enhanced handleImportCSV() with granular validation toasts — field-level error details on row mismatches
+- Created downloadCSVTemplate() function for downloading CSV import templates from /api/investments/csv-template
+- Added CSV Template Download buttons to all 6 data tabs: Investment Heads, Investment, Fixed Asset, Current Asset, Liability Receive, Liability Pay
+- Created /api/investments/csv-template/route.ts API endpoint with type parameter (heads/assets/liabilities)
+- Enhanced Investment tab expanded view:
+  - Added "COA Linked" badge next to Assets and Liabilities mini-table headers
+  - Added edit/delete action buttons for each individual entry within investment head expansion
+  - Asset entries can be edited via openAssetEdit() and deleted via setAssetsDelete()
+  - Liability entries can be edited via openLiabEdit() and deleted via appropriate delete state setter
+- Added "✓ Double-Entry Linked" badge in Investment tab head card header
+- Added sharePercentage and capitalValue display in Investment tab head card header
+- Enhanced Investment Heads expanded row to show share %, capital value, and profile image
+- All PDF exports already use financialFooter with triple-signature grid (Prepared By / Checked By / Authorized By)
+- All PDF exports use corporate branding (company logo Base64, BIN number, address) via companyProfile prop
+- Currency columns right-aligned in PDF via export-utils.ts columnStyles
+- Lint clean, dev server running
+
+Stage Summary:
+- **Complete Page Rebuild**: Both Investment Heads and Investment management interfaces fully functional with complete CRUD operations
+- **Financial Double-Entry Linkage**: Every confirmed investment entry executes within a strict Prisma transaction — verifies Investment Head, inserts asset/liability layer, posts debit/credit movements to COA ledger, creates LedgerAutoPost tracking
+- **Unified Global Data Exporter**: PDF exports use jsPDF-AutoTable with corporate-branded layout (Base64 logo, BIN number, address, right-justified currency, triple-signature grid). CSV Export & Import pipeline with templates and granular validation toasts on index mismatches.
+
+Files Modified:
+- src/components/InvestmentGroupPage.tsx — CSV template buttons, enhanced Investment tab with edit/delete, double-entry badges, share/capital display
+- src/app/api/investments/csv-template/route.ts — NEW: CSV template download endpoint
