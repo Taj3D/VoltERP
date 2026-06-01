@@ -4412,3 +4412,36 @@ Stage Summary:
 - Split payment: Cash/Card/MFS with cash change calculation
 - Thermal receipt: 80mm layout with @media print CSS
 - LINT: ZERO ERRORS | DEV SERVER: HTTP 200 STABLE
+
+---
+Task ID: 16
+Agent: Main Orchestrator
+Task: PHASE 16 — Operational Dashboards & Real-Time Analytics Widget Engine
+
+Work Log:
+- Read all existing project files: schema.prisma (PosSale, PosSaleLine, ChartOfAccount, LedgerEntry, ProductStock), DashboardAnalyticsPage.tsx, dashboard-analytics API route, dashboard API route, activity-logger.ts, export-utils.ts, invoice-engine.ts
+- Created `/api/dashboard/metrics` endpoint with 3 query types:
+  - `core-metrics`: 4 vital operational counters (Total Net Revenue incl. POS, Perpetual Inventory Valuation, AR/AP Debt Ratio, Gross Profit Margin %)
+  - `financial-chart`: 12-month multi-axis data (Sales vs COGS vs Gross Profit Margin)
+  - `pos-revenue`: POS revenue breakdown (Cash/Card/MFS portions)
+- All queries anchored by companyId — Anti-Leak Aggregator Shield enforced
+- Safe division-by-zero: Gross Profit Margin returns 0.00 when Total Revenue === 0
+- COGS computed from both Sales Order lines + POS Sale lines
+- Receivables include POS Sales in total calculation
+- Updated activity-logger.ts with "BI-Analytics-Core" compliance token documentation
+- Rewrote DashboardAnalyticsPage.tsx (1657 lines) with Phase 16 enhancements:
+  - D1: 4 new KPI cards (Net Revenue incl. POS, Perpetual Inventory Value, AR/AP Debt Ratio, Gross Profit Margin %)
+  - D2: Full-width ComposedChart with Bar (sales), Bar (cogs), Line (grossProfitMargin on right Y-axis)
+  - D3: Spin-Lock "Sync Real-Time Metrics" button with analyticsSnapshot rollback on API failure
+  - D4: "Export Corporate Performance Report" PDF with company profile + financialFooter signature blocks
+- Lint check: ZERO errors
+- Dev server: HTTP 200 on port 3000
+
+Stage Summary:
+- 3 files created/modified: /api/dashboard/metrics/route.ts, DashboardAnalyticsPage.tsx, activity-logger.ts
+- Core Metric Matrix: Total Net Revenue, Perpetual Inventory Valuation, AR/AP Ratio, Gross Profit Margin % — all with safe fallbacks
+- Multi-Axis Financial Chart: 12-month Sales vs COGS vs Gross Profit Margin with dual Y-axes
+- Anti-Leak Aggregator Shield: Every Prisma query has companyId anchor
+- analyticsSnapshot rollback engine for API failure resilience
+- BI-Analytics-Core compliance token for all dashboard activity logging
+- Corporate Performance Report PDF with enterprise triple-signature layout

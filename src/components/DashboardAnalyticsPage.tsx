@@ -17,9 +17,10 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell
+  Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell,
+  ComposedChart
 } from "recharts";
-import { exportToPDFSimple, exportToCSVSimple } from "@/lib/export-utils";
+import { exportToPDFSimple, exportToCSVSimple, exportToPDF, type ColumnDef, type CompanyProfile } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -165,7 +166,7 @@ function KpiCard({ label, value, icon: Icon, color, bg, change, isCurrency, form
   bg: string;
   change?: number;
   isCurrency?: boolean;
-  formatType?: "currency" | "number" | "percent";
+  formatType?: "currency" | "number" | "percent" | "ratio";
 }) {
   const numValue = typeof value === "number" ? value : 0;
   const animated = useAnimatedCounter(numValue);
@@ -173,9 +174,11 @@ function KpiCard({ label, value, icon: Icon, color, bg, change, isCurrency, form
     ? value
     : formatType === "percent"
       ? `${Number(value).toFixed(2)}%`
-      : isCurrency
-        ? `৳${animated.toLocaleString("en-BD", { minimumFractionDigits: 2 })}`
-        : String(animated);
+      : formatType === "ratio"
+        ? Number(value).toFixed(2)
+        : isCurrency
+          ? `৳${animated.toLocaleString("en-BD", { minimumFractionDigits: 2 })}`
+          : String(animated);
 
   return (
     <Card className="kpi-card dashboard-kpi-card transition-all hover:shadow-lg">
@@ -344,6 +347,16 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
   const [installments, setInstallments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Phase 16 D1: Core Metrics state
+  const [coreMetrics, setCoreMetrics] = useState<any>({});
+  // Phase 16 D2: Financial Chart Data state
+  const [financialChartData, setFinancialChartData] = useState<any[]>([]);
+  // Phase 16 D3: Spin-Lock & analyticsSnapshot
+  const [isSyncing, setIsSyncing] = useState(false);
+  const analyticsSnapshot = useRef<any>({ kpiData: {}, monthlyTrend: [], financialChartData: [] });
+  // Phase 16 D4: Company Profile for PDF export
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+
   // FIX 3: Helper to build date range query params
   const dateParams = useMemo(() => {
     let params = "";
@@ -368,6 +381,8 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
         payRes,
         agingRes,
         dashRes,
+        coreMetricsRes,
+        financialChartRes,
       ] = await Promise.all([
         apiFetch(`/api/dashboard-analytics?type=kpi${vatParam}${dp}`).catch(() => ({})),
         apiFetch(`/api/dashboard-analytics?type=monthly-trend&months=12${vatParam}${dp}`).catch(() => ({ data: [] })),
@@ -378,6 +393,10 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
         apiFetch(`/api/dashboard-analytics?type=payment-mix${vatParam}${dp}`).catch(() => ({ data: [] })),
         apiFetch(`/api/dashboard-analytics?type=receivables-aging${vatParam}${dp}`).catch(() => ({})),
         apiFetch("/api/dashboard").catch(() => ({})),
+        // Phase 16 D1: Core Metrics from /api/dashboard/metrics
+        apiFetch(`/api/dashboard/metrics?type=core-metrics${dp}`).catch(() => ({})),
+        // Phase 16 D2: Financial Chart from /api/dashboard/metrics
+        apiFetch(`/api/dashboard/metrics?type=financial-chart&months=12${dp}`).catch(() => ({ data: [] })),
       ]);
 
       setKpiData(kpiRes);
@@ -389,6 +408,10 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       setPaymentMix(payRes.data || []);
       setReceivablesAging(agingRes);
       setInstallments(dashRes.hireInstallments || []);
+      // Phase 16 D1: Set core metrics
+      setCoreMetrics(coreMetricsRes);
+      // Phase 16 D2: Set financial chart data
+      setFinancialChartData(financialChartRes.data || []);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
@@ -400,10 +423,138 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
     fetchAllData();
   }, [fetchAllData]);
 
+  // Phase 16 D4: Fetch company profile for PDF export
+  useEffect(() => {
+    apiFetch("/api/company-branding")
+      .then((res: any) => {
+        if (res.company) setCompanyProfile(res.company);
+      })
+      .catch(() => { /* silently ignore */ });
+  }, []);
+
   const refreshAll = useCallback(async () => {
     await fetchAllData();
     toast({ title: "Refreshed", description: "Dashboard data updated" });
   }, [fetchAllData, toast]);
+
+  // Phase 16 D3: Sync Real-Time Metrics with Spin-Lock
+  const syncRealTimeMetrics = useCallback(async () => {
+    // Save current state to analyticsSnapshot before syncing
+    analyticsSnapshot.current = {
+      kpiData: { ...kpiData },
+      monthlyTrend: [...monthlyTrend],
+      financialChartData: [...financialChartData],
+    };
+
+    setIsSyncing(true);
+
+    try {
+      const vatParam = isVatAuditor ? "&vatMode=true" : "";
+      const dp = dateParams;
+
+      const [
+        kpiRes,
+        trendRes,
+        coreMetricsRes,
+        financialChartRes,
+      ] = await Promise.all([
+        apiFetch(`/api/dashboard-analytics?type=kpi${vatParam}${dp}`),
+        apiFetch(`/api/dashboard-analytics?type=monthly-trend&months=12${vatParam}${dp}`),
+        apiFetch(`/api/dashboard/metrics?type=core-metrics${dp}`),
+        apiFetch(`/api/dashboard/metrics?type=financial-chart&months=12${dp}`),
+      ]);
+
+      setKpiData(kpiRes);
+      setMonthlyTrend(trendRes.data || []);
+      setCoreMetrics(coreMetricsRes);
+      setFinancialChartData(financialChartRes.data || []);
+      setIsSyncing(false);
+
+      toast({ title: "Sync Complete", description: "Real-time metrics compiled and aggregated successfully" });
+    } catch (e: any) {
+      // Rollback from analyticsSnapshot on failure
+      const snapshot = analyticsSnapshot.current;
+      setKpiData(snapshot.kpiData);
+      setMonthlyTrend(snapshot.monthlyTrend);
+      setFinancialChartData(snapshot.financialChartData);
+      setIsSyncing(false);
+
+      toast({
+        title: "Sync Failed",
+        description: "Multi-tenant ledger sync failed. Rolled back to last known state.",
+        variant: "destructive",
+      });
+    }
+  }, [isVatAuditor, dateParams, kpiData, monthlyTrend, financialChartData, toast]);
+
+  // Phase 16 D4: Export Corporate Performance Report PDF
+  const exportCorporatePerformanceReport = useCallback(async () => {
+    try {
+      // Fetch company profile if not already loaded
+      let company = companyProfile;
+      if (!company) {
+        const res = await apiFetch("/api/company-branding");
+        company = res.company || null;
+        if (company) setCompanyProfile(company);
+      }
+
+      // Build columns for KPI metrics table
+      const columns: ColumnDef[] = [
+        { key: "metric", label: "KPI Metric", type: "text" },
+        { key: "value", label: "Value", type: "text" },
+      ];
+
+      // Build data array with all computed KPIs
+      const data = [
+        { metric: "Net Revenue (incl. POS)", value: fmt(coreMetrics.totalNetRevenue ?? kpiData.totalRevenue ?? 0, "currency") },
+        { metric: "Perpetual Inventory Value", value: fmt(coreMetrics.perpetualInventoryValuation ?? 0, "currency") },
+        { metric: "Accounts Receivable", value: fmt(coreMetrics.accountsReceivable ?? kpiData.totalReceivables ?? 0, "currency") },
+        { metric: "Accounts Payable", value: fmt(coreMetrics.accountsPayable ?? kpiData.totalPayables ?? 0, "currency") },
+        { metric: "AR/AP Debt Ratio", value: (coreMetrics.arApDebtRatio ?? 0).toFixed(2) },
+        { metric: "Gross Profit Margin", value: fmt(coreMetrics.grossProfitMargin ?? 0, "percent") },
+        { metric: "Total COGS", value: fmt(coreMetrics.totalCOGS ?? 0, "currency") },
+        { metric: "Gross Profit", value: fmt(isVatAuditor ? "N/A (Audit Mode)" : (coreMetrics.grossProfit ?? kpiData.grossProfit ?? 0), "currency") },
+        { metric: "Net Profit", value: fmt(isVatAuditor ? "N/A (Audit Mode)" : (coreMetrics.netProfit ?? kpiData.netProfit ?? 0), "currency") },
+        { metric: "Total Expenses", value: fmt(coreMetrics.totalExpenses ?? kpiData.totalExpenses ?? 0, "currency") },
+        { metric: "Total Incomes", value: fmt(coreMetrics.totalIncomes ?? kpiData.totalIncomes ?? 0, "currency") },
+        { metric: "Bank Balance", value: fmt(coreMetrics.totalBankBalance ?? kpiData.totalBankBalance ?? 0, "currency") },
+        { metric: "Total Products", value: String(coreMetrics.totalProducts ?? kpiData.totalProducts ?? 0) },
+        { metric: "Total Customers", value: String(coreMetrics.totalCustomers ?? kpiData.totalCustomers ?? 0) },
+        { metric: "Total Suppliers", value: String(coreMetrics.totalSuppliers ?? kpiData.totalSuppliers ?? 0) },
+        { metric: "Today's Sales", value: fmt(coreMetrics.todaysSales ?? kpiData.todaysSales ?? 0, "currency") },
+        { metric: "Low Stock Alerts", value: String(coreMetrics.lowStockCount ?? kpiData.lowStockCount ?? 0) },
+        { metric: "Sales Revenue (SO)", value: fmt(coreMetrics.salesRevenue ?? 0, "currency") },
+        { metric: "POS Revenue", value: fmt(coreMetrics.posRevenue ?? 0, "currency") },
+      ];
+
+      // Currency fields for VAT masking
+      const vatMaskedColumns = isVatAuditor
+        ? ["value"]
+        : [];
+
+      exportToPDF({
+        title: "Corporate Performance Report",
+        subtitle: `Period: ${startDate || "All Time"} to ${endDate || "Present"} | Generated: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`,
+        orientation: "portrait",
+        columns,
+        data,
+        company: company || undefined,
+        isVatAuditor,
+        vatMaskedColumns,
+        filename: "corporate-performance-report",
+        financialFooter: {
+          preparedBy: userName,
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: userName,
+        },
+      });
+
+      toast({ title: "PDF Exported", description: "Corporate Performance Report generated successfully" });
+    } catch (e: any) {
+      toast({ title: "Export Failed", description: e.message, variant: "destructive" });
+    }
+  }, [companyProfile, coreMetrics, kpiData, isVatAuditor, startDate, endDate, userName, toast]);
 
   // FIX 6: Import CSV for reorder level configuration
   const importCSV = useCallback(() => {
@@ -459,6 +610,51 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
     };
     input.click();
   }, [toast, refreshAll]);
+
+  // ─── Phase 16 D1: Core Metric KPIs at TOP of KPI grid ─────────────────
+
+  const phase16Kpis = useMemo(() => [
+    {
+      label: "Net Revenue (incl. POS)",
+      value: isVatAuditor ? "N/A (Audit Mode)" : (coreMetrics.totalNetRevenue || 0),
+      icon: TrendingUp,
+      color: "text-green-600 dark:text-green-400",
+      bg: "bg-green-50 dark:bg-green-900/30",
+      isCurrency: !isVatAuditor,
+      formatType: "currency" as const,
+      change: undefined as number | undefined,
+    },
+    {
+      label: "Perpetual Inventory Value",
+      value: isVatAuditor ? "N/A (Audit Mode)" : (coreMetrics.perpetualInventoryValuation || 0),
+      icon: Package,
+      color: "text-teal-600 dark:text-teal-400",
+      bg: "bg-teal-50 dark:bg-teal-900/30",
+      isCurrency: !isVatAuditor,
+      formatType: "currency" as const,
+      change: undefined as number | undefined,
+    },
+    {
+      label: "AR/AP Debt Ratio",
+      value: coreMetrics.arApDebtRatio || 0,
+      icon: Scale,
+      color: "text-cyan-600 dark:text-cyan-400",
+      bg: "bg-cyan-50 dark:bg-cyan-900/30",
+      isCurrency: false,
+      formatType: "ratio" as const,
+      change: undefined as number | undefined,
+    },
+    {
+      label: "Gross Profit Margin",
+      value: isVatAuditor ? "N/A (Audit Mode)" : (coreMetrics.grossProfitMargin || 0),
+      icon: Percent,
+      color: "text-rose-600 dark:text-rose-400",
+      bg: "bg-rose-50 dark:bg-rose-900/30",
+      isCurrency: false,
+      formatType: "percent" as const,
+      change: undefined as number | undefined,
+    },
+  ], [coreMetrics, isVatAuditor]);
 
   // ─── FIX 1: RBAC Filtered Data (now 20 KPIs) ─────────────────
 
@@ -523,7 +719,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
   }
 
   return (
-    <div className="page-enter space-y-6">
+    <div className={`page-enter space-y-6 ${isSyncing ? "pointer-events-none" : ""}`}>
       {/* FIX 2: Stock Alert Flash Animation CSS */}
       <style>{`
         @keyframes stock-flash {
@@ -552,7 +748,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* FIX 3: Date Range Picker */}
           <div className="flex items-center gap-2">
             <Input
@@ -581,7 +777,30 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
               </Button>
             )}
           </div>
-          <Button variant="outline" size="sm" onClick={refreshAll}>
+          {/* Phase 16 D3: Sync Real-Time Metrics button replaces simple Refresh */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={syncRealTimeMetrics}
+            disabled={isSyncing}
+            className={isSyncing ? "opacity-80" : ""}
+          >
+            <RefreshCw className={`w-4 h-4 mr-1 ${isSyncing ? "animate-spin" : ""}`} />
+            {isSyncing
+              ? "Compiling Multi-Tenant Ledger Matrix & Aggregating Perpetual Inventory Valuations..."
+              : "Sync Real-Time Metrics"}
+          </Button>
+          {/* Phase 16 D4: Export Corporate Performance Report */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportCorporatePerformanceReport}
+            disabled={isSyncing}
+          >
+            <FileDown className="w-4 h-4 mr-1" />
+            Export Corporate Performance Report
+          </Button>
+          <Button variant="outline" size="sm" onClick={refreshAll} disabled={isSyncing}>
             <RefreshCw className="w-4 h-4 mr-1" />Refresh
           </Button>
           <Card className="bg-gradient-to-r from-[#132240] to-[#0a1628] text-white border-0 shadow-lg">
@@ -596,6 +815,17 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
         </div>
       </div>
 
+      {/* Phase 16 D3: Syncing overlay indicator */}
+      {isSyncing && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+          <div>
+            <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Compiling Multi-Tenant Ledger Matrix & Aggregating Perpetual Inventory Valuations...</p>
+            <p className="text-xs text-blue-600 dark:text-blue-500">All widgets are temporarily locked during sync. Data will refresh automatically.</p>
+          </div>
+        </div>
+      )}
+
       {/* VAT Auditor persistent banner */}
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
@@ -605,9 +835,30 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          2. KPI SUMMARY CARDS (FIX 1: 20 KPIs, 4-column grid)
+          2. PHASE 16 D1: CORE METRIC KPI CARDS (4 NEW at TOP)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {!isSR && !isDealer && (
+        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
+          {phase16Kpis.map((kpi, i) => (
+            <KpiCard
+              key={`p16-${i}`}
+              label={kpi.label}
+              value={kpi.value}
+              icon={kpi.icon}
+              color={kpi.color}
+              bg={kpi.bg}
+              isCurrency={kpi.isCurrency}
+              formatType={kpi.formatType}
+              change={kpi.change}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          3. KPI SUMMARY CARDS (FIX 1: 20 KPIs, 4-column grid)
+          ═══════════════════════════════════════════════════════════ */}
+      <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
         {visibleKpis.map((kpi, i) => (
           <KpiCard
             key={i}
@@ -624,11 +875,76 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       </div>
 
       {/* ═══════════════════════════════════════════════════════════
-          3. CHARTS SECTION (2-column grid)
+          3B. PHASE 16 D2: MULTI-AXIS FINANCIAL CHART (Full-width)
+          ═══════════════════════════════════════════════════════════ */}
+      {!isSR && !isDealer && (
+        <Card className={`transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
+          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
+            <CardTitle className="text-base flex items-center gap-2 text-white">
+              <BarChart3 className="w-4 h-4 text-blue-300" />
+              Sales vs COGS vs Gross Profit Margin — 12-Month Financial Performance
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4">
+            {financialChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={400}>
+                <ComposedChart data={financialChartData} margin={{ top: 10, right: 40, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(v: number) => `৳${(v / 1000).toFixed(0)}k`}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(v: number) => `${v}%`}
+                    domain={[0, 100]}
+                  />
+                  <RechartsTooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                    formatter={(value: any, name: string) => {
+                      if (name === "Gross Profit Margin") return [`${Number(value).toFixed(2)}%`, name];
+                      return [fmt(value, "currency"), name];
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "12px" }} />
+                  <Bar yAxisId="left" dataKey="sales" name="Sales" fill="#10b981" barSize={30} radius={[2, 2, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="cogs" name="COGS" fill="#ef4444" barSize={30} radius={[2, 2, 0, 0]} />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="grossProfitMargin"
+                    name="Gross Profit Margin"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={{ r: 4 }}
+                    activeDot={{ r: 6 }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+                No financial chart data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          4. CHARTS SECTION (2-column grid)
           FIX 5: SR should NOT see monthly trend or category turnover
           ═══════════════════════════════════════════════════════════ */}
       {!isSR && !isDealer && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
           {/* Monthly Sales vs Purchases Trend - LineChart */}
           <Card>
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
@@ -712,11 +1028,11 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          4. FINANCIAL RATIOS PANEL
+          5. FINANCIAL RATIOS PANEL
           FIX 5: SR should NOT see financial ratios
           ═══════════════════════════════════════════════════════════ */}
       {!isSR && !isDealer && (
-        <Card>
+        <Card className={`transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2 text-white">
@@ -789,13 +1105,13 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          5. STOCK ALERTS SECTION
+          6. STOCK ALERTS SECTION
           FIX 2: Flash animation on alert rows
           FIX 5: SR should NOT see stock alerts (except their customers)
           FIX 6: Triple Utility Bundle
           ═══════════════════════════════════════════════════════════ */}
       {!isSR && (
-        <Card>
+        <Card className={`transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2 text-white">
@@ -871,11 +1187,11 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          6. TOP PERFORMERS SECTION (3-column grid)
+          7. TOP PERFORMERS SECTION (2-column grid)
           FIX 5: SR should NOT see top performers
           ═══════════════════════════════════════════════════════════ */}
       {!isSR && !isDealer && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
           {/* Top Products */}
           <Card>
             <CardHeader className="pb-3">
@@ -983,11 +1299,11 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          7. PAYMENT MIX SECTION
+          8. PAYMENT MIX SECTION
           FIX 5: SR should NOT see payment mix chart
           ═══════════════════════════════════════════════════════════ */}
       {!isSR && !isDealer && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
           <Card>
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
               <CardTitle className="text-base flex items-center gap-2 text-white">
@@ -1032,7 +1348,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
           </Card>
 
           {/* ═══════════════════════════════════════════════════════
-              8. RECEIVABLES AGING WIDGET
+              8B. RECEIVABLES AGING WIDGET
               FIX 4: Show N/A (Audit Mode) masked values for VAT Auditor
               ═════════════════════════════════════════════════════ */}
           <Card>
@@ -1196,11 +1512,11 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          8B. RECEIVABLES AGING FOR SR (standalone, since SR doesn't see payment mix)
+          8C. RECEIVABLES AGING FOR SR (standalone, since SR doesn't see payment mix)
           FIX 5: SR should see Receivables Aging section
           ═══════════════════════════════════════════════════════════ */}
       {isSR && (
-        <Card>
+        <Card className={`transition-all ${isSyncing ? "blur-sm opacity-60" : ""}`}>
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
             <CardTitle className="text-base flex items-center gap-2 text-white">
               <Clock className="w-4 h-4 text-blue-300" />
@@ -1329,79 +1645,13 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                 size="sm"
                 className="btn-hover-scale"
                 onClick={() => onNavigate?.(action.navigate)}
+                disabled={isSyncing}
               >
                 <action.icon className="w-4 h-4 mr-1" />{action.label}
               </Button>
             ))}
         </CardContent>
       </Card>
-
-      {/* ═══════════════════════════════════════════════════════════
-          10. RECENT INSTALLMENTS TABLE
-          FIX 5: SR should see installment table
-          ═══════════════════════════════════════════════════════════ */}
-      {!isDealer && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-blue-500" />
-                Recent Installments
-              </CardTitle>
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
-                <Printer className="w-4 h-4 mr-1" />Print
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {installments.length > 0 ? (
-              <div className="max-h-96 overflow-y-auto rounded-md border" style={{ scrollbarWidth: "thin", scrollbarColor: "#94a3b8 transparent" }}>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Sl</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Invoice No</TableHead>
-                      <TableHead>Sales Date</TableHead>
-                      <TableHead>Payment Date</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Customer Name</TableHead>
-                      <TableHead>Address &amp; Contact</TableHead>
-                      <TableHead>Product Name</TableHead>
-                      <TableHead>Installment</TableHead>
-                      <TableHead>Default Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {installments.slice(0, 10).map((inst: any, i: number) => (
-                      <TableRow key={i}>
-                        <TableCell>{i + 1}</TableCell>
-                        <TableCell>
-                          <Button variant="outline" size="sm" className="text-xs h-7">Update Remind Date</Button>
-                        </TableCell>
-                        <TableCell className="font-mono">{inst.invoiceNo || "—"}</TableCell>
-                        <TableCell>{inst.salesDate ? fmtDate(inst.salesDate) : "—"}</TableCell>
-                        <TableCell>{inst.paymentDate ? fmtDate(inst.paymentDate) : "—"}</TableCell>
-                        <TableCell className="font-mono">{inst.customerCode || "—"}</TableCell>
-                        <TableCell className="font-medium text-slate-900 dark:text-white">{inst.customerName || "—"}</TableCell>
-                        <TableCell>{inst.customerAddress || "—"}</TableCell>
-                        <TableCell>{inst.productName || "Not available"}</TableCell>
-                        <TableCell className="font-mono">{fmt(inst.installmentAmount, "currency")}</TableCell>
-                        <TableCell className="font-mono">{fmt(inst.defaultAmount || 0, "currency")}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>No installments due today</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
