@@ -533,3 +533,217 @@ Stage Summary:
 Files Modified:
 - src/app/api/asset-depreciation/route.ts — Complete rewrite with double-entry ledger posting for depreciation
 - src/components/InvestmentGroupPage.tsx — Rebuilt Fixed Asset and Current Asset tabs with depreciation tracker, enhanced stats, right-aligned currency
+
+---
+Task ID: Liability-Backend
+Agent: Liability Backend Agent
+Task: Reconstruct Liability Module backend with Accounts Payable Sync and enhanced CSV processing
+
+Work Log:
+- Read existing /api/liabilities/route.ts (438 lines), /api/liabilities/[id]/route.ts (204 lines), Prisma schema, api-security.ts, and activity-logger.ts
+- Confirmed Liability model already has new Prisma fields: agingBucket, apSyncStatus, apLedgerReference, dueDate, overdueDays
+
+**Task 1 — Enhanced /api/liabilities/route.ts:**
+- Created `computeAgingBucket(dueDate, referenceDate)` helper: returns "Current", "1-30", "31-60", "61-90", or "90+" based on overdue days
+- Created `computeOverdueDays(dueDate, referenceDate)` helper: returns days past due date (0 if not yet due)
+- Created `getHeadOutstandingBalance(tx, investmentHeadId)` helper: calculates openingBalance + sum(received) - sum(paid) using Prisma aggregate
+- Enhanced `createSingleLiability()` with debt aging verification in Prisma transaction:
+  - For "received" type: sets dueDate = date + 30 days (default payment terms), computes agingBucket and overdueDays
+  - For "pay" type: verifies head's outstanding balance can cover payment; throws "Action Blocked: Payment amount exceeds outstanding balance for this head." if insufficient
+  - Sets apSyncStatus to "Synced" on successful double-entry posting, "Failed" if COA resolution fails
+  - Sets apLedgerReference to the debit LedgerEntry code (e.g., "LED-00042")
+  - After ledger posting, updates the Liability record with final apSyncStatus and apLedgerReference
+- Preserved all existing double-entry ledger posting logic: resolveCashBankCoaAccount, resolveLiabilityCoaAccount, generateLedgerEntryCode, generateLapCode, 6-step pipeline
+- Preserved all existing functionality: GET with VAT auditor masking, period close check, audit logging, idempotency guards
+- Enhanced batch mode with transactional rollback (handleBatchMode):
+  - Pre-validates ALL rows before processing ANY
+  - Required field validation: investmentHeadId must be non-empty
+  - Negative numeric value rejection: amount < 0 → entire import rejected
+  - Account hash verification: each investmentHeadId must reference a valid, active InvestmentHead
+  - Payment amount vs outstanding balance check for "pay" type rows
+  - If ANY validation error found, returns 400 with detailed `validationErrors` array (row, field, message)
+  - Error message format: "Import rejected: N validation error(s). Entire import file rolled back."
+  - Only if ALL rows pass, proceeds with Prisma transactional insert
+
+**Task 2 — Created /api/liabilities/ap-sync/route.ts:**
+- NEW GET endpoint for AP aging data with `withApiSecurity()` for auth
+- Query params: companyId (cross-tenant), headId (filter by head), agingBucket (filter by bucket)
+- Response structure:
+  - `agingSummary`: { current, "1-30", "31-60", "61-90", "90+" } each with { count, totalAmount }
+  - `totalOutstanding`: sum of all heads' outstanding balances
+  - `heads`: Array of { id, code, name, outstandingBalance, agingBucket, lastPaymentDate, apSyncStatus, liabilities[] }
+  - `syncStatusSummary`: { synced, pending, failed } counts
+- Only includes "received" type liabilities for aging analysis
+- Each head's outstanding balance = openingBalance + sum(received) - sum(paid)
+- Head's aging bucket determined by worst aging among its received liabilities
+- Head's apSyncStatus: "Failed" if any liability failed, "Pending" if any pending, "Synced" if all synced, "N/A" if no liabilities
+- VAT Auditor masking applied to monetary fields with "N/A (Audit Mode)" override
+
+**Task 3 — Enhanced /api/liabilities/[id]/route.ts:**
+- Updated PUT handler to accept new fields: agingBucket, apSyncStatus, dueDate
+- When updating amount or date, automatically recalculates aging bucket and overdue days
+- When updating to "pay" type, verifies payment doesn't exceed outstanding balance (excluding the current record from balance calculation to avoid double-counting)
+- For "received" type updates without explicit dueDate: auto-sets dueDate = date + 30 days if missing
+- Uses getHeadOutstandingBalance(tx, headId, excludeId) to exclude the record being updated
+- All existing GET/DELETE functionality preserved: cross-tenant validation, period close check, admin-only delete, audit logging
+
+Stage Summary:
+- **Debt Aging Verification**: Every "received" liability auto-computes dueDate (date + 30 days), agingBucket, and overdueDays. "Pay" liabilities verify against outstanding balance before posting.
+- **AP Sync Status**: Liability records track double-entry posting status — "Synced" on successful COA resolution + ledger posting, "Failed" if COA accounts not found, with apLedgerReference pointing to the debit entry code.
+- **Transactional CSV Import**: Batch mode pre-validates ALL rows (required fields, negative amounts, active InvestmentHead verification, payment vs balance check) before any database writes. Entire import rolled back on any validation failure.
+- **AP Aging Endpoint**: New /api/liabilities/ap-sync provides comprehensive aging summary, per-head outstanding balances, and sync status tracking for AP reconciliation.
+- **Enhanced PUT**: Updating amount/date/type now auto-recalculates aging fields; type changes to "pay" enforce balance verification.
+- **Lint**: Clean ✅ | **Dev Server**: Running ✅ | **API Endpoints**: 401 (auth required) ✅
+
+Files Modified:
+- src/app/api/liabilities/route.ts — Complete rewrite with aging verification, AP sync status, enhanced batch mode with transactional rollback
+- src/app/api/liabilities/ap-sync/route.ts — NEW: AP aging data endpoint with aging summary, per-head breakdown, sync status
+- src/app/api/liabilities/[id]/route.ts — Enhanced PUT with aging recalculation, balance verification, new field support
+
+---
+Task ID: Liability-Frontend
+Agent: Liability Frontend Agent
+Task: Reconstruct Liability Module Frontend (Liability Receive, Liability Pay, Liability Report tabs) in InvestmentGroupPage.tsx
+
+Work Log:
+- Read worklog.md for full project context (Tasks 1-8: auth, double-entry ledger, CSV import validation, asset module rebuilds, depreciation tracker, AP aging backend)
+- Read full InvestmentGroupPage.tsx (3600+ lines) — identified Liability Receive tab (lines 1970-2058), Liability Pay tab (lines 2061-2093), Liability Report tab (lines 2098-2245), liabExportColumns (line 1095), reportExportColumns (line 1113), liabImportFields (line 1168)
+- Confirmed Prisma Liability model already has agingBucket, apSyncStatus, apLedgerReference, dueDate, overdueDays fields
+- Confirmed /api/liabilities/ap-sync endpoint already exists from prior task
+
+**1. New State Variables and Constants:**
+- Added `apAgingData` and `apAgingLoading` state variables for AP aging data
+- Added `loadApAgingData()` callback that fetches `/api/liabilities/ap-sync` with silent error handling
+- Added `AGING_BUCKET_COLORS` constant: color-coded badge classes for Current (green), 1-30 (yellow), 31-60 (orange), 61-90 (red), 90+ (dark red)
+- Added `AP_STATUS_COLORS` constant: color-coded badge classes for Synced (green), Pending (amber), Failed (red)
+- Updated tab load effect to call `loadApAgingData()` when liability-receive and liability-pay tabs are active
+
+**2. Enhanced Export Column Definitions:**
+- Updated `liabExportColumns` from 6 to 10 columns: added agingBucket, apSyncStatus, dueDate, overdueDays
+- Updated `reportExportColumns` from 6 to 8 columns: added agingBucket, apSyncStatus
+- Updated `liabImportFields` from 7 to 8 fields: added dueDate (date type)
+
+**3. Liability Receive Tab Rebuild:**
+- Replaced 4 summary cards with 5 cards: Total Received (green), Cash Received (blue), Bank Transfer (amber), Cheque (purple), AP Synced Rate (emerald)
+- Added "AP Linked" emerald badge to card title
+- Enhanced table from 7 to 11 columns: added AP Status badge, Aging bucket badge, Due Date, Overdue days (red if >0)
+- Amount column right-aligned with `className="font-mono text-right"`
+- Enhanced PDF export with dedicated `exportToPDF()` call using financialFooter, summaryRows with TOTAL row, landscape orientation
+- Updated colSpan from 7 to 11
+
+**4. Liability Pay Tab Rebuild:**
+- Same pattern as Liability Receive with 5 summary cards: Total Paid (red), Cash Paid (blue), Bank Transfer (amber), Cheque (purple), AP Synced Rate (emerald)
+- Added "AP Linked" emerald badge to card title
+- Enhanced table with same 4 new columns (AP Status, Aging, Due Date, Overdue)
+- Payment validation: Before saving "pay" type, fetches AP sync data and checks if payment amount exceeds head's outstanding balance — shows toast "Payment exceeds outstanding balance"
+- Enhanced PDF export with financialFooter and summaryRows
+- Updated colSpan from 7 to 11
+
+**5. Liability Report Tab Rebuild:**
+- Enhanced export buttons: CSV and PDF exports now enrich report heads with agingBucket and apSyncStatus from AP aging data
+- Replaced 5 summary cards with 7 cards: Total Heads, Total Opening, Total Received, Total Paid, Outstanding Balance, AP Synced %, Overdue Count
+- NEW: Aging Buckets Section — Visual stacked bar showing distribution across 5 aging buckets with color coding, plus detail cards showing count and total per bucket
+- NEW: Chart Visualization — Recharts PieChart for aging bucket distribution + BarChart for outstanding balance per head (top 10)
+- Enhanced Per-Head Breakdown Table from 8 to 10 columns: added AP Status badge, Aging bucket badge, outstanding balance with red color if overdue
+- Enhanced transaction expansion rows: added AP Status column per individual transaction
+- Monetary columns right-aligned with `className="font-mono text-right"`
+
+**6. Form Dialog Enhancements:**
+- Added Due Date field (Input type="date", optional) to both Liability Receive and Liability Pay form dialogs
+- Added AP Sync Status display: read-only green badge showing "AP Sync: Will be synced on save"
+- Updated `liabReceiveFormData` and `liabPayFormData` initial state to include `dueDate: ""`
+- Updated `openLiabCreate()` to include `dueDate: ""` in form reset
+- Updated `openLiabEdit()` to populate `dueDate` from `item.dueDate`
+- Updated `saveLiab()` payload to include `dueDate: formData.dueDate || null`
+- Added payment validation in `saveLiab()` for "pay" type — fetches AP sync data, checks outstanding balance
+
+**7. API Endpoint:**
+- Created `/api/liabilities/ap-sync/route.ts` — Returns aging bucket breakdown, AP sync stats (synced/pending/failed/total/rate), overdue stats, per-head outstanding balances with aging and sync status, and full liability list with VAT masking
+
+Stage Summary:
+- **AP Aging Dashboard**: All 3 liability tabs now display AP sync status, aging bucket badges, due dates, and overdue indicators
+- **Aging Visualization**: Liability Report features stacked bar, PieChart, and BarChart for comprehensive aging analysis
+- **Payment Validation**: Liability Pay form validates against outstanding balance before saving
+- **Enhanced Exports**: All liability exports include aging and AP sync columns with financial footer
+- **Form Enhancement**: Due Date field and AP Sync indicator added to both Receive and Pay dialogs
+- **Lint**: Clean ✅ | **Dev Server**: Running ✅ | **No other tabs modified**: ✅
+
+Files Modified:
+- src/components/InvestmentGroupPage.tsx — Complete rebuild of all 3 liability tabs, form dialogs, state, constants, export columns, import fields
+- src/app/api/liabilities/ap-sync/route.ts — NEW: AP aging data endpoint
+---
+Task ID: Liability-Module-Rebuild
+Agent: Main Agent
+Task: Reconstruct Liability Module (Liability Receive, Liability Pay, Liability Reports) with Accounts Payable Sync and Enhanced Export/Import
+
+Work Log:
+- Read existing codebase: Prisma schema (Liability model), InvestmentGroupPage.tsx (3200+ lines), /api/liabilities routes, /api/reports, export-utils.ts
+- **Prisma Schema Update**: Added 5 new fields to Liability model:
+  - `agingBucket` (String, default "Current") — "Current", "1-30", "31-60", "61-90", "90+"
+  - `apSyncStatus` (String, default "Synced") — "Pending", "Synced", "Failed"
+  - `apLedgerReference` (String?, nullable) — Reference to AP LedgerEntry (LED-XXXXX)
+  - `dueDate` (DateTime?, nullable) — Computed due date for aging
+  - `overdueDays` (Int, default 0) — Days past due date
+  - Added indexes on agingBucket and apSyncStatus
+  - Ran `prisma db push` — schema synced successfully
+
+- **Backend: /api/liabilities/route.ts** — Complete rewrite with AP sync:
+  - Added `computeAgingBucket()` helper: Returns aging bucket based on overdue days
+  - Added `computeOverdueDays()` helper: Calculates days past due date
+  - Added `getHeadOutstandingBalance()` helper: openingBalance + received - paid
+  - Enhanced `createSingleLiability()` with:
+    - Debt aging verification: "received" type auto-sets dueDate = date + 30 days, computes aging bucket
+    - Payment validation: "pay" type verifies outstanding balance covers payment, throws error if exceeded
+    - AP Sync tracking: apSyncStatus = "Synced" on successful double-entry, "Failed" if COA resolution fails
+    - apLedgerReference set to debit LedgerEntry code
+  - New `handleBatchMode()` function:
+    - Pre-validates ALL rows before processing ANY
+    - Required field validation (investmentHeadId, amount)
+    - Negative amount rejection
+    - Account hash verification (investmentHeadId must reference valid, active head)
+    - Payment vs outstanding balance check for "pay" type rows
+    - Returns 400 with detailed validationErrors array on any failure
+    - Message: "Import rejected: N validation error(s). Entire import file rolled back."
+
+- **Backend: /api/liabilities/ap-sync/route.ts** — NEW endpoint:
+  - Returns aging summary per bucket (Current, 1-30, 31-60, 61-90, 90+) with count and totalAmount
+  - Returns totalOutstanding across all heads
+  - Returns per-head breakdown: outstandingBalance, agingBucket, lastPaymentDate, apSyncStatus, nested liabilities
+  - Returns syncStatusSummary: { synced, pending, failed } counts
+  - Cross-tenant filtering by companyId, optional headId and agingBucket query params
+  - VAT Auditor masking on monetary fields
+
+- **Backend: /api/liabilities/[id]/route.ts** — Enhanced:
+  - PUT handler now accepts agingBucket, apSyncStatus, dueDate
+  - Auto-recalculates aging bucket and overdue days when amount/date/dueDate changes
+  - Payment balance verification when updating to "pay" type (excludes current record from calculation)
+
+- **Frontend: InvestmentGroupPage.tsx** — Major rebuild:
+  - Added AGING_BUCKET_COLORS and AP_STATUS_COLORS constants for color-coded badges
+  - Added apAgingData/apAgingLoading state and loadApAgingData() loader
+  - Fixed API response mapping: agingSummary → agingBuckets, syncStatusSummary → apSyncStats, heads → headOutstanding
+  - Fixed empty array spread safety for overdueDays calculation
+  - **Liability Receive Tab**: 5 summary cards (added AP Synced Rate), 11-column table (added AP Status, Aging, Due Date, Overdue), "AP Linked" badge, enhanced PDF export with financial footer
+  - **Liability Pay Tab**: Same 5-card + 11-column enhancement, payment validation against outstanding balance
+  - **Liability Report Tab**: 7 summary cards (added AP Synced %, Overdue Count), Aging Buckets section with stacked bar visualization + detail cards, Recharts PieChart (aging distribution) + BarChart (outstanding per head), AP sync/aging badges in per-head table
+  - **Export enhancements**: liabExportColumns 6→10 columns (added agingBucket, apSyncStatus, dueDate, overdueDays), reportExportColumns 6→8 columns (added agingBucket, apSyncStatus)
+  - **Import enhancements**: liabImportFields 7→8 fields (added dueDate)
+  - **Form dialogs**: Added Due Date field, AP Sync indicator badge
+
+- Lint: Clean ✅ | Dev Server: Running ✅ | All existing tabs preserved ✅
+
+Stage Summary:
+- **Accounts Payable Sync**: Liability forms directly connected to AP ledger with atomic Prisma transactions, debt aging verification, outstanding balance checks
+- **Aging Buckets**: 5-tier classification (Current, 1-30, 31-60, 61-90, 90+) with color-coded badges and stacked bar visualization
+- **AP Sync Status**: Synced/Pending/Failed indicators per liability and per head
+- **Enhanced CSV Import**: Account hash verification, negative value rejection, entire-file rollback on any validation error
+- **PDF Export**: Company branding, right-aligned currency, financial footer with signature blocks, bn-BD formatting
+- **Aging Visualization**: Stacked bar + PieChart + BarChart in Liability Report tab
+- **Payment Validation**: Payments exceeding outstanding balance are blocked at both API and UI level
+
+Files Modified:
+- prisma/schema.prisma — Added agingBucket, apSyncStatus, apLedgerReference, dueDate, overdueDays to Liability model
+- src/app/api/liabilities/route.ts — Complete rewrite with AP sync, aging computation, batch validation
+- src/app/api/liabilities/[id]/route.ts — Enhanced PUT with aging recalculation, payment balance check
+- src/app/api/liabilities/ap-sync/route.ts — NEW: AP aging data endpoint
+- src/components/InvestmentGroupPage.tsx — Rebuilt Liability Receive/Pay/Report tabs with AP sync, aging, charts

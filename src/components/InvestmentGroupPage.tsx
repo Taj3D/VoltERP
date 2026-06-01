@@ -149,6 +149,20 @@ const CATEGORY_BADGE: Record<string, string> = {
   Current: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400",
 };
 
+const AGING_BUCKET_COLORS: Record<string, string> = {
+  "Current": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  "1-30": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+  "31-60": "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  "61-90": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  "90+": "bg-red-200 text-red-900 dark:bg-red-900/50 dark:text-red-300",
+};
+
+const AP_STATUS_COLORS: Record<string, string> = {
+  "Synced": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  "Pending": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  "Failed": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
 // ============================================================
 // PROPS
 // ============================================================
@@ -244,7 +258,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [liabReceiveSaving, setLiabReceiveSaving] = useState(false);
   const [liabReceiveFormData, setLiabReceiveFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, type: "received", paymentMethod: "Cash", description: "", isActive: true,
+    amount: 0, type: "received", paymentMethod: "Cash", dueDate: "", description: "", isActive: true,
   });
 
   // ─── Liabilities (Pay) State ───
@@ -257,7 +271,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [liabPaySaving, setLiabPaySaving] = useState(false);
   const [liabPayFormData, setLiabPayFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, type: "pay", paymentMethod: "Cash", description: "", isActive: true,
+    amount: 0, type: "pay", paymentMethod: "Cash", dueDate: "", description: "", isActive: true,
   });
 
   // ─── Liability Report State ───
@@ -282,6 +296,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [assetLedgerCategoryFilter, setAssetLedgerCategoryFilter] = useState<string>("All");
   const [assetLedgerLocationFilter, setAssetLedgerLocationFilter] = useState<string>("");
   const [assetLedgerSubCatFilter, setAssetLedgerSubCatFilter] = useState<string>("");
+
+  // ─── AP Aging State ───
+  const [apAgingData, setApAgingData] = useState<any>(null);
+  const [apAgingLoading, setApAgingLoading] = useState(false);
 
   // ─── Shared: Investment Heads for dropdowns ───
   const [headOptions, setHeadOptions] = useState<any[]>([]);
@@ -410,6 +428,62 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     } catch {}
   }, []);
 
+  // ─── AP Aging Data Loader ───
+  const loadApAgingData = useCallback(async () => {
+    setApAgingLoading(true);
+    try {
+      const res = await apiFetch("/api/liabilities/ap-sync");
+      // Map API response to frontend-expected format
+      const totalSynced = res?.syncStatusSummary?.synced || 0;
+      const totalPending = res?.syncStatusSummary?.pending || 0;
+      const totalFailed = res?.syncStatusSummary?.failed || 0;
+      const totalEntries = totalSynced + totalPending + totalFailed;
+      const syncRate = totalEntries > 0 ? Math.round((totalSynced / totalEntries) * 100) : 0;
+
+      const mapped = {
+        // agingBuckets maps from API's agingSummary — normalize keys to match frontend expectations
+        agingBuckets: {
+          "Current": res?.agingSummary?.current || { count: 0, totalAmount: 0 },
+          "1-30": res?.agingSummary?.["1-30"] || { count: 0, totalAmount: 0 },
+          "31-60": res?.agingSummary?.["31-60"] || { count: 0, totalAmount: 0 },
+          "61-90": res?.agingSummary?.["61-90"] || { count: 0, totalAmount: 0 },
+          "90+": res?.agingSummary?.["90+"] || { count: 0, totalAmount: 0 },
+        },
+        // apSyncStats computed from syncStatusSummary
+        apSyncStats: {
+          synced: totalSynced,
+          pending: totalPending,
+          failed: totalFailed,
+          syncRate,
+        },
+        // overdueStats computed from heads
+        overdueStats: {
+          overdueCount: (res?.heads || []).reduce((count: number, h: any) =>
+            count + (h.liabilities || []).filter((l: any) => (l.overdueDays || 0) > 0).length, 0),
+        },
+        // headOutstanding maps from API's heads
+        headOutstanding: (res?.heads || []).map((h: any) => ({
+          id: h.id,
+          code: h.code,
+          name: h.name,
+          outstanding: h.outstandingBalance,
+          outstandingBalance: h.outstandingBalance,
+          agingBucket: h.agingBucket,
+          apSyncStatus: h.apSyncStatus,
+          overdueDays: (h.liabilities || []).length > 0
+            ? Math.max(0, ...(h.liabilities || []).map((l: any) => l.overdueDays || 0))
+            : 0,
+        })),
+        totalOutstanding: res?.totalOutstanding || 0,
+      };
+      setApAgingData(mapped);
+    } catch (e: any) {
+      // Silent fail - aging data is supplementary
+    } finally {
+      setApAgingLoading(false);
+    }
+  }, []);
+
   // ============================================================
   // INIT
   // ============================================================
@@ -425,11 +499,11 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     if (activeTab === "investment") loadInvestments();
     if (activeTab === "fixed-asset") { loadAssets(); loadLedgerSyncStatus(); }
     if (activeTab === "current-asset") { loadCurrentAssets(); loadLedgerSyncStatus(); }
-    if (activeTab === "liability-receive") loadLiabReceive();
-    if (activeTab === "liability-pay") loadLiabPay();
+    if (activeTab === "liability-receive") { loadLiabReceive(); loadApAgingData(); }
+    if (activeTab === "liability-pay") { loadLiabPay(); loadApAgingData(); }
     if (activeTab === "depreciation") loadDepreciations();
     if (activeTab === "asset-ledger") { loadAssets(); loadCurrentAssets(); loadLedgerSyncStatus(); }
-  }, [activeTab, loadInvestments, loadAssets, loadCurrentAssets, loadLiabReceive, loadLiabPay, loadDepreciations, loadLedgerSyncStatus]);
+  }, [activeTab, loadInvestments, loadAssets, loadCurrentAssets, loadLiabReceive, loadLiabPay, loadDepreciations, loadLedgerSyncStatus, loadApAgingData]);
 
   // ============================================================
   // FILTERED DATA
@@ -873,7 +947,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     const setFormData = isReceive ? setLiabReceiveFormData : setLiabPayFormData;
     setFormData({
       investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-      amount: 0, type, paymentMethod: "Cash", description: "", isActive: true,
+      amount: 0, type, paymentMethod: "Cash", dueDate: "", description: "", isActive: true,
     });
     if (isReceive) setLiabReceiveEdit(null);
     else setLiabPayEdit(null);
@@ -889,6 +963,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       amount: item.amount || 0,
       type: item.type || type,
       paymentMethod: item.paymentMethod || "Cash",
+      dueDate: item.dueDate ? item.dueDate.split("T")[0] : "",
       description: item.description || "",
       isActive: item.isActive ?? true,
     });
@@ -918,12 +993,28 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     if (isReceive) setLiabReceiveSaving(true);
     else setLiabPaySaving(true);
     try {
+      // Payment validation for "pay" type — check outstanding balance
+      if (type === "pay" && formData.investmentHeadId) {
+        try {
+          const apRes = await apiFetch("/api/liabilities/ap-sync");
+          const headInfo = (apRes?.headOutstanding || []).find((h: any) => h.id === formData.investmentHeadId);
+          if (headInfo && Number(formData.amount) > headInfo.outstanding) {
+            toast({ title: "Validation Error", description: "Payment exceeds outstanding balance", variant: "destructive" });
+            if (isReceive) setLiabReceiveSaving(false);
+            else setLiabPaySaving(false);
+            return;
+          }
+        } catch {
+          // If AP sync fails, allow payment through (graceful degradation)
+        }
+      }
       const payload = {
         investmentHeadId: formData.investmentHeadId,
         date: formData.date,
         amount: Number(formData.amount) || 0,
         type: formData.type || type,
         paymentMethod: formData.paymentMethod || null,
+        dueDate: formData.dueDate || null,
         description: formData.description || null,
         isActive: formData.isActive ?? true,
       };
@@ -1097,6 +1188,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "investmentHeadName", label: "Investment Head", type: "text" },
     { key: "amount", label: "Amount", type: "currency" },
     { key: "paymentMethod", label: "Payment Method", type: "text" },
+    { key: "agingBucket", label: "Aging Bucket", type: "text" },
+    { key: "apSyncStatus", label: "AP Status", type: "text" },
+    { key: "dueDate", label: "Due Date", type: "date" },
+    { key: "overdueDays", label: "Overdue Days", type: "number" },
     { key: "description", label: "Description", type: "text" },
     { key: "isActive", label: "Status", type: "boolean" },
   ];
@@ -1117,6 +1212,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "totalReceived", label: "Total Received", type: "currency" },
     { key: "totalPaid", label: "Total Paid", type: "currency" },
     { key: "currentBalance", label: "Current Balance", type: "currency" },
+    { key: "agingBucket", label: "Aging Bucket", type: "text" },
+    { key: "apSyncStatus", label: "AP Status", type: "text" },
   ];
 
   const depExportColumns: ExportColumnDef[] = [
@@ -1171,6 +1268,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     { key: "amount", label: "Amount", type: "number", required: true },
     { key: "type", label: "Type", type: "select", options: [{ value: "received", label: "Received" }, { value: "pay", label: "Pay" }] },
     { key: "paymentMethod", label: "Payment Method", type: "select", options: [{ value: "Cash", label: "Cash" }, { value: "Bank Transfer", label: "Bank Transfer" }, { value: "Cheque", label: "Cheque" }] },
+    { key: "dueDate", label: "Due Date", type: "date" },
     { key: "description", label: "Description", type: "textarea" },
     { key: "isActive", label: "Active", type: "checkbox" },
   ];
@@ -1913,187 +2011,312 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         </TabsContent>
 
         {/* ═══════════════════════════════════════════════════════════
-            TAB 5: LIABILITY RECEIVE
+            TAB 5: LIABILITY RECEIVE (Enhanced with AP Sync + Aging)
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="liability-receive">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-            <StatCard label="Total Received" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.total)} icon={ArrowDownCircle} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
-            <StatCard label="Cash" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
-            <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
-            <StatCard label="Cheque" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cheque)} icon={Wallet} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
-          </div>
+          {(() => {
+            const apSyncedRate = apAgingData?.apSyncStats
+              ? `${apAgingData.apSyncStats.syncRate}%`
+              : "—";
+            return (
+              <>
+                {/* Summary Cards — 5 cards */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+                  <StatCard label="Total Received" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.total)} icon={ArrowDownCircle} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
+                  <StatCard label="Cash Received" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+                  <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+                  <StatCard label="Cheque" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cheque)} icon={Wallet} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
+                  <StatCard label="AP Synced Rate" value={apSyncedRate} icon={CheckCircle} color="text-emerald-600" bg="bg-emerald-50 dark:bg-emerald-900/30" />
+                </div>
 
-          {/* Actions Bar */}
-          <Card className="mt-4">
-            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle className="text-base">Liability Receive</CardTitle>
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("liabilities")}>
-                    <Download className="w-4 h-4 mr-1" />CSV Template
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/liabilities", liabImportFields, loadLiabReceive)}>
-                    <Upload className="w-4 h-4 mr-1" />Import CSV
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Liability-Receive", liabExportColumns, prepareLiabExport(filteredLiabReceive))}>
-                    <Download className="w-4 h-4 mr-1" />Export CSV
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportPDF("Liability-Receive", liabExportColumns, prepareLiabExport(filteredLiabReceive))}>
-                    <FileDown className="w-4 h-4 mr-1" />Export PDF
-                  </Button>
-                  <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openLiabCreate("received")} disabled={isVatAuditor}>
-                    <Plus className="w-4 h-4 mr-1" />Create Receive
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input placeholder="Search liability receives..." value={liabReceiveSearch} onChange={(e) => setLiabReceiveSearch(e.target.value)} className="pl-10" />
-                </div>
-                <Button variant="outline" size="sm" onClick={loadLiabReceive}><RefreshCw className="w-4 h-4" /></Button>
-              </div>
-              <div className="overflow-auto max-h-[65vh] rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Date</TableHead>
-                      <TableHead>Investment Head</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Payment Method</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-20 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {liabReceiveLoading ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-                    ) : filteredLiabReceive.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No liability receives found</TableCell></TableRow>
-                    ) : filteredLiabReceive.map((item: any) => (
-                      <TableRow key={item.id} className="hover:bg-muted/50">
-                        <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
-                        <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
-                        <TableCell><Badge className={PAYMENT_METHOD_BADGE[item.paymentMethod] || "bg-slate-100 text-slate-700"}>{item.paymentMethod || "—"}</Badge></TableCell>
-                        <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
-                        <TableCell>
-                          <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
-                            {item.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openLiabEdit(item, "received")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setLiabReceiveDelete(item)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">Showing {filteredLiabReceive.length} of {liabReceive.length} entries</div>
-            </CardContent>
-          </Card>
+                {/* Actions Bar */}
+                <Card className="mt-4">
+                  <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        Liability Receive
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px]">AP Linked</Badge>
+                      </CardTitle>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("liabilities")}>
+                          <Download className="w-4 h-4 mr-1" />CSV Template
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/liabilities", liabImportFields, loadLiabReceive)}>
+                          <Upload className="w-4 h-4 mr-1" />Import CSV
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Liability-Receive", liabExportColumns, prepareLiabExport(filteredLiabReceive))}>
+                          <Download className="w-4 h-4 mr-1" />Export CSV
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => {
+                          try {
+                            const enhancedLiabExportColumns = liabExportColumns;
+                            const maskedKeys = getVatMaskedKeys(enhancedLiabExportColumns, isVatAuditor);
+                            exportToPDF({
+                              title: "Liability Receive Statement",
+                              subtitle: `Period: ${reportFrom || 'All'} - ${reportTo || 'All'}`,
+                              columns: enhancedLiabExportColumns,
+                              data: prepareLiabExport(filteredLiabReceive),
+                              isVatAuditor,
+                              vatMaskedColumns: maskedKeys,
+                              orientation: "landscape",
+                              company: companyProfile || undefined,
+                              financialFooter: {
+                                preparedBy: auth.user?.displayName || "",
+                                checkedBy: "",
+                                authorizedBy: "",
+                                printedBy: auth.user?.displayName || auth.user?.email || "",
+                              },
+                              summaryRows: [
+                                {
+                                  cells: ["", "", "TOTAL", isVatAuditor ? "N/A" : fmtCurrency(liabReceiveStats.total), "", "", "", "", "", ""],
+                                  style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+                                },
+                              ],
+                            });
+                            toast({ title: "Exported", description: "Liability Receive Statement exported to PDF" });
+                          } catch (e: any) {
+                            toast({ title: "Error", description: e.message, variant: "destructive" });
+                          }
+                        }}>
+                          <FileDown className="w-4 h-4 mr-1" />Export PDF
+                        </Button>
+                        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openLiabCreate("received")} disabled={isVatAuditor}>
+                          <Plus className="w-4 h-4 mr-1" />Create Receive
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                      <div className="relative flex-1 min-w-[200px] max-w-sm">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input placeholder="Search liability receives..." value={liabReceiveSearch} onChange={(e) => setLiabReceiveSearch(e.target.value)} className="pl-10" />
+                      </div>
+                      <Button variant="outline" size="sm" onClick={loadLiabReceive}><RefreshCw className="w-4 h-4" /></Button>
+                    </div>
+                    <div className="overflow-auto max-h-[65vh] rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead>Date</TableHead>
+                            <TableHead>Investment Head</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead>Payment Method</TableHead>
+                            <TableHead>AP Status</TableHead>
+                            <TableHead>Aging</TableHead>
+                            <TableHead>Due Date</TableHead>
+                            <TableHead>Overdue</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="w-20 text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {liabReceiveLoading ? (
+                            <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                          ) : filteredLiabReceive.length === 0 ? (
+                            <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No liability receives found</TableCell></TableRow>
+                          ) : filteredLiabReceive.map((item: any) => (
+                            <TableRow key={item.id} className="hover:bg-muted/50">
+                              <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
+                              <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
+                              <TableCell className="font-mono text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
+                              <TableCell><Badge className={PAYMENT_METHOD_BADGE[item.paymentMethod] || "bg-slate-100 text-slate-700"}>{item.paymentMethod || "—"}</Badge></TableCell>
+                              <TableCell>
+                                <Badge className={AP_STATUS_COLORS[item.apSyncStatus] || AP_STATUS_COLORS["Pending"]}>
+                                  {item.apSyncStatus || "Pending"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={AGING_BUCKET_COLORS[item.agingBucket] || AGING_BUCKET_COLORS["Current"]}>
+                                  {item.agingBucket || "Current"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-slate-900 dark:text-white">{item.dueDate ? fmtDate(item.dueDate) : "—"}</TableCell>
+                              <TableCell>
+                                {(item.overdueDays || 0) > 0 ? (
+                                  <span className="text-red-600 dark:text-red-400 font-semibold">{item.overdueDays}d</span>
+                                ) : "—"}
+                              </TableCell>
+                              <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
+                              <TableCell>
+                                <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
+                                  {item.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="ghost" size="sm" onClick={() => openLiabEdit(item, "received")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
+                                  <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setLiabReceiveDelete(item)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">Showing {filteredLiabReceive.length} of {liabReceive.length} entries</div>
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
         </TabsContent>
 
         {/* ═══════════════════════════════════════════════════════════
-            TAB 6: LIABILITY PAY
+            TAB 6: LIABILITY PAY (Enhanced with AP Sync + Aging)
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="liability-pay">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-            <StatCard label="Total Paid" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.total)} icon={ArrowUpCircle} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
-            <StatCard label="Cash" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
-            <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
-            <StatCard label="Cheque" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.cheque)} icon={Wallet} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
-          </div>
+          {(() => {
+            const apSyncedRate = apAgingData?.apSyncStats
+              ? `${apAgingData.apSyncStats.syncRate}%`
+              : "—";
+            return (
+              <>
+                {/* Summary Cards — 5 cards */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+                  <StatCard label="Total Paid" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.total)} icon={ArrowUpCircle} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
+                  <StatCard label="Cash Paid" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+                  <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+                  <StatCard label="Cheque" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.cheque)} icon={Wallet} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
+                  <StatCard label="AP Synced Rate" value={apSyncedRate} icon={CheckCircle} color="text-emerald-600" bg="bg-emerald-50 dark:bg-emerald-900/30" />
+                </div>
 
-          {/* Actions Bar */}
-          <Card className="mt-4">
-            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle className="text-base">Liability Pay</CardTitle>
-                <div className="flex gap-2 flex-wrap">
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("liabilities")}>
-                    <Download className="w-4 h-4 mr-1" />CSV Template
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/liabilities", liabImportFields, loadLiabPay)}>
-                    <Upload className="w-4 h-4 mr-1" />Import CSV
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Liability-Pay", liabExportColumns, prepareLiabExport(filteredLiabPay))}>
-                    <Download className="w-4 h-4 mr-1" />Export CSV
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportPDF("Liability-Pay", liabExportColumns, prepareLiabExport(filteredLiabPay))}>
-                    <FileDown className="w-4 h-4 mr-1" />Export PDF
-                  </Button>
-                  <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openLiabCreate("pay")} disabled={isVatAuditor}>
-                    <Plus className="w-4 h-4 mr-1" />Create Pay
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input placeholder="Search liability pays..." value={liabPaySearch} onChange={(e) => setLiabPaySearch(e.target.value)} className="pl-10" />
-                </div>
-                <Button variant="outline" size="sm" onClick={loadLiabPay}><RefreshCw className="w-4 h-4" /></Button>
-              </div>
-              <div className="overflow-auto max-h-[65vh] rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Date</TableHead>
-                      <TableHead>Investment Head</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Payment Method</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-20 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {liabPayLoading ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-                    ) : filteredLiabPay.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No liability pays found</TableCell></TableRow>
-                    ) : filteredLiabPay.map((item: any) => (
-                      <TableRow key={item.id} className="hover:bg-muted/50">
-                        <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
-                        <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
-                        <TableCell><Badge className={PAYMENT_METHOD_BADGE[item.paymentMethod] || "bg-slate-100 text-slate-700"}>{item.paymentMethod || "—"}</Badge></TableCell>
-                        <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
-                        <TableCell>
-                          <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
-                            {item.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openLiabEdit(item, "pay")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setLiabPayDelete(item)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">Showing {filteredLiabPay.length} of {liabPay.length} entries</div>
-            </CardContent>
-          </Card>
+                {/* Actions Bar */}
+                <Card className="mt-4">
+                  <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        Liability Pay
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px]">AP Linked</Badge>
+                      </CardTitle>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => downloadCSVTemplate("liabilities")}>
+                          <Download className="w-4 h-4 mr-1" />CSV Template
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/liabilities", liabImportFields, loadLiabPay)}>
+                          <Upload className="w-4 h-4 mr-1" />Import CSV
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => doExportCSV("Liability-Pay", liabExportColumns, prepareLiabExport(filteredLiabPay))}>
+                          <Download className="w-4 h-4 mr-1" />Export CSV
+                        </Button>
+                        <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => {
+                          try {
+                            const maskedKeys = getVatMaskedKeys(liabExportColumns, isVatAuditor);
+                            exportToPDF({
+                              title: "Liability Pay Statement",
+                              subtitle: `Period: ${reportFrom || 'All'} - ${reportTo || 'All'}`,
+                              columns: liabExportColumns,
+                              data: prepareLiabExport(filteredLiabPay),
+                              isVatAuditor,
+                              vatMaskedColumns: maskedKeys,
+                              orientation: "landscape",
+                              company: companyProfile || undefined,
+                              financialFooter: {
+                                preparedBy: auth.user?.displayName || "",
+                                checkedBy: "",
+                                authorizedBy: "",
+                                printedBy: auth.user?.displayName || auth.user?.email || "",
+                              },
+                              summaryRows: [
+                                {
+                                  cells: ["", "", "TOTAL", isVatAuditor ? "N/A" : fmtCurrency(liabPayStats.total), "", "", "", "", "", ""],
+                                  style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+                                },
+                              ],
+                            });
+                            toast({ title: "Exported", description: "Liability Pay Statement exported to PDF" });
+                          } catch (e: any) {
+                            toast({ title: "Error", description: e.message, variant: "destructive" });
+                          }
+                        }}>
+                          <FileDown className="w-4 h-4 mr-1" />Export PDF
+                        </Button>
+                        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openLiabCreate("pay")} disabled={isVatAuditor}>
+                          <Plus className="w-4 h-4 mr-1" />Create Pay
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap items-center gap-2 mb-4">
+                      <div className="relative flex-1 min-w-[200px] max-w-sm">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input placeholder="Search liability pays..." value={liabPaySearch} onChange={(e) => setLiabPaySearch(e.target.value)} className="pl-10" />
+                      </div>
+                      <Button variant="outline" size="sm" onClick={loadLiabPay}><RefreshCw className="w-4 h-4" /></Button>
+                    </div>
+                    <div className="overflow-auto max-h-[65vh] rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead>Date</TableHead>
+                            <TableHead>Investment Head</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead>Payment Method</TableHead>
+                            <TableHead>AP Status</TableHead>
+                            <TableHead>Aging</TableHead>
+                            <TableHead>Due Date</TableHead>
+                            <TableHead>Overdue</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="w-20 text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {liabPayLoading ? (
+                            <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                          ) : filteredLiabPay.length === 0 ? (
+                            <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No liability pays found</TableCell></TableRow>
+                          ) : filteredLiabPay.map((item: any) => (
+                            <TableRow key={item.id} className="hover:bg-muted/50">
+                              <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
+                              <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
+                              <TableCell className="font-mono text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
+                              <TableCell><Badge className={PAYMENT_METHOD_BADGE[item.paymentMethod] || "bg-slate-100 text-slate-700"}>{item.paymentMethod || "—"}</Badge></TableCell>
+                              <TableCell>
+                                <Badge className={AP_STATUS_COLORS[item.apSyncStatus] || AP_STATUS_COLORS["Pending"]}>
+                                  {item.apSyncStatus || "Pending"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={AGING_BUCKET_COLORS[item.agingBucket] || AGING_BUCKET_COLORS["Current"]}>
+                                  {item.agingBucket || "Current"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-slate-900 dark:text-white">{item.dueDate ? fmtDate(item.dueDate) : "—"}</TableCell>
+                              <TableCell>
+                                {(item.overdueDays || 0) > 0 ? (
+                                  <span className="text-red-600 dark:text-red-400 font-semibold">{item.overdueDays}d</span>
+                                ) : "—"}
+                              </TableCell>
+                              <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
+                              <TableCell>
+                                <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
+                                  {item.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="ghost" size="sm" onClick={() => openLiabEdit(item, "pay")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
+                                  <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setLiabPayDelete(item)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">Showing {filteredLiabPay.length} of {liabPay.length} entries</div>
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
         </TabsContent>
 
         {/* ═══════════════════════════════════════════════════════════
-            TAB 7: LIABILITY REPORT
+            TAB 7: LIABILITY REPORT (Enhanced with Aging + Charts)
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="liability-report">
           {/* Date Range Filter */}
@@ -2117,10 +2340,48 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </Button>
                 {reportData && (
                   <>
-                    <Button variant="outline" size="sm" onClick={() => doExportCSV("Liability-Report", reportExportColumns, reportData.heads || [])}>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      try {
+                        const enrichedHeads = (reportData.heads || []).map((h: any) => {
+                          const apHead = (apAgingData?.headOutstanding || []).find((ah: any) => ah.id === h.id);
+                          return { ...h, agingBucket: apHead?.agingBucket || "Current", apSyncStatus: apHead?.apSyncStatus || "Pending" };
+                        });
+                        exportToCSV({ title: "Liability-Report", columns: reportExportColumns, data: enrichedHeads, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(reportExportColumns) });
+                        toast({ title: "Exported", description: "Liability Report exported to CSV" });
+                      } catch (e: any) {
+                        toast({ title: "Error", description: e.message, variant: "destructive" });
+                      }
+                    }}>
                       <Download className="w-4 h-4 mr-1" />Export CSV
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => doExportPDF("Liability-Report", reportExportColumns, reportData.heads || [], "landscape")}>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      try {
+                        const enrichedHeads = (reportData.heads || []).map((h: any) => {
+                          const apHead = (apAgingData?.headOutstanding || []).find((ah: any) => ah.id === h.id);
+                          return { ...h, agingBucket: apHead?.agingBucket || "Current", apSyncStatus: apHead?.apSyncStatus || "Pending" };
+                        });
+                        const maskedKeys = getVatMaskedKeys(reportExportColumns, isVatAuditor);
+                        exportToPDF({
+                          title: "Liability Report",
+                          subtitle: `Period: ${reportFrom || 'All'} - ${reportTo || 'All'}`,
+                          columns: reportExportColumns,
+                          data: enrichedHeads,
+                          isVatAuditor,
+                          vatMaskedColumns: maskedKeys,
+                          orientation: "landscape",
+                          company: companyProfile || undefined,
+                          financialFooter: {
+                            preparedBy: auth.user?.displayName || "",
+                            checkedBy: "",
+                            authorizedBy: "",
+                            printedBy: auth.user?.displayName || auth.user?.email || "",
+                          },
+                        });
+                        toast({ title: "Exported", description: "Liability Report exported to PDF" });
+                      } catch (e: any) {
+                        toast({ title: "Error", description: e.message, variant: "destructive" });
+                      }
+                    }}>
                       <FileDown className="w-4 h-4 mr-1" />Export PDF
                     </Button>
                   </>
@@ -2130,18 +2391,155 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               {/* Report Data */}
               {reportData ? (
                 <>
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                    <StatCard label="Total Heads" value={reportData.summary?.totalHeads ?? 0} icon={Landmark} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
-                    <StatCard label="Total Opening" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalOpening ?? 0)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
-                    <StatCard label="Total Received" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalReceived ?? 0)} icon={ArrowDownCircle} color="text-cyan-600" bg="bg-cyan-50 dark:bg-cyan-900/30" />
-                    <StatCard label="Total Paid" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalPaid ?? 0)} icon={ArrowUpCircle} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
-                    <StatCard label="Outstanding Balance" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalOutstanding ?? 0)} icon={CheckCircle} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
-                  </div>
+                  {(() => {
+                    const apSyncPct = apAgingData?.apSyncStats ? `${apAgingData.apSyncStats.syncRate}%` : "—";
+                    const overdueCount = apAgingData?.overdueStats?.overdueCount ?? 0;
+                    return (
+                      <>
+                        {/* Summary Cards — 7 cards */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
+                          <StatCard label="Total Heads" value={reportData.summary?.totalHeads ?? 0} icon={Landmark} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
+                          <StatCard label="Total Opening" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalOpening ?? 0)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
+                          <StatCard label="Total Received" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalReceived ?? 0)} icon={ArrowDownCircle} color="text-cyan-600" bg="bg-cyan-50 dark:bg-cyan-900/30" />
+                          <StatCard label="Total Paid" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalPaid ?? 0)} icon={ArrowUpCircle} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
+                          <StatCard label="Outstanding Balance" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(reportData.summary?.totalOutstanding ?? 0)} icon={CheckCircle} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
+                          <StatCard label="AP Synced %" value={apSyncPct} icon={CheckCircle} color="text-emerald-600" bg="bg-emerald-50 dark:bg-emerald-900/30" />
+                          <StatCard label="Overdue Count" value={overdueCount} icon={AlertTriangle} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
+                        </div>
+
+                        {/* Aging Buckets Section */}
+                        {apAgingData?.agingBuckets && (
+                          <Card className="mb-4">
+                            <CardHeader className="py-3 px-4">
+                              <CardTitle className="text-sm flex items-center gap-2">
+                                <AlertTriangle className="w-4 h-4" />AP Aging Buckets
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-4">
+                              {(() => {
+                                const buckets = apAgingData.agingBuckets;
+                                const totalAmount = Object.values(buckets).reduce((s: number, b: any) => s + (b.totalAmount || 0), 0);
+                                const bucketOrder = ["Current", "1-30", "31-60", "61-90", "90+"];
+                                const bucketBarColors: Record<string, string> = {
+                                  "Current": "bg-green-500",
+                                  "1-30": "bg-yellow-500",
+                                  "31-60": "bg-orange-500",
+                                  "61-90": "bg-red-500",
+                                  "90+": "bg-red-800",
+                                };
+                                return (
+                                  <>
+                                    {/* Stacked Bar */}
+                                    <div className="flex h-8 rounded-lg overflow-hidden mb-4">
+                                      {bucketOrder.map((key) => {
+                                        const bucket = buckets[key];
+                                        const pct = totalAmount > 0 && bucket ? (bucket.totalAmount / totalAmount) * 100 : 0;
+                                        return pct > 0 ? (
+                                          <div
+                                            key={key}
+                                            className={`${bucketBarColors[key]} flex items-center justify-center text-white text-[10px] font-bold transition-all`}
+                                            style={{ width: `${pct}%` }}
+                                            title={`${key}: ${fmtCurrency(bucket?.totalAmount || 0)} (${pct.toFixed(1)}%)`}
+                                          >
+                                            {pct > 8 ? `${pct.toFixed(0)}%` : ""}
+                                          </div>
+                                        ) : null;
+                                      })}
+                                    </div>
+                                    {/* Bucket Details */}
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                      {bucketOrder.map((key) => {
+                                        const bucket = buckets[key];
+                                        return (
+                                          <div key={key} className="flex items-center gap-2 p-2 rounded-lg border">
+                                            <div className={`w-3 h-3 rounded-full ${bucketBarColors[key]}`} />
+                                            <div>
+                                              <p className="text-xs font-semibold text-slate-900 dark:text-white">{key} Days</p>
+                                              <p className="text-xs text-muted-foreground">{bucket?.count || 0} items</p>
+                                              <p className="text-xs font-mono">{isVatAuditor ? "N/A" : fmtCurrency(bucket?.totalAmount || 0)}</p>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
+                                );
+                              })()}
+                            </CardContent>
+                          </Card>
+                        )}
+
+                        {/* Chart Visualization */}
+                        {apAgingData?.agingBuckets && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            {/* PieChart — Aging Bucket Distribution */}
+                            <Card>
+                              <CardHeader className="py-3 px-4">
+                                <CardTitle className="text-sm">Aging Bucket Distribution</CardTitle>
+                              </CardHeader>
+                              <CardContent className="p-4">
+                                {(() => {
+                                  const PIE_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444", "#991b1b"];
+                                  const bucketOrder = ["Current", "1-30", "31-60", "61-90", "90+"];
+                                  const pieData = bucketOrder.map((key, i) => ({
+                                    name: `${key} Days`,
+                                    value: apAgingData.agingBuckets[key]?.totalAmount || 0,
+                                    fill: PIE_COLORS[i],
+                                  })).filter(d => d.value > 0);
+                                  return pieData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height={250}>
+                                      <PieChart>
+                                        <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({ name, percent }: any) => `${name}: ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                                          {pieData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                                          ))}
+                                        </Pie>
+                                        <RechartsTooltip formatter={(val: number) => fmtCurrency(val)} />
+                                      </PieChart>
+                                    </ResponsiveContainer>
+                                  ) : <p className="text-center text-muted-foreground py-8">No aging data to chart</p>;
+                                })()}
+                              </CardContent>
+                            </Card>
+
+                            {/* BarChart — Outstanding Balance per Head */}
+                            <Card>
+                              <CardHeader className="py-3 px-4">
+                                <CardTitle className="text-sm">Outstanding Balance per Head</CardTitle>
+                              </CardHeader>
+                              <CardContent className="p-4">
+                                {(() => {
+                                  const headData = (apAgingData?.headOutstanding || [])
+                                    .filter((h: any) => h.outstanding > 0)
+                                    .sort((a: any, b: any) => b.outstanding - a.outstanding)
+                                    .slice(0, 10)
+                                    .map((h: any) => ({
+                                      name: h.name?.length > 15 ? h.name.slice(0, 15) + "…" : h.name || "—",
+                                      outstanding: h.outstanding,
+                                    }));
+                                  return headData.length > 0 ? (
+                                    <ResponsiveContainer width="100%" height={250}>
+                                      <BarChart data={headData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                                        <YAxis tick={{ fontSize: 10 }} />
+                                        <RechartsTooltip formatter={(val: number) => fmtCurrency(val)} />
+                                        <Bar dataKey="outstanding" name="Outstanding" fill="#ef4444" />
+                                      </BarChart>
+                                    </ResponsiveContainer>
+                                  ) : <p className="text-center text-muted-foreground py-8">No outstanding balances</p>;
+                                })()}
+                              </CardContent>
+                            </Card>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   <Separator className="my-4" />
 
-                  {/* Per-head Breakdown Table */}
+                  {/* Per-head Breakdown Table — Enhanced */}
                   <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-2">Per-Head Breakdown</h3>
                   <div className="overflow-auto max-h-[65vh] rounded-md border">
                     <Table>
@@ -2154,82 +2552,104 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                           <TableHead>Received</TableHead>
                           <TableHead>Paid</TableHead>
                           <TableHead>Current Balance</TableHead>
+                          <TableHead>AP Status</TableHead>
+                          <TableHead>Aging</TableHead>
                           <TableHead>Transactions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {(reportData.heads || []).length === 0 ? (
-                          <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No liability heads found for this period</TableCell></TableRow>
-                        ) : (reportData.heads || []).map((head: any) => (
-                          <React.Fragment key={head.id}>
-                            <TableRow className="hover:bg-muted/50">
-                              <TableCell>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(setExpandedReport, head.id)}>
-                                  {expandedReport.has(head.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                                </Button>
-                              </TableCell>
-                              <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{head.code}</TableCell>
-                              <TableCell className="text-slate-900 dark:text-white">{head.name}</TableCell>
-                              <TableCell className="font-mono">{fmtCurrency(head.openingBalance)}</TableCell>
-                              <TableCell className="font-mono">{fmtCurrency(head.totalReceived)}</TableCell>
-                              <TableCell className="font-mono">{fmtCurrency(head.totalPaid)}</TableCell>
-                              <TableCell className="font-mono font-bold">{fmtCurrency(head.currentBalance)}</TableCell>
-                              <TableCell><Badge variant="outline">{head.transactionCount ?? 0}</Badge></TableCell>
-                            </TableRow>
-                            {expandedReport.has(head.id) && (
-                              <TableRow>
-                                <TableCell colSpan={8} className="bg-muted/30 p-3">
-                                  {/* Payment Method Breakdown */}
-                                  {head.byMethod && head.byMethod.length > 0 && (
-                                    <div className="mb-3">
-                                      <h5 className="text-xs font-semibold text-muted-foreground mb-1">Payment Method Breakdown</h5>
-                                      <div className="flex flex-wrap gap-2">
-                                        {head.byMethod.map((m: any, i: number) => (
-                                          <div key={i} className="text-xs bg-white dark:bg-slate-800 rounded-md border px-2 py-1">
-                                            <Badge className={PAYMENT_METHOD_BADGE[m.method] || "bg-slate-100 text-slate-700"}>{m.method}</Badge>
-                                            <span className="ml-1 font-mono">{fmtCurrency(m.received)} / {fmtCurrency(m.paid)}</span>
-                                            <span className="ml-1 text-muted-foreground">({m.count} txns)</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Individual Transactions */}
-                                  {head.transactions && head.transactions.length > 0 && (
-                                    <div>
-                                      <h5 className="text-xs font-semibold text-muted-foreground mb-1">Transactions</h5>
-                                      <div className="overflow-auto max-h-40 rounded-md border">
-                                        <Table>
-                                          <TableHeader>
-                                            <TableRow>
-                                              <TableHead className="text-xs">Date</TableHead>
-                                              <TableHead className="text-xs">Type</TableHead>
-                                              <TableHead className="text-xs">Method</TableHead>
-                                              <TableHead className="text-xs">Amount</TableHead>
-                                              <TableHead className="text-xs">Description</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {head.transactions.map((t: any) => (
-                                              <TableRow key={t.id}>
-                                                <TableCell className="text-xs">{fmtDate(t.date)}</TableCell>
-                                                <TableCell className="text-xs"><Badge variant="outline">{t.type}</Badge></TableCell>
-                                                <TableCell className="text-xs"><Badge className={PAYMENT_METHOD_BADGE[t.paymentMethod] || ""}>{t.paymentMethod || "—"}</Badge></TableCell>
-                                                <TableCell className="text-xs font-mono">{fmtCurrency(t.amount)}</TableCell>
-                                                <TableCell className="text-xs">{t.description || "—"}</TableCell>
-                                              </TableRow>
-                                            ))}
-                                          </TableBody>
-                                        </Table>
-                                      </div>
-                                    </div>
-                                  )}
+                          <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No liability heads found for this period</TableCell></TableRow>
+                        ) : (reportData.heads || []).map((head: any) => {
+                          const apHead = (apAgingData?.headOutstanding || []).find((ah: any) => ah.id === head.id);
+                          const isOverdue = (apHead?.overdueDays || 0) > 0;
+                          return (
+                            <React.Fragment key={head.id}>
+                              <TableRow className="hover:bg-muted/50">
+                                <TableCell>
+                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(setExpandedReport, head.id)}>
+                                    {expandedReport.has(head.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                  </Button>
                                 </TableCell>
+                                <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{head.code}</TableCell>
+                                <TableCell className="text-slate-900 dark:text-white">{head.name}</TableCell>
+                                <TableCell className="font-mono text-right">{fmtCurrency(head.openingBalance)}</TableCell>
+                                <TableCell className="font-mono text-right">{fmtCurrency(head.totalReceived)}</TableCell>
+                                <TableCell className="font-mono text-right">{fmtCurrency(head.totalPaid)}</TableCell>
+                                <TableCell className={`font-mono text-right font-bold ${isOverdue ? "text-red-600 dark:text-red-400" : ""}`}>{fmtCurrency(head.currentBalance)}</TableCell>
+                                <TableCell>
+                                  <Badge className={AP_STATUS_COLORS[apHead?.apSyncStatus || "Pending"] || AP_STATUS_COLORS["Pending"]}>
+                                    {apHead?.apSyncStatus || "Pending"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge className={AGING_BUCKET_COLORS[apHead?.agingBucket || "Current"] || AGING_BUCKET_COLORS["Current"]}>
+                                    {apHead?.agingBucket || "Current"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell><Badge variant="outline">{head.transactionCount ?? 0}</Badge></TableCell>
                               </TableRow>
-                            )}
-                          </React.Fragment>
-                        ))}
+                              {expandedReport.has(head.id) && (
+                                <TableRow>
+                                  <TableCell colSpan={10} className="bg-muted/30 p-3">
+                                    {/* Payment Method Breakdown */}
+                                    {head.byMethod && head.byMethod.length > 0 && (
+                                      <div className="mb-3">
+                                        <h5 className="text-xs font-semibold text-muted-foreground mb-1">Payment Method Breakdown</h5>
+                                        <div className="flex flex-wrap gap-2">
+                                          {head.byMethod.map((m: any, i: number) => (
+                                            <div key={i} className="text-xs bg-white dark:bg-slate-800 rounded-md border px-2 py-1">
+                                              <Badge className={PAYMENT_METHOD_BADGE[m.method] || "bg-slate-100 text-slate-700"}>{m.method}</Badge>
+                                              <span className="ml-1 font-mono">{fmtCurrency(m.received)} / {fmtCurrency(m.paid)}</span>
+                                              <span className="ml-1 text-muted-foreground">({m.count} txns)</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Individual Transactions — Enhanced with AP Status */}
+                                    {head.transactions && head.transactions.length > 0 && (
+                                      <div>
+                                        <h5 className="text-xs font-semibold text-muted-foreground mb-1">Transactions</h5>
+                                        <div className="overflow-auto max-h-40 rounded-md border">
+                                          <Table>
+                                            <TableHeader>
+                                              <TableRow>
+                                                <TableHead className="text-xs">Date</TableHead>
+                                                <TableHead className="text-xs">Type</TableHead>
+                                                <TableHead className="text-xs">Method</TableHead>
+                                                <TableHead className="text-xs">Amount</TableHead>
+                                                <TableHead className="text-xs">AP Status</TableHead>
+                                                <TableHead className="text-xs">Description</TableHead>
+                                              </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {head.transactions.map((t: any) => (
+                                                <TableRow key={t.id}>
+                                                  <TableCell className="text-xs">{fmtDate(t.date)}</TableCell>
+                                                  <TableCell className="text-xs"><Badge variant="outline">{t.type}</Badge></TableCell>
+                                                  <TableCell className="text-xs"><Badge className={PAYMENT_METHOD_BADGE[t.paymentMethod] || ""}>{t.paymentMethod || "—"}</Badge></TableCell>
+                                                  <TableCell className="text-xs font-mono text-right">{fmtCurrency(t.amount)}</TableCell>
+                                                  <TableCell className="text-xs">
+                                                    <Badge className={AP_STATUS_COLORS[t.apSyncStatus] || AP_STATUS_COLORS["Pending"]}>
+                                                      {t.apSyncStatus || "Pending"}
+                                                    </Badge>
+                                                  </TableCell>
+                                                  <TableCell className="text-xs">{t.description || "—"}</TableCell>
+                                                </TableRow>
+                                              ))}
+                                            </TableBody>
+                                          </Table>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -3093,6 +3513,14 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               </Select>
             </div>
             <div>
+              <Label>Due Date</Label>
+              <Input type="date" value={liabReceiveFormData.dueDate || ""} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, dueDate: e.target.value })} placeholder="Optional due date" />
+            </div>
+            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <span className="text-xs text-green-700 dark:text-green-400">AP Sync: Will be synced on save</span>
+            </div>
+            <div>
               <Label>Description</Label>
               <Textarea value={liabReceiveFormData.description} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, description: e.target.value })} placeholder="Optional description" rows={2} />
             </div>
@@ -3164,6 +3592,14 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   <SelectItem value="Cheque">Cheque</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Due Date</Label>
+              <Input type="date" value={liabPayFormData.dueDate || ""} onChange={(e) => setLiabPayFormData({ ...liabPayFormData, dueDate: e.target.value })} placeholder="Optional due date" />
+            </div>
+            <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <span className="text-xs text-green-700 dark:text-green-400">AP Sync: Will be synced on save</span>
             </div>
             <div>
               <Label>Description</Label>

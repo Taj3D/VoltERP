@@ -111,22 +111,32 @@ model AssetDepreciation {
 }
 
 model Liability {
-  id              String         @id @default(cuid())
-  investmentHeadId String
-  date            DateTime
-  amount          Float
-  type            String         @default("received") // "received" or "pay"
-  paymentMethod   String?        // "Cash", "Bank Transfer", "Cheque", etc.
-  description     String?
-  companyId       String?        // Multi-tenant isolation
-  isActive        Boolean        @default(true)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
-  company         Company?       @relation(fields: [companyId], references: [id])
+  id                String         @id @default(cuid())
+  investmentHeadId  String
+  date              DateTime
+  amount            Float
+  type              String         @default("received") // "received" or "pay"
+  paymentMethod     String?        // "Cash", "Bank Transfer", "Cheque", etc.
+  description       String?
+  companyId         String?        // Multi-tenant isolation
+  isActive          Boolean        @default(true)
+
+  // ── Accounts Payable Sync Fields ──
+  agingBucket       String         @default("Current") // "Current", "1-30", "31-60", "61-90", "90+"
+  apSyncStatus      String         @default("Synced")  // "Pending", "Synced", "Failed"
+  apLedgerReference String?        // Reference to the AP LedgerEntry (LED-XXXXX)
+  dueDate           DateTime?      // Computed due date for aging calculation
+  overdueDays       Int            @default(0)         // Days past due date
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  investmentHead    InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+  company           Company?       @relation(fields: [companyId], references: [id])
 
   @@index([investmentHeadId])
   @@index([companyId])
+  @@index([agingBucket])
+  @@index([apSyncStatus])
 }
 
 // ============================================================

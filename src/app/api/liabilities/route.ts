@@ -14,145 +14,90 @@ const AUDIT_MODULE = 'Inv-Asset-Ledger';
 
 const LIABILITY_MASKED_FIELDS = ['amount'];
 
-export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Liabilities', 'GET');
-  if (!security.authorized) return security.response;
+// ── Aging Bucket Computation ──
 
-  try {
-    const companyId = security.user.companyId;
-    const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type');
-    const headId = searchParams.get('headId');
+/**
+ * computeAgingBucket - Determines the aging classification of a liability
+ * based on how many days it is past its due date.
+ *
+ * @param dueDate - The due date of the liability (null if not yet set)
+ * @param referenceDate - The date to compare against (typically today)
+ * @returns Aging bucket string: "Current", "1-30", "31-60", "61-90", or "90+"
+ */
+function computeAgingBucket(dueDate: Date | null, referenceDate: Date): string {
+  if (!dueDate) return 'Current';
 
-    const where: Record<string, unknown> = {
-      isActive: true,
-      ...(companyId ? { companyId } : {}),
-    };
-    if (type) where.type = type;
-    if (headId) where.investmentHeadId = headId;
+  const diffMs = referenceDate.getTime() - new Date(dueDate).getTime();
+  const overdueDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    const items = await db.liability.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: { investmentHead: true },
-    });
-
-    // VAT Auditor masking
-    const masked = maskFinancialArray(
-      items as unknown as Record<string, unknown>[],
-      security.user.role,
-      LIABILITY_MASKED_FIELDS
-    );
-
-    return NextResponse.json(masked);
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch liabilities' }, { status: 500 });
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Liabilities', 'POST');
-  if (!security.authorized) return security.response;
-
-  try {
-    const body = await request.json();
-    const companyId = security.user.companyId;
-
-    // ── Batch mode support ──
-    if (body.batchMode && Array.isArray(body.data)) {
-      const results = await db.$transaction(async (tx) => {
-        const created: unknown[] = [];
-        for (const item of body.data) {
-          const record = await createSingleLiability(tx, item, companyId, security);
-          created.push(record);
-        }
-
-        await tx.auditLog.create({
-          data: {
-            action: 'CREATE',
-            module: AUDIT_MODULE,
-            recordId: 'BATCH',
-            recordLabel: `Batch: ${created.length} liabilities`,
-            userId: security.user.id,
-            userName: security.user.name,
-            details: JSON.stringify({ count: created.length, batchMode: true }),
-          },
-        });
-
-        return created;
-      });
-
-      await logUserActivity({
-        action: 'CREATE',
-        module: AUDIT_MODULE,
-        recordId: 'BATCH',
-        recordLabel: `Batch: ${results.length} liabilities`,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: `Created ${results.length} liabilities in batch`,
-      });
-
-      return NextResponse.json(results, { status: 201 });
-    }
-
-    // ── Single mode ──
-    // Period close check
-    if (body.date) {
-      const periodLock = await checkPeriodClose(body.date);
-      if (periodLock) return periodLock;
-    }
-
-    const item = await db.$transaction(async (tx) => {
-      const record = await createSingleLiability(tx, body, companyId, security);
-
-      await tx.auditLog.create({
-        data: {
-          action: 'CREATE',
-          module: AUDIT_MODULE,
-          recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
-          userId: security.user.id,
-          userName: security.user.name,
-          details: JSON.stringify({
-            investmentHeadId: record.investmentHeadId,
-            amount: record.amount,
-            type: record.type,
-            paymentMethod: record.paymentMethod,
-          }),
-        },
-      });
-
-      return record;
-    });
-
-    await logUserActivity({
-      action: 'CREATE',
-      module: AUDIT_MODULE,
-      recordId: item.id,
-      recordLabel: `${item.investmentHead?.name || item.id} - ৳${item.amount}`,
-      userId: security.user.id,
-      userName: security.user.name,
-      details: `Created liability: ${item.investmentHead?.name || item.id} - ৳${item.amount}`,
-    });
-
-    return NextResponse.json(item, { status: 201 });
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.startsWith('Action Blocked:') || error.message.includes('must be')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    return NextResponse.json({ error: 'Failed to create liability' }, { status: 500 });
-  }
+  if (overdueDays <= 0) return 'Current';
+  if (overdueDays <= 30) return '1-30';
+  if (overdueDays <= 60) return '31-60';
+  if (overdueDays <= 90) return '61-90';
+  return '90+';
 }
 
 /**
- * Helper: Resolve the appropriate Cash/Bank COA account for a liability transaction.
+ * computeOverdueDays - Calculates the number of days a liability is past its due date.
+ *
+ * @param dueDate - The due date of the liability
+ * @param referenceDate - The date to compare against (typically today)
+ * @returns Number of overdue days (0 if not yet due)
+ */
+function computeOverdueDays(dueDate: Date | null, referenceDate: Date): number {
+  if (!dueDate) return 0;
+  const diffMs = referenceDate.getTime() - new Date(dueDate).getTime();
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+}
+
+/**
+ * getHeadOutstandingBalance - Calculates the outstanding balance for an InvestmentHead.
+ * Formula: openingBalance + sum(received amounts) - sum(paid amounts)
+ */
+async function getHeadOutstandingBalance(
+  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
+  investmentHeadId: string
+): Promise<number> {
+  const head = await tx.investmentHead.findUnique({
+    where: { id: investmentHeadId },
+    select: { openingBalance: true },
+  });
+
+  const receivedAgg = await tx.liability.aggregate({
+    _sum: { amount: true },
+    where: {
+      investmentHeadId,
+      type: 'received',
+      isActive: true,
+    },
+  });
+
+  const paidAgg = await tx.liability.aggregate({
+    _sum: { amount: true },
+    where: {
+      investmentHeadId,
+      type: 'pay',
+      isActive: true,
+    },
+  });
+
+  const openingBalance = head?.openingBalance || 0;
+  const totalReceived = receivedAgg._sum.amount || 0;
+  const totalPaid = paidAgg._sum.amount || 0;
+
+  return safeFinancialSubtract(safeFinancialAdd(openingBalance, totalReceived), totalPaid);
+}
+
+// ── COA Resolution Helpers ──
+
+/**
+ * Resolve the appropriate Cash/Bank COA account for a liability transaction.
  *
  * Resolution priority:
  * 1. If paymentMethod is "Bank Transfer" or "Cheque", prefer a Bank-named Asset COA account.
  * 2. Otherwise, prefer a Cash-named Asset COA account.
- * 3. If the preferred account is not found, fall back to any active Asset COA account for the company.
+ * 3. If the preferred account is not found, fall back to the other type.
+ * 4. Final fallback — any active Asset COA account for the company.
  */
 async function resolveCashBankCoaAccount(
   tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
@@ -219,7 +164,7 @@ async function resolveCashBankCoaAccount(
 }
 
 /**
- * Helper: Resolve the appropriate Liability COA account for a liability transaction.
+ * Resolve the appropriate Liability COA account for a liability transaction.
  *
  * Resolution priority:
  * 1. Any active Liability classification COA account for the company.
@@ -279,12 +224,277 @@ async function generateLapCode(
   return `LAP-${String(nextNum).padStart(5, '0')}`;
 }
 
+// ── GET Handler ──
+
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Liabilities', 'GET');
+  if (!security.authorized) return security.response;
+
+  try {
+    const companyId = security.user.companyId;
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+    const headId = searchParams.get('headId');
+
+    const where: Record<string, unknown> = {
+      isActive: true,
+      ...(companyId ? { companyId } : {}),
+    };
+    if (type) where.type = type;
+    if (headId) where.investmentHeadId = headId;
+
+    const items = await db.liability.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { investmentHead: true },
+    });
+
+    // VAT Auditor masking
+    const masked = maskFinancialArray(
+      items as unknown as Record<string, unknown>[],
+      security.user.role,
+      LIABILITY_MASKED_FIELDS
+    );
+
+    return NextResponse.json(masked);
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to fetch liabilities' }, { status: 500 });
+  }
+}
+
+// ── POST Handler ──
+
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Liabilities', 'POST');
+  if (!security.authorized) return security.response;
+
+  try {
+    const body = await request.json();
+    const companyId = security.user.companyId;
+
+    // ── Batch mode support with transactional rollback ──
+    if (body.batchMode && Array.isArray(body.data)) {
+      return await handleBatchMode(body.data, companyId, security);
+    }
+
+    // ── Single mode ──
+    // Period close check
+    if (body.date) {
+      const periodLock = await checkPeriodClose(body.date);
+      if (periodLock) return periodLock;
+    }
+
+    const item = await db.$transaction(async (tx) => {
+      const record = await createSingleLiability(tx, body, companyId, security);
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: AUDIT_MODULE,
+          recordId: record.id,
+          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            investmentHeadId: record.investmentHeadId,
+            amount: record.amount,
+            type: record.type,
+            paymentMethod: record.paymentMethod,
+            agingBucket: record.agingBucket,
+            apSyncStatus: record.apSyncStatus,
+            apLedgerReference: record.apLedgerReference,
+            dueDate: record.dueDate,
+            overdueDays: record.overdueDays,
+          }),
+        },
+      });
+
+      return record;
+    });
+
+    await logUserActivity({
+      action: 'CREATE',
+      module: AUDIT_MODULE,
+      recordId: item.id,
+      recordLabel: `${item.investmentHead?.name || item.id} - ৳${item.amount}`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: `Created liability: ${item.investmentHead?.name || item.id} - ৳${item.amount}`,
+    });
+
+    return NextResponse.json(item, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.startsWith('Action Blocked:') || error.message.includes('must be') || error.message.startsWith('Import rejected:')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+    return NextResponse.json({ error: 'Failed to create liability' }, { status: 500 });
+  }
+}
+
+// ── Batch Mode Handler with Pre-Validation ──
+
+interface ValidationError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+async function handleBatchMode(
+  data: Record<string, unknown>[],
+  companyId: string | null,
+  security: { user: { id: string; name: string; role: string } }
+): Promise<NextResponse> {
+  const validationErrors: ValidationError[] = [];
+
+  // ── Phase 1: Pre-validate ALL rows before processing ANY ──
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNum = i + 1;
+
+    // Required field: investmentHeadId must be non-empty
+    const investmentHeadId = row.investmentHeadId as string;
+    if (!investmentHeadId || (typeof investmentHeadId === 'string' && investmentHeadId.trim() === '')) {
+      validationErrors.push({
+        row: rowNum,
+        field: 'investmentHeadId',
+        message: 'Investment Head ID is required and must be non-empty.',
+      });
+    }
+
+    // Required field: amount must be > 0
+    const amount = Number(row.amount);
+    if (!amount || isNaN(amount) || amount <= 0) {
+      validationErrors.push({
+        row: rowNum,
+        field: 'amount',
+        message: 'Amount must be a positive number greater than 0.',
+      });
+    }
+
+    // Negative numeric value rejection
+    if (amount < 0) {
+      validationErrors.push({
+        row: rowNum,
+        field: 'amount',
+        message: 'Negative amounts are not allowed. Entire import will be rejected.',
+      });
+    }
+
+    // Account hash verification: each investmentHeadId must reference a valid, active InvestmentHead
+    if (investmentHeadId && typeof investmentHeadId === 'string' && investmentHeadId.trim() !== '') {
+      const head = await db.investmentHead.findUnique({
+        where: { id: investmentHeadId },
+        select: { id: true, isActive: true, openingBalance: true },
+      });
+
+      if (!head) {
+        validationErrors.push({
+          row: rowNum,
+          field: 'investmentHeadId',
+          message: `Investment Head with ID "${investmentHeadId}" does not exist. Invalid reference.`,
+        });
+      } else if (!head.isActive) {
+        validationErrors.push({
+          row: rowNum,
+          field: 'investmentHeadId',
+          message: `Investment Head "${investmentHeadId}" is inactive or archived. Invalid reference.`,
+        });
+      }
+
+      // Payment amount vs outstanding balance check for "pay" type rows
+      const liabilityType = (row.type as string) || 'received';
+      if (liabilityType === 'pay' && amount > 0 && head) {
+        const outstandingBalance = await getHeadOutstandingBalance(db, investmentHeadId);
+        // The new payment would be in addition to existing payments, so check:
+        // outstandingBalance >= amount
+        if (outstandingBalance < amount) {
+          validationErrors.push({
+            row: rowNum,
+            field: 'amount',
+            message: `Action Blocked: Payment amount (${amount}) exceeds outstanding balance (${safeFinancialRound(outstandingBalance)}) for this head.`,
+          });
+        }
+      }
+    }
+  }
+
+  // ── If ANY validation error found, reject the entire import ──
+  if (validationErrors.length > 0) {
+    const errorMsg = `Import rejected: ${validationErrors.length} validation error(s). Entire import file rolled back.`;
+    return NextResponse.json(
+      {
+        error: errorMsg,
+        validationErrors,
+      },
+      { status: 400 }
+    );
+  }
+
+  // ── Phase 2: All rows passed — proceed with Prisma transactional insert ──
+  try {
+    const results = await db.$transaction(async (tx) => {
+      const created: unknown[] = [];
+      for (const item of data) {
+        const record = await createSingleLiability(tx, item, companyId, security);
+        created.push(record);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: AUDIT_MODULE,
+          recordId: 'BATCH',
+          recordLabel: `Batch: ${created.length} liabilities`,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({ count: created.length, batchMode: true }),
+        },
+      });
+
+      return created;
+    });
+
+    await logUserActivity({
+      action: 'CREATE',
+      module: AUDIT_MODULE,
+      recordId: 'BATCH',
+      recordLabel: `Batch: ${results.length} liabilities`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: `Created ${results.length} liabilities in batch`,
+    });
+
+    return NextResponse.json(results, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.startsWith('Action Blocked:') || error.message.includes('must be')) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+    }
+    return NextResponse.json({ error: 'Failed to create liabilities in batch' }, { status: 500 });
+  }
+}
+
+// ── Core: Create Single Liability ──
+
 /**
- * Helper: Create a single liability with full validation and double-entry ledger posting
+ * Helper: Create a single liability with full validation, aging computation,
+ * and double-entry ledger posting.
  *
  * Double-entry logic:
  * - "received" type: DEBIT Cash/Bank (asset increase), CREDIT Liability (liability increase)
  * - "pay" type:      DEBIT Liability (liability decrease), CREDIT Cash/Bank (asset decrease)
+ *
+ * AP Sync logic:
+ * - On successful double-entry posting: apSyncStatus = "Synced", apLedgerReference = debit entry code
+ * - On COA resolution failure: apSyncStatus = "Failed", apLedgerReference = null
+ *
+ * Aging logic:
+ * - "received" type: dueDate = date + 30 days (default payment terms)
+ * - Compute agingBucket and overdueDays based on current date vs dueDate
+ * - "pay" type: verify payment doesn't exceed outstanding balance
  */
 async function createSingleLiability(
   tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
@@ -311,6 +521,29 @@ async function createSingleLiability(
   const liabilityType = (body.type as string) || 'received';
   const paymentMethod = (body.paymentMethod as string) || null;
   const liabilityDate = body.date ? new Date(body.date as string) : new Date();
+  const now = new Date();
+
+  // ── Step 1.5: Debt Aging Verification ──
+  let agingBucket: string;
+  let dueDate: Date | null;
+  let overdueDays: number;
+
+  if (liabilityType === 'received') {
+    // For "received" (debt incurrence): set dueDate = date + 30 days (default payment terms)
+    dueDate = body.dueDate ? new Date(body.dueDate as string) : new Date(liabilityDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    agingBucket = computeAgingBucket(dueDate, now);
+    overdueDays = computeOverdueDays(dueDate, now);
+  } else {
+    // For "pay" (payment): verify the head's outstanding balance can cover the payment amount
+    const outstandingBalance = await getHeadOutstandingBalance(tx, investmentHeadId);
+    if (outstandingBalance < safeAmount) {
+      throw new Error('Action Blocked: Payment amount exceeds outstanding balance for this head.');
+    }
+    // Payment entries don't have a meaningful dueDate for aging
+    dueDate = body.dueDate ? new Date(body.dueDate as string) : null;
+    agingBucket = body.agingBucket ? (body.agingBucket as string) : 'Current';
+    overdueDays = 0;
+  }
 
   // ── Step 2: Insert the Liability record ──
   const record = await tx.liability.create({
@@ -323,6 +556,12 @@ async function createSingleLiability(
       description: (body.description as string) || null,
       ...(companyId && { companyId }),
       isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,
+      // AP Sync fields
+      agingBucket,
+      apSyncStatus: 'Pending', // Will be updated after double-entry posting
+      apLedgerReference: null, // Will be updated after double-entry posting
+      dueDate,
+      overdueDays,
     },
     include: { investmentHead: true },
   });
@@ -332,6 +571,9 @@ async function createSingleLiability(
   const cashBankCoa = await resolveCashBankCoaAccount(tx, paymentMethod, companyId);
 
   // Only proceed with double-entry if BOTH accounts are found
+  let apSyncStatus = 'Failed';
+  let apLedgerReference: string | null = null;
+
   if (liabilityCoa && cashBankCoa) {
     // Determine debit/credit accounts based on liability type
     let debitCoa: { id: string; code: string; name: string; currentBalance: number };
@@ -431,7 +673,25 @@ async function createSingleLiability(
         ...(companyId && { companyId }),
       },
     });
+
+    // ── Mark AP Sync as successful ──
+    apSyncStatus = 'Synced';
+    apLedgerReference = debitEntryCode;
   }
 
-  return record;
+  // ── Update AP Sync status on the record ──
+  await tx.liability.update({
+    where: { id: record.id },
+    data: {
+      apSyncStatus,
+      apLedgerReference,
+    },
+  });
+
+  // Return the record with updated AP sync fields
+  return {
+    ...record,
+    apSyncStatus,
+    apLedgerReference,
+  };
 }
