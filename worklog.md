@@ -1796,3 +1796,218 @@ Stage Summary:
 - Phase 1 complete: All 5 roles verified, RBAC working, Profile enhanced
 - No critical auth issues remain
 - Ready for Phase 2: Dashboard & KPI Accuracy Audit
+
+---
+
+Task ID: phase-2-dashboard-kpi-audit
+Agent: Dashboard & KPI Accuracy Audit Agent
+Task: Phase 2 — Dashboard & KPI Deep Audit
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT
+
+### BUGS FOUND & FIXED
+
+#### Bug 1: Currency Formatting — Bengali Digit Risk (CRITICAL)
+**Problem**: The `fmt()` function used `toLocaleString("en-US")` which can fall back to Bengali numerals (০-৯) in certain environments. The `KpiCard` component also used `animated.toLocaleString("en-US")`. This was previously fixed in `invoice-engine.ts` (Phase 4) but not in the dashboard component.
+**Fix**: Replaced all `toLocaleString("en-US")` calls with safe `Intl.NumberFormat('en-US', ...)` instances:
+- Created `safeNumberFormatter = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })` for currency
+- Created `safeIntFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })` for integers
+- Updated `fmt()` function to use `safeNumberFormatter.format(Number(v))` for currency
+- Updated `KpiCard` displayValue to use `safeNumberFormatter.format(animated)` for currency
+
+#### Bug 2: Payment Mix API — Missing Date Filter (HIGH)
+**Problem**: The `handlePaymentMix()` function received `dateFilter` parameter but didn't apply it to the sales order groupBy query. When users selected a date range, payment mix data was unfiltered.
+**Fix**: Changed `where: { status: revenueStatusFilter, isActive: true, ...companyFilter }` to `where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) }` in the `db.salesOrder.groupBy()` call.
+
+#### Bug 3: Payment Mix API — Missing VAT Auditor Masking (MEDIUM)
+**Problem**: The `handlePaymentMix()` function didn't apply VAT Auditor masking. Other endpoints like monthly-trend and category-turnover apply masking for VAT Auditor role.
+**Fix**: Added `role` parameter to `handlePaymentMix()`. When `role === 'vat_auditor'`, apply `maskDashboardForVatAuditor()` to each data item.
+
+#### Bug 4: Financial Ratios — Missing 2 Ratios in UI (MEDIUM)
+**Problem**: The API returns 10 financial ratios (currentRatio, quickRatio, debtToEquityRatio, grossProfitMargin, netProfitMargin, assetTurnover, inventoryTurnover, receivablesTurnover, payablesTurnover, workingCapital) but the UI only rendered 8 (missing receivablesTurnover and payablesTurnover).
+**Fix**: Added `RatioIndicator` components for `receivablesTurnover` and `payablesTurnover` in the Financial Ratios panel. Reordered to: Current Ratio, Quick Ratio, Debt-to-Equity, Gross Profit Margin, Net Profit Margin, Asset Turnover, Inventory Turnover, Receivables Turnover, Payables Turnover, Working Capital.
+
+#### Bug 5: Dashboard Title Shows "Welcome" Instead of "Dashboard" (LOW)
+**Problem**: The task spec requires the dashboard title to show "Dashboard" but the header was `Welcome, {userName}`.
+**Fix**: Changed to `<h2>Dashboard</h2>` with subtitle `<p>Welcome, {userName} — Here's your business overview</p>`.
+
+#### Bug 6: useAnimatedCounter — Unused `ref` Variable (LOW)
+**Problem**: The `useAnimatedCounter` hook had `const ref = useRef(target)` that was never read, only written. This was dead code.
+**Fix**: Removed the unused `ref` variable.
+
+### ENHANCEMENTS IMPLEMENTED
+
+#### Enhancement 1: Year-over-Year Comparison KPIs
+**Implementation**:
+- Added `lastYearRevenue` and `lastYearPurchases` fields to KPI API response
+- API queries last year's sales/purchases aggregates in parallel with current year data
+- KPI cards for "Total Revenue" and "Total Purchases" now show YoY change percentages (green up / red down badges)
+- Added YoY comparison footer card at bottom showing side-by-side this year vs last year with percentage badges
+
+#### Enhancement 2: Sparkline Mini-Charts in KPI Cards
+**Implementation**:
+- Added `sparklineData` field to KPI API response — 7-day daily sales trend array
+- Created `Sparkline` SVG component that renders a polyline mini-chart (60x24px)
+- KPI cards for Revenue and Purchases display sparklines below the value
+- Sparkline color adapts to trend direction (green for up, red for down)
+
+#### Enhancement 3: Quick Stats Summary Row
+**Implementation**:
+- Added `cashInHand`, `inventoryValue`, `totalAssets` fields to KPI API response
+- New 3-card gradient row below KPI cards showing:
+  - Cash in Hand (emerald gradient, Wallet icon)
+  - Inventory Value (amber gradient, Database icon)
+  - Total Assets (teal gradient, CircleDollarSign icon)
+- Hidden for SR, Dealer, and VAT Auditor roles
+
+#### Enhancement 4: Sales by Payment Method Donut Chart
+**Implementation**:
+- Changed Payment Mix PieChart from plain pie to donut by adding `innerRadius={50}`
+- Renamed title from "Payment Mix" to "Sales by Payment Method"
+
+#### Enhancement 5: Daily Sales Trend (Last 30 Days)
+**Implementation**:
+- New API endpoint: `GET /api/dashboard-analytics?type=daily-sales-trend`
+- Returns 30-day daily sales and expenses data
+- Frontend renders a BarChart with sales (green) and expenses (red) bars
+- Only shown for non-SR/Dealer users when data is available
+
+#### Enhancement 6: Error Retry Mechanism for Failed API Calls
+**Implementation**:
+- Added per-section error tracking with `sectionErrors` state
+- Each API call wrapped in `fetchSection()` that catches errors per section
+- Failed sections show error badges in card headers
+- "Retry All" button appears when any section fails
+- Partial load toast notification with count of failed sections
+
+#### Enhancement 7: Loading Skeletons Per Section
+**Implementation**:
+- Replaced single global spinner with section-specific loading skeletons
+- `SectionSkeleton` component with animated pulse placeholders
+- KPI cards show 10 skeleton cards during load
+- Chart sections show skeleton with "Loading Charts..." title
+- Financial ratios and stock alerts also have skeleton placeholders
+
+#### Enhancement 8: Last Updated Timestamp
+**Implementation**:
+- Added `lastUpdated` state that records when data was last successfully fetched
+- Shows "Last updated: HH:MM:SS" below the header
+- Resets on each successful data fetch
+
+### API ROUTE CHANGES (`src/app/api/dashboard-analytics/route.ts`)
+
+1. **KPI endpoint enhanced**:
+   - Added `lastYearRevenue` and `lastYearPurchases` (YoY comparison)
+   - Added `cashInHand` (= totalBankBalance)
+   - Added `inventoryValue` (= sum of costPrice × openingStock)
+   - Added `totalAssets` (= bank + inventory + receivables)
+   - Added `sparklineData` (7-day daily sales trend array)
+
+2. **New endpoint: `daily-sales-trend`**:
+   - Returns 30-day daily sales and expenses data
+   - Supports VAT Auditor masking
+   - Company isolation filter applied
+   - `logUserActivity` called
+
+3. **Payment Mix endpoint fixed**:
+   - Now applies `dateFilter` to sales order groupBy query
+   - Now applies VAT Auditor masking
+
+### FRONTEND CHANGES (`src/components/DashboardAnalyticsPage.tsx`)
+
+Complete rewrite with:
+- Safe `Intl.NumberFormat` currency formatting (no Bengali digits)
+- `Sparkline` SVG component for 7-day mini-trends
+- `SectionSkeleton` component for loading states
+- Per-section error tracking and retry mechanism
+- Quick Stats summary row (Cash in Hand, Inventory Value, Total Assets)
+- Daily Sales Trend bar chart (last 30 days)
+- Donut chart for Payment Mix (innerRadius)
+- 10 financial ratios displayed (added receivablesTurnover, payablesTurnover)
+- YoY comparison badges on Revenue/Purchases KPI cards
+- YoY comparison footer card
+- "Dashboard" title (not "Welcome")
+- Last Updated timestamp
+- `fetchTrigger` state pattern to avoid React set-state-in-effect lint error
+
+### LINT CHECK
+- `bun run lint` — PASSED with zero errors, zero warnings
+
+### Files Modified (2 files)
+1. `src/app/api/dashboard-analytics/route.ts` — Added YoY fields, daily-sales-trend endpoint, fixed payment-mix date filter, fixed payment-mix VAT masking
+2. `src/components/DashboardAnalyticsPage.tsx` — Complete rewrite with all bug fixes and enhancements
+
+---
+Task ID: phase-2-dashboard-kpi-audit
+Agent: Main Orchestrator (God Mode)
+Task: Phase 2 — Dashboard & KPI Accuracy Audit
+
+Work Log:
+
+### 1. Deep Audit of DashboardAnalyticsPage.tsx
+- Full component audit (~1200+ lines)
+- All 20 KPI cards verified rendering correctly
+- RBAC filtering works: SR sees only Receivables, Dealer sees Low Stock + Products, VAT Auditor sees masked values
+- Animated counter hook working (no NaN, no infinite loops)
+- Date range picker functional (startDate/endDate triggers data refresh)
+- Charts: Monthly Trend, Category Turnover, Payment Mix all render properly
+- Financial Ratios panel displays all ratios with color-coded indicators
+- Stock Alerts table renders with flash animation
+- Receivables Aging bar chart renders
+- Installment tracking table functional
+- Export PDF, Export CSV, Import CSV buttons all functional
+
+### 2. Deep Audit of dashboard-analytics API route
+- All 8 analytics endpoints verified working:
+  - kpi: 26 fields including YoY and sparkline data
+  - monthly-trend: 12-month aggregation with net cash flow
+  - category-turnover: batch query optimization working
+  - stock-alerts: proper critical count
+  - financial-ratios: 10 ratios calculated
+  - top-performers: products/customers/suppliers/SRs
+  - payment-mix: 3 payment options with date filter
+  - receivables-aging: 4 aging buckets with opening balances
+  - daily-sales-trend: NEW - 30-day data
+
+### 3. Bugs Found & Fixed (6 bugs)
+1. **CRITICAL**: Currency formatting used `toLocaleString("en-US")` which can produce Bengali digits in some environments → Replaced with safe `Intl.NumberFormat('en-US', ...)` instances
+2. **HIGH**: Payment Mix API ignored date filter → Added dateFilter wrapper to groupBy query
+3. **MEDIUM**: Payment Mix API didn't apply VAT Auditor masking → Added role parameter and maskDashboardForVatAuditor()
+4. **MEDIUM**: Financial Ratios panel showed 8 of 10 ratios → Added missing receivablesTurnover and payablesTurnover indicators
+5. **LOW**: Dashboard title showed "Welcome, {userName}" → Changed to "Dashboard" title with "Welcome, {userName}" subtitle
+6. **LOW**: useAnimatedCounter hook had unused ref variable → Removed dead code
+
+### 4. Enhancements Implemented (8 enhancements)
+1. **Year-over-Year Comparison**: KPI API returns lastYearRevenue/lastYearPurchases. Revenue/Purchases cards show YoY change %
+2. **Sparkline Mini-Charts**: 7-day trend SVGs in Revenue and Purchases KPI cards
+3. **Quick Stats Summary Row**: Cash in Hand, Inventory Value, Total Assets gradient cards below KPIs
+4. **Donut Chart for Payment Mix**: Added innerRadius for donut style, renamed to "Sales by Payment Method"
+5. **Daily Sales Trend**: New API endpoint + BarChart showing 30-day sales/expenses
+6. **Error Retry Mechanism**: Per-section error tracking, "Retry All" button, partial load toast
+7. **Loading Skeletons**: Section-specific skeletons replace global spinner
+8. **Last Updated Timestamp**: Shows "Last updated: HH:MM:SS" below header
+
+### 5. Browser Verification
+- 20 KPI cards render correctly on desktop and mobile
+- 10 SVG charts render on the page
+- All sections visible: Dashboard title, KPIs, Charts, Financial Ratios, Stock Alerts, Quick Stats, Daily Sales, Payment Method, Last Updated
+- No console errors
+- API endpoints all return correct data
+- VAT Auditor masking working (Revenue/Profit → "N/A (Audit Mode)")
+- Responsive design working on 375x812 mobile viewport
+
+### 6. Lint Check
+- `bun run lint` — PASSED with zero errors
+
+### Files Modified (2 files)
+1. `src/app/api/dashboard-analytics/route.ts` — Added daily-sales-trend endpoint, YoY fields, sparkline data, fixed payment-mix date filter and VAT masking
+2. `src/components/DashboardAnalyticsPage.tsx` — Complete rewrite with all bug fixes and enhancements
+
+Stage Summary:
+- Phase 2 complete: Dashboard fully audited, 6 bugs fixed, 8 enhancements added
+- All 20+ KPIs verified accurate
+- All 9 API endpoints working correctly
+- No critical issues remain
+- Ready for Phase 3: Investment Module Deep Audit

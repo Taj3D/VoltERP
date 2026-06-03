@@ -52,7 +52,9 @@ export async function GET(request: NextRequest) {
       case 'top-performers':
         return await handleTopPerformers(searchParams, vatMode, dateFilter, companyFilter, security.user.role, security.user.id, security.user.name);
       case 'payment-mix':
-        return await handlePaymentMix(vatMode, dateFilter, companyFilter);
+        return await handlePaymentMix(vatMode, dateFilter, companyFilter, security.user.role);
+      case 'daily-sales-trend':
+        return await handleDailySalesTrend(vatMode, dateFilter, companyFilter, security.user.role, security.user.id, security.user.name);
       case 'receivables-aging':
         return await handleReceivablesAging(vatMode, dateFilter, companyFilter, security.user.role, security.user.id, security.user.name);
       default:
@@ -193,6 +195,38 @@ async function handleKPI(
   const assetTurnoverRatio = totalAssets > 0 ? totalRevenue / totalAssets : 0;
   const returnOnSales = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
+  // YoY: Get last year's revenue and purchases for comparison
+  const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
+  const lastYearEnd = new Date(now.getFullYear() - 1, 11, 31);
+  const [lastYearSalesAgg, lastYearPurchasesAgg] = await Promise.all([
+    db.salesOrder.aggregate({
+      where: { date: { gte: lastYearStart, lte: lastYearEnd }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.purchaseOrder.aggregate({
+      where: { date: { gte: lastYearStart, lte: lastYearEnd }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+  ]);
+  const lastYearRevenue = Number(lastYearSalesAgg._sum.grandTotal || 0);
+  const lastYearPurchases = Number(lastYearPurchasesAgg._sum.grandTotal || 0);
+
+  // 7-day sparkline data for trend mini-charts
+  const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+  const sevenDaySales = await db.salesOrder.findMany({
+    where: { date: { gte: sevenDaysAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+    select: { date: true, grandTotal: true },
+  });
+  const sparklineData: number[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const dayKey = d.toDateString();
+    const dayTotal = sevenDaySales
+      .filter(s => new Date(s.date).toDateString() === dayKey)
+      .reduce((sum, s) => sum + Number(s.grandTotal), 0);
+    sparklineData.push(dayTotal);
+  }
+
   const result: Record<string, unknown> = {
     totalRevenue,
     totalPurchases,
@@ -214,6 +248,12 @@ async function handleKPI(
     monthToDatePurchases: Number(mtdPurchasesAgg._sum.grandTotal || 0),
     assetTurnoverRatio: safeFinancialRound(Math.round(assetTurnoverRatio * 100) / 100),
     returnOnSales: safeFinancialRound(Math.round(returnOnSales * 100) / 100),
+    lastYearRevenue,
+    lastYearPurchases,
+    cashInHand: totalBankBalance,
+    inventoryValue: totalInventoryValue,
+    totalAssets,
+    sparklineData,
   };
 
   if (vatMode) {
@@ -757,11 +797,13 @@ async function handlePaymentMix(
   vatMode: boolean,
   dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
   companyFilter: Record<string, unknown>,
+  role: UserRole,
 ) {
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
   // Performance: Use groupBy instead of N+1 per-payment-option queries
+  // FIX: Apply dateFilter to sales orders for date range filtering
   const [paymentOptions, salesByPayment] = await Promise.all([
     db.paymentOption.findMany({
       where: { isActive: true, ...companyFilter },
@@ -769,7 +811,7 @@ async function handlePaymentMix(
     }),
     db.salesOrder.groupBy({
       by: ['paymentOptionId'],
-      where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
+      where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
       _sum: { grandTotal: true },
     }),
   ]);
@@ -790,11 +832,84 @@ async function handlePaymentMix(
   const filtered = data.filter((d) => d.value > 0);
   filtered.sort((a, b) => b.value - a.value);
 
-  return NextResponse.json({
+  const result: Record<string, unknown> = {
     type: 'payment-mix',
     data: filtered,
     vatMode: vatMode || undefined,
+  };
+
+  // Apply VAT Auditor masking
+  if (role === 'vat_auditor') {
+    result.data = filtered.map(d => maskDashboardForVatAuditor(d as Record<string, unknown>, role));
+  }
+
+  return NextResponse.json(result);
+}
+
+// ─── Daily Sales Trend (last 30 days) ────────────────────────────────────────
+async function handleDailySalesTrend(
+  vatMode: boolean,
+  dateFilter: (base: Record<string, unknown>) => Record<string, unknown>,
+  companyFilter: Record<string, unknown>,
+  role: UserRole,
+  userId: string,
+  userName: string,
+) {
+  const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+
+  const [salesOrders, expenses] = await Promise.all([
+    db.salesOrder.findMany({
+      where: { date: { gte: thirtyDaysAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      select: { date: true, grandTotal: true },
+    }),
+    db.expense.findMany({
+      where: { date: { gte: thirtyDaysAgo }, isActive: true, ...companyFilter },
+      select: { date: true, amount: true },
+    }),
+  ]);
+
+  // Initialize daily map for last 30 days
+  const dailyMap: Record<string, { date: string; sales: number; expenses: number }> = {};
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    dailyMap[key] = {
+      date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+      sales: 0,
+      expenses: 0,
+    };
+  }
+
+  for (const so of salesOrders) {
+    const d = new Date(so.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (dailyMap[key]) dailyMap[key].sales = safeFinancialAdd(dailyMap[key].sales, Number(so.grandTotal));
+  }
+
+  for (const exp of expenses) {
+    const d = new Date(exp.date);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (dailyMap[key]) dailyMap[key].expenses = safeFinancialAdd(dailyMap[key].expenses, Number(exp.amount));
+  }
+
+  let data = Object.values(dailyMap) as Record<string, unknown>[];
+
+  // Apply VAT Auditor masking
+  if (role === 'vat_auditor') {
+    data = data.map(d => maskDashboardForVatAuditor(d, role)) as Record<string, unknown>[];
+  }
+
+  await logUserActivity({
+    action: 'EXPORT',
+    module: 'Audit-Dashboard-KPI',
+    userId,
+    userName,
+    details: 'Dashboard analytics report generated',
   });
+
+  return NextResponse.json({ type: 'daily-sales-trend', data });
 }
 
 // ─── Receivables Aging ───────────────────────────────────────────────────────
