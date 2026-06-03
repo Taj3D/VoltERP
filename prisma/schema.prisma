@@ -62,13 +62,39 @@ model Asset {
   date            DateTime
   amount          Float
   assetCategory   String         @default("Fixed") // "Fixed" or "Current"
+  purchaseValue   Float          @default(0) // Original purchase value for depreciation calculation
+  salvageValue    Float          @default(0) // Salvage/residual value at end of useful life
+  usefulLifeMonths Int           @default(0) // Useful life in months for straight-line depreciation
+  accumulatedDepreciation Float  @default(0) // Running total of accumulated depreciation
+  netBookValue    Float          @default(0) // Current net book value (purchaseValue - accumulatedDepreciation)
+  companyId       String?        // Multi-tenant isolation
   description     String?
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
+  depreciationSchedules AssetDepreciation[]
 
   @@index([investmentHeadId])
+  @@index([companyId])
+}
+
+model AssetDepreciation {
+  id                      String   @id @default(cuid())
+  assetId                 String
+  periodDate              DateTime // The period this depreciation belongs to
+  depreciationAmount      Float    @default(0) // Depreciation amount for this period
+  accumulatedDepreciation Float    @default(0) // Running accumulated depreciation after this entry
+  netBookValue            Float    @default(0) // Net book value after this depreciation
+  method                  String   @default("StraightLine") // Depreciation method
+  notes                   String?
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  asset                   Asset    @relation(fields: [assetId], references: [id])
+
+  @@index([assetId])
+  @@index([periodDate])
 }
 
 model Liability {

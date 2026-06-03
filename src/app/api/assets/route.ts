@@ -41,12 +41,23 @@ export async function POST(request: NextRequest) {
     }
 
     const item = await db.$transaction(async (tx) => {
+      const purchaseValue = body.purchaseValue !== undefined ? Number(body.purchaseValue) : Number(body.amount) || 0;
+      const salvageValue = body.salvageValue !== undefined ? Number(body.salvageValue) : 0;
+      const usefulLifeMonths = body.usefulLifeMonths !== undefined ? Number(body.usefulLifeMonths) : 0;
+      const netBookValue = purchaseValue; // Initially, net book value equals purchase value
+
       const record = await tx.asset.create({
         data: {
           investmentHeadId: body.investmentHeadId,
           date: body.date ? new Date(body.date) : new Date(),
           amount: body.amount,
           assetCategory: body.assetCategory || 'Fixed',
+          purchaseValue,
+          salvageValue,
+          usefulLifeMonths,
+          accumulatedDepreciation: 0,
+          netBookValue,
+          companyId: body.companyId || null,
           description: body.description || null,
           isActive: body.isActive ?? true,
         },
@@ -61,7 +72,7 @@ export async function POST(request: NextRequest) {
           recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
           userId: security.user.id,
           userName: security.user.name,
-          details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, category: record.assetCategory, date: record.date }),
+          details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, category: record.assetCategory, purchaseValue, salvageValue, usefulLifeMonths, date: record.date }),
         },
       });
 

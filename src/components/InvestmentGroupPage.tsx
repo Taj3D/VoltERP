@@ -5,7 +5,8 @@ import {
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   ChevronDown, ChevronRight, FileDown, Shield, Landmark,
   Building2, Wallet, ArrowDownCircle, ArrowUpCircle, FileBarChart,
-  Banknote, TrendingUp, CheckCircle, AlertTriangle,
+  Banknote, TrendingUp, CheckCircle, AlertTriangle, Activity,
+  PieChart, Calculator, Layers, BarChart3, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,9 +37,12 @@ import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 // UTILITY FUNCTIONS
 // ============================================================
 
+// Safe number formatter — avoids Bengali digits from toLocaleString
+const safeNumberFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${safeNumberFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -50,7 +54,13 @@ const fmtDate = (d: string | Date) =>
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  return `৳${safeNumberFmt.format(Number(v))}`;
+};
+
+const fmtPct = (v: any) => {
+  if (v === null || v === undefined) return "—";
+  if (v === "N/A (Audit Mode)") return v;
+  return `${Number(v).toFixed(2)}%`;
 };
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -199,7 +209,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [assetsSaving, setAssetsSaving] = useState(false);
   const [assetsFormData, setAssetsFormData] = useState<Record<string, any>>({
     investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-    amount: 0, assetCategory: "Fixed", description: "", isActive: true,
+    amount: 0, assetCategory: "Fixed", purchaseValue: 0, salvageValue: 0,
+    usefulLifeMonths: 0, description: "", isActive: true,
   });
 
   // ─── Current Assets State ───
@@ -260,6 +271,27 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [companyBranding, setCompanyBranding] = useState<any>(null);
   const [exceedBalanceWarning, setExceedBalanceWarning] = useState(false);
   const liabilitySnapshotRef = useRef<any>(null);
+
+  // ─── Enhancement: Depreciation Schedule State ───
+  const [depreciationData, setDepreciationData] = useState<any[]>([]);
+  const [depreciationLoading, setDepreciationLoading] = useState(false);
+  const [depreciationAssetId, setDepreciationAssetId] = useState<string | null>(null);
+
+  // ─── Enhancement: Amortization Schedule State ───
+  const [amortizationData, setAmortizationData] = useState<any[]>([]);
+  const [amortizationVisible, setAmortizationVisible] = useState(false);
+
+  // ─── Enhancement: Activity Log State ───
+  const [activityLog, setActivityLog] = useState<any[]>([]);
+  const [activityLogLoading, setActivityLogLoading] = useState(false);
+
+  // ─── Enhancement: Bulk Select State ───
+  const [selectedHeadIds, setSelectedHeadIds] = useState<Set<string>>(new Set());
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [selectedCurrentAssetIds, setSelectedCurrentAssetIds] = useState<Set<string>>(new Set());
+  const [selectedLiabReceiveIds, setSelectedLiabReceiveIds] = useState<Set<string>>(new Set());
+  const [selectedLiabPayIds, setSelectedLiabPayIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState<string | null>(null);
 
   // ============================================================
   // DATA LOADERS
@@ -359,6 +391,87 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     } catch {}
   }, []);
 
+  // ─── Enhancement: Load Depreciation Schedule ───
+  const loadDepreciation = useCallback(async (assetId: string) => {
+    setDepreciationLoading(true);
+    setDepreciationAssetId(assetId);
+    try {
+      const res = await apiFetch(`/api/asset-depreciation?assetId=${assetId}`);
+      setDepreciationData(Array.isArray(res) ? res : []);
+    } catch {
+      setDepreciationData([]);
+    } finally {
+      setDepreciationLoading(false);
+    }
+  }, []);
+
+  // ─── Enhancement: Load Activity Log ───
+  const loadActivityLog = useCallback(async () => {
+    setActivityLogLoading(true);
+    try {
+      const res = await apiFetch("/api/audit-logs?module=InvestmentHeads&module=Assets&module=Fin-Liability-Core&module=Inv-Asset-Ledger&limit=20");
+      setActivityLog(Array.isArray(res) ? res.slice(0, 20) : (res.data || []).slice(0, 20));
+    } catch {
+      setActivityLog([]);
+    } finally {
+      setActivityLogLoading(false);
+    }
+  }, []);
+
+  // ─── Enhancement: Compute Amortization Schedule ───
+  const computeAmortization = useCallback((principal: number, annualRate: number, months: number) => {
+    if (principal <= 0 || months <= 0 || annualRate <= 0) {
+      // Simple linear schedule for zero-interest loans
+      const monthlyPayment = months > 0 ? principal / months : 0;
+      const schedule = [];
+      let balance = principal;
+      for (let i = 1; i <= months; i++) {
+        balance -= monthlyPayment;
+        schedule.push({ month: i, payment: monthlyPayment, principal: monthlyPayment, interest: 0, balance: Math.max(0, balance) });
+      }
+      return schedule;
+    }
+    const monthlyRate = annualRate / 100 / 12;
+    const emi = principal * monthlyRate * Math.pow(1 + monthlyRate, months) / (Math.pow(1 + monthlyRate, months) - 1);
+    const schedule = [];
+    let balance = principal;
+    for (let i = 1; i <= months; i++) {
+      const interest = balance * monthlyRate;
+      const principalPart = emi - interest;
+      balance -= principalPart;
+      schedule.push({ month: i, payment: emi, principal: principalPart, interest, balance: Math.max(0, balance) });
+    }
+    return schedule;
+  }, []);
+
+  // ─── Enhancement: Bulk Delete ───
+  const handleBulkDelete = async (type: string) => {
+    const ids = type === "heads" ? selectedHeadIds
+      : type === "assets" ? selectedAssetIds
+      : type === "currentAssets" ? selectedCurrentAssetIds
+      : type === "liabReceive" ? selectedLiabReceiveIds
+      : selectedLiabPayIds;
+    if (ids.size === 0) return;
+    const apiBase = type === "heads" ? "/api/investment-heads"
+      : (type === "assets" || type === "currentAssets") ? "/api/assets"
+      : "/api/liabilities";
+    let success = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await apiFetch(`${apiBase}/${id}`, { method: "DELETE" });
+        success++;
+      } catch { failed++; }
+    }
+    toast({ title: "Bulk Delete", description: `Deleted: ${success}, Failed: ${failed}`, variant: failed > 0 ? "destructive" : "default" });
+    setBulkDeleteConfirm(null);
+    if (type === "heads") { setSelectedHeadIds(new Set()); loadHeads(); loadHeadOptions(); }
+    else if (type === "assets") { setSelectedAssetIds(new Set()); loadAssets(); }
+    else if (type === "currentAssets") { setSelectedCurrentAssetIds(new Set()); loadCurrentAssets(); }
+    else if (type === "liabReceive") { setSelectedLiabReceiveIds(new Set()); loadLiabReceive(); }
+    else { setSelectedLiabPayIds(new Set()); loadLiabPay(); }
+  };
+
   // ============================================================
   // INIT
   // ============================================================
@@ -368,7 +481,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     loadHeadOptions();
     loadBanks();
     loadCompanyBranding();
-  }, [loadHeads, loadHeadOptions, loadBanks, loadCompanyBranding]);
+    loadActivityLog();
+  }, [loadHeads, loadHeadOptions, loadBanks, loadCompanyBranding, loadActivityLog]);
 
   useEffect(() => {
     if (activeTab === "investment") loadInvestments();
@@ -515,6 +629,33 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     return map;
   }, [headOptions, liabReceive, liabPay]);
 
+  // ─── Enhancement: Quick Stats Dashboard ───
+  const quickStats = useMemo(() => {
+    const totalAssets = assets.reduce((s: number, a: any) => s + (typeof a.amount === "number" ? a.amount : 0), 0)
+      + currentAssets.reduce((s: number, a: any) => s + (typeof a.amount === "number" ? a.amount : 0), 0);
+    const totalLiabilities = Object.values(outstandingBalances).reduce((s: number, v: number) => s + Math.max(0, v), 0);
+    const netWorth = totalAssets - totalLiabilities;
+    return { totalAssets, totalLiabilities, netWorth };
+  }, [assets, currentAssets, outstandingBalances]);
+
+  // ─── Enhancement: Investment Performance Metrics ───
+  const investPerformance = useMemo(() => {
+    if (!investments || investments.length === 0) return [];
+    return investments.map((head: any) => {
+      const totalInvested = typeof head.totalAssets === "number" ? head.totalAssets : 0;
+      const totalReturns = typeof head.totalLiabilities === "number" ? head.totalLiabilities : 0;
+      const netValue = typeof head.netValue === "number" ? head.netValue : 0;
+      const opening = head.openingBalance || 0;
+      const costBasis = opening + totalInvested;
+      const roi = costBasis > 0 ? ((netValue - costBasis) / costBasis) * 100 : 0;
+      // CAGR approximation: assume 1 year if no data, otherwise calculate from first asset date
+      const firstAssetDate = head.assets?.[0]?.date;
+      const years = firstAssetDate ? Math.max(0.1, (Date.now() - new Date(firstAssetDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 1;
+      const cagr = costBasis > 0 && netValue > 0 ? (Math.pow(netValue / costBasis, 1 / years) - 1) * 100 : 0;
+      return { ...head, roi, cagr, costBasis };
+    });
+  }, [investments]);
+
   // ============================================================
   // RBAC
   // ============================================================
@@ -630,7 +771,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     const setFormData = isFixed ? setAssetsFormData : setCurrentAssetsFormData;
     setFormData({
       investmentHeadId: "", date: new Date().toISOString().split("T")[0],
-      amount: 0, assetCategory: category, description: "", isActive: true,
+      amount: 0, assetCategory: category, purchaseValue: 0, salvageValue: 0,
+      usefulLifeMonths: 0, description: "", isActive: true,
     });
     if (isFixed) setAssetsEdit(null);
     else setCurrentAssetsEdit(null);
@@ -645,6 +787,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       date: item.date ? item.date.split("T")[0] : "",
       amount: item.amount || 0,
       assetCategory: item.assetCategory || category,
+      purchaseValue: item.purchaseValue || item.amount || 0,
+      salvageValue: item.salvageValue || 0,
+      usefulLifeMonths: item.usefulLifeMonths || 0,
       description: item.description || "",
       isActive: item.isActive ?? true,
     });
@@ -668,6 +813,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         date: formData.date,
         amount: Number(formData.amount) || 0,
         assetCategory: formData.assetCategory || category,
+        purchaseValue: Number(formData.purchaseValue) || Number(formData.amount) || 0,
+        salvageValue: Number(formData.salvageValue) || 0,
+        usefulLifeMonths: Number(formData.usefulLifeMonths) || 0,
         description: formData.description || null,
         isActive: formData.isActive ?? true,
       };
@@ -1140,6 +1288,43 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         </h2>
       </div>
 
+      {/* Enhancement: Quick Stats Dashboard */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card className="border-green-200 dark:border-green-900 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-green-100 dark:bg-green-900/40">
+              <Building2 className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Assets</p>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A" : fmtCurrency(quickStats.totalAssets)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-red-200 dark:border-red-900 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-red-100 dark:bg-red-900/40">
+              <Wallet className="w-5 h-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Liabilities</p>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A" : fmtCurrency(quickStats.totalLiabilities)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={`border-2 ${quickStats.netWorth >= 0 ? "border-cyan-200 dark:border-cyan-900 bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-900/20 dark:to-sky-900/20" : "border-amber-200 dark:border-amber-900 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20"}`}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className={`p-2 rounded-xl ${quickStats.netWorth >= 0 ? "bg-cyan-100 dark:bg-cyan-900/40" : "bg-amber-100 dark:bg-amber-900/40"}`}>
+              <PieChart className={`w-5 h-5 ${quickStats.netWorth >= 0 ? "text-cyan-600 dark:text-cyan-400" : "text-amber-600 dark:text-amber-400"}`} />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Net Worth (Assets - Liabilities)</p>
+              <p className={`text-xl font-bold ${quickStats.netWorth >= 0 ? "text-cyan-700 dark:text-cyan-300" : "text-amber-700 dark:text-amber-300"}`}>{isVatAuditor ? "N/A" : fmtCurrency(quickStats.netWorth)}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 pb-1 scrollbar-none">
@@ -1183,6 +1368,11 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <CardTitle className="text-base">Investment Heads</CardTitle>
                 <div className="flex gap-2 flex-wrap">
+                  {selectedHeadIds.size > 0 && (
+                    <Button variant="destructive" size="sm" onClick={() => setBulkDeleteConfirm("heads")}>
+                      <Trash2 className="w-4 h-4 mr-1" />Delete ({selectedHeadIds.size})
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={() => handleImportCSV("/api/investment-heads", headsImportFields, loadHeads)}>
                     <Upload className="w-4 h-4 mr-1" />Import CSV
                   </Button>
@@ -1210,7 +1400,16 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 <Table className="min-w-[700px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="w-10"></TableHead>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={filteredHeads.length > 0 && filteredHeads.every((h: any) => selectedHeadIds.has(h.id))}
+                          onCheckedChange={(v) => {
+                            if (v) setSelectedHeadIds(new Set(filteredHeads.map((h: any) => h.id)));
+                            else setSelectedHeadIds(new Set());
+                          }}
+                        />
+                      </TableHead>
+                      <TableHead></TableHead>
                       <TableHead>Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Type</TableHead>
@@ -1222,12 +1421,22 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   </TableHeader>
                   <TableBody>
                     {headsLoading ? (
-                      <TableRow><TableCell colSpan={8} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredHeads.length === 0 ? (
-                      <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No investment heads found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No investment heads found</TableCell></TableRow>
                     ) : filteredHeads.map((item: any) => (
                       <React.Fragment key={item.id}>
                         <TableRow className="hover:bg-muted/50">
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedHeadIds.has(item.id)}
+                              onCheckedChange={(v) => {
+                                const next = new Set(selectedHeadIds);
+                                if (v) next.add(item.id); else next.delete(item.id);
+                                setSelectedHeadIds(next);
+                              }}
+                            />
+                          </TableCell>
                           <TableCell>
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(setExpandedHeads, item.id)}>
                               {expandedHeads.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -1252,7 +1461,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         </TableRow>
                         {expandedHeads.has(item.id) && (
                           <TableRow>
-                            <TableCell colSpan={8} className="bg-muted/30 p-3">
+                            <TableCell colSpan={9} className="bg-muted/30 p-3">
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                                 <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{item.description || "—"}</span></div>
                                 <div><span className="text-muted-foreground">Asset Count:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.assets ?? 0}</span></div>
@@ -1283,6 +1492,41 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <StatCard label="Total Returns" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandTotalLiabilities ?? 0)} icon={TrendingUp} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
             <StatCard label="Net Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandNetValue ?? 0)} icon={CheckCircle} color="text-cyan-600" bg="bg-cyan-50 dark:bg-cyan-900/30" />
           </div>
+
+          {/* Enhancement: Investment Performance Metrics */}
+          {investPerformance.length > 0 && !isVatAuditor && (
+            <Card className="mt-4">
+              <CardHeader className="py-3 px-4">
+                <CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-600" />Investment Performance Metrics</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                <div className="overflow-x-auto rounded-md border">
+                  <Table className="min-w-[600px]">
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead>Head</TableHead>
+                        <TableHead>Cost Basis</TableHead>
+                        <TableHead>Current Value</TableHead>
+                        <TableHead>ROI</TableHead>
+                        <TableHead>CAGR</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {investPerformance.map((head: any) => (
+                        <TableRow key={head.id}>
+                          <TableCell className="font-medium text-slate-900 dark:text-white">{head.name} <span className="text-xs text-muted-foreground font-mono">({head.code})</span></TableCell>
+                          <TableCell className="font-mono">{fmtCurrency(head.costBasis)}</TableCell>
+                          <TableCell className="font-mono font-bold">{fmtCurrency(head.netValue)}</TableCell>
+                          <TableCell><Badge className={head.roi >= 0 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>{fmtPct(head.roi)}</Badge></TableCell>
+                          <TableCell><Badge variant="outline">{fmtPct(head.cagr)}</Badge></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Actions Bar */}
           <div className="flex items-center justify-end gap-2 mt-4 flex-wrap">
@@ -1458,6 +1702,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Investment Head</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Category</TableHead>
+                      <TableHead>Net Book Value</TableHead>
+                      <TableHead>Accum. Dep.</TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
@@ -1465,15 +1711,17 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   </TableHeader>
                   <TableBody>
                     {assetsLoading ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredAssets.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No fixed assets found</TableCell></TableRow>
                     ) : filteredAssets.map((item: any) => (
                       <TableRow key={item.id} className="hover:bg-muted/50">
                         <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
                         <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
                         <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
+                        <TableCell className="font-mono">{isVatAuditor ? "N/A" : fmtCurrency(item.netBookValue ?? item.amount)}</TableCell>
+                        <TableCell className="font-mono text-xs">{isVatAuditor ? "N/A" : fmtCurrency(item.accumulatedDepreciation ?? 0)}</TableCell>
                         <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
@@ -1482,8 +1730,11 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openAssetEdit(item, "Fixed")} disabled={isVatAuditor}><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setAssetsDelete(item)} disabled={isVatAuditor}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="sm" onClick={() => { openAssetEdit(item, "Fixed"); if (item.usefulLifeMonths > 0) loadDepreciation(item.id); }} disabled={isVatAuditor} title="Edit"><Edit className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setAssetsDelete(item)} disabled={isVatAuditor} title="Delete"><Trash2 className="w-3.5 h-3.5" /></Button>
+                            {item.usefulLifeMonths > 0 && (
+                              <Button variant="ghost" size="sm" onClick={() => loadDepreciation(item.id)} title="View Depreciation Schedule"><Layers className="w-3.5 h-3.5 text-purple-600" /></Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1846,6 +2097,37 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
                   <Separator className="my-4" />
 
+                  {/* Enhancement: Bar Chart Visualization — Received vs Paid per Head */}
+                  {!isVatAuditor && (reportData.heads || []).length > 0 && (
+                    <Card className="mb-4">
+                      <CardHeader className="py-3 px-4">
+                        <CardTitle className="text-sm flex items-center gap-2"><BarChart3 className="w-4 h-4 text-cyan-600" />Received vs Paid per Head</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-0">
+                        <div className="flex items-end gap-2 h-48 overflow-x-auto">
+                          {(reportData.heads || []).map((head: any) => {
+                            const maxVal = Math.max(head.totalReceived || 0, head.totalPaid || 0, 1);
+                            const receivedH = Math.max(4, ((head.totalReceived || 0) / maxVal) * 160);
+                            const paidH = Math.max(4, ((head.totalPaid || 0) / maxVal) * 160);
+                            return (
+                              <div key={head.id} className="flex flex-col items-center gap-1 min-w-[50px] flex-1">
+                                <div className="flex items-end gap-1 h-40">
+                                  <div className="w-5 bg-green-400 dark:bg-green-500 rounded-t transition-all" style={{ height: `${receivedH}px` }} title={`Received: ${fmtCurrency(head.totalReceived)}`} />
+                                  <div className="w-5 bg-red-400 dark:bg-red-500 rounded-t transition-all" style={{ height: `${paidH}px` }} title={`Paid: ${fmtCurrency(head.totalPaid)}`} />
+                                </div>
+                                <p className="text-[9px] text-muted-foreground truncate w-full text-center">{head.name}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-400 dark:bg-green-500" />Received</span>
+                          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-400 dark:bg-red-500" />Paid</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Per-head Breakdown Table */}
                   <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-2">Per-Head Breakdown</h3>
                   <div className="overflow-x-auto overflow-y-auto max-h-[65vh] rounded-md border -mx-2 sm:mx-0">
@@ -2156,6 +2438,32 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Label>Asset Category</Label>
               <Input value="Fixed" disabled className="bg-muted" />
             </div>
+            <Separator />
+            <div className="flex items-center gap-2 mb-1">
+              <Calculator className="w-4 h-4 text-purple-600" />
+              <span className="text-sm font-semibold text-slate-900 dark:text-white">Depreciation Details</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>Purchase Value</Label>
+                <Input type="number" step="0.01" min="0" value={assetsFormData.purchaseValue} onChange={(e) => setAssetsFormData({ ...assetsFormData, purchaseValue: e.target.value })} placeholder="Original purchase value" />
+              </div>
+              <div>
+                <Label>Salvage Value</Label>
+                <Input type="number" step="0.01" min="0" value={assetsFormData.salvageValue} onChange={(e) => setAssetsFormData({ ...assetsFormData, salvageValue: e.target.value })} placeholder="Residual value" />
+              </div>
+              <div>
+                <Label>Useful Life (Months)</Label>
+                <Input type="number" min="0" value={assetsFormData.usefulLifeMonths} onChange={(e) => setAssetsFormData({ ...assetsFormData, usefulLifeMonths: e.target.value })} placeholder="e.g., 60" />
+              </div>
+            </div>
+            {Number(assetsFormData.usefulLifeMonths) > 0 && Number(assetsFormData.purchaseValue) > 0 && (
+              <div className="px-3 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-md text-xs text-purple-700 dark:text-purple-300">
+                <Calculator className="w-3.5 h-3.5 inline mr-1" />
+                Monthly Depreciation: ৳{safeNumberFmt.format(Math.max(0, (Number(assetsFormData.purchaseValue) - Number(assetsFormData.salvageValue)) / Number(assetsFormData.usefulLifeMonths)))}
+                {Number(assetsFormData.salvageValue) > 0 && ` | Salvage: ৳${safeNumberFmt.format(Number(assetsFormData.salvageValue))}`}
+              </div>
+            )}
             <div>
               <Label>Description</Label>
               <Textarea value={assetsFormData.description} onChange={(e) => setAssetsFormData({ ...assetsFormData, description: e.target.value })} placeholder="Optional description" rows={2} />
@@ -2317,11 +2625,21 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 {Number(liabReceiveFormData.interestRate) < 0 && <p className="text-xs text-red-500 mt-1">Cannot be negative</p>}
               </div>
               <div>
-                <Label>Loan Duration (Months)</Label>
+              <Label>Loan Duration (Months)</Label>
                 <Input type="number" min="0" value={liabReceiveFormData.loanDurationMonths} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, loanDurationMonths: e.target.value })} className={Number(liabReceiveFormData.loanDurationMonths) < 0 ? "border-red-500 focus:border-red-500" : ""} />
                 {Number(liabReceiveFormData.loanDurationMonths) < 0 && <p className="text-xs text-red-500 mt-1">Cannot be negative</p>}
-              </div>
             </div>
+            </div>
+            {Number(liabReceiveFormData.interestRate) > 0 && Number(liabReceiveFormData.loanDurationMonths) > 0 && Number(liabReceiveFormData.principalAmount) > 0 && (
+              <div className="px-3 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-md text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between">
+                <span>
+                  <Calculator className="w-3.5 h-3.5 inline mr-1" />
+                  Monthly EMI: {fmtCurrency(computeAmortization(Number(liabReceiveFormData.principalAmount), Number(liabReceiveFormData.interestRate), Number(liabReceiveFormData.loanDurationMonths))?.[0]?.payment || 0)}
+                  {" | "}Total Interest: {fmtCurrency(computeAmortization(Number(liabReceiveFormData.principalAmount), Number(liabReceiveFormData.interestRate), Number(liabReceiveFormData.loanDurationMonths)).reduce((s, r) => s + r.interest, 0))}
+                </span>
+                <Button variant="outline" size="sm" className="text-xs h-6" onClick={() => { setAmortizationData(computeAmortization(Number(liabReceiveFormData.principalAmount), Number(liabReceiveFormData.interestRate), Number(liabReceiveFormData.loanDurationMonths))); setAmortizationVisible(true); }}>View Schedule</Button>
+              </div>
+            )}
             <Separator />
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -2418,7 +2736,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   <SelectContent>
                     {liabilityTypeHeads.map((h: any) => (
                       <SelectItem key={h.id} value={h.id} disabled={!h.isActive}>
-                        {h.code} - {h.name} {!h.isActive ? "(Inactive)" : ""} {outstandingBalances[h.id] > 0 ? `(Outstanding: ৳${outstandingBalances[h.id].toLocaleString("en-US", { minimumFractionDigits: 2 })})` : ""}
+                        {h.code} - {h.name} {!h.isActive ? "(Inactive)" : ""} {outstandingBalances[h.id] > 0 ? `(Outstanding: ৳${safeNumberFmt.format(outstandingBalances[h.id])})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2526,6 +2844,190 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Enhancement: Depreciation Schedule Dialog ─── */}
+      <Dialog open={depreciationAssetId !== null} onOpenChange={() => { setDepreciationAssetId(null); setDepreciationData([]); }}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Layers className="w-5 h-5 text-purple-600" />Asset Depreciation Schedule
+            </DialogTitle>
+            <DialogDescription>Straight-line depreciation schedule for this fixed asset</DialogDescription>
+          </DialogHeader>
+          {depreciationLoading ? (
+            <div className="flex items-center justify-center py-10"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : depreciationData.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <Layers className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p>No depreciation entries yet. Create one by clicking "Record Depreciation".</p>
+              <Button size="sm" className="mt-3 bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={async () => {
+                if (!depreciationAssetId) return;
+                try {
+                  await apiFetch("/api/asset-depreciation", { method: "POST", body: JSON.stringify({ assetId: depreciationAssetId, periodDate: new Date().toISOString() }) });
+                  loadDepreciation(depreciationAssetId);
+                  loadAssets();
+                  toast({ title: "Depreciation Recorded", description: "Monthly depreciation entry created with ledger posting" });
+                } catch (e: any) {
+                  toast({ title: "Error", description: e.message, variant: "destructive" });
+                }
+              }}>
+                <Plus className="w-4 h-4 mr-1" />Record Depreciation
+              </Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <Table className="min-w-[600px]">
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead>Period</TableHead>
+                    <TableHead>Depreciation</TableHead>
+                    <TableHead>Accumulated</TableHead>
+                    <TableHead>Net Book Value</TableHead>
+                    <TableHead>Method</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {depreciationData.map((d: any) => (
+                    <TableRow key={d.id}>
+                      <TableCell className="text-sm">{fmtDate(d.periodDate)}</TableCell>
+                      <TableCell className="font-mono text-sm">{isVatAuditor ? "N/A" : fmtCurrency(d.depreciationAmount)}</TableCell>
+                      <TableCell className="font-mono text-sm">{isVatAuditor ? "N/A" : fmtCurrency(d.accumulatedDepreciation)}</TableCell>
+                      <TableCell className="font-mono text-sm font-bold">{isVatAuditor ? "N/A" : fmtCurrency(d.netBookValue)}</TableCell>
+                      <TableCell><Badge variant="outline">{d.method}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          {depreciationData.length > 0 && (
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={async () => {
+                if (!depreciationAssetId) return;
+                try {
+                  await apiFetch("/api/asset-depreciation", { method: "POST", body: JSON.stringify({ assetId: depreciationAssetId, periodDate: new Date().toISOString() }) });
+                  loadDepreciation(depreciationAssetId);
+                  loadAssets();
+                  toast({ title: "Depreciation Recorded", description: "Monthly depreciation entry created with ledger posting" });
+                } catch (e: any) {
+                  toast({ title: "Error", description: e.message, variant: "destructive" });
+                }
+              }}>
+                <Plus className="w-4 h-4 mr-1" />Record Next Month
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Enhancement: Amortization Schedule Dialog ─── */}
+      <Dialog open={amortizationVisible} onOpenChange={setAmortizationVisible}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <Calculator className="w-5 h-5 text-amber-600" />Amortization Schedule
+            </DialogTitle>
+            <DialogDescription>Monthly EMI breakdown (principal vs interest)</DialogDescription>
+          </DialogHeader>
+          {amortizationData.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <Calculator className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p>No amortization data. Record a liability with interest rate and loan duration to see the schedule.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <Table className="min-w-[600px]">
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead>Month</TableHead>
+                    <TableHead>EMI Payment</TableHead>
+                    <TableHead>Principal</TableHead>
+                    <TableHead>Interest</TableHead>
+                    <TableHead>Balance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {amortizationData.map((row: any) => (
+                    <TableRow key={row.month}>
+                      <TableCell className="text-sm font-medium">{row.month}</TableCell>
+                      <TableCell className="font-mono text-sm">{isVatAuditor ? "N/A" : fmtCurrency(row.payment)}</TableCell>
+                      <TableCell className="font-mono text-sm text-green-600">{isVatAuditor ? "N/A" : fmtCurrency(row.principal)}</TableCell>
+                      <TableCell className="font-mono text-sm text-amber-600">{isVatAuditor ? "N/A" : fmtCurrency(row.interest)}</TableCell>
+                      <TableCell className="font-mono text-sm font-bold">{isVatAuditor ? "N/A" : fmtCurrency(row.balance)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Enhancement: Bulk Delete Confirmation ─── */}
+      <Dialog open={bulkDeleteConfirm !== null} onOpenChange={() => setBulkDeleteConfirm(null)}>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Bulk Delete</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {bulkDeleteConfirm === "heads" ? selectedHeadIds.size
+                : bulkDeleteConfirm === "assets" ? selectedAssetIds.size
+                : bulkDeleteConfirm === "currentAssets" ? selectedCurrentAssetIds.size
+                : bulkDeleteConfirm === "liabReceive" ? selectedLiabReceiveIds.size
+                : selectedLiabPayIds.size} selected items? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => handleBulkDelete(bulkDeleteConfirm || "heads")}>Delete All Selected</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Enhancement: Activity Log ─── */}
+      <Card className="mt-6">
+        <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white py-3 px-4 rounded-t-lg">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="w-4 h-4" />Recent Activity — Investment Module
+            </CardTitle>
+            <Button variant="outline" size="sm" className="text-white border-slate-500 hover:bg-slate-700" onClick={loadActivityLog}>
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {activityLogLoading ? (
+            <div className="flex items-center justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : activityLog.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No recent activity</p>
+          ) : (
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead>Time</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Module</TableHead>
+                    <TableHead>Record</TableHead>
+                    <TableHead>User</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {activityLog.slice(0, 10).map((log: any) => (
+                    <TableRow key={log.id}>
+                      <TableCell className="text-xs">{log.createdAt ? new Date(log.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</TableCell>
+                      <TableCell><Badge className={log.action === "CREATE" ? "bg-green-100 text-green-700" : log.action === "UPDATE" ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}>{log.action}</Badge></TableCell>
+                      <TableCell className="text-xs">{log.module || "—"}</TableCell>
+                      <TableCell className="text-xs max-w-[200px] truncate">{log.recordLabel || "—"}</TableCell>
+                      <TableCell className="text-xs">{log.userName || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
