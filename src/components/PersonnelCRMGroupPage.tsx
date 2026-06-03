@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV,
 } from "@/lib/export-utils";
-import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 
 // ============================================================
@@ -37,7 +37,7 @@ import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return Number(v).toLocaleString();
@@ -47,7 +47,7 @@ const fmt = (v: any, type?: string) => {
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 };
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -63,9 +63,7 @@ async function apiFetch(path: string, opts?: RequestInit) {
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    const error: any = new Error(err.error || "Request failed");
-    error.status = res.status;
-    throw error;
+    throw new Error(err.error || "Request failed");
   }
   return res.json();
 }
@@ -203,6 +201,12 @@ const BALANCE_TYPE_OPTIONS_SUPPLIER = [
   { value: "Dr", label: "Dr" },
 ];
 
+const CREDIT_STATUS_OPTIONS = [
+  { value: "Active", label: "Active" },
+  { value: "Frozen", label: "Frozen" },
+  { value: "OverLimit", label: "Over Limit" },
+];
+
 const MODULE_CONFIGS: ModuleConfig[] = [
   // ── Personnel Management ──
   {
@@ -245,6 +249,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "designation.name", label: "Designation", type: "text" },
       { key: "department.name", label: "Department", type: "text" },
       { key: "joiningDate", label: "Joining Date", type: "date" },
+      { key: "resignationDate", label: "Resignation Date", type: "date" },
       { key: "employeeType", label: "Employee Type", type: "text" },
       { key: "status", label: "Status", type: "text" },
       { key: "baseSalary", label: "Base Salary", type: "currency" },
@@ -257,6 +262,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "designationId", label: "Designation", type: "select", required: true, options: [] },
       { key: "departmentId", label: "Department", type: "select", required: true, options: [] },
       { key: "joiningDate", label: "Joining Date", type: "date", required: true },
+      { key: "resignationDate", label: "Resignation Date", type: "date" },
       { key: "baseSalary", label: "Base Salary (৳)", type: "number", step: "0.01" },
       { key: "employeeType", label: "Employee Type", type: "select", required: false, options: EMPLOYEE_TYPE_OPTIONS },
       { key: "status", label: "Status", type: "select", required: false, options: EMPLOYEE_STATUS_OPTIONS },
@@ -288,7 +294,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
     ],
     vatMaskedColumns: ["baseSalary"],
     formSections: [
-      { title: "Employment Details", fields: ["name", "designationId", "departmentId", "joiningDate", "baseSalary", "employeeType", "status", "referenceBy"] },
+      { title: "Employment Details", fields: ["name", "designationId", "departmentId", "joiningDate", "resignationDate", "baseSalary", "employeeType", "status", "referenceBy"] },
       { title: "Personal Information", fields: ["gender", "bloodGroup", "religion", "dateOfBirth", "fatherName", "motherName", "spouseName", "maritalStatus", "nidNumber", "tinNumber"] },
       { title: "Contact & Banking", fields: ["phone", "email", "presentAddress", "permanentAddress", "emergencyContact", "emergencyContactName", "bankName", "bankAccountNo"] },
       { title: "Document Uploads", fields: ["photo", "nidFrontImage", "nidBackImage"] },
@@ -320,6 +326,28 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "status", label: "Status", type: "select", required: false, options: LEAVE_STATUS_OPTIONS, defaultValue: "Pending" },
     ],
   },
+  {
+    key: "leave-allocations",
+    label: "Leave Allocations",
+    icon: CalendarDays,
+    apiPath: "/api/leave-allocations",
+    category: "personnel",
+    columns: [
+      { key: "employee.name", label: "Employee", type: "text" },
+      { key: "leaveType", label: "Leave Type", type: "text" },
+      { key: "allocatedDays", label: "Allocated", type: "number" },
+      { key: "usedDays", label: "Used", type: "number" },
+      { key: "remainingDays", label: "Remaining", type: "number" },
+      { key: "year", label: "Year", type: "number" },
+      { key: "isActive", label: "Status", type: "boolean" },
+    ],
+    formFields: [
+      { key: "employeeId", label: "Employee", type: "select", required: true, options: [] },
+      { key: "leaveType", label: "Leave Type", type: "select", required: true, options: LEAVE_TYPE_OPTIONS },
+      { key: "allocatedDays", label: "Allocated Days", type: "number", required: true, step: "0.5" },
+      { key: "year", label: "Year", type: "number", required: true, defaultValue: new Date().getFullYear() },
+    ],
+  },
   // ── Customer CRM ──
   {
     key: "customers",
@@ -331,38 +359,37 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "customerCode", label: "Customer Code", type: "text" },
       { key: "name", label: "Customer Name", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
-      { key: "alternativePhone", label: "Alt. Phone", type: "text" },
       { key: "email", label: "Email", type: "text" },
       { key: "customerType", label: "Customer Type", type: "text" },
       { key: "area", label: "Area", type: "text" },
-      { key: "nidNumber", label: "NID Number", type: "text" },
-      { key: "openingBalance", label: "Opening Balance", type: "currency" },
-      { key: "openingBalanceType", label: "Balance Type", type: "text" },
+      { key: "currentBalance", label: "Current Balance", type: "currency" },
+      { key: "currentBalanceType", label: "Balance Type", type: "text" },
       { key: "creditLimit", label: "Credit Limit", type: "currency" },
+      { key: "creditStatus", label: "Credit Status", type: "text" },
       { key: "_count.salesOrders", label: "Sales Orders", type: "number" },
       { key: "isActive", label: "Status", type: "boolean" },
     ],
     formFields: [
       { key: "name", label: "Customer Name", type: "text", required: true },
       { key: "phone", label: "Phone", type: "text" },
-      { key: "alternativePhone", label: "Alternative Phone", type: "text" },
       { key: "email", label: "Email", type: "email" },
       { key: "address", label: "Address", type: "textarea" },
       { key: "area", label: "Area", type: "text" },
       { key: "reference", label: "Reference", type: "text" },
       { key: "customerType", label: "Customer Type", type: "select", required: true, options: CUSTOMER_TYPE_OPTIONS },
-      { key: "nidNumber", label: "NID Number", type: "text" },
       { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_CUSTOMER },
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
+      { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
       { key: "profileImage", label: "Profile Photo", type: "image" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
-    vatMaskedColumns: ["openingBalance", "creditLimit"],
+    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance"],
     formSections: [
-      { title: "Customer Details", fields: ["name", "phone", "alternativePhone", "email", "address", "area", "reference", "customerType", "nidNumber", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Credit & Balance Info", fields: ["creditStatus"] },
       { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
     ],
   },
@@ -378,13 +405,12 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "name", label: "Supplier Name", type: "text" },
       { key: "contactPerson", label: "Contact Person", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
-      { key: "alternativePhone", label: "Alt. Phone", type: "text" },
       { key: "email", label: "Email", type: "text" },
       { key: "area", label: "Area", type: "text" },
-      { key: "nidNumber", label: "NID Number", type: "text" },
-      { key: "openingBalance", label: "Opening Balance", type: "currency" },
-      { key: "openingBalanceType", label: "Balance Type", type: "text" },
+      { key: "currentBalance", label: "Current Balance", type: "currency" },
+      { key: "currentBalanceType", label: "Balance Type", type: "text" },
       { key: "creditLimit", label: "Credit Limit", type: "currency" },
+      { key: "creditStatus", label: "Credit Status", type: "text" },
       { key: "terms", label: "Terms", type: "text" },
       { key: "_count.purchaseOrders", label: "Purchase Orders", type: "number" },
       { key: "isActive", label: "Status", type: "boolean" },
@@ -393,30 +419,30 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "name", label: "Supplier Name", type: "text", required: true },
       { key: "contactPerson", label: "Contact Person", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
-      { key: "alternativePhone", label: "Alternative Phone", type: "text" },
       { key: "email", label: "Email", type: "email" },
       { key: "address", label: "Address", type: "textarea" },
       { key: "area", label: "Area", type: "text" },
       { key: "terms", label: "Terms", type: "textarea" },
-      { key: "nidNumber", label: "NID Number", type: "text" },
       { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_SUPPLIER },
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
+      { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
       { key: "profileImage", label: "Profile Photo", type: "image" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
-    vatMaskedColumns: ["openingBalance", "creditLimit"],
+    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance"],
     formSections: [
-      { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "alternativePhone", "email", "address", "area", "terms", "nidNumber", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
+      { title: "Credit & Balance Info", fields: ["creditStatus"] },
       { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
     ],
   },
 ];
 
 // ============================================================
-// LEAVE BALANCE ENTITLEMENTS
+// LEAVE BALANCE ENTITLEMENTS (fallback)
 // ============================================================
 
 const LEAVE_ENTITLEMENTS: Record<string, number> = {
@@ -446,17 +472,30 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, any[]>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [leaveBalances, setLeaveBalances] = useState<Record<string, { used: number; entitled: number; remaining: number }>>({});
-  const [crmSnapshot, setCrmSnapshot] = useState<any[] | null>(null);
-  const [collisionError, setCollisionError] = useState<string | null>(null);
-  const [companyProfile, setCompanyProfile] = useState<any>(null);
+
+  // Phase 8: Collision error state
+  const [collisionError, setCollisionError] = useState<string>("");
+
+  // Phase 8: Snapshot for optimistic rollback
+  const [personnelSnapshot, setPersonnelSnapshot] = useState<any[] | null>(null);
+
+  // Phase 8: Company profile for PDF
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+
+  // Personnel Validation Gate: DOB age validation error state
+  const [dobValidationError, setDobValidationError] = useState<string>("");
+
+  // Personnel Validation Gate: Leave balance deduction preview
+  const [balanceDeductionPreview, setBalanceDeductionPreview] = useState<{ type: string; currentRemaining: number; afterDeduction: number; isOver: boolean } | null>(null);
 
   // RBAC
   const canMutate = userRole === "admin" || userRole === "manager";
   const isSR = userRole === "sr";
   const isDealer = userRole === "dealer";
+  const isAdmin = userRole === "admin";
 
-  // Dealer: hidden from HR and suppliers
-  const isHidden = isDealer && (config.key === "designations" || config.key === "employees" || config.key === "employee-leaves" || config.key === "suppliers");
+  // Dealer: hidden from HR and suppliers and leave-allocations
+  const isHidden = isDealer && (config.key === "designations" || config.key === "employees" || config.key === "employee-leaves" || config.key === "leave-allocations" || config.key === "suppliers");
   // SR: completely blocked from suppliers
   const isBlocked = isSR && config.key === "suppliers";
 
@@ -470,6 +509,18 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 
   // SR cannot modify credit limits on customers
   const shouldMaskCreditLimit = isSR && config.key === "customers";
+
+  // Load company profile for PDF export
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const result = await apiFetch("/api/company-branding");
+      if (result && typeof result === "object") {
+        setCompanyProfile(result as CompanyProfile);
+      }
+    } catch {
+      // Silently fail — PDF export will use defaults
+    }
+  }, []);
 
   // Load data
   const loadData = useCallback(async () => {
@@ -505,42 +556,61 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadOptions(); }, [loadOptions]);
-
-  // Load company profile for PDF branding
-  useEffect(() => {
-    const loadCompanyProfile = async () => {
-      try {
-        const profile = await apiFetch("/api/company-branding");
-        setCompanyProfile(profile);
-      } catch {
-        // silently ignore
-      }
-    };
-    loadCompanyProfile();
-  }, []);
+  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
 
   // Calculate leave balances when employee changes in leave form
+  // Phase 8: Enhanced to use LeaveAllocation API data
   const calculateLeaveBalances = useCallback(async (employeeId: string) => {
     if (!employeeId) {
       setLeaveBalances({});
       return;
     }
     try {
-      const allLeaves = await apiFetch("/api/employee-leaves");
-      const currentYear = new Date().getFullYear();
-      const empLeaves = Array.isArray(allLeaves)
-        ? allLeaves.filter((l: any) => {
-            const empId = l.employeeId || (l.employee && l.employee.id);
-            return empId === employeeId && l.status === "Approved";
-          })
-        : [];
-
-      const balances: Record<string, { used: number; entitled: number; remaining: number }> = {};
-      for (const [type, entitled] of Object.entries(LEAVE_ENTITLEMENTS)) {
-        const used = empLeaves.filter((l: any) => l.leaveType === type).reduce((sum: number, l: any) => sum + (l.totalDays || 0), 0);
-        balances[type] = { used, entitled, remaining: entitled - used };
+      // Phase 8: Try to fetch from LeaveAllocation API first
+      let allocations: any[] = [];
+      try {
+        const allocResult = await apiFetch(`/api/leave-allocations?employeeId=${employeeId}`);
+        allocations = Array.isArray(allocResult) ? allocResult : [];
+      } catch {
+        // Fallback to computation from employee-leaves
       }
-      setLeaveBalances(balances);
+
+      if (allocations.length > 0) {
+        // Use LeaveAllocation data
+        const balances: Record<string, { used: number; entitled: number; remaining: number }> = {};
+        for (const alloc of allocations) {
+          if (alloc.isActive === false) continue;
+          const type = alloc.leaveType;
+          balances[type] = {
+            used: Number(alloc.usedDays) || 0,
+            entitled: Number(alloc.allocatedDays) || 0,
+            remaining: Number(alloc.remainingDays) || 0,
+          };
+        }
+        // Fill in any missing types from LEAVE_ENTITLEMENTS fallback
+        for (const [type, entitled] of Object.entries(LEAVE_ENTITLEMENTS)) {
+          if (!balances[type]) {
+            balances[type] = { used: 0, entitled, remaining: entitled };
+          }
+        }
+        setLeaveBalances(balances);
+      } else {
+        // Fallback: compute from approved leaves
+        const allLeaves = await apiFetch("/api/employee-leaves");
+        const empLeaves = Array.isArray(allLeaves)
+          ? allLeaves.filter((l: any) => {
+              const empId = l.employeeId || (l.employee && l.employee.id);
+              return empId === employeeId && l.status === "Approved";
+            })
+          : [];
+
+        const balances: Record<string, { used: number; entitled: number; remaining: number }> = {};
+        for (const [type, entitled] of Object.entries(LEAVE_ENTITLEMENTS)) {
+          const used = empLeaves.filter((l: any) => l.leaveType === type).reduce((sum: number, l: any) => sum + (l.totalDays || 0), 0);
+          balances[type] = { used, entitled, remaining: entitled - used };
+        }
+        setLeaveBalances(balances);
+      }
     } catch {
       setLeaveBalances({});
     }
@@ -555,6 +625,50 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     }
   }, [config.key, formData.employeeId, calculateLeaveBalances]);
 
+  // Personnel Validation Gate: Watch DOB changes for real-time age validation
+  useEffect(() => {
+    if (config.key === "employees" && formData.dateOfBirth) {
+      const dob = new Date(formData.dateOfBirth);
+      const today = new Date();
+      const minAgeDate = new Date(today);
+      minAgeDate.setFullYear(minAgeDate.getFullYear() - 18);
+      if (dob > minAgeDate) {
+        const age = today.getFullYear() - dob.getFullYear();
+        setDobValidationError(`Personnel Validation Gate: Employee must be at least 18 years of age. Current age is approximately ${age} years. Minimum age requirement not met.`);
+      } else {
+        setDobValidationError("");
+      }
+    } else {
+      setDobValidationError("");
+    }
+  }, [config.key, formData.dateOfBirth]);
+
+  // Personnel Validation Gate: Watch leave form changes for balance deduction preview
+  useEffect(() => {
+    if (config.key === "employee-leaves" && formData.employeeId && formData.leaveType && formData.fromDate && formData.toDate) {
+      const from = new Date(formData.fromDate);
+      const to = new Date(formData.toDate);
+      if (to >= from) {
+        const requestedDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        const balance = leaveBalances[formData.leaveType];
+        if (balance) {
+          setBalanceDeductionPreview({
+            type: formData.leaveType,
+            currentRemaining: balance.remaining,
+            afterDeduction: balance.remaining - requestedDays,
+            isOver: balance.remaining < requestedDays,
+          });
+        } else {
+          setBalanceDeductionPreview(null);
+        }
+      } else {
+        setBalanceDeductionPreview(null);
+      }
+    } else {
+      setBalanceDeductionPreview(null);
+    }
+  }, [config.key, formData.employeeId, formData.leaveType, formData.fromDate, formData.toDate, leaveBalances]);
+
   // Filtered data
   const filteredData = useMemo(() => {
     if (!search.trim()) return data;
@@ -566,18 +680,33 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     );
   }, [data, search, config.columns]);
 
-  // KPI stats
+  // KPI stats — enhanced with module-specific metrics
   const stats = useMemo(() => {
     const total = data.length;
     const active = data.filter(d => d.isActive !== false).length;
     const inactive = total - active;
-    return { total, active, inactive };
-  }, [data]);
+    // Employee-leave specific stats
+    const pendingLeaves = config.key === "employee-leaves" ? data.filter(d => d.status === "Pending").length : 0;
+    const approvedLeaves = config.key === "employee-leaves" ? data.filter(d => d.status === "Approved").length : 0;
+    const rejectedLeaves = config.key === "employee-leaves" ? data.filter(d => d.status === "Rejected").length : 0;
+    // Employee type breakdown
+    const permanentCount = config.key === "employees" ? data.filter(d => d.employeeType === "Permanent").length : 0;
+    const contractCount = config.key === "employees" ? data.filter(d => d.employeeType === "Contract").length : 0;
+    const probationCount = config.key === "employees" ? data.filter(d => d.employeeType === "Probation").length : 0;
+    // Total salary for employees
+    const totalSalary = config.key === "employees" ? data.filter(d => d.isActive !== false).reduce((sum, d) => sum + (Number(d.baseSalary) || 0), 0) : 0;
+    // Credit status stats for customers/suppliers
+    const creditFrozen = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => d.creditStatus === "Frozen").length : 0;
+    const creditOverLimit = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => d.creditStatus === "OverLimit").length : 0;
+    const totalOutstandingAR = config.key === "customers" ? data.filter(d => d.isActive !== false && d.currentBalanceType === "Dr").reduce((sum, d) => sum + (Number(d.currentBalance) || 0), 0) : 0;
+    const totalOutstandingAP = config.key === "suppliers" ? data.filter(d => d.isActive !== false && d.currentBalanceType === "Cr").reduce((sum, d) => sum + (Number(d.currentBalance) || 0), 0) : 0;
+    return { total, active, inactive, pendingLeaves, approvedLeaves, rejectedLeaves, permanentCount, contractCount, probationCount, totalSalary, creditFrozen, creditOverLimit, totalOutstandingAR, totalOutstandingAP };
+  }, [data, config.key]);
 
   // Open create dialog
   const openCreate = () => {
     setEditingItem(null);
-    setCollisionError(null);
+    setCollisionError("");
     const defaults: Record<string, any> = {};
     config.formFields.forEach(f => {
       if (f.defaultValue !== undefined) defaults[f.key] = f.defaultValue;
@@ -591,7 +720,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   // Open edit dialog
   const openEdit = (item: any) => {
     setEditingItem(item);
-    setCollisionError(null);
+    setCollisionError("");
     const values: Record<string, any> = {};
     config.formFields.forEach(f => {
       const val = getNestedValue(item, f.key);
@@ -603,7 +732,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     setDialogOpen(true);
   };
 
-  // Save (create or update)
+  // Save (create or update) — Phase 8: Optimistic UI + snapshot rollback
   const handleSave = async () => {
     for (const f of config.formFields) {
       if (f.required && !formData[f.key] && formData[f.key] !== 0) {
@@ -611,6 +740,41 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         return;
       }
     }
+
+    // Personnel Validation Gate: Standalone DOB 18+ age check
+    if (config.key === "employees" && formData.dateOfBirth) {
+      const dob = new Date(formData.dateOfBirth);
+      const today = new Date();
+      const minAgeDate = new Date(today);
+      minAgeDate.setFullYear(minAgeDate.getFullYear() - 18);
+      if (dob > minAgeDate) {
+        toast({ title: "Personnel Validation Gate", description: "Employee must be at least 18 years of age. Date of Birth indicates the individual is under the minimum age requirement.", variant: "destructive" });
+        return;
+      }
+    }
+
+    // Phase 8: Chronological Date Shield — Joining Date >= DOB + 18 years
+    if (config.key === "employees" && formData.dateOfBirth && formData.joiningDate) {
+      const dob = new Date(formData.dateOfBirth);
+      const joining = new Date(formData.joiningDate);
+      const minJoiningDate = new Date(dob);
+      minJoiningDate.setFullYear(minJoiningDate.getFullYear() + 18);
+      if (joining < minJoiningDate) {
+        toast({ title: "Date Validation Error", description: "Joining Date must be at least 18 years after Date of Birth", variant: "destructive" });
+        return;
+      }
+    }
+
+    // Phase 8: Chronological Date Shield — Resignation Date > Joining Date
+    if (config.key === "employees" && formData.resignationDate && formData.joiningDate) {
+      const joining = new Date(formData.joiningDate);
+      const resignation = new Date(formData.resignationDate);
+      if (resignation <= joining) {
+        toast({ title: "Date Validation Error", description: "Resignation/Termination Date must be after Joining Date", variant: "destructive" });
+        return;
+      }
+    }
+
     // SR cannot modify credit limit on customers
     if (shouldMaskCreditLimit && editingItem) {
       delete formData.creditLimit;
@@ -624,62 +788,56 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         return;
       }
     }
-    // Opening balance: reject negative numbers for customers/suppliers
-    if ((config.key === "customers" || config.key === "suppliers") && formData.openingBalance !== undefined && formData.openingBalance !== "" && Number(formData.openingBalance) < 0) {
-      toast({ title: "Validation Error", description: "Opening balance cannot be negative", variant: "destructive" });
-      return;
+
+    // Phase 8: Snapshot for optimistic rollback
+    setPersonnelSnapshot([...data]);
+
+    // Phase 8: Optimistic mutation — immediately update local data
+    if (editingItem) {
+      setData(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...formData } : item));
+    } else {
+      const tempItem = { id: `temp-${Date.now()}`, ...formData, isNew: true };
+      setData(prev => [tempItem, ...prev]);
     }
+
     setSaving(true);
-    setCollisionError(null);
-
-    const isCRM = config.key === "customers" || config.key === "suppliers";
-
-    // Optimistic UI for CRM modules
-    if (isCRM) {
-      setCrmSnapshot([...data]);
-    }
-
     try {
       if (editingItem) {
-        if (isCRM) {
-          // Optimistically update the item in data
-          setData(prev => prev.map(item =>
-            item.id === editingItem.id ? { ...item, ...formData } : item
-          ));
-        }
         await apiFetch(`${config.apiPath}/${editingItem.id}`, {
           method: "PUT",
           body: JSON.stringify(formData),
         });
         toast({ title: "Updated", description: `${config.label} updated successfully` });
       } else {
-        if (isCRM) {
-          // Optimistically add a temporary item
-          const tempItem = { id: `temp-${Date.now()}`, ...formData, isActive: formData.isActive ?? true };
-          setData(prev => [...prev, tempItem]);
-        }
         await apiFetch(config.apiPath, {
           method: "POST",
           body: JSON.stringify(formData),
         });
         toast({ title: "Created", description: `${config.label} created successfully` });
       }
-      if (isCRM) {
-        setCrmSnapshot(null);
-      }
       setDialogOpen(false);
       loadData();
     } catch (e: any) {
-      // Revert optimistic update on error
-      if (isCRM && crmSnapshot) {
-        setData(crmSnapshot);
-        setCrmSnapshot(null);
+      // Phase 8: Rollback on error
+      if (personnelSnapshot) {
+        setData(personnelSnapshot);
+        setPersonnelSnapshot(null);
+      } else {
+        loadData(); // Fallback: reload from server
       }
-      // Handle 409 collision
-      if (e.status === 409) {
-        setCollisionError(e.message || "Counterparty collision detected — a record with matching details already exists.");
+
+      // Phase 8: Corporate Entity Collision error handling
+      if (e.message && e.message.includes("Corporate Entity Collision")) {
+        setCollisionError(e.message);
+        setDialogOpen(true); // Re-open dialog to show collision banner
       }
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+
+      // Phase 8: Insufficient leave balance error
+      if (e.message && e.message.includes("Transaction Blocked: Insufficient accumulated leave balance")) {
+        toast({ title: "Leave Balance Insufficient", description: "Transaction Blocked: Insufficient accumulated leave balance.", variant: "destructive" });
+      } else {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
     } finally {
       setSaving(false);
     }
@@ -697,8 +855,16 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     }
   };
 
-  // Approve/Reject leave
+  // Approve/Reject leave — Phase 8: Spin-lock + optimistic + balance refresh
   const handleLeaveAction = async (id: string, action: "Approved" | "Rejected") => {
+    // Phase 8: Snapshot for rollback
+    setPersonnelSnapshot([...data]);
+
+    // Optimistic update
+    setData(prev => prev.map(item =>
+      item.id === id ? { ...item, status: action } : item
+    ));
+
     try {
       await apiFetch(`${config.apiPath}/${id}`, {
         method: "PUT",
@@ -706,7 +872,18 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       });
       toast({ title: `Leave ${action}`, description: `Leave request has been ${action.toLowerCase()}` });
       loadData();
+      // Automated Leave Deductions: Refresh leave balance after approval/rejection
+      if (formData.employeeId) {
+        calculateLeaveBalances(formData.employeeId);
+      }
     } catch (e: any) {
+      // Rollback
+      if (personnelSnapshot) {
+        setData(personnelSnapshot);
+        setPersonnelSnapshot(null);
+      } else {
+        loadData();
+      }
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
@@ -738,7 +915,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     }
   };
 
-  // Export PDF
+  // Phase 8: Export PDF with company profile and financialFooter
   const handleExportPDF = () => {
     try {
       const exportData = filteredData.map(item => {
@@ -752,8 +929,19 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         });
         return row;
       });
-      const isCRM = config.key === "customers" || config.key === "suppliers";
-      const user = authState.user;
+
+      // Phase 8: Use exportToPDF with company profile and financialFooter
+      const stored = localStorage.getItem("ems_auth");
+      let userName = "";
+      let userEmail = "";
+      try {
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          userName = parsed.user?.displayName || parsed.user?.name || "";
+          userEmail = parsed.user?.email || "";
+        }
+      } catch {}
+
       exportToPDF({
         title: config.label,
         subtitle: `Total Records: ${filteredData.length}`,
@@ -762,15 +950,18 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         data: exportData,
         isVatAuditor,
         vatMaskedColumns: maskedColumns,
-        ...(isCRM && companyProfile ? { company: companyProfile } : {}),
-        ...(isCRM ? {
-          financialFooter: {
-            preparedBy: user?.displayName || "",
-            checkedBy: "",
-            authorizedBy: "",
-            printedBy: user?.displayName || user?.email || "System",
-          },
-        } : {}),
+        company: companyProfile || undefined,
+        systemNotice: config.key === "employees" || config.key === "designations" || config.key === "employee-leaves" || config.key === "leave-allocations"
+          ? "CONFIDENTIAL — This document contains personnel records protected under labor law. Unauthorized disclosure is prohibited. All monetary figures are displayed in Bangladeshi Taka (BDT)."
+          : config.key === "customers" || config.key === "suppliers"
+          ? "CONFIDENTIAL — This document contains proprietary financial data. Credit limits and outstanding balances are subject to the Credit Limit Protection System. Unauthorized reproduction or distribution is strictly prohibited. All monetary figures are displayed in Bangladeshi Taka (BDT). Legal Disclaimer: This report is generated for internal audit and management review purposes only."
+          : "This is a system-generated report. All monetary figures are displayed in Bangladeshi Taka (BDT).",
+        financialFooter: {
+          preparedBy: userName,
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: userName || "System",
+        },
       });
       toast({ title: "PDF Exported", description: `${config.label} data exported` });
     } catch (e: any) {
@@ -816,44 +1007,6 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           label={field.label}
           placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
         />
-      );
-    }
-
-    // DUE/ADVANCE toggle for openingBalanceType on customers/suppliers
-    if (field.key === "openingBalanceType" && (config.key === "customers" || config.key === "suppliers")) {
-      const isCustomer = config.key === "customers";
-      // DUE = Dr for customers, Cr for suppliers
-      // ADVANCE = Cr for customers, Dr for suppliers
-      const dueValue = isCustomer ? "Dr" : "Cr";
-      const advanceValue = isCustomer ? "Cr" : "Dr";
-      const currentValue = String(val) || dueValue;
-      const isDue = currentValue === dueValue;
-
-      return (
-        <div className="flex items-center gap-0 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
-          <button
-            type="button"
-            onClick={() => setFormData(prev => ({ ...prev, openingBalanceType: dueValue }))}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              isDue
-                ? "bg-[#2563eb] text-white"
-                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-            }`}
-          >
-            DUE
-          </button>
-          <button
-            type="button"
-            onClick={() => setFormData(prev => ({ ...prev, openingBalanceType: advanceValue }))}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              !isDue
-                ? "bg-amber-500 text-white"
-                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
-            }`}
-          >
-            ADVANCE
-          </button>
-        </div>
       );
     }
 
@@ -906,13 +1059,54 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     }
 
     if (field.type === "date") {
+      // Personnel Validation Gate: DOB max date constraint (must be at least 18 years ago)
+      const isDobField = config.key === "employees" && field.key === "dateOfBirth";
+      const isJoiningField = config.key === "employees" && field.key === "joiningDate";
+      const isResignationField = config.key === "employees" && field.key === "resignationDate";
+      let maxDate = "";
+      let minDate = "";
+      if (isDobField) {
+        // DOB: must be at least 18 years ago, max today-18years
+        const maxDob = new Date();
+        maxDob.setFullYear(maxDob.getFullYear() - 18);
+        maxDate = maxDob.toISOString().split("T")[0];
+      }
+      if (isJoiningField) {
+        // Joining date: cannot be in the future
+        maxDate = new Date().toISOString().split("T")[0];
+      }
+      if (isResignationField) {
+        // Resignation date: cannot be in the future
+        maxDate = new Date().toISOString().split("T")[0];
+        // Min date: must be after joining date
+        if (formData.joiningDate) {
+          const joiningDate = new Date(formData.joiningDate);
+          joiningDate.setDate(joiningDate.getDate() + 1);
+          minDate = joiningDate.toISOString().split("T")[0];
+        }
+      }
       return (
-        <Input
-          type="date"
-          value={val ? (typeof val === "string" ? val.split("T")[0] : new Date(val).toISOString().split("T")[0]) : ""}
-          onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
-          placeholder={field.placeholder || field.label}
-        />
+        <div>
+          <Input
+            type="date"
+            value={val ? (typeof val === "string" ? val.split("T")[0] : new Date(val).toISOString().split("T")[0]) : ""}
+            onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
+            placeholder={field.placeholder || field.label}
+            max={maxDate || undefined}
+            min={minDate || undefined}
+          />
+          {/* Personnel Validation Gate: Inline DOB age error */}
+          {isDobField && dobValidationError && (
+            <div className="mt-1.5 flex items-start gap-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium">{dobValidationError}</p>
+            </div>
+          )}
+          {/* Joining date hint */}
+          {isJoiningField && (
+            <p className="mt-1 text-[11px] text-slate-400">Must be at least 18 years after Date of Birth</p>
+          )}
+        </div>
       );
     }
 
@@ -945,7 +1139,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                   {sIdx < config.formSections!.length - 1 && <Separator className="flex-1" />}
                 </div>
                 {isDocUploadSection ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pl-8">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 pl-8">
                     {sectionFields.map(field => (
                       <div key={field.key}>
                         {renderFormField(field)}
@@ -959,6 +1153,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                         {field.type !== "checkbox" && field.type !== "image" && (
                           <Label className="text-sm font-medium">
                             {field.label} {field.required && <span className="text-red-500">*</span>}
+                            {/* Phase 8: Uniqueness warnings for employee NID/Phone/Email */}
+                            {config.key === "employees" && !editingItem && (field.key === "nidNumber" || field.key === "phone" || field.key === "email") && (
+                              <span className="ml-2 text-[11px] font-normal text-amber-600 dark:text-amber-400">(must be unique across system)</span>
+                            )}
                           </Label>
                         )}
                         {renderFormField(field)}
@@ -973,6 +1171,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       );
     }
 
+    // Non-sectioned forms — add uniqueness warnings for employee fields
     return (
       <div className="space-y-4 py-2">
         {config.formFields.map(field => (
@@ -980,6 +1179,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
             {field.type !== "checkbox" && field.type !== "image" && (
               <Label className="text-sm font-medium">
                 {field.label} {field.required && <span className="text-red-500">*</span>}
+                {/* Phase 8: Uniqueness warnings for employee NID/Phone/Email */}
+                {config.key === "employees" && !editingItem && (field.key === "nidNumber" || field.key === "phone" || field.key === "email") && (
+                  <span className="ml-2 text-[11px] font-normal text-amber-600 dark:text-amber-400">(must be unique across system)</span>
+                )}
               </Label>
             )}
             {renderFormField(field)}
@@ -989,19 +1192,88 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     );
   };
 
-  // Render leave balance cards
+  // Personnel Validation Gate: Enhanced leave balance cards with progress gauges + deduction preview
   const renderLeaveBalanceCards = () => {
     if (config.key !== "employee-leaves" || !formData.employeeId) return null;
 
+    // Calculate requested days from form
+    let requestedDays = 0;
+    if (formData.fromDate && formData.toDate) {
+      const from = new Date(formData.fromDate);
+      const to = new Date(formData.toDate);
+      if (to >= from) {
+        requestedDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      }
+    }
+
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-        {Object.entries(leaveBalances).map(([type, balance]) => (
-          <div key={type} className="text-center p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{type}</p>
-            <p className="text-sm font-bold text-slate-900 dark:text-white">{balance.remaining} left</p>
-            <p className="text-[10px] text-slate-400">Used: {balance.used} / Entitled: {balance.entitled}</p>
+      <div className="space-y-3 mb-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-[#2563eb]" />
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">Leave Balance Tracker</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {Object.entries(leaveBalances).map(([type, balance]) => {
+            // Automated Leave Deductions: Red indicator when remaining < requested
+            const isOverBalance = formData.leaveType === type && requestedDays > 0 && balance.remaining < requestedDays;
+            const isSelectedType = formData.leaveType === type;
+            const usagePercent = balance.entitled > 0 ? Math.round((balance.used / balance.entitled) * 100) : 0;
+            let gaugeColor = "bg-emerald-500";
+            let gaugeBg = "bg-emerald-100 dark:bg-emerald-900/30";
+            if (usagePercent > 80) { gaugeColor = "bg-red-500"; gaugeBg = "bg-red-100 dark:bg-red-900/30"; }
+            else if (usagePercent > 50) { gaugeColor = "bg-amber-500"; gaugeBg = "bg-amber-100 dark:bg-amber-900/30"; }
+            if (isOverBalance) { gaugeColor = "bg-red-500"; gaugeBg = "bg-red-100 dark:bg-red-900/30"; }
+
+            return (
+              <div key={type} className={`text-center p-2.5 rounded-lg border-2 transition-all ${isOverBalance ? "border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20" : isSelectedType ? "border-[#2563eb]/30 bg-blue-50 dark:bg-blue-900/20" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"}`}>
+                <p className={`text-xs font-semibold mb-1 ${isOverBalance ? "text-red-600 dark:text-red-400" : isSelectedType ? "text-[#2563eb]" : "text-slate-500 dark:text-slate-400"}`}>{type}</p>
+                {/* Progress Gauge */}
+                <div className={`h-2 w-full rounded-full overflow-hidden mb-1.5 ${gaugeBg}`}>
+                  <div className={`h-full ${gaugeColor} rounded-full transition-all duration-300`} style={{ width: `${Math.min(usagePercent, 100)}%` }} />
+                </div>
+                <p className={`text-lg font-bold ${isOverBalance ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"}`}>
+                  {balance.remaining}
+                  <span className="text-[10px] font-normal text-slate-400 ml-0.5">days</span>
+                </p>
+                <p className="text-[10px] text-slate-400">Used: {balance.used} / Entitled: {balance.entitled}</p>
+                {isOverBalance && (
+                  <div className="mt-1 flex items-center justify-center gap-0.5 text-red-500">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span className="text-[10px] font-medium">Insufficient</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {/* Automated Leave Deductions: Balance Deduction Preview */}
+        {balanceDeductionPreview && requestedDays > 0 && (
+          <div className={`mt-2 p-2.5 rounded-lg border ${balanceDeductionPreview.isOver ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"}`}>
+            <div className="flex items-center gap-2 mb-1">
+              {balanceDeductionPreview.isOver ? (
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+              ) : (
+                <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+              )}
+              <span className={`text-xs font-semibold ${balanceDeductionPreview.isOver ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                Balance Deduction Preview — {balanceDeductionPreview.type}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-slate-600 dark:text-slate-300">Current: <strong>{balanceDeductionPreview.currentRemaining} days</strong></span>
+              <span className="text-slate-400">→</span>
+              <span className={balanceDeductionPreview.isOver ? "text-red-600 font-bold" : "text-emerald-600 font-bold"}>
+                After: {balanceDeductionPreview.afterDeduction} days
+              </span>
+              <span className="text-slate-400">(−{requestedDays})</span>
+            </div>
+            {balanceDeductionPreview.isOver && (
+              <p className="text-[11px] text-red-500 mt-1 font-medium">
+                Transaction will be blocked — insufficient accumulated leave balance.
+              </p>
+            )}
           </div>
-        ))}
+        )}
       </div>
     );
   };
@@ -1009,7 +1281,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   // Credit utilization for customers
   const renderCreditUtilization = (item: any) => {
     if (config.key !== "customers") return null;
-    const balance = Number(item.openingBalance) || 0;
+    const balance = Number(item.currentBalance) || 0;
     const limit = Number(item.creditLimit) || 0;
     if (limit <= 0) return <span className="text-xs text-slate-400">No limit</span>;
     const pct = Math.round((balance / limit) * 100);
@@ -1048,10 +1320,17 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     );
   }
 
+  // Phase 8: Determine button label based on module
+  const getCreateButtonLabel = () => {
+    if (config.key === "employees") return `Register Active Employee`;
+    if (config.key === "employee-leaves") return `Apply for Leave`;
+    return `Add ${singularize(config.label)}`;
+  };
+
   return (
     <div className="space-y-4">
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
@@ -1087,6 +1366,173 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         </Card>
       </div>
 
+      {/* Employee-Leaves Specific KPI Cards */}
+      {config.key === "employee-leaves" && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
+          <Card className="border-amber-200 dark:border-amber-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <CalendarDays className="h-5 w-5 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Pending Approval</p>
+                <p className="text-xl font-bold text-amber-600">{stats.pendingLeaves}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-emerald-200 dark:border-emerald-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <Check className="h-5 w-5 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Approved Leaves</p>
+                <p className="text-xl font-bold text-emerald-600">{stats.approvedLeaves}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-red-200 dark:border-red-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <Ban className="h-5 w-5 text-red-500" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Rejected Leaves</p>
+                <p className="text-xl font-bold text-red-500">{stats.rejectedLeaves}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Employee Workforce Composition Cards */}
+      {config.key === "employees" && stats.total > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+          <Card className="border-emerald-200 dark:border-emerald-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <UserCheck className="h-4 w-4 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Permanent</p>
+                <p className="text-lg font-bold text-emerald-600">{stats.permanentCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-blue-200 dark:border-blue-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Briefcase className="h-4 w-4 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Contract</p>
+                <p className="text-lg font-bold text-blue-600">{stats.contractCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200 dark:border-amber-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Probation</p>
+                <p className="text-lg font-bold text-amber-600">{stats.probationCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-200 dark:border-slate-700">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+                <span className="text-sm font-bold text-[#2563eb]">৳</span>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Monthly Payroll</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(stats.totalSalary)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Customer Credit Risk KPI Cards */}
+      {config.key === "customers" && stats.total > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+          <Card className="border-red-200 dark:border-red-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Credit Frozen</p>
+                <p className="text-lg font-bold text-red-600">{stats.creditFrozen}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200 dark:border-amber-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <Shield className="h-4 w-4 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Over Limit</p>
+                <p className="text-lg font-bold text-amber-600">{stats.creditOverLimit}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-200 dark:border-slate-700 sm:col-span-2">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+                <span className="text-sm font-bold text-[#2563eb]">৳</span>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AR</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(stats.totalOutstandingAR)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Supplier Credit Risk KPI Cards */}
+      {config.key === "suppliers" && stats.total > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+          <Card className="border-red-200 dark:border-red-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle className="h-4 w-4 text-red-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Credit Frozen</p>
+                <p className="text-lg font-bold text-red-600">{stats.creditFrozen}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200 dark:border-amber-800">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <Shield className="h-4 w-4 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Over Limit</p>
+                <p className="text-lg font-bold text-amber-600">{stats.creditOverLimit}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-slate-200 dark:border-slate-700 sm:col-span-2">
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+                <span className="text-sm font-bold text-[#2563eb]">৳</span>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AP</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(stats.totalOutstandingAP)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px]">
@@ -1100,7 +1546,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         </div>
         {canMutate && (
           <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-            <Plus className="h-4 w-4 mr-1" /> Add {singularize(config.label)}
+            <Plus className="h-4 w-4 mr-1" /> {getCreateButtonLabel()}
           </Button>
         )}
         {/* SR can create customers too */}
@@ -1123,6 +1569,21 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         <Button variant="ghost" size="sm" onClick={loadData}>
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
+        {/* Recalculate Balances Button for Customers/Suppliers */}
+        {(config.key === "customers" || config.key === "suppliers") && (
+          <Button variant="outline" size="sm" onClick={async () => {
+            try {
+              const balPath = config.key === "customers" ? "/api/customers/balances?recalculate=true" : "/api/suppliers/balances?recalculate=true";
+              await apiFetch(balPath);
+              toast({ title: "Balances Recalculated", description: "All balance records updated from transaction engine" });
+              loadData();
+            } catch (e: any) {
+              toast({ title: "Error", description: e.message, variant: "destructive" });
+            }
+          }}>
+            <RefreshCw className="h-4 w-4 mr-1" /> Recalc Balances
+          </Button>
+        )}
       </div>
 
       {/* VAT Audit Mode Banner */}
@@ -1152,8 +1613,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       {/* Data Table */}
       <Card className="border-slate-200 dark:border-slate-700">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                   <TableHead className="text-white font-semibold w-12">#</TableHead>
@@ -1239,6 +1700,22 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                           );
                         }
 
+                        // Credit status badge for customers and suppliers
+                        if (col.key === "creditStatus" && (config.key === "customers" || config.key === "suppliers")) {
+                          const creditColors: Record<string, string> = {
+                            Active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+                            Frozen: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                            OverLimit: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+                          };
+                          return (
+                            <TableCell key={col.key}>
+                              <Badge className={creditColors[val] || "bg-slate-100 text-slate-500"}>
+                                {val === "OverLimit" ? "Over Limit" : val || "Active"}
+                              </Badge>
+                            </TableCell>
+                          );
+                        }
+
                         // Currency formatting
                         if (col.type === "currency") {
                           return <TableCell key={col.key} className="whitespace-nowrap font-medium">{fmtCurrency(val)}</TableCell>;
@@ -1284,7 +1761,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                             <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="h-7 w-7 p-0">
                               <Edit className="h-3.5 w-3.5 text-blue-500" />
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(item.id)} className="h-7 w-7 p-0">
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(item.id)} className="h-7 w-7 p-0" disabled={!isAdmin && config.key !== "customers" && config.key !== "leave-allocations"}>
                               <Trash2 className="h-3.5 w-3.5 text-red-500" />
                             </Button>
                           </div>
@@ -1309,21 +1786,22 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto max-h-64 overflow-y-auto">
-              <Table>
+            <div className="overflow-x-auto max-h-64 overflow-y-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-slate-50 dark:bg-slate-800">
                     <TableHead className="text-xs font-semibold">Customer</TableHead>
-                    <TableHead className="text-xs font-semibold">Balance</TableHead>
+                    <TableHead className="text-xs font-semibold">Current Balance</TableHead>
                     <TableHead className="text-xs font-semibold">Credit Limit</TableHead>
                     <TableHead className="text-xs font-semibold">Utilization</TableHead>
+                    <TableHead className="text-xs font-semibold">Credit Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredData.filter(item => Number(item.creditLimit) > 0).map(item => {
-                    const balance = Number(item.openingBalance) || 0;
+                    const balance = Number(item.currentBalance) || 0;
                     const limit = Number(item.creditLimit) || 0;
-                    const pct = limit > 0 ? Math.round((balance / limit) * 100) : 0;
+                    const pct = limit > 0 ? Math.round((Math.abs(balance) / limit) * 100) : 0;
                     let barColor = "bg-emerald-500";
                     let textColor = "text-emerald-600";
                     if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
@@ -1343,6 +1821,79 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                             <span className={`text-xs font-medium ${textColor}`}>{pct}%</span>
                           </div>
                         </TableCell>
+                        <TableCell className="text-xs">
+                          <Badge className={
+                            item.creditStatus === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
+                            item.creditStatus === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
+                            "bg-emerald-100 text-emerald-700 text-[10px]"
+                          }>
+                            {item.creditStatus === "OverLimit" ? "Over Limit" : item.creditStatus || "Active"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Supplier Credit Utilization Section */}
+      {config.key === "suppliers" && filteredData.length > 0 && (
+        <Card className="border-slate-200 dark:border-slate-700">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Credit Utilization Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto max-h-64 overflow-y-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
+                <TableHeader>
+                  <TableRow className="bg-slate-50 dark:bg-slate-800">
+                    <TableHead className="text-xs font-semibold">Supplier</TableHead>
+                    <TableHead className="text-xs font-semibold">Current Balance</TableHead>
+                    <TableHead className="text-xs font-semibold">Credit Limit</TableHead>
+                    <TableHead className="text-xs font-semibold">Utilization</TableHead>
+                    <TableHead className="text-xs font-semibold">Credit Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredData.filter(item => Number(item.creditLimit) > 0).map(item => {
+                    const balance = Number(item.currentBalance) || 0;
+                    const limit = Number(item.creditLimit) || 0;
+                    const pct = limit > 0 ? Math.round((Math.abs(balance) / limit) * 100) : 0;
+                    let barColor = "bg-emerald-500";
+                    let textColor = "text-emerald-600";
+                    if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
+                    else if (pct > 80) { barColor = "bg-amber-500"; textColor = "text-amber-600"; }
+                    const maskedBalance = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(balance);
+                    const maskedLimit = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(limit);
+                    return (
+                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <TableCell className="text-xs font-medium whitespace-nowrap">{item.name}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{maskedBalance}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{maskedLimit}</TableCell>
+                        <TableCell className="w-32">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                            </div>
+                            <span className={`text-xs font-medium ${textColor}`}>{pct}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <Badge className={
+                            item.creditStatus === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
+                            item.creditStatus === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
+                            "bg-emerald-100 text-emerald-700 text-[10px]"
+                          }>
+                            {item.creditStatus === "OverLimit" ? "Over Limit" : item.creditStatus || "Active"}
+                          </Badge>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -1360,38 +1911,34 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className={`${config.dialogWidth || "max-w-lg"} max-h-[85vh] overflow-y-auto`}>
+        <DialogContent className={`max-w-[95vw] sm:${config.dialogWidth || "max-w-lg"} max-h-[85vh] overflow-y-auto`}>
           <DialogHeader>
             <DialogTitle>{editingItem ? `Edit ${singularize(config.label)}` : `New ${singularize(config.label)}`}</DialogTitle>
             <DialogDescription>
               {editingItem ? `Update ${singularize(config.label).toLowerCase()} details` : `Create a new ${singularize(config.label).toLowerCase()}`}
             </DialogDescription>
           </DialogHeader>
-          {/* Leave Balance Cards inside dialog */}
-          {renderLeaveBalanceCards()}
-          {/* Collision Banner */}
+
+          {/* Phase 8: Corporate Entity Collision Banner */}
           {collisionError && (
-            <div className="bg-red-900 text-white p-3 rounded-md mb-4 flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5" />
-              <span className="text-sm font-medium">{collisionError}</span>
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <span className="text-sm text-red-700 dark:text-red-400 font-medium">{collisionError}</span>
             </div>
           )}
+
+          {/* Leave Balance Cards inside dialog */}
+          {renderLeaveBalanceCards()}
           {renderFormContent()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
               {saving ? (
                 <>
-                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-                  {config.key === "customers" || config.key === "suppliers"
-                    ? "Mapping Counterparty Ledger Trees & Restructuring Accounting Ledgers..."
-                    : "Saving..."}
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Compiling Personnel Dossier...
                 </>
-              ) : editingItem ? "Update" : (
-                config.key === "customers" ? "Initialize Customer Profile" :
-                config.key === "suppliers" ? "Save Supplier Configuration" :
-                "Create"
-              )}
+              ) : editingItem ? "Update" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1399,7 +1946,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
             <DialogDescription>Are you sure you want to delete this {singularize(config.label).toLowerCase()}? This action cannot be undone.</DialogDescription>
@@ -1472,10 +2019,10 @@ export default function PersonnelCRMGroupPage({ activeModule }: { activeModule?:
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Personnel Management</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Designations, Employees, Employee Leave</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Designations, Employees, Employee Leave, Leave Allocations</p>
               </div>
             </div>
-            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto flex-wrap gap-1 p-1">
+            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto flex-wrap gap-1 p-1 scrollbar-none">
               {personnelModules.map(mod => {
                 const Icon = mod.icon;
                 return (
@@ -1499,7 +2046,7 @@ export default function PersonnelCRMGroupPage({ activeModule }: { activeModule?:
                 <p className="text-xs text-slate-500 dark:text-slate-400">Customer directory and credit management</p>
               </div>
             </div>
-            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto flex-wrap gap-1 p-1">
+            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto flex-wrap gap-1 p-1 scrollbar-none">
               {customerModules.map(mod => {
                 const Icon = mod.icon;
                 return (
@@ -1523,7 +2070,7 @@ export default function PersonnelCRMGroupPage({ activeModule }: { activeModule?:
                 <p className="text-xs text-slate-500 dark:text-slate-400">Vendor master records and payable balances</p>
               </div>
             </div>
-            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto flex-wrap gap-1 p-1">
+            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto flex-wrap gap-1 p-1 scrollbar-none">
               {supplierModules.map(mod => {
                 const Icon = mod.icon;
                 return (

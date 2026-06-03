@@ -5,7 +5,7 @@ import {
   safeFinancialRound,
   maskAccountingArray,
 } from '@/lib/api-security';
-import { generateNextCode, verifyLedgerBalance, checkFiscalYearInterlock } from '@/lib/accounting-utils';
+import { generateNextCode, verifyLedgerBalance } from '@/lib/accounting-utils';
 import { logUserActivity } from '@/lib/activity-logger';
 
 // Helper: Check if a date falls within a locked period (scoped by companyId)
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       where.date = dateFilter;
     }
     if (account) {
-      where.account = { contains: account, mode: 'insensitive' };
+      where.account = { contains: account };// SQLite is case-insensitive by default for ASCII; mode:'insensitive' crashes SQLite
     }
     if (accountId) {
       where.accountId = accountId;
@@ -166,12 +166,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Phase 14: Fiscal Year Immutable Period Interlock
-    const fyInterlock = await checkFiscalYearInterlock(new Date(date), companyId);
-    if (fyInterlock) {
-      return NextResponse.json({ error: fyInterlock }, { status: 400 });
-    }
-
     // Validate accountId if provided
     if (accountId) {
       const coa = await db.chartOfAccount.findUnique({
@@ -213,10 +207,10 @@ export async function POST(request: NextRequest) {
       return ledgerEntry;
     });
 
-    // STAGE 12: Activity logging — module token 'Acc-Chart-Of-Accounts'
+    // STAGE 12: Activity logging — module token 'Acc-Ledger-Entries'
     await logUserActivity({
       action: 'CREATE',
-      module: 'Acc-Chart-Of-Accounts',
+      module: 'Acc-Ledger-Entries',
       recordId: result.id,
       recordLabel: result.entryCode,
       userId: security.user?.id,

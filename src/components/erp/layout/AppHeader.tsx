@@ -45,7 +45,6 @@ interface AppHeaderProps {
     email: string;
     role: UserRole;
     displayName: string;
-    profileImage?: string | null;
   } | null;
   isVatAuditor: boolean;
   currentGroupLabel: string;
@@ -60,26 +59,7 @@ interface AppHeaderProps {
   onOpenSearch: () => void;
   onChangePassword: () => void;
   onLogout: () => void;
-}
-
-// Helper to get clean display name (never raw username)
-function getCleanDisplayName(user: { name: string; displayName: string } | null): string {
-  if (!user) return "User";
-  // Always prefer displayName — since we now store clean names, both should be clean
-  // But never fall back to raw username patterns like "emart.amit"
-  const name = user.displayName || user.name;
-  if (!name) return "User";
-  // Safety net: comprehensive raw username pattern detection
-  // Matches patterns like: emart.*, admin.*, user.*, sys.*, test.*
-  if (/^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(name)) return "User";
-  return name;
-}
-
-// Helper to get avatar initial from display name (not raw username)
-function getAvatarInitial(user: { name: string; displayName: string } | null): string {
-  if (!user) return "U";
-  const cleanName = getCleanDisplayName(user);
-  return cleanName.charAt(0).toUpperCase();
+  onProfile?: () => void;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -201,6 +181,7 @@ export default function AppHeader({
   onOpenSearch,
   onChangePassword,
   onLogout,
+  onProfile,
 }: AppHeaderProps) {
   // ── Notification State ──
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -364,50 +345,51 @@ export default function AppHeader({
   // ────────────────────────────────────────────────────────
   return (
     <header
-      className={`fixed top-0 right-0 z-30 h-14 bg-white dark:bg-[#132240] border-b border-border shadow-sm transition-all duration-300 ${
+      className={`fixed top-0 right-0 z-30 h-12 sm:h-14 bg-white dark:bg-[#132240] border-b border-border shadow-sm transition-all duration-300 ${
         sidebarCollapsed ? "left-0 md:left-16" : "left-0 md:left-64"
       }`}
     >
-      <div className="h-full flex items-center justify-between px-4">
+      <div className="h-full flex items-center justify-between px-2 sm:px-4">
         {/* ── LEFT SIDE: Mobile menu + Breadcrumb ── */}
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden"
+            className="md:hidden min-w-[44px] min-h-[44px]"
             onClick={onToggleMobileMenu}
           >
             <Menu className="w-5 h-5" />
           </Button>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-1 sm:gap-2 text-sm text-muted-foreground min-w-0">
             <Button
               variant="ghost"
               size="sm"
+              className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 shrink-0"
               onClick={() => onNavigate("dashboard")}
             >
               <Home className="w-4 h-4" />
             </Button>
             {currentGroupLabel && (
               <>
-                <ChevronRight className="w-3 h-3" />
-                <span className="truncate max-w-[120px] sm:max-w-none">{currentGroupLabel}</span>
+                <ChevronRight className="w-3 h-3 hidden sm:block shrink-0" />
+                <span className="truncate max-w-[80px] sm:max-w-none hidden sm:inline">{currentGroupLabel}</span>
               </>
             )}
             {currentPage === "change-password" && (
               <>
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className="w-3 h-3 shrink-0" />
                 <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">Change Password</span>
               </>
             )}
             {currentPage === "profile" && (
               <>
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className="w-3 h-3 shrink-0" />
                 <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">My Profile</span>
               </>
             )}
             {currentPageLabel && currentPage !== "change-password" && currentPage !== "profile" && (
               <>
-                <ChevronRight className="w-3 h-3" />
+                <ChevronRight className="w-3 h-3 shrink-0" />
                 <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">{currentPageLabel}</span>
               </>
             )}
@@ -416,7 +398,15 @@ export default function AppHeader({
 
         {/* ── RIGHT SIDE: Search + Theme + Notifications + User ── */}
         <div className="flex items-center gap-2">
-          {/* Search Button */}
+          {/* Search Button — icon-only on mobile, full on desktop */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="md:hidden min-w-[44px] min-h-[44px] h-9 w-9 p-0 text-muted-foreground"
+            onClick={onOpenSearch}
+          >
+            <Search className="w-4 h-4" />
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -434,7 +424,7 @@ export default function AppHeader({
           <Button
             variant="ghost"
             size="sm"
-            className="text-muted-foreground"
+            className="text-muted-foreground min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0"
             onClick={onToggleTheme}
           >
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -448,7 +438,7 @@ export default function AppHeader({
               <Button
                 variant="ghost"
                 size="sm"
-                className="relative text-muted-foreground"
+                className="relative text-muted-foreground min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0"
               >
                 <Bell className={`w-4 h-4 ${unreadCount > 0 ? "animate-[swing_0.5s_ease-in-out]" : ""}`} />
                 {unreadCount > 0 && (
@@ -646,53 +636,33 @@ export default function AppHeader({
             <Button
               variant="ghost"
               size="sm"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0"
               onClick={() => setUserMenuOpen(!userMenuOpen)}
             >
-              {user?.profileImage ? (
-                <img
-                  src={user.profileImage}
-                  alt={getCleanDisplayName(user)}
-                  className="w-7 h-7 rounded-full object-cover border-2 border-white/20"
-                />
-              ) : (
-                <div
-                  className={`w-7 h-7 rounded-full ${
-                    user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
-                  } flex items-center justify-center text-white text-xs font-bold`}
-                >
-                  {getAvatarInitial(user)}
-                </div>
-              )}
+              <div
+                className={`w-7 h-7 rounded-full ${
+                  user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
+                } flex items-center justify-center text-white text-xs font-bold`}
+              >
+                {(user?.displayName || user?.name)?.charAt(0).toUpperCase() || "U"}
+              </div>
               <span className="hidden md:inline text-sm">
-                {getCleanDisplayName(user)}
+                {user?.displayName || user?.name || "User"}
               </span>
-              {user?.role && (
-                <Badge
-                  className={`${ROLE_COLORS[user.role]} text-white text-[10px] px-1.5 py-0 ml-1`}
-                >
-                  {ROLE_LABELS[user.role]}
-                </Badge>
-              )}
-              {isVatAuditor && (
-                <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 ml-0.5">
-                  🔒 VAT AUDIT
-                </Badge>
-              )}
               <ChevronDown className="w-3 h-3" />
             </Button>
             {userMenuOpen && (
               <div className="absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-4 py-2 border-b">
                   <p className="text-sm font-medium">
-                    {getCleanDisplayName(user)}
+                    {user?.displayName || user?.name || "User"}
                   </p>
-                  <p className="text-xs text-muted-foreground">{user?.role ? ROLE_LABELS[user.role] : ""}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
                 <button
                   onClick={() => {
                     setUserMenuOpen(false);
-                    onNavigate("profile");
+                    onProfile?.();
                   }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-muted"
                 >

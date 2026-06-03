@@ -25,7 +25,7 @@ import type { CompanyProfile } from "@/lib/export-utils";
 // UTILITY FUNCTIONS (local copies for standalone component)
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-BD", {
+const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
@@ -423,10 +423,10 @@ export default function ExpensesIncomesPage() {
         vatMaskedColumns: isVatAuditor ? ["amount", "chequeNo", "voucherNo"] : [],
         company: companyProfile,
         financialFooter: {
-          preparedBy: user?.displayName || "",
+          preparedBy: user?.displayName || "System",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
+          printedBy: user?.displayName || "System",
         },
       });
       toast({ title: "Exported", description: `${tabLabel}s exported to PDF` });
@@ -548,7 +548,7 @@ export default function ExpensesIncomesPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as "heads" | "expenses" | "incomes"); setSearch(""); setHeadSearch(""); setExpandedRows(new Set()); }}>
-        <TabsList>
+        <TabsList className="flex overflow-x-auto gap-1 pb-1 scrollbar-none">
           <TabsTrigger value="heads" className="flex items-center gap-1">
             <FileText className="w-4 h-4" />Heads
           </TabsTrigger>
@@ -596,8 +596,8 @@ export default function ExpensesIncomesPage() {
                   </div>
                 </div>
               )}
-              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                <Table>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>#</TableHead>
@@ -661,7 +661,7 @@ export default function ExpensesIncomesPage() {
       </Tabs>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
         {[
           { label: `Total ${tabLabel}s`, value: totalCount, icon: activeTab === "expenses" ? ArrowDownCircle : ArrowUpCircle, color: activeTab === "expenses" ? "text-red-600" : "text-green-600", bg: activeTab === "expenses" ? "bg-red-50 dark:bg-red-900/30" : "bg-green-50 dark:bg-green-900/30" },
           { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(totalAmount, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
@@ -685,7 +685,7 @@ export default function ExpensesIncomesPage() {
             </div>
             <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
           </div>
-          <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
+          <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
@@ -741,7 +741,7 @@ export default function ExpensesIncomesPage() {
                     {expandedRows.has(item.id) && (
                       <TableRow>
                         <TableCell colSpan={9} className="bg-muted/30 p-3">
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 text-sm">
                             <div><span className="text-muted-foreground">Head:</span> <span className="font-medium text-slate-900 dark:text-white">{item.head?.name || "\u2014"}</span></div>
                             <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : (item.bank?.bankName || "\u2014")}</span></div>
                             <div><span className="text-muted-foreground">Bank Account:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : (item.bank?.accountNo || item.bank?.accountNumber || "\u2014")}</span></div>
@@ -765,10 +765,10 @@ export default function ExpensesIncomesPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} {tabLabel}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Code - Auto-generated, read-only */}
               <div className="space-y-1.5">
                 <Label>{codePrefix} Code</Label>
@@ -875,7 +875,7 @@ export default function ExpensesIncomesPage() {
 
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
           <DialogDescription>Delete {tabLabel} {deleteItem?.[codeField]}? This cannot be undone.</DialogDescription>
           <DialogFooter>

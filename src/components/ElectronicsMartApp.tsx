@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   LayoutDashboard, TrendingUp, Building2, Tag, Palette, Package, Banknote,
-  Building, Warehouse, Percent, Layers, Box, Target, CreditCard, Settings,
+  Building, Warehouse, Percent, Layers, Box, Target, CreditCard, Settings, Archive, Calculator,
   Hash, Ruler,
   Users, UserCircle, ClipboardList, ShoppingCart, Truck, Receipt, RotateCcw,
   ArrowLeftRight, BarChart3, MessageSquare, FileText, Search, Bell, Moon,
@@ -18,7 +18,7 @@ import {
   DollarSign, ArrowUpCircle, ArrowDownCircle, Send, Inbox, Phone,
   Calendar, CheckCircle, AlertTriangle, XCircle, Info, ChevronLeft,
   MoreVertical, Copy, FileSpreadsheet, FileDown, ArrowUpDown, Activity,
-  KeyRound, ShieldCheck, Pencil, ShieldAlert
+  KeyRound, ShieldCheck, Pencil, Loader2
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -35,39 +35,36 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { CommandDialog, CommandInput, CommandList, CommandGroup, CommandItem, CommandEmpty } from "@/components/ui/command";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
-import ExpensesIncomesPage from "@/components/ExpensesIncomesPage";
-import CashCollectionsDeliveriesPage from "@/components/CashCollectionsDeliveriesPage";
-import BankTransactionsPage from "@/components/BankTransactionsPage";
+import AccountManagementPage from "@/components/AccountManagementPage";
 import ChartOfAccountsLedgerPage from "@/components/ChartOfAccountsLedgerPage";
-import AccountsLedgerPage from "@/components/AccountsLedgerPage";
 import AccountingReportsPage from "@/components/AccountingReportsPage";
 import BalanceSheetPeriodClosePage from "@/components/BalanceSheetPeriodClosePage";
-import FinancialStatementsPage from "@/components/FinancialStatementsPage";
 import DashboardAnalyticsPage from "@/components/DashboardAnalyticsPage";
 import MISReportEngine from "@/components/MISReportEngine";
 import CustomerSupplierLedgerPage from "@/components/CustomerSupplierLedgerPage";
 import SMSAnalyticsPage from "@/components/SMSAnalyticsPage";
 import InvestmentGroupPage from "@/components/InvestmentGroupPage";
 import BasicModulesGroupPage from "@/components/BasicModulesGroupPage";
+import OperationsModulePage from "@/components/OperationsModulePage";
+import StructureModulePage from "@/components/StructureModulePage";
+import InterestPercentageEnginePage from "@/components/InterestPercentageEnginePage";
 import PersonnelCRMGroupPage from "@/components/PersonnelCRMGroupPage";
+import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import InventoryGroupPage from "@/components/InventoryGroupPage";
+import SalesModulePage from "@/components/SalesModulePage";
+import StockModulePage from "@/components/StockModulePage";
+import ReturnReplacementModulePage from "@/components/ReturnReplacementModulePage";
 import FinancialAuditGroupPage from "@/components/FinancialAuditGroupPage";
 import SystemSettingsGroupPage from "@/components/SystemSettingsGroupPage";
 import AuditTrailViewer from "@/components/AuditTrailViewer";
-import SecurityAuditCenter from "@/components/SecurityAuditCenter";
-import ProfileCenter from "@/components/ProfileCenter";
-import POSTerminalPage from "@/components/POSTerminalPage";
-import MultiBranchConsolidationPage from "@/components/MultiBranchConsolidationPage";
-import StagingQAPage from "@/components/StagingQAPage";
 import AppHeader from "@/components/erp/layout/AppHeader";
-import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS, exportInvoicePDF } from "@/lib/export-utils";
-import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, InvoiceMetadata, PaymentBreakdown, LegalFooterConfig, InvoicePDFOptions, CompanyProfile } from "@/lib/export-utils";
+import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
+import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
 
 // ============================================================
 // TYPES & INTERFACES
@@ -76,13 +73,10 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptio
 type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
 interface AuthUser {
-  name: string;       // Clean display name (never raw username like "emart.amit")
-  email: string;      // Login email / username for API RBAC
+  name: string;
+  email: string;
   role: UserRole;
-  displayName: string; // Same as name — always the clean display name
-  profileImage?: string | null;  // Base64 avatar image
-  phone?: string | null;         // Contact number
-  designation?: string | null;   // Job title
+  displayName: string;
 }
 
 interface ColumnDef {
@@ -128,15 +122,15 @@ interface SidebarGroup {
 
 const ROLE_CREDENTIALS: Record<string, { password: string; role: UserRole; displayName: string }> = {
   "emart.amit": { password: "Test_123", role: "admin", displayName: "Amit Sharma" },
-  "emart.manager": { password: "Manager_123", role: "manager", displayName: "Rajesh Kumar" },
-  "emart.sr": { password: "SR_123", role: "sr", displayName: "Suresh Roy" },
-  "emart.dealer": { password: "Dealer_123", role: "dealer", displayName: "Mizan Ahmed" },
-  "emart.vat": { password: "VAT_123", role: "vat_auditor", displayName: "Kamal Hossain" },
+  "emart.manager": { password: "Manager_123", role: "manager", displayName: "Rakib Hasan" },
+  "emart.sr": { password: "SR_123", role: "sr", displayName: "Kamal Hossain" },
+  "emart.dealer": { password: "Dealer_123", role: "dealer", displayName: "Rahim Uddin" },
+  "emart.vat": { password: "VAT_123", role: "vat_auditor", displayName: "Kashem Miah" },
 };
 
 const ROLE_ACCESS: Record<UserRole, string[]> = {
   admin: ["*"],
-  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "multi-branch", "mis-report", "system-settings"],
+  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report", "system-settings"],
   sr: ["basic-modules", "staff", "customers-suppliers", "inventory", "sms"],
   dealer: ["basic-modules", "customers-suppliers", "inventory"],
   vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report", "system-settings"],
@@ -162,10 +156,9 @@ const ROLE_LABELS: Record<UserRole, string> = {
 const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ["_placeholder_sr_override_below_"],
-  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "financial-statements", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "security-center", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report", "branch-management", "inter-branch-transfers", "consolidated-statements", "consolidation-history"],
-  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "financial-statements", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "security-center", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "branch-management", "inter-branch-transfers", "consolidated-statements", "consolidation-history"],
-  vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report", "inter-branch-transfers"],
+  dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
+  sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms"],
+  vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
 };
 
 function hasItemAccess(role: UserRole, itemKey: string): boolean {
@@ -193,20 +186,6 @@ function useAuth() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        // SAFETY NET: Sanitize any raw username leaks in localStorage auth state
-        if (parsed?.user) {
-          const rawPatterns = /^(emart\.|admin\.|user\.|sys\.|test\.)/i;
-          if (rawPatterns.test(parsed.user.name)) {
-            const cred = ROLE_CREDENTIALS[parsed.user.email];
-            parsed.user.name = cred?.displayName || "User";
-          }
-          if (rawPatterns.test(parsed.user.displayName)) {
-            const cred = ROLE_CREDENTIALS[parsed.user.email];
-            parsed.user.displayName = cred?.displayName || "User";
-          }
-          // Re-save sanitized state
-          localStorage.setItem("ems_auth", JSON.stringify(parsed));
-        }
         authState = parsed;
         authListeners.forEach(l => l());
       } catch {}
@@ -224,23 +203,15 @@ function useAuth() {
       if (!res.ok) return false;
       const serverUser = await res.json();
       // Map server response to client-side auth state
-      // CRITICAL: 'name' field stores the CLEAN DISPLAY NAME from DB, NEVER the raw username
       const cred = ROLE_CREDENTIALS[username];
-      let cleanDisplayName = serverUser.name || cred?.displayName || username;
-      // SAFETY NET: If cleanDisplayName looks like a raw login identifier (emart.*, etc.), mask it
-      if (/^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(cleanDisplayName)) {
-        cleanDisplayName = cred?.displayName || "User";
-      }
+      const resolvedDisplayName = serverUser.displayName || serverUser.name || cred?.displayName || username;
       authState = {
         isAuthenticated: true,
         user: {
-          name: cleanDisplayName,  // Always the clean display name (e.g., "Amit Sharma"), never "emart.amit"
+          name: resolvedDisplayName, // Always use display name, never raw username
           email: serverUser.email || username, // Use DB email for server-side RBAC lookup
           role: (serverUser.role as UserRole) || cred?.role || "admin",
-          displayName: cleanDisplayName,
-          profileImage: serverUser.profileImage || null,
-          phone: serverUser.phone || null,
-          designation: serverUser.designation || null,
+          displayName: resolvedDisplayName,
         },
       };
       localStorage.setItem("ems_auth", JSON.stringify(authState));
@@ -250,10 +221,9 @@ function useAuth() {
       // Fallback: client-side validation if server unreachable
       const cred = ROLE_CREDENTIALS[username];
       if (cred && cred.password === password) {
-        // CRITICAL: Use displayName from credentials mapping, never raw username
         authState = {
           isAuthenticated: true,
-          user: { name: cred.displayName, email: username, role: cred.role, displayName: cred.displayName, profileImage: null, phone: null, designation: null },
+          user: { name: cred.displayName, email: username, role: cred.role, displayName: cred.displayName },
         };
         localStorage.setItem("ems_auth", JSON.stringify(authState));
         authListeners.forEach(l => l());
@@ -285,7 +255,7 @@ function useAuth() {
 // UTILITY FUNCTIONS
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
@@ -347,10 +317,10 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "brands", label: "Brands", icon: Box, parent: "Core Config" },
       { key: "units", label: "Units", icon: Hash, parent: "Core Config" },
       { key: "products", label: "Products", icon: Package },
-      { key: "banks", label: "Bank", icon: Banknote, apiPath: "/api/banks", columns: [{ key: "bankName", label: "Bank Name", type: "text" }, { key: "branch", label: "Branch", type: "text" }, { key: "accountNo", label: "Account No", type: "text" }, { key: "accountHolder", label: "Account Holder", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "currentBalance", label: "Current Balance", type: "currency" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "bankName", label: "Bank Name", type: "text", required: true }, { key: "branch", label: "Branch", type: "text" }, { key: "accountNo", label: "Account No", type: "text", required: true }, { key: "accountHolder", label: "Account Holder", type: "text", required: true }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "banks", label: "Bank", icon: Banknote, apiPath: "/api/banks", columns: [{ key: "bankName", label: "Bank Name", type: "text" }, { key: "bankType", label: "Type", type: "text" }, { key: "branch", label: "Branch", type: "text" }, { key: "accountNo", label: "Account No", type: "text" }, { key: "accountHolder", label: "Account Holder", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "currentBalance", label: "Current Balance", type: "currency" }, { key: "chartOfAccount.name", label: "CoA Mapping", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "bankName", label: "Bank Name", type: "text", required: true }, { key: "bankType", label: "Account Type", type: "select", required: true, options: [{ value: "Bank", label: "Bank Account" }, { value: "MFS", label: "Mobile Financial Service (Bkash/Nagad)" }, { value: "CashDrawer", label: "Physical Cash Drawer" }] }, { key: "branch", label: "Branch", type: "text" }, { key: "accountNo", label: "Account No", type: "text", required: true }, { key: "accountHolder", label: "Account Holder", type: "text", required: true }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0, step: "0.01" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
       { key: "departments", label: "Department", icon: Building, parent: "Structure" },
       { key: "godowns", label: "Godowns", icon: Warehouse, parent: "Structure" },
-      { key: "interest-percentages", label: "Interest Percentage", icon: Percent, apiPath: "/api/interest-percentages", columns: [{ key: "percentage", label: "Percentage", type: "number" }, { key: "effectiveDate", label: "Effective Date", type: "date" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "percentage", label: "Percentage", type: "number", required: true }, { key: "effectiveDate", label: "Effective Date", type: "date", required: true }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "interest-percentages", label: "Interest % Engine", icon: Percent, parent: "Structure" },
       { key: "segments", label: "Segment", icon: Layers, parent: "Structure" },
       { key: "capacities", label: "Capacity", icon: Hash, parent: "Structure" },
       { key: "sr-targets", label: "SR Target Setup", icon: Target, parent: "Operations" },
@@ -395,12 +365,10 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "replacements", label: "Replacement Order", apiPath: "/api/replacements", columns: [{ key: "replacementNo", label: "Replacement No", type: "text" }, { key: "date", label: "Date", type: "date" }, { key: "reason", label: "Reason", type: "text" }, { key: "status", label: "Status", type: "text" }], formFields: [{ key: "replacementNo", label: "Replacement No", type: "text", required: true }, { key: "salesOrderId", label: "Sales Order", type: "select", options: [] }, { key: "date", label: "Date", type: "date", required: true }, { key: "reason", label: "Reason", type: "textarea" }, { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Completed", label: "Completed" }], defaultValue: "Pending" }] },
       { key: "stock", label: "Stock", icon: Package },
       { key: "stock-details", label: "Stock Details", icon: BarChart3 },
-      { key: "opening-stock", label: "Opening Stock", icon: Package },
-      { key: "batch-master", label: "Batch Master", icon: Hash },
-      { key: "stock-valuation", label: "Valuation", icon: TrendingUp },
       { key: "stock-transfers", label: "Transfer", icon: ArrowLeftRight },
-      { key: "damage-logs", label: "Damage Log", icon: AlertTriangle },
-      { key: "pos-terminal", label: "POS Terminal", icon: ShoppingCart },
+      { key: "opening-stock", label: "Opening Stock", icon: Archive },
+      { key: "batch-master", label: "Batch Master", icon: Layers },
+      { key: "valuation", label: "Valuation", icon: Calculator },
     ],
   },
   {
@@ -437,13 +405,6 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     items: [
       { key: "chart-of-accounts", label: "Chart of Accounts & Ledger" },
       { key: "cash-in-hand", label: "Cash In Hand" },
-      { key: "journal-voucher", label: "Journal Voucher", parent: "Voucher Entry", icon: FileText },
-      { key: "cash-receipt", label: "Cash Receipt Voucher", parent: "Voucher Entry", icon: ArrowUpCircle },
-      { key: "cash-payment", label: "Cash Payment Voucher", parent: "Voucher Entry", icon: ArrowDownCircle },
-      { key: "bank-receipt", label: "Bank Receipt Voucher", parent: "Voucher Entry", icon: Banknote },
-      { key: "bank-payment", label: "Bank Payment Voucher", parent: "Voucher Entry", icon: Send },
-      { key: "voucher-register", label: "Voucher Register", parent: "Voucher Register", icon: ClipboardList },
-      { key: "financial-statements", label: "Financial Statements & Year-End Close" },
       { key: "trial-balance", label: "Trial Balance" },
       { key: "profit-loss", label: "Profit and Loss Account" },
       { key: "balance-sheet", label: "Balance Sheet & Period Close" },
@@ -455,21 +416,12 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     icon: ShieldCheck,
     items: [
       { key: "dashboard-kpi", label: "Dashboard KPI", parent: "Audit & Integrity" },
+      { key: "fraud-detection", label: "Fraud Detection", parent: "Audit & Integrity" },
       { key: "ledger-auto-post", label: "Ledger Auto-Post", parent: "Audit & Integrity" },
       { key: "inventory-aging", label: "Inventory Aging", parent: "Audit & Integrity" },
       { key: "product-lifecycle", label: "Product Lifecycle", parent: "Audit & Integrity" },
+      { key: "specialized-reports", label: "Specialized Reports", parent: "Audit & Integrity" },
       { key: "notifications-integrity", label: "Notifications & Integrity", parent: "Audit & Integrity" },
-    ],
-  },
-  {
-    key: "multi-branch",
-    label: "Multi-Branch & Consolidation",
-    icon: Building2,
-    items: [
-      { key: "branch-management", label: "Branch Management", parent: "Branch Setup", icon: Building2 },
-      { key: "inter-branch-transfers", label: "Inter-Branch Transfers", parent: "Branch Setup", icon: ArrowLeftRight },
-      { key: "consolidated-statements", label: "Consolidated Statements", parent: "Holding Reports", icon: BarChart3 },
-      { key: "consolidation-history", label: "Consolidation History", parent: "Holding Reports", icon: FileText },
     ],
   },
   {
@@ -485,6 +437,10 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "stock-qty-report", label: "Stock Quantity Report", parent: "Basic Report", isReport: true, reportType: "stock-qty" },
       { key: "stock-forecast-product", label: "Stock Forcasting (Product Wise)", parent: "Basic Report", isReport: true, reportType: "stock-forecast-product" },
       { key: "stock-forecast-concern", label: "Stock Forcasting (Concern Wise)", parent: "Basic Report", isReport: true, reportType: "stock-forecast-concern" },
+      { key: "stock-trends-report", label: "Stock Trend Analysis", parent: "Basic Report", isReport: true, reportType: "stock-trends" },
+      { key: "supplier-status-report", label: "Supplier Status Grid", parent: "Basic Report", isReport: true, reportType: "supplier-status" },
+      { key: "sales-performance-report", label: "Sales Performance", parent: "Basic Report", isReport: true, reportType: "sales-performance" },
+      { key: "employee-records-report", label: "Employee Records", parent: "Basic Report", isReport: true, reportType: "employee-records" },
       { key: "supplier-ledger-report", label: "Supplier Ledger", parent: "Purchase Report", isReport: true, reportType: "supplier-ledger" },
       { key: "daily-purchase-report", label: "Daily Purchase Report", parent: "Purchase Report", isReport: true, reportType: "daily-purchase" },
       { key: "supplier-wise-purchase", label: "Suppliers Wise Purchase", parent: "Purchase Report", isReport: true, reportType: "supplier-wise-purchase" },
@@ -536,9 +492,7 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "invoice-templates", label: "Invoice Templates", parent: "Configuration" },
       { key: "number-formats", label: "Number Formats", parent: "Configuration" },
       { key: "audit-trail", label: "Audit Trail Viewer", parent: "Audit & Search" },
-      { key: "security-center", label: "Security Center", parent: "Audit & Search" },
       { key: "performance-cache", label: "Performance & Cache", parent: "Audit & Search" },
-      { key: "staging-qa", label: "Staging & QA", parent: "Staging & QA" },
     ],
   },
 ];
@@ -1037,7 +991,9 @@ function ProductsPage() {
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, { value: string; label: string }[]>>({});
+  const [companyProfile, setCompanyProfile] = useState<any>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1052,6 +1008,17 @@ function ProductsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Load company profile for white-label PDF
+  useEffect(() => {
+    const loadCompanyProfile = async () => {
+      try {
+        const profile = await apiFetch("/api/company-branding");
+        setCompanyProfile(profile);
+      } catch {}
+    };
+    loadCompanyProfile();
+  }, []);
+
   const loadDynamicOpts = useCallback(async () => {
     const keys = ["colorId", "brandId", "godownId", "segmentId", "companyId"];
     const results = await Promise.all(keys.map(async (k) => {
@@ -1063,14 +1030,22 @@ function ProductsPage() {
     setDynamicOptions(prev => ({ ...prev, ...newOpts }));
   }, []);
 
+  // ── Currency Sanitization Filter: Eliminates corrupted floating-point digits in financial figures ──
+  const sanitizeCurrency = (val: any): number => {
+    const num = Number(val);
+    if (isNaN(num) || !isFinite(num)) return 0;
+    return Math.round(num * 100) / 100;
+  };
+
   const filtered = useMemo(() => {
     let result = data;
-    if (search) { const s = search.toLowerCase(); result = result.filter((p: any) => p.name?.toLowerCase().includes(s) || p.productCode?.toLowerCase().includes(s)); }
+    if (search) { const s = search.toLowerCase(); result = result.filter((p: any) => p.name?.toLowerCase().includes(s) || p.productCode?.toLowerCase().includes(s) || p.sku?.toLowerCase().includes(s) || p.barcode?.toLowerCase().includes(s) || p.brand?.name?.toLowerCase().includes(s)); }
     if (imeiSearch) { const s = imeiSearch.toLowerCase(); result = result.filter((p: any) => p.imeiNumber?.toLowerCase().includes(s)); }
     if (catFilter !== "all") result = result.filter((p: any) => p.categoryId === catFilter);
-    if (stockFilter === "in") result = result.filter((p: any) => (p.openingStock || 0) > (p.reorderLevel || 0));
-    if (stockFilter === "low") result = result.filter((p: any) => (p.openingStock || 0) > 0 && (p.openingStock || 0) <= (p.reorderLevel || 0));
-    if (stockFilter === "out") result = result.filter((p: any) => (p.openingStock || 0) <= 0);
+    // Use computed currentStock & stockStatus from enhanced API
+    if (stockFilter === "in") result = result.filter((p: any) => (p.stockStatus || (p.currentStock != null ? (p.currentStock > (p.reorderLevel || 0) ? "In Stock" : p.currentStock > 0 ? "Low Stock" : "Out of Stock") : ((p.openingStock || 0) > (p.reorderLevel || 0) ? "In Stock" : (p.openingStock || 0) > 0 ? "Low Stock" : "Out of Stock"))) === "In Stock");
+    if (stockFilter === "low") result = result.filter((p: any) => (p.stockStatus || (p.currentStock != null ? (p.currentStock > (p.reorderLevel || 0) ? "In Stock" : p.currentStock > 0 ? "Low Stock" : "Out of Stock") : ((p.openingStock || 0) > (p.reorderLevel || 0) ? "In Stock" : (p.openingStock || 0) > 0 ? "Low Stock" : "Out of Stock"))) === "Low Stock");
+    if (stockFilter === "out") result = result.filter((p: any) => (p.stockStatus || (p.currentStock != null ? (p.currentStock > (p.reorderLevel || 0) ? "In Stock" : p.currentStock > 0 ? "Low Stock" : "Out of Stock") : ((p.openingStock || 0) > (p.reorderLevel || 0) ? "In Stock" : (p.openingStock || 0) > 0 ? "Low Stock" : "Out of Stock"))) === "Out of Stock");
     return result;
   }, [data, search, imeiSearch, catFilter, stockFilter]);
 
@@ -1080,6 +1055,8 @@ function ProductsPage() {
     const base: FieldDef[] = [
       { key: "name", label: "Product Name", type: "text", required: true },
       { key: "productCode", label: "Product Code", type: "text", required: false, placeholder: "Auto-generated" },
+      { key: "sku", label: "SKU", type: "text", required: false, placeholder: "Unique Stock Keeping Unit" },
+      { key: "barcode", label: "Barcode", type: "text", required: false, placeholder: "Unique barcode identifier" },
       { key: "categoryId", label: "Category", type: "select", required: true, options: categories.map(c => ({ value: c.id, label: c.name })) },
       { key: "brandId", label: "Brand", type: "select", options: dynamicOptions.brandId || [] },
       { key: "unit", label: "Unit", type: "text" },
@@ -1094,6 +1071,7 @@ function ProductsPage() {
       { key: "godownId", label: "Godown", type: "select", options: dynamicOptions.godownId || [] },
       { key: "segmentId", label: "Segment", type: "select", options: dynamicOptions.segmentId || [] },
       { key: "companyId", label: "Company", type: "select", options: dynamicOptions.companyId || [] },
+      { key: "image", label: "Product Image", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ];
     if (isVatAuditor) return base.filter(f => !VAT_HIDDEN.includes(f.key));
@@ -1117,6 +1095,7 @@ function ProductsPage() {
   };
 
   const handleSave = async () => {
+    setSaveError(null);
     setSaving(true);
     try {
       if (editItem) {
@@ -1127,8 +1106,13 @@ function ProductsPage() {
         toast({ title: "Created", description: "Product created" });
       }
       setShowForm(false); load();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      const msg = e.message || "Failed to save";
+      if (msg.includes("SKU_COLLISION") || msg.includes("BARCODE_COLLISION") || msg.includes("DUPLICATE_NAME") || msg.includes("already exists")) {
+        setSaveError(msg);
+      }
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
@@ -1142,31 +1126,161 @@ function ProductsPage() {
   const getCatName = (id: string) => categories.find((c: any) => c.id === id)?.name || "—";
 
   const exportCSV = () => {
-    const headers = isVatAuditor
-      ? ["Code", "Name", "Category", "MRP", "Stock", "Status"]
-      : ["Code", "Name", "Category", "Cost Price", "MRP", "Wholesale", "Dealer", "Stock", "Status"];
-    const rows = filtered.map((item: any) => {
-      const stock = item.openingStock || 0;
-      const reorder = item.reorderLevel || 0;
-      const status = stock <= 0 ? "Out" : stock <= reorder ? "Low" : "In";
-      if (isVatAuditor) return [item.productCode, item.name, getCatName(item.categoryId), item.salePrice, stock, status].map(String);
-      return [item.productCode, item.name, getCatName(item.categoryId), item.costPrice, item.salePrice, item.wholesalePrice, item.dealerPrice, stock, status].map(String);
-    });
-    try { exportToCSVSimple("Products", headers, rows); toast({ title: "Exported", description: "Products exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try {
+      const csvColumns: ColumnDef[] = isVatAuditor
+        ? [
+            { key: "productCode", label: "Code", type: "text" as const },
+            { key: "sku", label: "SKU", type: "text" as const },
+            { key: "name", label: "Name", type: "text" as const },
+            { key: "category", label: "Category", type: "text" as const },
+            { key: "salePrice", label: "MRP", type: "currency" as const },
+            { key: "currentStock", label: "Stock", type: "number" as const },
+            { key: "stockStatus", label: "Status", type: "text" as const },
+            { key: "skuStatus", label: "SKU Status", type: "text" as const },
+          ]
+        : [
+            { key: "productCode", label: "Code", type: "text" as const },
+            { key: "sku", label: "SKU", type: "text" as const },
+            { key: "barcode", label: "Barcode", type: "text" as const },
+            { key: "name", label: "Name", type: "text" as const },
+            { key: "category", label: "Category", type: "text" as const },
+            { key: "brand", label: "Brand", type: "text" as const },
+            { key: "costPrice", label: "Cost Price", type: "currency" as const },
+            { key: "salePrice", label: "MRP", type: "currency" as const },
+            { key: "wholesalePrice", label: "Wholesale", type: "currency" as const },
+            { key: "dealerPrice", label: "Dealer", type: "currency" as const },
+            { key: "currentStock", label: "Stock", type: "number" as const },
+            { key: "reorderLevel", label: "Reorder Level", type: "number" as const },
+            { key: "stockStatus", label: "Status", type: "text" as const },
+            { key: "skuStatus", label: "SKU Status", type: "text" as const },
+          ];
+      const csvData = filtered.map((item: any) => {
+        const cs = item.currentStock != null ? item.currentStock : (item.openingStock || 0);
+        const ss = item.stockStatus || (cs <= 0 ? "Out of Stock" : cs <= (item.reorderLevel || 0) ? "Low Stock" : "In Stock");
+        const sks = item.skuStatus || (item.sku && item.barcode ? "Active" : item.sku ? "No Barcode" : "No SKU");
+        return {
+          productCode: item.productCode || "",
+          sku: item.sku || "",
+          barcode: item.barcode || "",
+          name: item.name || "",
+          category: getCatName(item.categoryId),
+          brand: item.brand?.name || "—",
+          costPrice: sanitizeCurrency(item.costPrice),
+          salePrice: sanitizeCurrency(item.salePrice),
+          wholesalePrice: sanitizeCurrency(item.wholesalePrice),
+          dealerPrice: sanitizeCurrency(item.dealerPrice),
+          currentStock: cs,
+          reorderLevel: item.reorderLevel || 0,
+          stockStatus: ss,
+          skuStatus: sks,
+        };
+      });
+      exportToCSV({
+        title: "Products",
+        columns: csvColumns,
+        data: csvData,
+        isVatAuditor,
+        vatMaskedColumns: isVatAuditor ? ["costPrice", "wholesalePrice", "dealerPrice"] : [],
+      });
+      toast({ title: "Exported", description: "Products exported to CSV" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    const headers = isVatAuditor
-      ? ["Code", "Name", "Category", "MRP", "Stock", "Status"]
-      : ["Code", "Name", "Category", "Cost", "MRP", "Wholesale", "Dealer", "Stock", "Status"];
-    const body = filtered.map((item: any) => {
-      const stock = item.openingStock || 0;
-      const reorder = item.reorderLevel || 0;
-      const status = stock <= 0 ? "Out" : stock <= reorder ? "Low" : "In";
-      if (isVatAuditor) return [item.productCode, item.name, getCatName(item.categoryId), item.salePrice, stock, status].map(String);
-      return [item.productCode, item.name, getCatName(item.categoryId), item.costPrice, item.salePrice, item.wholesalePrice, item.dealerPrice, stock, status].map(String);
-    });
-    try { exportToPDFSimple("Products", headers, body, "landscape"); toast({ title: "Exported", description: "Products exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try {
+      const pdfColumns: ColumnDef[] = isVatAuditor
+        ? [
+            { key: "productCode", label: "Code", type: "text" as const },
+            { key: "sku", label: "SKU", type: "text" as const },
+            { key: "name", label: "Name", type: "text" as const },
+            { key: "category", label: "Category", type: "text" as const },
+            { key: "salePrice", label: "MRP", type: "currency" as const },
+            { key: "currentStock", label: "Stock", type: "number" as const },
+            { key: "stockStatus", label: "Status", type: "text" as const },
+            { key: "skuStatus", label: "SKU Status", type: "text" as const },
+          ]
+        : [
+            { key: "productCode", label: "Code", type: "text" as const },
+            { key: "sku", label: "SKU", type: "text" as const },
+            { key: "barcode", label: "Barcode", type: "text" as const },
+            { key: "name", label: "Name", type: "text" as const },
+            { key: "category", label: "Category", type: "text" as const },
+            { key: "brand", label: "Brand", type: "text" as const },
+            { key: "costPrice", label: "Cost", type: "currency" as const },
+            { key: "salePrice", label: "MRP", type: "currency" as const },
+            { key: "wholesalePrice", label: "Wholesale", type: "currency" as const },
+            { key: "dealerPrice", label: "Dealer", type: "currency" as const },
+            { key: "currentStock", label: "Stock", type: "number" as const },
+            { key: "reorderLevel", label: "Reorder", type: "number" as const },
+            { key: "stockStatus", label: "Status", type: "text" as const },
+          ];
+      const pdfData = filtered.map((item: any) => {
+        const cs = item.currentStock != null ? item.currentStock : (item.openingStock || 0);
+        const ss = item.stockStatus || (cs <= 0 ? "Out of Stock" : cs <= (item.reorderLevel || 0) ? "Low Stock" : "In Stock");
+        const sks = item.skuStatus || (item.sku && item.barcode ? "Active" : item.sku ? "No Barcode" : "No SKU");
+        return {
+          productCode: item.productCode || "",
+          sku: item.sku || "",
+          barcode: item.barcode || "",
+          name: item.name || "",
+          category: getCatName(item.categoryId),
+          brand: item.brand?.name || "—",
+          costPrice: sanitizeCurrency(item.costPrice),
+          salePrice: sanitizeCurrency(item.salePrice),
+          wholesalePrice: sanitizeCurrency(item.wholesalePrice),
+          dealerPrice: sanitizeCurrency(item.dealerPrice),
+          currentStock: cs,
+          reorderLevel: item.reorderLevel || 0,
+          stockStatus: ss,
+          skuStatus: sks,
+        };
+      });
+      // Compute summary rows for PDF
+      const totalProducts = pdfData.length;
+      const inStock = pdfData.filter(d => d.stockStatus === "In Stock").length;
+      const lowStock = pdfData.filter(d => d.stockStatus === "Low Stock").length;
+      const outOfStock = pdfData.filter(d => d.stockStatus === "Out of Stock").length;
+      const activeSKUs = pdfData.filter(d => d.skuStatus === "Active").length;
+      const totalInventoryValue = !isVatAuditor ? pdfData.reduce((sum, d) => sum + sanitizeCurrency(d.costPrice * d.currentStock), 0) : 0;
+      const summaryRows = [
+        { label: "Total Products", value: String(totalProducts) },
+        { label: "In Stock", value: String(inStock) },
+        { label: "Low Stock", value: String(lowStock) },
+        { label: "Out of Stock", value: String(outOfStock) },
+        { label: "Active SKUs", value: String(activeSKUs) },
+        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `৳${sanitizeCurrency(totalInventoryValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }]),
+      ];
+      const user = authState.user;
+      exportToPDF({
+        title: "Product Master List",
+        subtitle: `Total: ${totalProducts} | In Stock: ${inStock} | Low: ${lowStock} | Out: ${outOfStock}`,
+        orientation: "landscape",
+        columns: pdfColumns,
+        data: pdfData,
+        isVatAuditor,
+        vatMaskedColumns: isVatAuditor ? ["costPrice", "wholesalePrice", "dealerPrice"] : [],
+        summaryRows,
+        company: companyProfile ? {
+          name: companyProfile.name,
+          address: companyProfile.address,
+          phone: companyProfile.phone,
+          mobile: companyProfile.mobile,
+          email: companyProfile.email,
+          logo: companyProfile.logo || companyProfile.brandLogo,
+          logoWidth: companyProfile.logoWidth,
+          logoHeight: companyProfile.logoHeight,
+          vatNumber: companyProfile.vatNumber,
+          tradeLicense: companyProfile.tradeLicense,
+        } : undefined,
+        financialFooter: {
+          preparedBy: user?.displayName || user?.name || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: user?.displayName || "System",
+        },
+      });
+      toast({ title: "Exported", description: "Product Master List exported to PDF with enterprise branding" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -1189,7 +1303,7 @@ function ProductsPage() {
   };
 
   // Determine table column count for colSpan
-  const colCount = isVatAuditor ? 8 : 10;
+  const colCount = isVatAuditor ? 11 : 14;
 
   return (
     <div className="page-enter space-y-4">
@@ -1203,15 +1317,16 @@ function ProductsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: "Total Products", value: data.length, icon: Package, color: "text-blue-600" },
-          { label: "In Stock", value: data.filter((p: any) => (p.openingStock || 0) > (p.reorderLevel || 0)).length, icon: CheckCircle, color: "text-green-600" },
-          { label: "Low Stock", value: data.filter((p: any) => (p.openingStock || 0) > 0 && (p.openingStock || 0) <= (p.reorderLevel || 0)).length, icon: AlertTriangle, color: "text-yellow-600" },
-          { label: "Out of Stock", value: data.filter((p: any) => (p.openingStock || 0) <= 0).length, icon: XCircle, color: "text-red-600" },
+          { label: "Total Products", value: data.length, icon: Package, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+          { label: "In Stock", value: data.filter((p: any) => { const ss = p.stockStatus || ((p.currentStock != null ? p.currentStock : (p.openingStock || 0)) > (p.reorderLevel || 0) ? "In Stock" : "Low Stock"); return ss === "In Stock"; }).length, icon: CheckCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+          { label: "Low Stock", value: data.filter((p: any) => { const cs = p.currentStock != null ? p.currentStock : (p.openingStock || 0); const ss = p.stockStatus || (cs <= 0 ? "Out of Stock" : cs <= (p.reorderLevel || 0) ? "Low Stock" : "In Stock"); return ss === "Low Stock"; }).length, icon: AlertTriangle, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+          { label: "Out of Stock", value: data.filter((p: any) => { const cs = p.currentStock != null ? p.currentStock : (p.openingStock || 0); const ss = p.stockStatus || (cs <= 0 ? "Out of Stock" : cs <= (p.reorderLevel || 0) ? "Low Stock" : "In Stock"); return ss === "Out of Stock"; }).length, icon: XCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+          { label: "Active SKUs", value: data.filter((p: any) => { const sks = p.skuStatus || (p.sku && p.barcode ? "Active" : "No SKU"); return sks === "Active"; }).length, icon: Tag, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
         ].map((stat, i) => (
           <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
-            <div className={`p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+            <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
             <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
           </CardContent></Card>
         ))}
@@ -1252,14 +1367,18 @@ function ProductsPage() {
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-10">#</TableHead>
                   <TableHead>Code</TableHead>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Barcode</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
+                  {!isVatAuditor && <TableHead>Brand</TableHead>}
                   {!isVatAuditor && <TableHead>Cost Price</TableHead>}
                   <TableHead>MRP</TableHead>
                   {!isVatAuditor && <TableHead>Wholesale</TableHead>}
                   {!isVatAuditor && <TableHead>Dealer</TableHead>}
                   <TableHead>Stock</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>SKU Status</TableHead>
                   <TableHead className="w-20 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1269,25 +1388,41 @@ function ProductsPage() {
                 ) : filtered.length === 0 ? (
                   <TableRow><TableCell colSpan={colCount} className="h-24 text-center text-muted-foreground">No products found</TableCell></TableRow>
                 ) : filtered.map((item: any, idx: number) => {
-                  const stock = item.openingStock || 0;
-                  const reorder = item.reorderLevel || 0;
-                  const stockStatus = stock <= 0 ? "out" : stock <= reorder ? "low" : "in";
+                  const cs = item.currentStock != null ? item.currentStock : (item.openingStock || 0);
+                  const ss = item.stockStatus || (cs <= 0 ? "Out of Stock" : cs <= (item.reorderLevel || 0) ? "Low Stock" : "In Stock");
+                  const sks = item.skuStatus || (item.sku && item.barcode ? "Active" : item.sku ? "No Barcode" : "No SKU");
+                  const stockStatus = ss === "Out of Stock" ? "out" : ss === "Low Stock" ? "low" : "in";
                   return (
                     <TableRow key={item.id} className="data-table-row hover:bg-muted/50">
                       <TableCell className="text-muted-foreground">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs">{item.productCode}</TableCell>
-                      <TableCell className="font-medium text-slate-900 dark:text-white">{item.name}</TableCell>
+                      <TableCell className="font-mono text-xs">{item.sku || "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{item.barcode || "—"}</TableCell>
+                      <TableCell className="font-medium text-slate-900 dark:text-white">
+                        {item.name}
+                        {(!item.category?.isActive || (item.brand && !item.brand?.isActive)) && (
+                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 text-[10px] ml-1">
+                            <AlertTriangle className="h-3 w-3 mr-1" />Parent {(!item.category?.isActive) ? "Category" : "Brand"} Suspended
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell><Badge variant="outline">{getCatName(item.categoryId)}</Badge></TableCell>
-                      {!isVatAuditor && <TableCell className="font-mono">{fmt(item.costPrice, "currency")}</TableCell>}
-                      <TableCell className="font-mono">{fmt(item.salePrice, "currency")}</TableCell>
-                      {!isVatAuditor && <TableCell className="font-mono">{fmt(item.wholesalePrice, "currency")}</TableCell>}
-                      {!isVatAuditor && <TableCell className="font-mono">{fmt(item.dealerPrice, "currency")}</TableCell>}
+                      {!isVatAuditor && <TableCell>{item.brand?.name || "—"}</TableCell>}
+                      {!isVatAuditor && <TableCell className="font-mono text-right">{fmt(item.costPrice, "currency")}</TableCell>}
+                      <TableCell className="font-mono text-right">{fmt(item.salePrice, "currency")}</TableCell>
+                      {!isVatAuditor && <TableCell className="font-mono text-right">{fmt(item.wholesalePrice, "currency")}</TableCell>}
+                      {!isVatAuditor && <TableCell className="font-mono text-right">{fmt(item.dealerPrice, "currency")}</TableCell>}
                       <TableCell>
-                        <span className={`font-mono font-medium ${stockStatus === "out" ? "text-red-500" : stockStatus === "low" ? "text-yellow-600" : "text-green-600"}`}>{stock}</span>
+                        <span className={`font-mono font-medium ${stockStatus === "out" ? "text-red-500" : stockStatus === "low" ? "text-yellow-600" : "text-green-600"}`}>{cs}</span>
                       </TableCell>
                       <TableCell>
                         <Badge className={stockStatus === "out" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : stockStatus === "low" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}>
-                          {stockStatus === "out" ? "Out of Stock" : stockStatus === "low" ? "Low Stock" : "In Stock"}
+                          {ss}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={sks === "Active" ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800" : sks === "No Barcode" ? "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800" : "bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-900/20 dark:text-gray-400 dark:border-gray-700"}>
+                          {sks}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -1311,29 +1446,48 @@ function ProductsPage() {
           <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Product</DialogTitle></DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
             {fields.map(field => (
-              <div key={field.key} className={field.key === "isActive" ? "col-span-2" : ""}>
-                <Label className="text-sm">{field.label} {field.required && <span className="text-red-500">*</span>}</Label>
-                {field.key === "productCode" && !editItem ? (
-                  <Input className="mt-1 bg-muted cursor-not-allowed" value={formData[field.key] ?? ""} readOnly />
-                ) : field.type === "select" ? (
-                  <Select value={String(formData[field.key] ?? "")} onValueChange={v => setFormData({ ...formData, [field.key]: v })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
-                    <SelectContent>{(dynamicOptions[field.key] || field.options || []).map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                ) : field.type === "checkbox" ? (
-                  <div className="flex items-center gap-2 mt-2"><Switch checked={formData[field.key] ?? false} onCheckedChange={v => setFormData({ ...formData, [field.key]: v })} /><span className="text-sm">{formData[field.key] ? "Active" : "Inactive"}</span></div>
-                ) : field.type === "textarea" ? (
-                  <Textarea className="mt-1" value={formData[field.key] ?? ""} onChange={e => setFormData({ ...formData, [field.key]: e.target.value })} />
+              <div key={field.key} className={field.key === "isActive" ? "col-span-2" : field.type === "image" ? "col-span-2 sm:col-span-1" : ""}>
+                {field.type === "image" ? (
+                  <ImageUploadField
+                    value={formData[field.key] || null}
+                    onChange={(base64) => setFormData({ ...formData, [field.key]: base64 || "" })}
+                    label={field.label}
+                    placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
+                  />
                 ) : (
-                  <Input className="mt-1" type={field.type} step={field.step} placeholder={field.placeholder} value={formData[field.key] ?? ""} onChange={e => setFormData({ ...formData, [field.key]: field.type === "number" ? Number(e.target.value) : e.target.value })} />
+                  <>
+                    <Label className="text-sm">{field.label} {field.required && <span className="text-red-500">*</span>}</Label>
+                    {field.key === "productCode" && !editItem ? (
+                      <Input className="mt-1 bg-muted cursor-not-allowed" value={formData[field.key] ?? ""} readOnly />
+                    ) : field.type === "select" ? (
+                      <Select value={String(formData[field.key] ?? "")} onValueChange={v => setFormData({ ...formData, [field.key]: v })}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+                        <SelectContent>{(dynamicOptions[field.key] || field.options || []).map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    ) : field.type === "checkbox" ? (
+                      <div className="flex items-center gap-2 mt-2"><Switch checked={formData[field.key] ?? false} onCheckedChange={v => setFormData({ ...formData, [field.key]: v })} /><span className="text-sm">{formData[field.key] ? "Active" : "Inactive"}</span></div>
+                    ) : field.type === "textarea" ? (
+                      <Textarea className="mt-1" value={formData[field.key] ?? ""} onChange={e => setFormData({ ...formData, [field.key]: e.target.value })} />
+                    ) : (
+                      <Input className="mt-1" type={field.type} step={field.step} placeholder={field.placeholder} value={formData[field.key] ?? ""} onChange={e => setFormData({ ...formData, [field.key]: field.type === "number" ? Number(e.target.value) : e.target.value })} />
+                    )}
+                  </>
                 )}
               </div>
             ))}
           </div>
+          {saveError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+              <span className="text-sm text-red-700 dark:text-red-400 font-medium">Data Collision: {saveError}</span>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
             <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
-              {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}{editItem ? "Update" : "Create"}
+              {saving ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Validating Catalog Collisions & Mapping Liquid Asset Trees...</>
+              ) : editItem ? "Update Product" : "Save Master Product"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1364,15 +1518,13 @@ function StockPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    let isMounted = true;
     (async () => {
       try {
         const res = await apiFetch("/api/stock");
-        if (isMounted) setData(Array.isArray(res) ? res : res.data || []);
-      } catch (e: any) { if (isMounted) toast({ title: "Error", description: e.message, variant: "destructive" }); }
-      finally { if (isMounted) setLoading(false); }
+        setData(Array.isArray(res) ? res : res.data || []);
+      } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      finally { setLoading(false); }
     })();
-    return () => { isMounted = false; };
   }, [toast]);
 
   const filtered = useMemo(() => {
@@ -1779,34 +1931,20 @@ function SendSMSPage({ bulk = false }: { bulk?: boolean }) {
 // ============================================================
 
 function ChangePasswordPage() {
-  const auth = useAuth();
-  const userRole = auth.user?.role;
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+  const auth = useAuth();
 
-  // Admin-only guard: non-admins see 403 Forbidden — Privilege Escalation Blocked
-  if (userRole !== "admin") {
+  // Only admin can access this page
+  if (auth.user?.role !== "admin") {
     return (
-      <div className="page-enter space-y-4">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Change Password</h2>
-        <Card className="max-w-lg border-red-300 dark:border-red-800">
-          <CardContent className="p-6 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <ShieldAlert className="w-8 h-8 text-red-500" />
-            </div>
-            <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">403 Forbidden: Privilege Escalation Blocked</h3>
-            <p className="text-sm text-muted-foreground">
-              Only users with the <strong>ADMIN</strong> role can change passwords. Your role ({userRole}) does not have this permission.
-            </p>
-            <p className="text-xs text-muted-foreground/60">
-              Any attempt to bypass this interlock via API will be logged and reported to the security audit trail.
-              Please contact your system administrator if you need your password reset.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="page-enter space-y-4 flex flex-col items-center justify-center min-h-[300px]">
+        <ShieldCheck className="w-12 h-12 text-muted-foreground mb-4" />
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Access Denied</h2>
+        <p className="text-muted-foreground text-center">Only administrators can change passwords.</p>
       </div>
     );
   }
@@ -1826,26 +1964,22 @@ function ChangePasswordPage() {
     }
     setSaving(true);
     try {
-      // Use the dedicated change-password API with RBAC interlock
-      const res = await fetch("/api/auth/change-password", {
-        method: "POST",
+      const res = await fetch("/api/auth/password", {
+        method: "PUT",
         headers: { "Content-Type": "application/json", "X-User-Email": auth.user?.email || "" },
-        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+        body: JSON.stringify({ currentPassword, newPassword }),
       });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: "Failed to change password" }));
-        // Handle 403 Privilege Escalation Blocked
-        if (res.status === 403 && errData.errorCode === "PRIVILEGE_ESCALATION_BLOCKED") {
-          throw new Error("403 Forbidden: Privilege Escalation Blocked — Your role is not authorized to change passwords.");
-        }
-        throw new Error(errData.error || "Failed to change password");
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: "Success", description: "Password changed successfully" });
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+      } else {
+        toast({ title: "Error", description: data.error || "Failed to change password", variant: "destructive" });
       }
-      toast({ title: "Success", description: "Password changed successfully" });
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err) {
-      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to change password", variant: "destructive" });
+    } catch {
+      toast({ title: "Error", description: "Failed to change password", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -1867,7 +2001,7 @@ function ChangePasswordPage() {
             <Label htmlFor="newPassword">New Password</Label>
             <div className="relative">
               <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input id="newPassword" type="password" placeholder="Enter new password (min 6 characters)" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="pl-10" />
+              <Input id="newPassword" type="password" placeholder="Enter new password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="pl-10" />
             </div>
           </div>
           <div className="space-y-2">
@@ -1888,15 +2022,340 @@ function ChangePasswordPage() {
 }
 
 // ============================================================
-// DASHBOARD CHART COMPONENT
+// PROFILE PAGE - Complete user profile with photo, info, and export tracking
 // ============================================================
+
+function ProfilePage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [profileData, setProfileData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    role: "",
+    photo: "",
+    createdAt: "",
+    pdfExports: 0,
+    csvImports: 0,
+    csvExports: 0,
+  });
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string>("");
+
+  const loadProfile = useCallback(async () => {
+    if (!user?.email) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/users/profile", {
+        headers: { "Content-Type": "application/json", "X-User-Email": user.email },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfileData({
+          name: data.name || "",
+          email: data.email || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          role: data.role || "",
+          photo: data.photo || "",
+          createdAt: data.createdAt || "",
+          pdfExports: data.pdfExports || 0,
+          csvImports: data.csvImports || 0,
+          csvExports: data.csvExports || 0,
+        });
+      }
+      // Load company branding for logo display
+      try {
+        const compRes = await fetch("/api/company-branding");
+        if (compRes.ok) {
+          const compData = await compRes.json();
+          setCompanyLogo(compData.logo || compData.brandLogo || null);
+          setCompanyName(compData.name || "");
+        }
+      } catch { /* silent */ }
+    } catch {
+      toast({ title: "Error", description: "Failed to load profile", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.email, toast]);
+
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  const handleSave = async () => {
+    if (!user?.email) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/users/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-User-Email": user.email },
+        body: JSON.stringify({
+          name: profileData.name,
+          phone: profileData.phone,
+          address: profileData.address,
+          photo: profileData.photo,
+        }),
+      });
+      if (res.ok) {
+        toast({ title: "Success", description: "Profile updated successfully" });
+        setEditing(false);
+        // Update displayName in auth state
+        const stored = localStorage.getItem("ems_auth");
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed.user) {
+              parsed.user.displayName = profileData.name;
+              localStorage.setItem("ems_auth", JSON.stringify(parsed));
+              authState = parsed;
+              authListeners.forEach(l => l());
+            }
+          } catch { /* silent */ }
+        }
+      } else {
+        const err = await res.json().catch(() => ({ error: "Failed to update profile" }));
+        toast({ title: "Error", description: err.error || "Failed to update profile", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to update profile", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // File type validation
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast({ title: "Error", description: "Only JPEG, PNG, and WebP files are allowed", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Error", description: "Image must be less than 5MB", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProfileData(prev => ({ ...prev, photo: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const roleLabels: Record<string, string> = {
+    admin: "Administrator",
+    manager: "Manager",
+    sr: "Sales Representative",
+    dealer: "Dealer",
+    vat_auditor: "VAT Auditor",
+  };
+
+  if (loading) {
+    return (
+      <div className="page-enter space-y-6 flex items-center justify-center min-h-[400px]">
+        <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-enter space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">My Profile</h2>
+        <Button
+          className={editing ? "bg-green-600 hover:bg-green-700" : "bg-[#2563eb] hover:bg-[#1d4ed8]"}
+          onClick={() => editing ? handleSave() : setEditing(true)}
+          disabled={saving}
+        >
+          {saving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : editing ? <CheckCircle className="w-4 h-4 mr-2" /> : <Pencil className="w-4 h-4 mr-2" />}
+          {saving ? "Saving..." : editing ? "Save Changes" : "Edit Profile"}
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Avatar and basic info */}
+        <Card className="lg:col-span-1">
+          <CardContent className="p-6 flex flex-col items-center text-center space-y-4">
+            {/* Avatar */}
+            <div className="relative group">
+              {profileData.photo ? (
+                <img
+                  src={profileData.photo}
+                  alt="Profile photo"
+                  className="w-28 h-28 rounded-full object-cover border-4 border-[#2563eb]/20 shadow-lg"
+                />
+              ) : (
+                <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#2563eb] to-[#1d4ed8] flex items-center justify-center text-white text-4xl font-bold shadow-lg">
+                  {profileData.name?.charAt(0)?.toUpperCase() || "U"}
+                </div>
+              )}
+              {editing && (
+                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                  <label className="cursor-pointer p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors">
+                    <Upload className="w-5 h-5 text-white" />
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                    />
+                  </label>
+                  {profileData.photo && (
+                    <button
+                      type="button"
+                      onClick={() => setProfileData(prev => ({ ...prev, photo: "" }))}
+                      className="p-1.5 rounded-full bg-red-500/60 hover:bg-red-500/80 transition-colors"
+                    >
+                      <X className="w-5 h-5 text-white" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {editing && (
+              <p className="text-[10px] text-muted-foreground/60">JPEG / PNG / WebP, max 5MB</p>
+            )}
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{profileData.name || "User"}</h3>
+              <p className="text-sm text-muted-foreground">{profileData.email}</p>
+            </div>
+
+            {/* Role badge */}
+            <Badge className="bg-[#2563eb] text-white px-3 py-1">
+              {roleLabels[profileData.role] || profileData.role}
+            </Badge>
+
+            {/* Join date */}
+            {profileData.createdAt && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Joined {new Date(profileData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span>
+              </div>
+            )}
+
+            {/* Company logo */}
+            {(companyLogo || companyName) && (
+              <div className="w-full border-t pt-4 mt-2">
+                <div className="flex items-center gap-3 justify-center">
+                  {companyLogo && (
+                    <img src={companyLogo} alt="Company logo" className="h-8 w-auto object-contain" />
+                  )}
+                  {companyName && (
+                    <span className="text-xs text-muted-foreground font-medium">{companyName}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Right: Profile info and export tracking */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Personal Information */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base flex items-center gap-2">
+                <User className="w-4 h-4 text-[#2563eb]" />
+                Personal Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Full Name</Label>
+                  {editing ? (
+                    <Input
+                      value={profileData.name}
+                      onChange={e => setProfileData(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Enter your full name"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{profileData.name || "--"}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{profileData.email || "--"}</p>
+                  <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  {editing ? (
+                    <Input
+                      value={profileData.phone}
+                      onChange={e => setProfileData(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="Enter phone number"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{profileData.phone || "--"}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{roleLabels[profileData.role] || profileData.role}</p>
+                  <p className="text-xs text-muted-foreground">Role is managed by administrator</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Address</Label>
+                {editing ? (
+                  <Textarea
+                    value={profileData.address}
+                    onChange={e => setProfileData(prev => ({ ...prev, address: e.target.value }))}
+                    placeholder="Enter your address"
+                    rows={3}
+                  />
+                ) : (
+                  <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{profileData.address || "--"}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Export Activity Tracking */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="w-4 h-4 text-[#2563eb]" />
+                Export Activity
+              </CardTitle>
+              <CardDescription>Track your data export and import activity</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="flex flex-col items-center p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50">
+                  <FileText className="w-8 h-8 text-red-500 mb-2" />
+                  <span className="text-2xl font-bold text-slate-900 dark:text-white">{profileData.pdfExports}</span>
+                  <span className="text-xs text-muted-foreground mt-1">PDF Exports</span>
+                </div>
+                <div className="flex flex-col items-center p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/50">
+                  <Upload className="w-8 h-8 text-green-500 mb-2" />
+                  <span className="text-2xl font-bold text-slate-900 dark:text-white">{profileData.csvImports}</span>
+                  <span className="text-xs text-muted-foreground mt-1">CSV Imports</span>
+                </div>
+                <div className="flex flex-col items-center p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50">
+                  <Download className="w-8 h-8 text-blue-500 mb-2" />
+                  <span className="text-2xl font-bold text-slate-900 dark:text-white">{profileData.csvExports}</span>
+                  <span className="text-xs text-muted-foreground mt-1">CSV Exports</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function DashboardChart() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
-    let isMounted = true;
     (async () => {
       try {
         const res = await apiFetch("/api/dashboard-analytics?type=monthly-trend&months=6");
@@ -1906,9 +2365,9 @@ function DashboardChart() {
           Sales: m.sales || 0,
           Purchase: m.purchases || 0,
         }));
-        if (isMounted) setChartData(formatted);
+        setChartData(formatted);
       } catch {
-        if (isMounted) setChartData([
+        setChartData([
           { name: "6 months ago", Sales: 45000, Purchase: 32000 },
           { name: "5 months ago", Sales: 52000, Purchase: 38000 },
           { name: "4 months ago", Sales: 48000, Purchase: 41000 },
@@ -1917,10 +2376,9 @@ function DashboardChart() {
           { name: "Last month", Sales: 67000, Purchase: 48000 },
         ]);
       } finally {
-        if (isMounted) setChartLoading(false);
+        setChartLoading(false);
       }
     })();
-    return () => { isMounted = false; };
   }, []);
 
   if (chartLoading) {
@@ -1967,13 +2425,11 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
     (async () => {
-      try { const res = await apiFetch("/api/dashboard"); if (isMounted) setStats(res); }
-      catch (e: any) { if (isMounted) toast({ title: "Error", description: e.message, variant: "destructive" }); }
-      finally { if (isMounted) setLoading(false); }
+      try { const res = await apiFetch("/api/dashboard"); setStats(res); }
+      catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      finally { setLoading(false); }
     })();
-    return () => { isMounted = false; };
   }, [toast]);
 
   const kpis = [
@@ -1988,8 +2444,7 @@ function DashboardPage() {
   ];
 
   const auth = useAuth();
-  const rawUserName = auth.user?.displayName || auth.user?.name || "User";
-  const userName = /^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(rawUserName) ? "User" : rawUserName;
+  const userName = auth.user?.displayName || auth.user?.name || "User";
   const isVatAuditor = auth.isVatAuditor;
   const AUDIT_MASK = "N/A (Audit Mode)";
 
@@ -2379,18 +2834,9 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
       {!collapsed && (
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
-            {user?.profileImage ? (
-              <img src={user.profileImage} alt={user.displayName || "User"} className="w-5 h-5 rounded-full object-cover" />
-            ) : (
-              <UserCircle className="w-4 h-4" />
-            )}
-            <span className="truncate">{(() => { const dn = user?.displayName || "User"; return /^(emart\.|admin\.|user\.|sys\.|test\.)/i.test(dn) ? "User" : dn; })()}</span>
+            <UserCircle className="w-4 h-4" />
+            <span className="truncate">{user?.displayName || user?.name || "User"}</span>
           </div>
-          {isVatAuditor && (
-            <div className="mt-1 px-2">
-              <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5">🔒 VAT AUDIT MODE</Badge>
-            </div>
-          )}
         </div>
       )}
     </aside>
@@ -2418,28 +2864,12 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   const [godowns, setGodowns] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
 
-  // Line validation errors
-  const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
-
-  // SMS Auto-Notify status
-  const [smsAutoNotifyEnabled, setSmsAutoNotifyEnabled] = useState(false);
-
-  // Form state — enhanced with dueDate, isAutoGenerated
-  const [formData, setFormData] = useState<Record<string, any>>({
-    supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", godownId: "",
-    notes: "", status: "Draft", discount: 0, vatPercentage: 15, poNumber: "", isAutoGenerated: false,
-  });
-  const [lines, setLines] = useState<any[]>([{
-    productId: "", qty: 1, rate: 0, taxRate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0,
-    batchNumber: "", expiryDate: "",
-  }]);
+  // Form state
+  const [formData, setFormData] = useState<Record<string, any>>({ supplierId: "", date: new Date().toISOString().split("T")[0], godownId: "", notes: "", status: "Draft", discount: 0, vatPercentage: 15 });
+  const [lines, setLines] = useState<any[]>([{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
 
   // Dealer restriction
   const isDealer = user?.role === "dealer";
-
-  // Godown status check — SUSPENDED blocks PO submission
-  const selectedGodown = useMemo(() => godowns.find((g: any) => g.id === formData.godownId), [godowns, formData.godownId]);
-  const isGodownSuspended = selectedGodown?.status === "SUSPENDED";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2452,21 +2882,6 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Fetch SMS automation config for PO page status badge
-  useEffect(() => {
-    const fetchSmsConfig = async () => {
-      try {
-        const res = await apiFetch("/api/sms-automation-config");
-        if (res && (res.smsAlertOnPurchase || res.smsAlertOnStockReceive)) {
-          setSmsAutoNotifyEnabled(true);
-        } else {
-          setSmsAutoNotifyEnabled(false);
-        }
-      } catch { setSmsAutoNotifyEnabled(false); }
-    };
-    fetchSmsConfig();
-  }, []);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -2497,52 +2912,15 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   const draftCount = data.filter((d: any) => d.status === "Draft").length;
   const receivedCount = data.filter((d: any) => d.status === "Received").length;
 
-  // ── Line-level validation (with letter blocking) ──
-  const hasLetters = (v: unknown): boolean => {
-    const s = String(v ?? "").trim();
-    return /[^0-9.\-]/.test(s);
-  };
-  const validateLineItem = (line: any, idx: number): string | null => {
-    if (hasLetters(line.qty)) return `Line ${idx + 1}: Quantity must be a number (letters are not allowed)`;
-    if (hasLetters(line.rate)) return `Line ${idx + 1}: Unit Cost Price must be a number (letters are not allowed)`;
-    if (hasLetters(line.taxRate)) return `Line ${idx + 1}: Tax Rate must be a number (letters are not allowed)`;
-    const qty = Number(line.qty);
-    const rate = Number(line.rate);
-    const taxRate = Number(line.taxRate || 0);
-    if (isNaN(qty) || qty <= 0) return `Line ${idx + 1}: Quantity must be a positive number`;
-    if (isNaN(rate) || rate <= 0) return `Line ${idx + 1}: Unit Cost Price must be a positive number`;
-    if (isNaN(taxRate) || taxRate < 0) return `Line ${idx + 1}: Tax Rate must be >= 0`;
-    return null;
-  };
-
-  // Field-level error check for inline red borders
-  const getFieldError = (idx: number, field: string): string | null => {
-    const line = lines[idx];
-    if (!line) return null;
-    if (field === "qty") {
-      const v = Number(line.qty);
-      if (isNaN(v) || v <= 0) return "Must be a positive number";
-    }
-    if (field === "rate") {
-      const v = Number(line.rate);
-      if (isNaN(v) || v <= 0) return "Must be a positive number";
-    }
-    if (field === "taxRate") {
-      const v = Number(line.taxRate || 0);
-      if (isNaN(v) || v < 0) return "Must be >= 0";
-    }
-    return null;
-  };
-
-  // Line calculations — now uses per-line taxRate
+  // Line calculations
   const calcLine = (line: any) => {
     const qty = Number(line.qty) || 0;
     const rate = Number(line.rate) || 0;
     const discPercent = Number(line.discPercent) || 0;
     const discAmt = rate * qty * discPercent / 100;
     const afterDisc = rate * qty - discAmt;
-    const lineTaxRate = Number(line.taxRate) || 0;
-    const vatAmt = afterDisc * lineTaxRate / 100;
+    const vatPct = Number(formData.vatPercentage) || 0;
+    const vatAmt = afterDisc * vatPct / 100;
     const total = afterDisc + vatAmt;
     return { ...line, discAmt, vatAmt, total };
   };
@@ -2554,41 +2932,17 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
       next[idx] = calcLine(next[idx]);
       return next;
     });
-    // Clear field error on valid input
-    setLineErrors(prev => {
-      const key = `${idx}-${field}`;
-      const next = { ...prev };
-      if (field === "qty") {
-        const v = Number(value);
-        if (!isNaN(v) && v > 0) delete next[key]; else next[key] = "Must be a positive number";
-      } else if (field === "rate") {
-        const v = Number(value);
-        if (!isNaN(v) && v > 0) delete next[key]; else next[key] = "Must be a positive number";
-      } else if (field === "taxRate") {
-        const v = Number(value || 0);
-        if (!isNaN(v) && v >= 0) delete next[key]; else next[key] = "Must be >= 0";
-      }
-      return next;
-    });
   };
 
   const addLine = () => {
-    setLines(prev => [...prev, {
-      productId: "", qty: 1, rate: 0, taxRate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0,
-      batchNumber: "", expiryDate: "",
-    }]);
+    setLines(prev => [...prev, { productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
   };
 
   const removeLine = (idx: number) => {
     setLines(prev => prev.filter((_, i) => i !== idx));
-    setLineErrors(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => { if (k.startsWith(`${idx}-`)) delete next[k]; });
-      return next;
-    });
   };
 
-  // Summary — recalculated with per-line tax
+  // Summary
   const subTotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0);
   const totalDisc = lines.reduce((s, l) => s + (Number(l.discAmt) || 0), 0);
   const totalVat = lines.reduce((s, l) => s + (Number(l.vatAmt) || 0), 0);
@@ -2596,15 +2950,8 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
 
   const openCreate = () => {
     const nextNum = data.length > 0 ? String(Math.max(...data.map((d: any) => parseInt(d.poNumber?.replace("PO-", "") || "0", 10) || 0)) + 1).padStart(5, "0") : "00001";
-    setFormData({
-      supplierId: "", date: new Date().toISOString().split("T")[0], dueDate: "", godownId: "",
-      notes: "", status: "Draft", discount: 0, vatPercentage: 15, poNumber: `PO-${nextNum}`, isAutoGenerated: false,
-    });
-    setLines([{
-      productId: "", qty: 1, rate: 0, taxRate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0,
-      batchNumber: "", expiryDate: "",
-    }]);
-    setLineErrors({});
+    setFormData({ supplierId: "", date: new Date().toISOString().split("T")[0], godownId: "", notes: "", status: "Draft", discount: 0, vatPercentage: 15, poNumber: `PO-${nextNum}` });
+    setLines([{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
     setEditItem(null);
     setShowForm(true);
     loadOptions();
@@ -2614,81 +2961,21 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
     setFormData({
       supplierId: item.supplierId || "",
       date: item.date ? item.date.split("T")[0] : "",
-      dueDate: item.dueDate ? item.dueDate.split("T")[0] : "",
       godownId: item.godownId || "",
       notes: item.notes || "",
       status: item.status || "Draft",
       discount: item.discount || 0,
       vatPercentage: item.vatPercentage || 15,
       poNumber: item.poNumber || "",
-      isAutoGenerated: item.isAutoGenerated || false,
     });
     setLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
-      productId: l.productId, qty: l.quantity || 1, rate: l.rate || 0, taxRate: l.taxRate || 0,
-      discPercent: l.discountPercent || 0, discAmt: l.discountAmount || 0, vatAmt: l.vatAmount || 0, total: l.total || 0,
-      batchNumber: l.batchNumber || "", expiryDate: l.expiryDate ? l.expiryDate.split("T")[0] : "",
-    })) : [{
-      productId: "", qty: 1, rate: 0, taxRate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0,
-      batchNumber: "", expiryDate: "",
-    }]);
-    setLineErrors({});
+      productId: l.productId, qty: l.quantity || 1, rate: l.rate || 0, discPercent: l.discountPercent || 0, discAmt: l.discountAmount || 0, vatAmt: l.vatAmount || 0, total: l.total || 0
+    })) : [{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
     setEditItem(item);
     setShowForm(true);
     loadOptions();
   };
 
-  // ── Auto-PO Integration ──
-  const handleAutoPO = async () => {
-    try {
-      const suggestions = await apiFetch("/api/auto-po");
-      const items = Array.isArray(suggestions) ? suggestions : [];
-      if (items.length === 0) {
-        toast({ title: "No Suggestions", description: "No auto-PO suggestions available at this time.", variant: "default" });
-        return;
-      }
-      // Group suggestions by first supplier
-      const firstSupplierId = items[0].lastSupplierId;
-      if (!firstSupplierId) {
-        toast({ title: "No Supplier", description: "First suggestion has no registered supplier.", variant: "destructive" });
-        return;
-      }
-      const supplierItems = items.filter((it: any) => it.lastSupplierId === firstSupplierId);
-      const nextNum = data.length > 0 ? String(Math.max(...data.map((d: any) => parseInt(d.poNumber?.replace("PO-", "") || "0", 10) || 0)) + 1).padStart(5, "0") : "00001";
-      setFormData({
-        supplierId: firstSupplierId,
-        date: new Date().toISOString().split("T")[0],
-        dueDate: "",
-        godownId: supplierItems[0]?.godownId || "",
-        notes: "Auto-generated Purchase Order from stock alert analysis",
-        status: "Draft",
-        discount: 0,
-        vatPercentage: 15,
-        poNumber: `PO-${nextNum}`,
-        isAutoGenerated: true,
-      });
-      setLines(supplierItems.map((it: any) => ({
-        productId: it.productId,
-        qty: it.suggestedQuantity || 1,
-        rate: typeof it.costPrice === "number" ? it.costPrice : 0,
-        taxRate: 0,
-        discPercent: 0,
-        discAmt: 0,
-        vatAmt: 0,
-        total: typeof it.costPrice === "number" ? it.suggestedQuantity * it.costPrice : 0,
-        batchNumber: "",
-        expiryDate: "",
-      })));
-      setLineErrors({});
-      setEditItem(null);
-      setShowForm(true);
-      loadOptions();
-      toast({ title: "Auto-PO Loaded", description: `${supplierItems.length} items from ${items[0].lastSupplierName || "supplier"} pre-filled.` });
-    } catch (e: any) {
-      toast({ title: "Auto-PO Error", description: e.message, variant: "destructive" });
-    }
-  };
-
-  // ── Spin-Lock Save with Snapshot Rollback ──
   const handleSave = async () => {
     if (!formData.supplierId || !formData.date) {
       toast({ title: "Error", description: "Supplier and Date are required", variant: "destructive" });
@@ -2699,29 +2986,11 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
       toast({ title: "Error", description: "Add at least one line item", variant: "destructive" });
       return;
     }
-    // Validate all line items
-    const validationErrors: string[] = [];
-    validLines.forEach((l, idx) => {
-      const err = validateLineItem(l, idx);
-      if (err) validationErrors.push(err);
-    });
-    if (validationErrors.length > 0) {
-      toast({ title: "Validation Error", description: validationErrors[0], variant: "destructive" });
-      return;
-    }
-    // Godown SUSPENDED check
-    if (isGodownSuspended) {
-      toast({ title: "Blocked", description: `Godown '${selectedGodown.name}' is SUSPENDED. PO submission blocked.`, variant: "destructive" });
-      return;
-    }
-    // Snapshot for rollback
-    const snapshot = { data: [...data], lines: [...lines], formData: { ...formData } };
     setSaving(true);
     try {
       const payload = {
         supplierId: formData.supplierId,
         date: formData.date,
-        dueDate: formData.dueDate || null,
         godownId: formData.godownId || null,
         notes: formData.notes,
         status: formData.status,
@@ -2730,18 +2999,14 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
         subTotal,
         vatAmount: totalVat,
         grandTotal,
-        isAutoGenerated: formData.isAutoGenerated || false,
         lines: validLines.map(l => ({
           productId: l.productId,
           quantity: Number(l.qty) || 0,
           rate: Number(l.rate) || 0,
-          taxRate: Number(l.taxRate) || 0,
           discountPercent: Number(l.discPercent) || 0,
           discountAmount: Number(l.discAmt) || 0,
           vatAmount: Number(l.vatAmt) || 0,
           total: Number(l.total) || 0,
-          batchNumber: l.batchNumber || null,
-          expiryDate: l.expiryDate || null,
         })),
       };
       if (editItem) {
@@ -2752,13 +3017,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
         toast({ title: "Created", description: "Purchase Order created" });
       }
       setShowForm(false); load();
-    } catch (e: any) {
-      // Rollback from snapshot
-      setData(snapshot.data);
-      setLines(snapshot.lines);
-      setFormData(snapshot.formData);
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
 
@@ -2771,80 +3030,15 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   };
 
   const exportCSV = () => {
-    const headers = ["PO Number", "Supplier", "Date", "Due Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status", "Auto-PO"];
-    const rows = filtered.map((item: any) => [
-      item.poNumber, item.supplierName || "—", fmtDate(item.date), item.dueDate ? fmtDate(item.dueDate) : "—",
-      isVatAuditor ? "N/A (Audit Mode)" : item.subTotal || 0, item.vatPercentage || 0,
-      isVatAuditor ? "N/A (Audit Mode)" : item.vatAmount || 0,
-      isVatAuditor ? "N/A (Audit Mode)" : item.grandTotal || 0,
-      item.status, item.isAutoGenerated ? "Yes" : "No"
-    ].map(String));
+    const headers = ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"];
+    const rows = filtered.map((item: any) => [item.poNumber, item.supplierName || "—", fmtDate(item.date), item.subTotal || 0, item.vatPercentage || 0, item.vatAmount || 0, item.grandTotal || 0, item.status].map(String));
     try { exportToCSVSimple("Purchase Orders", headers, rows); toast({ title: "Exported", description: "Purchase Orders exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
-  // ── Enhanced PDF Export with InvoiceMetadata, PaymentBreakdown, LegalFooterConfig ──
   const exportPDF = () => {
-    try {
-      const supplierForMeta = filtered.length > 0 ? suppliers.find((s: any) => s.id === filtered[0]?.supplierId) : null;
-      const metadata: InvoiceMetadata = {
-        documentNo: "Purchase Orders Report",
-        counterpartyName: supplierForMeta?.name || "All Suppliers",
-        counterpartyMobile: supplierForMeta?.phone || "",
-        counterpartyAddress: supplierForMeta?.address || "",
-        creationDate: new Date().toISOString().split("T")[0],
-        branchLocation: selectedGodown?.name || "",
-      };
-      const paymentBreakdown: PaymentBreakdown = {
-        cash: 0,
-        bank: filtered.reduce((s: number, item: any) => s + (item.grandTotal || 0), 0),
-        mfs: 0,
-        card: 0,
-      };
-      const legalFooter: LegalFooterConfig = {
-        legalText: "This Purchase Order document is system-generated and requires triple authorization. No manual alteration is permitted.",
-        greetingText: "Thank you for your continued partnership with our enterprise.",
-      };
-      const columns: ExportColumnDef[] = [
-        { key: "poNumber", label: "PO Number", type: "text" },
-        { key: "supplierName", label: "Supplier", type: "text" },
-        { key: "date", label: "Date", type: "date" },
-        { key: "subTotal", label: "Sub Total", type: "currency" },
-        { key: "vatPercentage", label: "VAT %", type: "number" },
-        { key: "vatAmount", label: "VAT Amount", type: "currency" },
-        { key: "grandTotal", label: "Grand Total", type: "currency" },
-        { key: "status", label: "Status", type: "text" },
-      ];
-      const pdfData = filtered.map((item: any) => ({
-        poNumber: item.poNumber,
-        supplierName: item.supplierName || "—",
-        date: item.date,
-        subTotal: item.subTotal || 0,
-        vatPercentage: item.vatPercentage || 0,
-        vatAmount: item.vatAmount || 0,
-        grandTotal: item.grandTotal || 0,
-        status: item.status,
-      }));
-      exportInvoicePDF({
-        title: "Purchase Orders",
-        subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-        orientation: "landscape",
-        columns,
-        data: pdfData,
-        isVatAuditor,
-        vatMaskedColumns: ["subTotal", "vatAmount", "grandTotal"],
-        filename: "Purchase_Orders.pdf",
-        metadata,
-        paymentBreakdown,
-        legalFooter,
-        financialFooter: {
-          preparedBy: user?.displayName || "",
-          checkedBy: "",
-          authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
-        },
-      });
-      toast({ title: "Exported", description: "Purchase Orders exported to PDF" });
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    const headers = ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"];
+    const body = filtered.map((item: any) => [item.poNumber, item.supplierName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), String(item.vatPercentage || 0), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
+    try { exportToPDFSimple("Purchase Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -2854,7 +3048,6 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
         { key: "poNumber", label: "PO Number", type: "text", required: true },
         { key: "supplierId", label: "Supplier", type: "text", required: true },
         { key: "date", label: "Date", type: "date", required: true },
-        { key: "dueDate", label: "Due Date", type: "date" },
         { key: "status", label: "Status", type: "text" },
       ]
     }).then(result => {
@@ -2874,12 +3067,11 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
       case "Draft": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
       case "Confirmed": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
       case "Received": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
-      case "Cancelled": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
       default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
     }
   };
 
-  const colCount = isVatAuditor ? 9 : 10;
+  const colCount = isVatAuditor ? 8 : 9;
 
   // Dealer restriction - early return AFTER all hooks
   if (isDealer) {
@@ -2897,16 +3089,11 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   return (
     <div className="page-enter space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Purchase Orders</h2>
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-orange-400 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20">Inv-Orders-Core</Badge>
-          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${smsAutoNotifyEnabled ? "border-green-400 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20" : "border-gray-300 text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/20"}`}>SMS Auto-Notify: {smsAutoNotifyEnabled ? "ON" : "OFF"}</Badge>
-        </div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Purchase Orders</h2>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
           <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
-          <Button variant="outline" size="sm" className="border-amber-400 text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20" onClick={handleAutoPO}><Activity className="w-4 h-4 mr-1" />⚡ Auto-PO</Button>
           <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create PO</Button>
         </div>
       </div>
@@ -2915,7 +3102,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Total POs", value: totalPOs, icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-          { label: "Total Value", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(totalValue, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+          { label: "Total Value", value: fmt(totalValue, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
           { label: "Draft", value: draftCount, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
           { label: "Received", value: receivedCount, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
         ].map((stat, i) => (
@@ -2943,7 +3130,6 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                   <TableHead>PO Number</TableHead>
                   <TableHead>Supplier</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Due Date</TableHead>
                   <TableHead>Sub Total</TableHead>
                   {!isVatAuditor && <TableHead>VAT %</TableHead>}
                   <TableHead>VAT Amount</TableHead>
@@ -2965,17 +3151,13 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                           {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                         </Button>
                       </TableCell>
-                      <TableCell className="font-mono font-medium text-slate-900 dark:text-white">
-                        {item.poNumber}
-                        {item.isAutoGenerated && <span className="ml-1 text-[10px] text-amber-500 font-normal">⚡</span>}
-                      </TableCell>
+                      <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.poNumber}</TableCell>
                       <TableCell>{onNavigate ? <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => onNavigate('suppliers')}>{item.supplierName || getSupplierName(item.supplierId)}</span> : (item.supplierName || getSupplierName(item.supplierId))}</TableCell>
                       <TableCell>{fmtDate(item.date)}</TableCell>
-                      <TableCell>{item.dueDate ? fmtDate(item.dueDate) : "—"}</TableCell>
                       <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.subTotal, "currency")}</TableCell>
                       {!isVatAuditor && <TableCell className="font-mono">{item.vatPercentage || 0}%</TableCell>}
-                      <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.vatAmount, "currency")}</TableCell>
-                      <TableCell className="font-mono font-medium">{isVatAuditor ? "N/A (Audit Mode)" : fmt(item.grandTotal, "currency")}</TableCell>
+                      <TableCell className="font-mono">{fmt(item.vatAmount, "currency")}</TableCell>
+                      <TableCell className="font-mono font-medium">{fmt(item.grandTotal, "currency")}</TableCell>
                       <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -2994,28 +3176,22 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                                 <TableHead>Product</TableHead>
                                 <TableHead>Qty</TableHead>
                                 {!isVatAuditor && <TableHead>Rate</TableHead>}
-                                <TableHead>Tax %</TableHead>
                                 <TableHead>Disc%</TableHead>
                                 <TableHead>Disc Amt</TableHead>
                                 <TableHead>VAT Amt</TableHead>
                                 <TableHead>Total</TableHead>
-                                <TableHead>Batch</TableHead>
-                                <TableHead>Expiry</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {(item.lines || []).map((line: any, li: number) => (
                                 <TableRow key={li}>
                                   <TableCell>{line.productName || line.productId || "—"}</TableCell>
-                                  <TableCell className="font-mono">{line.qty || line.quantity}</TableCell>
+                                  <TableCell className="font-mono">{line.qty}</TableCell>
                                   {!isVatAuditor && <TableCell className="font-mono">{fmt(line.rate, "currency")}</TableCell>}
-                                  <TableCell className="font-mono">{line.taxRate ?? 0}%</TableCell>
-                                  <TableCell className="font-mono">{line.discPercent ?? line.discountPercent ?? 0}%</TableCell>
-                                  <TableCell className="font-mono">{fmt(line.discAmt ?? line.discountAmount, "currency")}</TableCell>
-                                  <TableCell className="font-mono">{fmt(line.vatAmt ?? line.vatAmount, "currency")}</TableCell>
+                                  <TableCell className="font-mono">{line.discPercent}%</TableCell>
+                                  <TableCell className="font-mono">{fmt(line.discAmt, "currency")}</TableCell>
+                                  <TableCell className="font-mono">{fmt(line.vatAmt, "currency")}</TableCell>
                                   <TableCell className="font-mono font-medium">{fmt(line.total, "currency")}</TableCell>
-                                  <TableCell className="text-xs">{line.batchNumber || "—"}</TableCell>
-                                  <TableCell className="text-xs">{line.expiryDate ? fmtDate(line.expiryDate) : "—"}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -3034,25 +3210,8 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {editItem ? "Edit" : "Create"} Purchase Order
-              {formData.isAutoGenerated && <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-400 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20">⚡ Auto-Generated</Badge>}
-            </DialogTitle>
-            <DialogDescription>{editItem ? "Edit purchase order details and line items." : "Create a new purchase order with supplier, godown, and line items."}</DialogDescription>
-          </DialogHeader>
-
-          {/* Godown SUSPENDED Alert */}
-          {isGodownSuspended && (
-            <div className="flex items-center gap-2 p-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700">
-              <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <span className="text-sm text-red-700 dark:text-red-400 font-medium">
-                ⚠ Godown &apos;{selectedGodown.name}&apos; is SUSPENDED. PO submission blocked.
-              </span>
-            </div>
-          )}
-
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Purchase Order</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             {/* Header Fields */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -3072,22 +3231,10 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                 <Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label>Due Date <span className="text-muted-foreground text-xs">(Expected Delivery)</span></Label>
-                <Input type="date" value={formData.dueDate || ""} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
                 <Label>Godown</Label>
                 <Select value={formData.godownId || ""} onValueChange={v => setFormData({ ...formData, godownId: v })}>
-                  <SelectTrigger className={isGodownSuspended ? "border-2 border-red-500" : ""}>
-                    <SelectValue placeholder="Select Godown" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {godowns.map((g: any) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}{g.status === "SUSPENDED" ? " ⚠ SUSPENDED" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -3098,7 +3245,6 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                     <SelectItem value="Draft">Draft</SelectItem>
                     <SelectItem value="Confirmed">Confirmed</SelectItem>
                     <SelectItem value="Received">Received</SelectItem>
-                    <SelectItem value="Cancelled">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -3118,62 +3264,42 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                 <Label className="text-sm font-semibold">Line Items</Label>
                 <Button variant="outline" size="sm" onClick={addLine}><Plus className="w-3 h-3 mr-1" />Add Line</Button>
               </div>
-              <div className="overflow-auto rounded-md border max-h-72">
+              <div className="overflow-auto rounded-md border max-h-60">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>Product</TableHead>
                       <TableHead className="w-20">Qty</TableHead>
                       <TableHead className="w-24">Rate</TableHead>
-                      <TableHead className="w-20">Tax %</TableHead>
                       <TableHead className="w-20">Disc%</TableHead>
                       <TableHead className="w-24">Disc Amt</TableHead>
                       <TableHead className="w-24">VAT Amt</TableHead>
                       <TableHead className="w-24">Total</TableHead>
-                      <TableHead className="w-24">Batch #</TableHead>
-                      <TableHead className="w-28">Expiry</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {lines.map((line, idx) => {
-                      const lineQtyError = getFieldError(idx, "qty");
-                      const lineRateError = getFieldError(idx, "rate");
-                      const lineTaxRateError = getFieldError(idx, "taxRate");
-                      return (
-                        <TableRow key={idx}>
-                          <TableCell>
-                            <Select value={line.productId || ""} onValueChange={v => {
-                              const prod = products.find((p: any) => p.id === v);
-                              updateLine(idx, "productId", v);
-                              if (prod) updateLine(idx, "rate", prod.costPrice || prod.salePrice || 0);
-                            }}>
-                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
-                              <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell>
-                            <Input type="number" className={`h-8 text-xs w-16 ${lineQtyError ? 'border-2 border-red-500 animate-pulse' : ''}`} value={line.qty} onChange={e => updateLine(idx, "qty", Number(e.target.value))} />
-                            {lineQtyError && <span className="text-[10px] text-red-500 block mt-0.5">{lineQtyError}</span>}
-                          </TableCell>
-                          <TableCell>
-                            <Input type="number" className={`h-8 text-xs w-20 ${lineRateError ? 'border-2 border-red-500 animate-pulse' : ''}`} value={line.rate} onChange={e => updateLine(idx, "rate", Number(e.target.value))} />
-                            {lineRateError && <span className="text-[10px] text-red-500 block mt-0.5">{lineRateError}</span>}
-                          </TableCell>
-                          <TableCell>
-                            <Input type="number" className={`h-8 text-xs w-16 ${lineTaxRateError ? 'border-2 border-red-500 animate-pulse' : ''}`} value={line.taxRate || 0} onChange={e => updateLine(idx, "taxRate", Number(e.target.value))} />
-                            {lineTaxRateError && <span className="text-[10px] text-red-500 block mt-0.5">{lineTaxRateError}</span>}
-                          </TableCell>
-                          <TableCell><Input type="number" className="h-8 text-xs w-16" value={line.discPercent} onChange={e => updateLine(idx, "discPercent", Number(e.target.value))} /></TableCell>
-                          <TableCell className="font-mono text-xs">{fmt(line.discAmt, "currency")}</TableCell>
-                          <TableCell className="font-mono text-xs">{fmt(line.vatAmt, "currency")}</TableCell>
-                          <TableCell className="font-mono text-xs font-medium">{fmt(line.total, "currency")}</TableCell>
-                          <TableCell><Input type="text" className="h-8 text-xs w-20" placeholder="Optional" value={line.batchNumber || ""} onChange={e => updateLine(idx, "batchNumber", e.target.value)} /></TableCell>
-                          <TableCell><Input type="date" className="h-8 text-xs w-24" value={line.expiryDate || ""} onChange={e => updateLine(idx, "expiryDate", e.target.value)} /></TableCell>
-                          <TableCell>{lines.length > 1 && <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500" onClick={() => removeLine(idx)}><X className="w-3 h-3" /></Button>}</TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {lines.map((line, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>
+                          <Select value={line.productId || ""} onValueChange={v => {
+                            const prod = products.find((p: any) => p.id === v);
+                            updateLine(idx, "productId", v);
+                            if (prod) updateLine(idx, "rate", prod.costPrice || prod.salePrice || 0);
+                          }}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
+                            <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell><Input type="number" className="h-8 text-xs w-16" value={line.qty} onChange={e => updateLine(idx, "qty", Number(e.target.value))} /></TableCell>
+                        <TableCell><Input type="number" className="h-8 text-xs w-20" value={line.rate} onChange={e => updateLine(idx, "rate", Number(e.target.value))} /></TableCell>
+                        <TableCell><Input type="number" className="h-8 text-xs w-16" value={line.discPercent} onChange={e => updateLine(idx, "discPercent", Number(e.target.value))} /></TableCell>
+                        <TableCell className="font-mono text-xs">{fmt(line.discAmt, "currency")}</TableCell>
+                        <TableCell className="font-mono text-xs">{fmt(line.vatAmt, "currency")}</TableCell>
+                        <TableCell className="font-mono text-xs font-medium">{fmt(line.total, "currency")}</TableCell>
+                        <TableCell>{lines.length > 1 && <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500" onClick={() => removeLine(idx)}><X className="w-3 h-3" /></Button>}</TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
@@ -3185,7 +3311,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div><span className="text-muted-foreground">Sub Total:</span><p className="font-mono font-bold text-slate-900 dark:text-white">{fmt(subTotal, "currency")}</p></div>
                   <div><span className="text-muted-foreground">Discount:</span><p className="font-mono font-bold text-red-600">{fmt(totalDisc, "currency")}</p></div>
-                  <div><span className="text-muted-foreground">VAT:</span><p className="font-mono font-bold text-slate-900 dark:text-white">{fmt(totalVat, "currency")}</p></div>
+                  <div><span className="text-muted-foreground">VAT ({formData.vatPercentage}%):</span><p className="font-mono font-bold text-slate-900 dark:text-white">{fmt(totalVat, "currency")}</p></div>
                   <div><span className="text-muted-foreground">Grand Total:</span><p className="font-mono font-bold text-lg text-slate-900 dark:text-white">{fmt(grandTotal, "currency")}</p></div>
                 </div>
               </CardContent>
@@ -3193,18 +3319,8 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving || isGodownSuspended}>
-              {saving ? (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
-                  Verifying Tenant Credit Shields &amp; Re-calculating Global Stock Layers...
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  {editItem ? "Update" : "Confirm Purchase Order"}
-                </>
-              )}
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+              {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}{editItem ? "Update" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3253,76 +3369,12 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
 
   // SR role check
   const isSR = user?.role === "sr";
-  const isAdmin = user?.role === "admin";
-
-  // Credit Shield states
-  const [showCreditShield, setShowCreditShield] = useState(false);
-  const [creditOverride, setCreditOverride] = useState(false);
-  const [supervisorCredential, setSupervisorCredential] = useState("");
-  const [showCreditOverride, setShowCreditOverride] = useState(false);
-
-  // SMS Auto-Notify status
-  const [smsAutoNotifyEnabled, setSmsAutoNotifyEnabled] = useState(false);
-
-  // New form fields
-  const [deliveryCost, setDeliveryCost] = useState(0);
-  const [cashAmount, setCashAmount] = useState(0);
-  const [bankAmount, setBankAmount] = useState(0);
-  const [mfsAmount, setMfsAmount] = useState(0);
-  const [cardAmount, setCardAmount] = useState(0);
-
-  // Inventory snapshot for rollback
-  const [inventorySnapshot, setInventorySnapshot] = useState<any>(null);
-
-  // Payment breakdown collapsible
-  const [showPaymentBreakdown, setShowPaymentBreakdown] = useState(false);
-
-  // Numeric validation flash states
-  const [invalidFields, setInvalidFields] = useState<Record<string, boolean>>({});
-
-  // Company profile for PDF
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-
-  // Customer credit info from API
-  const [customerCreditInfo, setCustomerCreditInfo] = useState<{ outstanding: number; creditLimit: number } | null>(null);
 
   // Selected customer info for credit limit
   const selectedCustomer = useMemo(() => {
     if (!formData.customerId) return null;
     return customers.find((c: any) => c.id === formData.customerId);
   }, [formData.customerId, customers]);
-
-  // Fetch customer credit info when customer changes
-  useEffect(() => {
-    if (!formData.customerId) { setCustomerCreditInfo(null); return; }
-    let isMounted = true;
-    const fetchCreditInfo = async () => {
-      try {
-        const res = await apiFetch(`/api/customers/${formData.customerId}`);
-        if (isMounted && res && (res.creditLimit !== undefined || res.openingBalance !== undefined)) {
-          setCustomerCreditInfo({
-            outstanding: Number(res.openingBalance) || 0,
-            creditLimit: Number(res.creditLimit) || 0,
-          });
-        }
-      } catch { /* silent fallback */ }
-    };
-    fetchCreditInfo();
-    return () => { isMounted = false; };
-  }, [formData.customerId]);
-
-  // Load company profile for PDF
-  useEffect(() => {
-    let isMounted = true;
-    const loadCompanyProfile = async () => {
-      try {
-        const res = await apiFetch("/api/company-branding");
-        if (isMounted && res) setCompanyProfile(res as CompanyProfile);
-      } catch { /* silent */ }
-    };
-    loadCompanyProfile();
-    return () => { isMounted = false; };
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3336,25 +3388,6 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
 
   useEffect(() => { load(); }, [load]);
 
-  // Fetch SMS automation config for SO page status badge
-  useEffect(() => {
-    let isMounted = true;
-    const fetchSmsConfig = async () => {
-      try {
-        const res = await apiFetch("/api/sms-automation-config");
-        if (isMounted) {
-          if (res && res.smsAlertOnCollection) {
-            setSmsAutoNotifyEnabled(true);
-          } else {
-            setSmsAutoNotifyEnabled(false);
-          }
-        }
-      } catch { if (isMounted) setSmsAutoNotifyEnabled(false); }
-    };
-    fetchSmsConfig();
-    return () => { isMounted = false; };
-  }, []);
-
   const loadOptions = useCallback(async () => {
     try {
       const [cRes, gRes, pRes, poRes] = await Promise.all([
@@ -3366,7 +3399,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       setCustomers(Array.isArray(cRes) ? cRes : cRes.data || []);
       setGodowns(Array.isArray(gRes) ? gRes : gRes.data || []);
       setProducts(Array.isArray(pRes) ? pRes : pRes.data || []);
-      setPaymentOptions(Array.isArray(poRes) ? poRes : poRes.data || []);
+      setPaymentOptions((Array.isArray(poRes) ? poRes : poRes.data || []).filter((p: any) => p.status !== "INACTIVE"));
     } catch { /* silent */ }
   }, []);
 
@@ -3416,77 +3449,24 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
     setLines(prev => prev.filter((_, i) => i !== idx));
   };
 
-  // Summary — Total = SubTotal - Discount + DeliveryCost + VAT
+  // Summary
   const subTotal = lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0);
   const totalDisc = lines.reduce((s, l) => s + (Number(l.discAmt) || 0), 0);
   const totalVat = lines.reduce((s, l) => s + (Number(l.vatAmt) || 0), 0);
-  const grandTotal = subTotal - totalDisc + Number(deliveryCost || 0) + totalVat;
+  const grandTotal = subTotal - totalDisc + totalVat;
 
-  // Credit limit check — use API-fetched credit info with fallback
-  const creditLimit = customerCreditInfo?.creditLimit ?? Number(selectedCustomer?.creditLimit) ?? 0;
-  const outstanding = customerCreditInfo?.outstanding ?? Number(selectedCustomer?.openingBalance) ?? 0;
-  const excess = (grandTotal + outstanding) - creditLimit;
+  // Credit limit check
   const creditExceeded = useMemo(() => {
-    return creditLimit > 0 && (grandTotal + outstanding) > creditLimit;
-  }, [creditLimit, outstanding, grandTotal]);
-
-  // Numeric validation helper
-  const flashInvalid = (field: string) => {
-    setInvalidFields(prev => ({ ...prev, [field]: true }));
-    setTimeout(() => setInvalidFields(prev => ({ ...prev, [field]: false })), 1500);
-  };
-
-  // Validate all numeric fields (with letter blocking)
-  const hasLettersSO = (v: unknown): boolean => {
-    const s = String(v ?? "").trim();
-    return /[^0-9.\-]/.test(s);
-  };
-  const validateNumericFields = (): boolean => {
-    let valid = true;
-    // Validate line items — letter check first
-    lines.forEach((line, idx) => {
-      if (line.productId) {
-        if (hasLettersSO(line.qty)) {
-          flashInvalid(`qty-${idx}`);
-          valid = false;
-        } else if (Number(line.qty) < 0) { flashInvalid(`qty-${idx}`); valid = false; }
-        if (hasLettersSO(line.rate)) {
-          flashInvalid(`rate-${idx}`);
-          valid = false;
-        } else if (Number(line.rate) < 0) { flashInvalid(`rate-${idx}`); valid = false; }
-      }
-    });
-    // Validate delivery cost
-    if (Number(deliveryCost) < 0) { flashInvalid("deliveryCost"); valid = false; }
-    // Validate payment breakdown
-    if (Number(cashAmount) < 0) { flashInvalid("cashAmount"); valid = false; }
-    if (Number(bankAmount) < 0) { flashInvalid("bankAmount"); valid = false; }
-    if (Number(mfsAmount) < 0) { flashInvalid("mfsAmount"); valid = false; }
-    if (Number(cardAmount) < 0) { flashInvalid("cardAmount"); valid = false; }
-    return valid;
-  };
-
-  // Godown status check
-  const selectedGodown = useMemo(() => {
-    if (!formData.godownId) return null;
-    return godowns.find((g: any) => g.id === formData.godownId);
-  }, [formData.godownId, godowns]);
-
-  const godownSuspended = selectedGodown && (selectedGodown.status === "SUSPENDED" || selectedGodown.isActive === false);
+    if (!selectedCustomer) return false;
+    const limit = Number(selectedCustomer.creditLimit) || 0;
+    const outstanding = Number(selectedCustomer.openingBalance) || 0;
+    return limit > 0 && (grandTotal + outstanding) > limit;
+  }, [selectedCustomer, grandTotal]);
 
   const openCreate = () => {
     const nextNum = data.length > 0 ? String(Math.max(...data.map((d: any) => parseInt(d.invoiceNo?.replace("SO-", "") || "0", 10) || 0)) + 1).padStart(5, "0") : "00001";
-    setFormData({ customerId: "", date: new Date().toISOString().split("T")[0], godownId: "", paymentOptionId: "", notes: "", status: "Draft", discount: 0, vatPercentage: 15, invoiceNo: `SO-${nextNum}`, dueDate: "" });
+    setFormData({ customerId: "", date: new Date().toISOString().split("T")[0], godownId: "", paymentOptionId: "", notes: "", status: "Draft", discount: 0, vatPercentage: 15, invoiceNo: `SO-${nextNum}` });
     setLines([{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
-    setDeliveryCost(0);
-    setCashAmount(0);
-    setBankAmount(0);
-    setMfsAmount(0);
-    setCardAmount(0);
-    setCreditOverride(false);
-    setSupervisorCredential("");
-    setShowCreditOverride(false);
-    setShowPaymentBreakdown(false);
     setEditItem(null);
     setShowForm(true);
     loadOptions();
@@ -3503,32 +3483,13 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       discount: item.discount || 0,
       vatPercentage: item.vatPercentage || 15,
       invoiceNo: item.invoiceNo || "",
-      dueDate: item.dueDate ? item.dueDate.split("T")[0] : "",
     });
     setLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
       productId: l.productId, qty: l.quantity || 1, rate: l.rate || 0, discPercent: l.discountPercent || 0, discAmt: l.discountAmount || 0, vatAmt: l.vatAmount || 0, total: l.total || 0
     })) : [{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
-    setDeliveryCost(item.deliveryCost || 0);
-    setCashAmount(item.cashAmount || 0);
-    setBankAmount(item.bankAmount || 0);
-    setMfsAmount(item.mfsAmount || 0);
-    setCardAmount(item.cardAmount || 0);
-    setCreditOverride(false);
-    setSupervisorCredential("");
-    setShowCreditOverride(false);
-    setShowPaymentBreakdown((item.cashAmount || item.bankAmount || item.mfsAmount || item.cardAmount) ? true : false);
     setEditItem(item);
     setShowForm(true);
     loadOptions();
-  };
-
-  const handleCreditOverride = () => {
-    if (!supervisorCredential) return;
-    setCreditOverride(true);
-    setShowCreditShield(false);
-    setShowCreditOverride(false);
-    setSupervisorCredential("");
-    toast({ title: "Override Authorized", description: "Credit shield bypassed with admin credentials" });
   };
 
   const handleSave = async () => {
@@ -3541,39 +3502,11 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       toast({ title: "Error", description: "Add at least one line item", variant: "destructive" });
       return;
     }
-
-    // Numeric validation
-    if (!validateNumericFields()) {
-      toast({ title: "Validation Error", description: "Please fix highlighted fields (letters and negative values not allowed)", variant: "destructive" });
-      return;
-    }
-
-    // Godown suspended check
-    if (godownSuspended) {
-      toast({ title: "Godown Suspended", description: "The selected godown is SUSPENDED. Cannot submit order.", variant: "destructive" });
-      return;
-    }
-
-    // Credit shield check
-    if (creditExceeded && !creditOverride) {
-      setShowCreditShield(true);
-      return;
-    }
-
     setSaving(true);
-
-    // Snapshot current inventory for rollback
-    try {
-      const invRes = await apiFetch("/api/products");
-      const invData = Array.isArray(invRes) ? invRes : invRes.data || [];
-      setInventorySnapshot(invData.map((p: any) => ({ id: p.id, stock: p.stock ?? p.quantity ?? 0 })));
-    } catch { /* silent */ }
-
     try {
       const payload = {
         customerId: formData.customerId,
         date: formData.date,
-        dueDate: formData.dueDate || null,
         godownId: formData.godownId || null,
         paymentOptionId: formData.paymentOptionId || null,
         notes: formData.notes,
@@ -3582,13 +3515,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
         vatPercentage: Number(formData.vatPercentage) || 0,
         subTotal,
         vatAmount: totalVat,
-        deliveryCost: Number(deliveryCost) || 0,
         grandTotal,
-        cashAmount: Number(cashAmount) || 0,
-        bankAmount: Number(bankAmount) || 0,
-        mfsAmount: Number(mfsAmount) || 0,
-        cardAmount: Number(cardAmount) || 0,
-        creditOverride: creditOverride || false,
         lines: validLines.map(l => ({
           productId: l.productId,
           quantity: Number(l.qty) || 0,
@@ -3606,20 +3533,8 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
         await apiFetch("/api/sales-orders", { method: "POST", body: JSON.stringify(payload) });
         toast({ title: "Created", description: "Sales Order created" });
       }
-      setCreditOverride(false);
       setShowForm(false); load();
-    } catch (e: any) {
-      // Rollback inventory snapshot on failure
-      if (inventorySnapshot) {
-        try {
-          for (const item of inventorySnapshot) {
-            await apiFetch(`/api/products/${item.id}`, { method: "PUT", body: JSON.stringify({ stock: item.stock, quantity: item.stock }) });
-          }
-          toast({ title: "Inventory Rolled Back", description: "Stock levels restored due to submission failure", variant: "destructive" });
-        } catch { /* rollback failed silently */ }
-      }
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setSaving(false); }
   };
 
@@ -3632,90 +3547,15 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
   };
 
   const exportCSV = () => {
-    const headers = ["Invoice No", "Customer", "Date", "Due Date", "Sub Total", "Discount", "Delivery Cost", "VAT %", "VAT Amount", "Grand Total", "Cash", "Bank", "MFS", "Card", "Payment", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmtDate(item.dueDate),
-      item.subTotal || 0, item.discount || 0, item.deliveryCost || 0, item.vatPercentage || 0,
-      item.vatAmount || 0, item.grandTotal || 0, item.cashAmount || 0, item.bankAmount || 0,
-      item.mfsAmount || 0, item.cardAmount || 0, item.paymentOptionId || "—", item.status
-    ].map(String));
+    const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Discount", "VAT %", "VAT Amount", "Grand Total", "Payment", "Status"];
+    const rows = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), item.subTotal || 0, item.discount || 0, item.vatPercentage || 0, item.vatAmount || 0, item.grandTotal || 0, item.paymentOptionId || "—", item.status].map(String));
     try { exportToCSVSimple("Sales Orders", headers, rows); toast({ title: "Exported", description: "Sales Orders exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportPDF = () => {
-    const columns: ExportColumnDef[] = [
-      { key: "invoiceNo", label: "Invoice No", type: "text" },
-      { key: "customerName", label: "Customer", type: "text" },
-      { key: "date", label: "Date", type: "date" },
-      { key: "dueDate", label: "Due Date", type: "date" },
-      { key: "subTotal", label: "Sub Total", type: "currency" },
-      { key: "discount", label: "Discount", type: "currency" },
-      { key: "deliveryCost", label: "Delivery Cost", type: "currency" },
-      { key: "vatPercentage", label: "VAT %", type: "number" },
-      { key: "vatAmount", label: "VAT Amount", type: "currency" },
-      { key: "grandTotal", label: "Grand Total", type: "currency" },
-      { key: "status", label: "Status", type: "text" },
-    ];
-    const pdfData = filtered.map((item: any) => ({
-      invoiceNo: item.invoiceNo || "—",
-      customerName: item.customerName || getCustomerName(item.customerId),
-      date: item.date,
-      dueDate: item.dueDate,
-      subTotal: item.subTotal || 0,
-      discount: item.discount || 0,
-      deliveryCost: item.deliveryCost || 0,
-      vatPercentage: item.vatPercentage || 0,
-      vatAmount: item.vatAmount || 0,
-      grandTotal: item.grandTotal || 0,
-      status: item.status || "Draft",
-    }));
-
-    // Build metadata for invoice PDF
-    const metadata: InvoiceMetadata | undefined = selectedCustomer ? {
-      documentNo: formData.invoiceNo || "",
-      counterpartyCode: selectedCustomer.customerCode || "",
-      counterpartyName: selectedCustomer.name || "",
-      counterpartyMobile: selectedCustomer.phone || "",
-      counterpartyAddress: selectedCustomer.address || "",
-      creationDate: formData.date || new Date().toISOString().split("T")[0],
-      dueDate: formData.dueDate || undefined,
-      previousOutstanding: outstanding,
-      balanceStatus: creditExceeded ? "Overdue" : outstanding > 0 ? "Due" : "Clear",
-    } : undefined;
-
-    const paymentBreakdownForPdf: PaymentBreakdown | undefined = (cashAmount || bankAmount || mfsAmount || cardAmount) ? {
-      cash: Number(cashAmount) || 0,
-      bank: Number(bankAmount) || 0,
-      mfs: Number(mfsAmount) || 0,
-      card: Number(cardAmount) || 0,
-    } : undefined;
-
-    try {
-      exportInvoicePDF({
-        title: "Sales Orders",
-        subtitle: "Retail Invoice Report",
-        orientation: "landscape",
-        columns,
-        data: pdfData,
-        isVatAuditor,
-        vatMaskedColumns: ["subTotal", "discount", "vatAmount", "grandTotal", "deliveryCost"],
-        filename: "Sales_Orders",
-        company: companyProfile || undefined,
-        financialFooter: {
-          preparedBy: user?.displayName || "",
-          checkedBy: "",
-          authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
-        },
-        metadata,
-        paymentBreakdown: paymentBreakdownForPdf,
-        legalFooter: {
-          legalText: "This is a system-generated secure document from VoltERP. No physical seal or manual signature is required.",
-          greetingText: "Thank you for your business.",
-        },
-      });
-      toast({ title: "Exported", description: "Sales Orders exported to PDF" });
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Discount", "VAT %", "VAT Amount", "Grand Total", "Status"];
+    const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.discount, "currency"), String(item.vatPercentage || 0), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
+    try { exportToPDFSimple("Sales Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -3748,54 +3588,10 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
     }
   };
 
-  const colCount = isVatAuditor ? 13 : 12;
-
   return (
     <div className="page-enter space-y-4">
-      {/* Credit Shield Overlay */}
-      {showCreditShield && creditExceeded && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <Card className="max-w-md w-full mx-4 border-2 border-red-500 shadow-2xl">
-            <CardContent className="p-6 text-center">
-              <ShieldAlert className="w-16 h-16 mx-auto mb-4 text-red-500 animate-pulse" />
-              <h3 className="text-xl font-bold text-red-600 mb-2">Credit Shield Violation</h3>
-              <p className="text-sm text-muted-foreground mb-4">Customer balance threshold breached. Transaction rejected.</p>
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-left text-sm space-y-1 mb-4">
-                <div className="flex justify-between"><span>Credit Limit:</span><span className="font-mono font-bold">{fmt(creditLimit, "currency")}</span></div>
-                <div className="flex justify-between"><span>Current Outstanding:</span><span className="font-mono font-bold">{fmt(outstanding, "currency")}</span></div>
-                <div className="flex justify-between"><span>New Order Value:</span><span className="font-mono font-bold">{fmt(grandTotal, "currency")}</span></div>
-                <div className="flex justify-between text-red-600 font-bold"><span>Excess:</span><span className="font-mono">{fmt(excess, "currency")}</span></div>
-              </div>
-              {/* Admin Override Toggle */}
-              {isAdmin && (
-                <div className="mb-4">
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => setShowCreditOverride(!showCreditOverride)}>
-                    <Lock className="w-4 h-4 mr-2" />Admin Override
-                  </Button>
-                  {showCreditOverride && (
-                    <div className="mt-2 space-y-2">
-                      <Input type="password" placeholder="Enter supervisor credential" value={supervisorCredential} onChange={e => setSupervisorCredential(e.target.value)} />
-                      <Button size="sm" className="w-full bg-red-600 hover:bg-red-700" onClick={handleCreditOverride} disabled={!supervisorCredential}>
-                        Authorize Override
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
-              <Button variant="outline" onClick={() => setShowCreditShield(false)}>Close</Button>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Sales Orders</h2>
-          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800">
-            <Activity className="w-3 h-3 mr-1" />Inv-Orders-Core
-          </Badge>
-          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${smsAutoNotifyEnabled ? "border-green-400 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20" : "border-gray-300 text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/20"}`}>SMS Auto-Notify: {smsAutoNotifyEnabled ? "ON" : "OFF"}</Badge>
-        </div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Sales Orders</h2>
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
@@ -3808,7 +3604,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Total Sales", value: totalSales, icon: Receipt, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-          { label: "Total Value", value: isVatAuditor ? "N/A (Audit Mode)" : fmt(totalValue, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+          { label: "Total Value", value: fmt(totalValue, "currency"), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
           { label: "Draft", value: draftCount, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
           { label: "Delivered", value: deliveredCount, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
         ].map((stat, i) => (
@@ -3836,22 +3632,21 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                   <TableHead>Invoice No</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Due Date</TableHead>
                   <TableHead>Sub Total</TableHead>
                   <TableHead>Discount</TableHead>
-                  <TableHead>Delivery</TableHead>
                   {isVatAuditor && <TableHead className="bg-amber-50 dark:bg-amber-900/20">VAT %</TableHead>}
                   <TableHead className={isVatAuditor ? "bg-amber-50 dark:bg-amber-900/20" : ""}>VAT Amount</TableHead>
                   <TableHead>Grand Total</TableHead>
+                  <TableHead>Payment</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-20 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={colCount} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={isVatAuditor ? 12 : 11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                 ) : filtered.length === 0 ? (
-                  <TableRow><TableCell colSpan={colCount} className="h-24 text-center text-muted-foreground">No sales orders found</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={isVatAuditor ? 12 : 11} className="h-24 text-center text-muted-foreground">No sales orders found</TableCell></TableRow>
                 ) : filtered.map((item: any) => (
                   <React.Fragment key={item.id}>
                     <TableRow className="data-table-row hover:bg-muted/50">
@@ -3863,13 +3658,12 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                       <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.invoiceNo}</TableCell>
                       <TableCell>{onNavigate ? <span className="cursor-pointer text-blue-600 hover:underline" onClick={() => onNavigate('customers')}>{item.customerName || getCustomerName(item.customerId)}</span> : (item.customerName || getCustomerName(item.customerId))}</TableCell>
                       <TableCell>{fmtDate(item.date)}</TableCell>
-                      <TableCell>{fmtDate(item.dueDate)}</TableCell>
-                      <TableCell className="font-mono">{isVatAuditor ? "N/A" : fmt(item.subTotal, "currency")}</TableCell>
-                      <TableCell className="font-mono">{isVatAuditor ? "N/A" : fmt(item.discount, "currency")}</TableCell>
-                      <TableCell className="font-mono">{fmt(item.deliveryCost, "currency")}</TableCell>
+                      <TableCell className="font-mono">{fmt(item.subTotal, "currency")}</TableCell>
+                      <TableCell className="font-mono">{fmt(item.discount, "currency")}</TableCell>
                       {isVatAuditor && <TableCell className="font-mono bg-amber-50 dark:bg-amber-900/20">{item.vatPercentage || 0}%</TableCell>}
                       <TableCell className={`font-mono ${isVatAuditor ? "bg-amber-50 dark:bg-amber-900/20 font-bold" : ""}`}>{fmt(item.vatAmount, "currency")}</TableCell>
                       <TableCell className="font-mono font-medium">{fmt(item.grandTotal, "currency")}</TableCell>
+                      <TableCell>{item.paymentOptionId || "—"}</TableCell>
                       <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -3880,7 +3674,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                     </TableRow>
                     {expandedRows.has(item.id) && (
                       <TableRow>
-                        <TableCell colSpan={colCount} className="bg-muted/30 p-3">
+                        <TableCell colSpan={isVatAuditor ? 12 : 11} className="bg-muted/30 p-3">
                           <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Line Items</div>
                           <Table>
                             <TableHeader>
@@ -3899,25 +3693,15 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                                 <TableRow key={li}>
                                   <TableCell>{line.productName || line.productId || "—"}</TableCell>
                                   <TableCell className="font-mono">{line.qty}</TableCell>
-                                  <TableCell className="font-mono">{isVatAuditor ? "N/A" : fmt(line.rate, "currency")}</TableCell>
+                                  <TableCell className="font-mono">{fmt(line.rate, "currency")}</TableCell>
                                   <TableCell className="font-mono">{line.discPercent}%</TableCell>
-                                  <TableCell className="font-mono">{isVatAuditor ? "N/A" : fmt(line.discAmt, "currency")}</TableCell>
+                                  <TableCell className="font-mono">{fmt(line.discAmt, "currency")}</TableCell>
                                   <TableCell className="font-mono">{fmt(line.vatAmt, "currency")}</TableCell>
-                                  <TableCell className="font-mono font-medium">{isVatAuditor ? "N/A" : fmt(line.total, "currency")}</TableCell>
+                                  <TableCell className="font-mono font-medium">{fmt(line.total, "currency")}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
                           </Table>
-                          {/* Payment breakdown in expanded view */}
-                          {(item.cashAmount || item.bankAmount || item.mfsAmount || item.cardAmount) && (
-                            <div className="mt-2 text-xs space-y-1">
-                              <span className="font-medium text-slate-900 dark:text-white">Payment Breakdown: </span>
-                              {item.cashAmount ? <span>Cash: {fmt(item.cashAmount, "currency")} | </span> : null}
-                              {item.bankAmount ? <span>Bank: {fmt(item.bankAmount, "currency")} | </span> : null}
-                              {item.mfsAmount ? <span>MFS: {fmt(item.mfsAmount, "currency")} | </span> : null}
-                              {item.cardAmount ? <span>Card: {fmt(item.cardAmount, "currency")}</span> : null}
-                            </div>
-                          )}
                         </TableCell>
                       </TableRow>
                     )}
@@ -3953,20 +3737,10 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                 <Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
               <div className="space-y-1.5">
-                <Label>Due Date</Label>
-                <Input type="date" value={formData.dueDate || ""} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
                 <Label>Godown</Label>
                 <Select value={formData.godownId || ""} onValueChange={v => setFormData({ ...formData, godownId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
-                  <SelectContent>
-                    {godowns.map((g: any) => (
-                      <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED" || g.isActive === false}>
-                        {g.name}{(g.status === "SUSPENDED" || g.isActive === false) ? " (SUSPENDED)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -3991,54 +3765,25 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                 <Label>VAT Percentage</Label>
                 <Input type="number" value={formData.vatPercentage ?? 15} onChange={e => setFormData({ ...formData, vatPercentage: Number(e.target.value) })} />
               </div>
-              <div className="space-y-1.5">
-                <Label>Delivery Cost</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={deliveryCost}
-                  onChange={e => {
-                    const val = Number(e.target.value);
-                    setDeliveryCost(val);
-                    if (val < 0) flashInvalid("deliveryCost");
-                  }}
-                  className={invalidFields["deliveryCost"] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}
-                />
-              </div>
             </div>
             <div className="space-y-1.5">
               <Label>Notes</Label>
               <Textarea value={formData.notes || ""} onChange={e => setFormData({ ...formData, notes: e.target.value })} />
             </div>
 
-            {/* Godown Suspended Warning */}
-            {godownSuspended && (
-              <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
-                <CardContent className="p-3 flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
-                  <div>
-                    <p className="text-red-600 font-medium text-sm">Godown SUSPENDED</p>
-                    <p className="text-red-500 text-xs">The selected godown is currently suspended. Submission will be blocked.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             {/* Credit Limit Info */}
             {selectedCustomer && (
               <Card className={creditExceeded ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "bg-muted/30"}>
                 <CardContent className="p-3">
                   <div className="flex items-center gap-3 text-sm">
-                    {creditExceeded && <ShieldAlert className="w-4 h-4 text-red-500 shrink-0" />}
-                    {!creditExceeded && <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />}
+                    {creditExceeded && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
                     <div className="flex flex-wrap gap-4">
-                      <span>Credit Limit: <strong className="font-mono">{fmt(creditLimit, "currency")}</strong></span>
-                      <span>Outstanding: <strong className="font-mono">{fmt(outstanding, "currency")}</strong></span>
+                      <span>Credit Limit: <strong className="font-mono">{fmt(selectedCustomer.creditLimit, "currency")}</strong></span>
+                      <span>Outstanding: <strong className="font-mono">{fmt(selectedCustomer.openingBalance, "currency")}</strong></span>
                       <span>This Order: <strong className="font-mono">{fmt(grandTotal, "currency")}</strong></span>
                     </div>
                   </div>
-                  {creditExceeded && <p className="text-red-600 text-xs mt-1 font-medium">⚠ Grand Total + Outstanding exceeds Credit Limit! Submission blocked.</p>}
-                  {creditOverride && <p className="text-orange-600 text-xs mt-1 font-medium">🔓 Admin override active — credit shield bypassed</p>}
+                  {creditExceeded && <p className="text-red-600 text-xs mt-1 font-medium">⚠ Grand Total + Outstanding exceeds Credit Limit!</p>}
                 </CardContent>
               </Card>
             )}
@@ -4070,38 +3815,19 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
                           <Select value={line.productId || ""} onValueChange={v => {
                             const prod = products.find((p: any) => p.id === v);
                             updateLine(idx, "productId", v);
-                            if (prod) updateLine(idx, "rate", prod.salePrice || 0);
+                            if (prod && (isSR || !editItem)) updateLine(idx, "rate", prod.salePrice || 0);
+                            else if (prod) updateLine(idx, "rate", prod.salePrice || 0);
                           }}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
                             <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                           </Select>
                         </TableCell>
-                        <TableCell>
-                          <Input
-                            type="number"
-                            className={`h-8 text-xs w-16 ${invalidFields[`qty-${idx}`] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}`}
-                            value={line.qty}
-                            onChange={e => {
-                              const val = Number(e.target.value);
-                              updateLine(idx, "qty", val);
-                              if (val < 0) flashInvalid(`qty-${idx}`);
-                            }}
-                          />
-                        </TableCell>
+                        <TableCell><Input type="number" className="h-8 text-xs w-16" value={line.qty} onChange={e => updateLine(idx, "qty", Number(e.target.value))} /></TableCell>
                         <TableCell>
                           {isSR ? (
                             <Input type="number" className="h-8 text-xs w-20 bg-muted cursor-not-allowed" value={line.rate} readOnly />
                           ) : (
-                            <Input
-                              type="number"
-                              className={`h-8 text-xs w-20 ${invalidFields[`rate-${idx}`] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}`}
-                              value={line.rate}
-                              onChange={e => {
-                                const val = Number(e.target.value);
-                                updateLine(idx, "rate", val);
-                                if (val < 0) flashInvalid(`rate-${idx}`);
-                              }}
-                            />
+                            <Input type="number" className="h-8 text-xs w-20" value={line.rate} onChange={e => updateLine(idx, "rate", Number(e.target.value))} />
                           )}
                         </TableCell>
                         <TableCell><Input type="number" className="h-8 text-xs w-16" value={line.discPercent} onChange={e => updateLine(idx, "discPercent", Number(e.target.value))} /></TableCell>
@@ -4117,100 +3843,22 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
               {isSR && <p className="text-xs text-muted-foreground mt-1">🔒 Rate is locked to product MRP for SR role</p>}
             </div>
 
-            {/* Payment Breakdown — Collapsible */}
-            <Collapsible open={showPaymentBreakdown} onOpenChange={setShowPaymentBreakdown}>
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" size="sm" className="w-full justify-between">
-                  <span className="flex items-center gap-2"><DollarSign className="w-4 h-4" />Payment Breakdown</span>
-                  {showPaymentBreakdown ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-3 bg-muted/20 rounded-lg border">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Cash Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={cashAmount}
-                      onChange={e => { const val = Number(e.target.value); setCashAmount(val); if (val < 0) flashInvalid("cashAmount"); }}
-                      className={`h-8 text-xs ${invalidFields["cashAmount"] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Bank Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={bankAmount}
-                      onChange={e => { const val = Number(e.target.value); setBankAmount(val); if (val < 0) flashInvalid("bankAmount"); }}
-                      className={`h-8 text-xs ${invalidFields["bankAmount"] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">MFS Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={mfsAmount}
-                      onChange={e => { const val = Number(e.target.value); setMfsAmount(val); if (val < 0) flashInvalid("mfsAmount"); }}
-                      className={`h-8 text-xs ${invalidFields["mfsAmount"] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Card Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={cardAmount}
-                      onChange={e => { const val = Number(e.target.value); setCardAmount(val); if (val < 0) flashInvalid("cardAmount"); }}
-                      className={`h-8 text-xs ${invalidFields["cardAmount"] ? "border-red-500 animate-pulse bg-red-50 dark:bg-red-900/20" : ""}`}
-                    />
-                  </div>
-                  <div className="col-span-2 md:col-span-4 text-xs text-muted-foreground">
-                    Total Payment: {fmt(cashAmount + bankAmount + mfsAmount + cardAmount, "currency")}
-                    {(cashAmount + bankAmount + mfsAmount + cardAmount) > grandTotal && (
-                      <span className="text-orange-600 ml-2">⚠ Payment exceeds Grand Total</span>
-                    )}
-                  </div>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-
             {/* Summary */}
             <Card className="bg-muted/30">
               <CardContent className="p-4">
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div><span className="text-muted-foreground">Sub Total:</span><p className="font-mono font-bold text-slate-900 dark:text-white">{fmt(subTotal, "currency")}</p></div>
                   <div><span className="text-muted-foreground">Discount:</span><p className="font-mono font-bold text-red-600">{fmt(totalDisc, "currency")}</p></div>
-                  <div><span className="text-muted-foreground">Delivery Cost:</span><p className="font-mono font-bold text-blue-600">{fmt(deliveryCost, "currency")}</p></div>
                   <div><span className="text-muted-foreground">VAT ({formData.vatPercentage}%):</span><p className="font-mono font-bold text-slate-900 dark:text-white">{fmt(totalVat, "currency")}</p></div>
                   <div><span className="text-muted-foreground">Grand Total:</span><p className="font-mono font-bold text-lg text-slate-900 dark:text-white">{fmt(grandTotal, "currency")}</p></div>
-                </div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Formula: SubTotal − Discount + DeliveryCost + VAT = Grand Total
                 </div>
               </CardContent>
             </Card>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button
-              className="bg-[#2563eb] hover:bg-[#1d4ed8]"
-              onClick={handleSave}
-              disabled={saving || godownSuspended ? true : false}
-            >
-              {saving ? (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
-                  <span className="text-xs">Verifying Tenant Credit Shields & Re-calculating Global Stock Layers...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  {editItem ? "Update" : "Authorize Retail Invoice"}
-                </>
-              )}
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+              {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}{editItem ? "Update" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5973,10 +5621,6 @@ function StockTransfersPage() {
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [statusUpdateLoading, setStatusUpdateLoading] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState<Record<string, string>>({});
-  const [logisticsSnapshot, setLogisticsSnapshot] = useState<any[] | null>(null);
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
 
   // Dynamic options
   const [godowns, setGodowns] = useState<any[]>([]);
@@ -5984,24 +5628,11 @@ function StockTransfersPage() {
 
   // Form state
   const [formData, setFormData] = useState<Record<string, any>>({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], notes: "", transferNo: "" });
-  const [lines, setLines] = useState<any[]>([{ productId: "", quantity: 1, batchNumber: "" }]);
+  const [lines, setLines] = useState<any[]>([{ productId: "", quantity: 1 }]);
 
   // RBAC
   const isDealer = user?.role === "dealer";
   const isSR = user?.role === "sr";
-  const isAdmin = user?.role === "admin";
-
-  // Intl.NumberFormat for all financial figures
-  const bdFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  const loadCompanyProfile = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/company-branding");
-      if (res && !res.error) setCompanyProfile(res);
-    } catch { /* silent */ }
-  }, []);
-
-  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -6039,10 +5670,9 @@ function StockTransfersPage() {
 
   // Stats
   const totalTransfers = data.length;
-  const pendingCount = data.filter((d: any) => d.shippingStatus === "Pending" || d.shippingStatus === "PENDING").length;
-  const inTransitCount = data.filter((d: any) => d.shippingStatus === "In-Transit" || d.shippingStatus === "IN_TRANSIT").length;
-  const receivedCount = data.filter((d: any) => d.shippingStatus === "Delivered" || d.shippingStatus === "RECEIVED").length;
-  const rejectedCount = data.filter((d: any) => d.shippingStatus === "REJECTED").length;
+  const pendingCount = data.filter((d: any) => d.shippingStatus === "Pending").length;
+  const inTransitCount = data.filter((d: any) => d.shippingStatus === "In-Transit").length;
+  const deliveredCount = data.filter((d: any) => d.shippingStatus === "Delivered").length;
 
   // Auto-calculate totals
   const totalItems = lines.filter(l => l.productId).length;
@@ -6051,16 +5681,10 @@ function StockTransfersPage() {
   // Godown validation
   const sameGodownError = formData.fromGodownId && formData.toGodownId && formData.fromGodownId === formData.toGodownId;
 
-  // SUSPENDED Godown check
-  const fromGodown = godowns.find((g: any) => g.id === formData.fromGodownId);
-  const toGodown = godowns.find((g: any) => g.id === formData.toGodownId);
-  const fromSuspended = fromGodown?.status === "SUSPENDED";
-  const toSuspended = toGodown?.status === "SUSPENDED";
-
   const openCreate = () => {
     const nextNum = data.length > 0 ? String(Math.max(...data.map((d: any) => parseInt(d.transferNo?.replace("TRF-", "") || d.transferNo?.replace("TRN-", "") || "0", 10) || 0)) + 1).padStart(5, "0") : "00001";
     setFormData({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], notes: "", transferNo: `TRN-${nextNum}` });
-    setLines([{ productId: "", quantity: 1, batchNumber: "" }]);
+    setLines([{ productId: "", quantity: 1 }]);
     setEditItem(null);
     setShowForm(true);
     loadOptions();
@@ -6076,8 +5700,8 @@ function StockTransfersPage() {
       shippingStatus: item.shippingStatus || "Pending",
     });
     setLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
-      productId: l.productId, quantity: l.quantity || 1, batchNumber: l.batchNumber || ""
-    })) : [{ productId: "", quantity: 1, batchNumber: "" }]);
+      productId: l.productId, quantity: l.quantity || 1
+    })) : [{ productId: "", quantity: 1 }]);
     setEditItem(item);
     setShowForm(true);
     loadOptions();
@@ -6109,7 +5733,6 @@ function StockTransfersPage() {
         lines: validLines.map(l => ({
           productId: l.productId,
           quantity: Number(l.quantity) || 0,
-          batchNumber: l.batchNumber || null,
         })),
       };
       if (editItem) {
@@ -6132,79 +5755,29 @@ function StockTransfersPage() {
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
-  // ─── Intransit Valuation State Machine with Spin-Lock + Rollback ───
   const handleShippingStatusUpdate = async (item: any, newStatus: string) => {
-    // Save logisticsSnapshot before API call for rollback
-    setLogisticsSnapshot([...data]);
-    setStatusUpdateLoading(item.id);
     try {
       const updateData: Record<string, any> = { shippingStatus: newStatus, status: newStatus };
-      if (newStatus === "IN_TRANSIT") updateData.shippedAt = new Date().toISOString();
-      if (newStatus === "RECEIVED") updateData.deliveredAt = new Date().toISOString();
-      if (newStatus === "REJECTED") {
-        const reason = rejectionReason[item.id] || "";
-        updateData.rejectionReason = reason;
-      }
+      if (newStatus === "In-Transit") updateData.shippedAt = new Date().toISOString();
+      if (newStatus === "Delivered") updateData.deliveredAt = new Date().toISOString();
       await apiFetch(`/api/transfers/${item.id}`, { method: "PUT", body: JSON.stringify(updateData) });
       toast({ title: "Status Updated", description: `Transfer marked as ${newStatus}` });
       load();
     } catch (e: any) {
-      // Rollback from logisticsSnapshot on failure
-      if (logisticsSnapshot) {
-        setData(logisticsSnapshot);
-        setLogisticsSnapshot(null);
-      }
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setStatusUpdateLoading(null);
     }
   };
 
   const exportCSV = () => {
-    const headers = ["Transfer No", "From Godown", "To Godown", "Date", "Shipping Status", "Total Items", "Total Qty", "Value"];
-    const rows = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0, item.totalValue ? bdFmt.format(Number(item.totalValue)) : "0.00"].map(String));
+    const headers = ["Transfer No", "From Godown", "To Godown", "Date", "Shipping Status", "Total Items", "Total Qty"];
+    const rows = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", item.totalItems || 0, item.totalQuantity || 0].map(String));
     try { exportToCSVSimple("Stock Transfers", headers, rows); toast({ title: "Exported", description: "Stock Transfers exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
-  const exportPDFHandler = async () => {
-    try {
-      const columns: ExportColumnDef[] = [
-        { key: "transferNo", label: "Transfer No", type: "text" },
-        { key: "fromGodown", label: "From Godown", type: "text" },
-        { key: "toGodown", label: "To Godown", type: "text" },
-        { key: "date", label: "Date", type: "date" },
-        { key: "shippingStatus", label: "Status", type: "text" },
-        { key: "totalItems", label: "Items", type: "number" },
-        { key: "totalQuantity", label: "Qty", type: "number" },
-        { key: "totalValue", label: "Value", type: "currency" },
-      ];
-      const pdfData = filtered.map((item: any) => ({
-        transferNo: item.transferNo || "—",
-        fromGodown: item.fromGodown?.name || "—",
-        toGodown: item.toGodown?.name || "—",
-        date: item.date,
-        shippingStatus: item.shippingStatus || "Pending",
-        totalItems: item.totalItems || 0,
-        totalQuantity: item.totalQuantity || 0,
-        totalValue: item.totalValue || 0,
-      }));
-      exportToPDF({
-        title: "Stock Transfer Challan & Delivery Manifest",
-        subtitle: `Period: All | Total Transfers: ${filtered.length} | In-Transit: ${inTransitCount} | Completed: ${receivedCount}`,
-        columns,
-        data: pdfData,
-        isVatAuditor,
-        vatMaskedColumns: ["totalValue"],
-        company: companyProfile || undefined,
-        financialFooter: {
-          preparedBy: user?.displayName || "",
-          checkedBy: "",
-          authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
-        },
-      });
-      toast({ title: "Exported", description: "Stock Transfers exported to PDF" });
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  const exportPDF = () => {
+    const headers = ["Transfer No", "From", "To", "Date", "Status", "Items", "Qty"];
+    const body = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", String(item.totalItems || 0), String(item.totalQuantity || 0)]);
+    try { exportToPDFSimple("Stock Transfers", headers, body, "landscape"); toast({ title: "Exported", description: "Stock Transfers exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -6229,21 +5802,10 @@ function StockTransfersPage() {
 
   const shippingStatusColor = (status: string) => {
     switch (status) {
-      case "Pending": case "PENDING": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
-      case "In-Transit": case "IN_TRANSIT": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-      case "Delivered": case "RECEIVED": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
-      case "REJECTED": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      case "Pending": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      case "In-Transit": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      case "Delivered": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
       default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
-    }
-  };
-
-  const shippingStatusLabel = (status: string) => {
-    switch (status) {
-      case "IN_TRANSIT": return "In-Transit";
-      case "RECEIVED": return "Received";
-      case "REJECTED": return "Rejected";
-      case "PENDING": return "Pending";
-      default: return status || "Pending";
     }
   };
 
@@ -6283,7 +5845,7 @@ function StockTransfersPage() {
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportPDFHandler}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
           {!isSR && (
             <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create Transfer</Button>
           )}
@@ -6291,13 +5853,12 @@ function StockTransfersPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Total Transfers", value: totalTransfers, icon: ArrowLeftRight, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
           { label: "Pending", value: pendingCount, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
           { label: "In-Transit", value: inTransitCount, icon: Truck, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-          { label: "Received", value: receivedCount, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
-          { label: "Rejected", value: rejectedCount, icon: XCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+          { label: "Delivered", value: deliveredCount, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
         ].map((stat, i) => (
           <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
             <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
@@ -6305,26 +5866,6 @@ function StockTransfersPage() {
           </CardContent></Card>
         ))}
       </div>
-
-      {/* In-Transit Valuation Summary */}
-      {inTransitCount > 0 && (
-        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                <Truck className="w-5 h-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">In-Transit Asset Valuation</p>
-                <p className="text-xl font-bold text-blue-700 dark:text-blue-400">
-                  {isVatAuditor ? "N/A (Audit Mode)" : `৳${bdFmt.format(data.filter((d: any) => d.shippingStatus === "In-Transit" || d.shippingStatus === "IN_TRANSIT").reduce((s: number, d: any) => s + (Number(d.totalValue) || 0), 0))}`}
-                </p>
-                <p className="text-xs text-muted-foreground">{inTransitCount} shipment(s) in transit — Asset value held in Inventory In-Transit COA node</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <Card>
         <CardContent className="p-4">
@@ -6347,7 +5888,7 @@ function StockTransfersPage() {
                   <TableHead>Shipping Status</TableHead>
                   <TableHead>Total Items</TableHead>
                   <TableHead>Total Qty</TableHead>
-                  {!isSR && <TableHead className="w-40 text-right">Actions</TableHead>}
+                  {!isSR && <TableHead className="w-28 text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -6355,120 +5896,67 @@ function StockTransfersPage() {
                   <TableRow><TableCell colSpan={isSR ? 8 : 9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                 ) : filtered.length === 0 ? (
                   <TableRow><TableCell colSpan={isSR ? 8 : 9} className="h-24 text-center text-muted-foreground">No stock transfers found</TableCell></TableRow>
-                ) : filtered.map((item: any) => {
-                  const rawStatus = item.shippingStatus || "Pending";
-                  const normalizedStatus = rawStatus.toUpperCase().replace(/-/g, "_");
-                  const isTerminal = normalizedStatus === "RECEIVED" || normalizedStatus === "REJECTED";
-                  const isLoadingThis = statusUpdateLoading === item.id;
-                  return (
-                    <React.Fragment key={item.id}>
-                      <TableRow className="data-table-row hover:bg-muted/50">
-                        <TableCell>
-                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(item.id)}>
-                            {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                          </Button>
+                ) : filtered.map((item: any) => (
+                  <React.Fragment key={item.id}>
+                    <TableRow className="data-table-row hover:bg-muted/50">
+                      <TableCell>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(item.id)}>
+                          {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        </Button>
+                      </TableCell>
+                      <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.transferNo}</TableCell>
+                      <TableCell>{item.fromGodown?.name || "—"}</TableCell>
+                      <TableCell>{item.toGodown?.name || "—"}</TableCell>
+                      <TableCell>{fmtDate(item.date)}</TableCell>
+                      <TableCell><Badge className={shippingStatusColor(item.shippingStatus)}>{item.shippingStatus || "Pending"}</Badge></TableCell>
+                      <TableCell className="font-mono">{item.totalItems || item.lines?.length || 0}</TableCell>
+                      <TableCell className="font-mono">{item.totalQuantity || item.lines?.reduce((s: number, l: any) => s + (l.quantity || 0), 0) || 0}</TableCell>
+                      {!isSR && (
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {item.shippingStatus === "Pending" && (
+                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleShippingStatusUpdate(item, "In-Transit")}><Truck className="w-3 h-3 mr-1" />In-Transit</Button>
+                            )}
+                            {item.shippingStatus === "In-Transit" && (
+                              <Button variant="outline" size="sm" className="h-7 text-xs border-green-500 text-green-600" onClick={() => handleShippingStatusUpdate(item, "Delivered")}><CheckCircle className="w-3 h-3 mr-1" />Delivered</Button>
+                            )}
+                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                          </div>
                         </TableCell>
-                        <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.transferNo}</TableCell>
-                        <TableCell>
-                          {item.fromGodown?.name || "—"}
-                          {item.fromGodown?.status === "SUSPENDED" && <Badge className="ml-1 bg-red-100 text-red-700 text-[10px]">SUSPENDED</Badge>}
-                        </TableCell>
-                        <TableCell>
-                          {item.toGodown?.name || "—"}
-                          {item.toGodown?.status === "SUSPENDED" && <Badge className="ml-1 bg-red-100 text-red-700 text-[10px]">SUSPENDED</Badge>}
-                        </TableCell>
-                        <TableCell>{fmtDate(item.date)}</TableCell>
-                        <TableCell>
-                          {isTerminal && normalizedStatus === "RECEIVED" ? (
-                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">✓ Completed</Badge>
-                          ) : isTerminal && normalizedStatus === "REJECTED" ? (
-                            <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">✗ Rejected{item.rejectionReason ? `: ${item.rejectionReason}` : ""}</Badge>
-                          ) : (
-                            <Badge className={shippingStatusColor(rawStatus)}>{shippingStatusLabel(rawStatus)}</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono">{item.totalItems || item.lines?.length || 0}</TableCell>
-                        <TableCell className="font-mono">{item.totalQuantity || item.lines?.reduce((s: number, l: any) => s + (l.quantity || 0), 0) || 0}</TableCell>
-                        {!isSR && (
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1 flex-wrap">
-                              {/* PENDING → Ship button */}
-                              {(normalizedStatus === "PENDING") && (
-                                <Button variant="outline" size="sm" className="h-7 text-xs border-blue-500 text-blue-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "IN_TRANSIT")}>
-                                  {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating Logistical Asset Values & Shifting Intransit Batches...</> : <><Truck className="w-3 h-3 mr-1" />Discharge Inter-Warehouse Transfer</>}
-                                </Button>
-                              )}
-                              {/* IN_TRANSIT → Received / Reject buttons */}
-                              {(normalizedStatus === "IN_TRANSIT") && (
-                                <>
-                                  <Button variant="outline" size="sm" className="h-7 text-xs border-green-500 text-green-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "RECEIVED")}>
-                                    {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating Logistical Asset Values & Shifting Intransit Batches...</> : <><CheckCircle className="w-3 h-3 mr-1" />Mark Received ✓</>}
-                                  </Button>
-                                  <div className="flex items-center gap-1">
-                                    <Input
-                                      className="h-7 text-xs w-28"
-                                      placeholder="Reject reason..."
-                                      value={rejectionReason[item.id] || ""}
-                                      onChange={e => setRejectionReason(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                    />
-                                    <Button variant="outline" size="sm" className="h-7 text-xs border-red-500 text-red-600" disabled={isLoadingThis} onClick={() => handleShippingStatusUpdate(item, "REJECTED")}>
-                                      {isLoadingThis ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Reversing Transit...</> : <><XCircle className="w-3 h-3 mr-1" />Reject ✗</>}
-                                    </Button>
-                                  </div>
-                                </>
-                              )}
-                              {/* Terminal states: no actions */}
-                              {!isTerminal && (
-                                <>
-                                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="w-3.5 h-3.5" /></Button>
-                                  <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                </>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                      {expandedRows.has(item.id) && (
-                        <TableRow>
-                          <TableCell colSpan={isSR ? 8 : 9} className="bg-muted/30 p-3">
-                            {/* Shipping Info */}
-                            <div className="flex flex-wrap gap-4 mb-3 text-sm">
-                              {item.shippedAt && <span className="text-slate-900 dark:text-white">Shipped: <strong>{fmtDate(item.shippedAt)}</strong></span>}
-                              {item.deliveredAt && <span className="text-slate-900 dark:text-white">Delivered: <strong>{fmtDate(item.deliveredAt)}</strong></span>}
-                              {item.totalValue != null && !isVatAuditor && <span className="text-slate-900 dark:text-white">Total Value: <strong>৳{bdFmt.format(Number(item.totalValue))}</strong></span>}
-                              {isVatAuditor && item.totalValue != null && <span className="text-amber-600">Total Value: <strong>N/A (Audit Mode)</strong></span>}
-                            </div>
-                            {/* Line Items */}
-                            <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Line Items</div>
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Product</TableHead>
-                                  <TableHead>Batch No</TableHead>
-                                  <TableHead>Quantity</TableHead>
-                                  {!isVatAuditor && <TableHead>Cost Price</TableHead>}
-                                  {!isVatAuditor && <TableHead>Total Cost</TableHead>}
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {(item.lines || []).map((line: any, li: number) => (
-                                  <TableRow key={li}>
-                                    <TableCell>{line.product?.name || line.productId || "—"}</TableCell>
-                                    <TableCell className="font-mono">{line.batchNumber || "—"}</TableCell>
-                                    <TableCell className="font-mono">{line.quantity}</TableCell>
-                                    {!isVatAuditor && <TableCell className="font-mono">{line.costPrice != null ? `৳${bdFmt.format(Number(line.costPrice))}` : "—"}</TableCell>}
-                                    {!isVatAuditor && <TableCell className="font-mono">{line.totalCost != null ? `৳${bdFmt.format(Number(line.totalCost))}` : "—"}</TableCell>}
-                                    {isVatAuditor && <TableCell className="text-amber-600">N/A (Audit Mode)</TableCell>}
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </TableCell>
-                        </TableRow>
                       )}
-                    </React.Fragment>
-                  );
-                })}
+                    </TableRow>
+                    {expandedRows.has(item.id) && (
+                      <TableRow>
+                        <TableCell colSpan={isSR ? 8 : 9} className="bg-muted/30 p-3">
+                          {/* Shipping Info */}
+                          <div className="flex flex-wrap gap-4 mb-3 text-sm">
+                            {item.shippedAt && <span className="text-slate-900 dark:text-white">Shipped: <strong>{fmtDate(item.shippedAt)}</strong></span>}
+                            {item.deliveredAt && <span className="text-slate-900 dark:text-white">Delivered: <strong>{fmtDate(item.deliveredAt)}</strong></span>}
+                          </div>
+                          {/* Line Items */}
+                          <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Line Items</div>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Product</TableHead>
+                                <TableHead>Quantity</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(item.lines || []).map((line: any, li: number) => (
+                                <TableRow key={li}>
+                                  <TableCell>{line.product?.name || line.productId || "—"}</TableCell>
+                                  <TableCell className="font-mono">{line.quantity}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
+                ))}
               </TableBody>
             </Table>
           </div>
@@ -6479,7 +5967,7 @@ function StockTransfersPage() {
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Stock Transfer</DialogTitle><DialogDescription>Fill in the details to {editItem ? "update" : "create"} a stock transfer.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Stock Transfer</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -6490,22 +5978,14 @@ function StockTransfersPage() {
                 <Label>From Godown <span className="text-red-500">*</span></Label>
                 <Select value={formData.fromGodownId || ""} onValueChange={v => setFormData({ ...formData, fromGodownId: v })}>
                   <SelectTrigger><SelectValue placeholder="Select Source Godown" /></SelectTrigger>
-                  <SelectContent>{godowns.map((g: any) => (
-                    <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
-                      {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
-                    </SelectItem>
-                  ))}</SelectContent>
+                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>To Godown <span className="text-red-500">*</span></Label>
                 <Select value={formData.toGodownId || ""} onValueChange={v => setFormData({ ...formData, toGodownId: v })}>
                   <SelectTrigger className={sameGodownError ? "border-red-500" : ""}><SelectValue placeholder="Select Destination Godown" /></SelectTrigger>
-                  <SelectContent>{godowns.map((g: any) => (
-                    <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
-                      {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
-                    </SelectItem>
-                  ))}</SelectContent>
+                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -6513,19 +5993,6 @@ function StockTransfersPage() {
                 <Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
             </div>
-
-            {/* SUSPENDED Godown Warning */}
-            {(fromSuspended || toSuspended) && (
-              <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
-                <CardContent className="p-3">
-                  <p className="text-red-600 text-sm font-medium flex items-center gap-1"><AlertTriangle className="w-4 h-4" />
-                    {fromSuspended && toSuspended ? "Both source and destination godowns are SUSPENDED!" :
-                     fromSuspended ? "Source godown is SUSPENDED — stock operations are blocked!" :
-                     "Destination godown is SUSPENDED — stock operations are blocked!"}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
 
             {sameGodownError && (
               <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
@@ -6544,14 +6011,13 @@ function StockTransfersPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <Label className="text-sm font-semibold">Products to Transfer</Label>
-                <Button variant="outline" size="sm" onClick={() => setLines(prev => [...prev, { productId: "", quantity: 1, batchNumber: "" }])}><Plus className="w-3 h-3 mr-1" />Add Line</Button>
+                <Button variant="outline" size="sm" onClick={() => setLines(prev => [...prev, { productId: "", quantity: 1 }])}><Plus className="w-3 h-3 mr-1" />Add Line</Button>
               </div>
               <div className="overflow-auto rounded-md border max-h-60">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>Product</TableHead>
-                      <TableHead className="w-32">Batch No</TableHead>
                       <TableHead className="w-24">Quantity</TableHead>
                       <TableHead className="w-10"></TableHead>
                     </TableRow>
@@ -6567,9 +6033,6 @@ function StockTransfersPage() {
                             <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                           </Select>
                         </TableCell>
-                        <TableCell><Input className="h-8 text-xs" placeholder="Optional" value={line.batchNumber || ""} onChange={e => {
-                          setLines(prev => { const next = [...prev]; next[idx] = { ...next[idx], batchNumber: e.target.value }; return next; });
-                        }} /></TableCell>
                         <TableCell><Input type="number" className="h-8 text-xs w-20" min={1} value={line.quantity} onChange={e => {
                           setLines(prev => { const next = [...prev]; next[idx] = { ...next[idx], quantity: Number(e.target.value) || 1 }; return next; });
                         }} /></TableCell>
@@ -6598,7 +6061,7 @@ function StockTransfersPage() {
                 <Lock className="w-4 h-4 mr-1" />Approval Required
               </Button>
             ) : (
-              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving || sameGodownError || fromSuspended || toSuspended}>
+              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving || sameGodownError}>
                 {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}{editItem ? "Update" : "Create"}
               </Button>
             )}
@@ -6613,16 +6076,7 @@ function StockTransfersPage() {
           <DialogDescription>Delete Stock Transfer {deleteItem?.transferNo}? This cannot be undone.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            {isAdmin ? (
-              <Button variant="destructive" onClick={handleDelete}>Delete</Button>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="destructive" disabled className="cursor-not-allowed opacity-60">Delete</Button>
-                </TooltipTrigger>
-                <TooltipContent>Only administrators can delete stock transfers</TooltipContent>
-              </Tooltip>
-            )}
+            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -6630,557 +6084,6 @@ function StockTransfersPage() {
   );
 }
 
-// ============================================================
-// DAMAGE LOGS PAGE — Phase 12
-// ============================================================
-
-function DamageLogsPage() {
-  const { toast } = useToast();
-  const { isVatAuditor, user } = useAuth();
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [deleteItem, setDeleteItem] = useState<any>(null);
-  const [saving, setSaving] = useState(false);
-  const [authorizingId, setAuthorizingId] = useState<string | null>(null);
-  const [logisticsSnapshot, setLogisticsSnapshot] = useState<any[] | null>(null);
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-  const [quantityError, setQuantityError] = useState(false);
-
-  // Dynamic options
-  const [godowns, setGodowns] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-
-  // Form state
-  const [formData, setFormData] = useState<Record<string, any>>({
-    productId: "",
-    godownId: "",
-    batchNumber: "",
-    quantity: "",
-    lossCostPrice: "",
-    reason: "",
-    description: "",
-    reportDate: new Date().toISOString().split("T")[0],
-  });
-
-  // RBAC
-  const isDealer = user?.role === "dealer";
-  const isSR = user?.role === "sr";
-  const isAdmin = user?.role === "admin";
-
-  // Intl.NumberFormat for all financial figures
-  const bdFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  // Auto-calculate total loss value
-  const totalLossValue = useMemo(() => {
-    const qty = Number(formData.quantity) || 0;
-    const price = Number(formData.lossCostPrice) || 0;
-    return qty * price;
-  }, [formData.quantity, formData.lossCostPrice]);
-
-  const loadCompanyProfile = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/company-branding");
-      if (res && !res.error) setCompanyProfile(res);
-    } catch { /* silent */ }
-  }, []);
-
-  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch("/api/damage-logs");
-      setData(Array.isArray(res) ? res : res.data || []);
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setLoading(false); }
-  }, [toast]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const loadOptions = useCallback(async () => {
-    try {
-      const [gRes, pRes] = await Promise.all([
-        apiFetch("/api/godowns").catch(() => []),
-        apiFetch("/api/products").catch(() => []),
-      ]);
-      setGodowns(Array.isArray(gRes) ? gRes : gRes.data || []);
-      setProducts(Array.isArray(pRes) ? pRes : pRes.data || []);
-    } catch { /* silent */ }
-  }, []);
-
-  const filtered = useMemo(() => {
-    if (!search) return data;
-    const s = search.toLowerCase();
-    return data.filter((item: any) =>
-      item.damageCode?.toLowerCase().includes(s) ||
-      item.product?.name?.toLowerCase().includes(s) ||
-      item.godown?.name?.toLowerCase().includes(s) ||
-      item.reason?.toLowerCase().includes(s) ||
-      item.status?.toLowerCase().includes(s)
-    );
-  }, [data, search]);
-
-  // Stats
-  const totalCount = data.length;
-  const pendingCount = data.filter((d: any) => d.status === "Pending").length;
-  const totalLossValueSum = data.reduce((s: number, d: any) => s + (Number(d.totalLossValue) || 0), 0);
-  const brokenCount = data.filter((d: any) => d.reason === "BROKEN").length;
-  const expiredCount = data.filter((d: any) => d.reason === "EXPIRED").length;
-  const theftCount = data.filter((d: any) => d.reason === "THEFT").length;
-  const moistureCount = data.filter((d: any) => d.reason === "MOISTURE").length;
-
-  const openCreate = () => {
-    setFormData({
-      productId: "",
-      godownId: "",
-      batchNumber: "",
-      quantity: "",
-      lossCostPrice: "",
-      reason: "",
-      description: "",
-      reportDate: new Date().toISOString().split("T")[0],
-    });
-    setQuantityError(false);
-    setShowForm(true);
-    loadOptions();
-  };
-
-  const handleSave = async () => {
-    if (!formData.productId || !formData.godownId || !formData.quantity || !formData.lossCostPrice || !formData.reason || !formData.reportDate) {
-      toast({ title: "Error", description: "Product, Godown, Quantity, Loss Cost Price, Reason, and Report Date are required", variant: "destructive" });
-      return;
-    }
-    if (Number(formData.quantity) <= 0) {
-      toast({ title: "Error", description: "Quantity must be greater than 0", variant: "destructive" });
-      return;
-    }
-    if (Number(formData.lossCostPrice) <= 0) {
-      toast({ title: "Error", description: "Loss Cost Price must be greater than 0", variant: "destructive" });
-      return;
-    }
-    setSaving(true);
-    setQuantityError(false);
-    // Save logisticsSnapshot before API call for rollback
-    setLogisticsSnapshot([...data]);
-    try {
-      const payload = {
-        productId: formData.productId,
-        godownId: formData.godownId,
-        batchNumber: formData.batchNumber || null,
-        quantity: Number(formData.quantity),
-        lossCostPrice: Number(formData.lossCostPrice),
-        totalLossValue,
-        reason: formData.reason,
-        description: formData.description || null,
-        reportDate: formData.reportDate,
-        status: "Pending",
-      };
-      await apiFetch("/api/damage-logs", { method: "POST", body: JSON.stringify(payload) });
-      toast({ title: "Created", description: "Damage Log created" });
-      setShowForm(false);
-      load();
-    } catch (e: any) {
-      // Rollback from logisticsSnapshot on failure
-      if (logisticsSnapshot) {
-        setData(logisticsSnapshot);
-        setLogisticsSnapshot(null);
-      }
-      // Check for quantity exceeds stock error (400)
-      if (e.message && (e.message.includes("Insufficient stock") || e.message.includes("quantity"))) {
-        setQuantityError(true);
-      }
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setSaving(false); }
-  };
-
-  // Authorize Damage Write-Off with Spin-Lock
-  const handleAuthorize = async (item: any) => {
-    setLogisticsSnapshot([...data]);
-    setAuthorizingId(item.id);
-    try {
-      await apiFetch(`/api/damage-logs/${item.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ status: "Approved", approvedBy: user?.displayName || user?.email || "" }),
-      });
-      toast({ title: "Authorized", description: `Damage log ${item.damageCode} has been approved for write-off` });
-      load();
-    } catch (e: any) {
-      if (logisticsSnapshot) {
-        setData(logisticsSnapshot);
-        setLogisticsSnapshot(null);
-      }
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setAuthorizingId(null);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteItem) return;
-    try {
-      await apiFetch(`/api/damage-logs/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-  };
-
-  const reasonBadgeColor = (reason: string) => {
-    switch (reason) {
-      case "BROKEN": return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400";
-      case "EXPIRED": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
-      case "THEFT": return "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
-      case "MOISTURE": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
-      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
-    }
-  };
-
-  const exportCSV = () => {
-    const headers = ["Damage Code", "Product", "Godown", "Quantity", "Loss Cost Price", "Total Loss Value", "Reason", "Report Date", "Status"];
-    const rows = filtered.map((item: any) => [
-      item.damageCode || "—",
-      item.product?.name || "—",
-      item.godown?.name || "—",
-      String(item.quantity || 0),
-      isVatAuditor ? "N/A (Audit Mode)" : (item.lossCostPrice != null ? bdFmt.format(Number(item.lossCostPrice)) : "0.00"),
-      isVatAuditor ? "N/A (Audit Mode)" : (item.totalLossValue != null ? bdFmt.format(Number(item.totalLossValue)) : "0.00"),
-      item.reason || "—",
-      fmtDate(item.reportDate),
-      item.status || "—",
-    ]);
-    try { exportToCSVSimple("Damage Logs", headers, rows); toast({ title: "Exported", description: "Damage Logs exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-  };
-
-  const exportPDFHandler = async () => {
-    try {
-      const columns: ExportColumnDef[] = [
-        { key: "damageCode", label: "Damage Code", type: "text" },
-        { key: "product", label: "Product", type: "text" },
-        { key: "godown", label: "Godown", type: "text" },
-        { key: "quantity", label: "Quantity", type: "number" },
-        { key: "lossCostPrice", label: "Loss Cost Price", type: "currency" },
-        { key: "totalLossValue", label: "Total Loss Value", type: "currency" },
-        { key: "reason", label: "Reason", type: "text" },
-        { key: "reportDate", label: "Report Date", type: "date" },
-        { key: "status", label: "Status", type: "text" },
-      ];
-      const pdfData = filtered.map((item: any) => ({
-        damageCode: item.damageCode || "—",
-        product: item.product?.name || "—",
-        godown: item.godown?.name || "—",
-        quantity: item.quantity || 0,
-        lossCostPrice: item.lossCostPrice || 0,
-        totalLossValue: item.totalLossValue || 0,
-        reason: item.reason || "—",
-        reportDate: item.reportDate,
-        status: item.status || "—",
-      }));
-      exportToPDF({
-        title: "Loss / Wastage Audit Statement",
-        subtitle: `Period: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })} | Total Records: ${filtered.length} | Total Loss Value: ৳${bdFmt.format(totalLossValueSum)}`,
-        columns,
-        data: pdfData,
-        isVatAuditor,
-        vatMaskedColumns: ["lossCostPrice", "totalLossValue"],
-        company: companyProfile || undefined,
-        financialFooter: {
-          preparedBy: user?.displayName || "",
-          checkedBy: "",
-          authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
-        },
-      });
-      toast({ title: "Exported", description: "Damage Logs exported to PDF" });
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-  };
-
-  // Dealer restriction
-  if (isDealer) {
-    return (
-      <div className="page-enter flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md w-full"><CardContent className="p-8 text-center">
-          <Lock className="w-12 h-12 mx-auto mb-4 text-red-500" />
-          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h3>
-          <p className="text-muted-foreground">You don&apos;t have permission to view damage logs. Please contact your administrator.</p>
-        </CardContent></Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="page-enter space-y-4">
-      {/* VAT Auditor Mode Badge */}
-      {isVatAuditor && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Loss Cost Price and Total Loss Value are masked — damage tracking only</span>
-        </div>
-      )}
-
-      {/* SR View-Only Banner */}
-      {isSR && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-          <Lock className="w-4 h-4 text-yellow-600" />
-          <span className="text-sm text-yellow-700 dark:text-yellow-400">View-only mode — Damage Logs require Manager approval to create or authorize</span>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><AlertTriangle className="w-6 h-6" />Damage Logs</h2>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportPDFHandler}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
-          {!isSR && !isVatAuditor && (
-            <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create Damage Log</Button>
-          )}
-        </div>
-      </div>
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        {[
-          { label: "Total Logs", value: totalCount, icon: AlertTriangle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-          { label: "Pending", value: pendingCount, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
-          { label: "Total Loss", value: isVatAuditor ? "N/A" : `৳${bdFmt.format(totalLossValueSum)}`, icon: DollarSign, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
-          { label: "Broken", value: brokenCount, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-900/30" },
-          { label: "Expired", value: expiredCount, icon: XCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
-          { label: "Theft", value: theftCount, icon: ShieldAlert, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
-          { label: "Moisture", value: moistureCount, icon: Activity, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-        ].map((stat, i) => (
-          <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
-            <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
-            <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-sm font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
-          </CardContent></Card>
-        ))}
-      </div>
-
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search by damage code, product, godown..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
-            </div>
-            <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
-          </div>
-          <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead>Damage Code</TableHead>
-                  <TableHead>Product Name</TableHead>
-                  <TableHead>Godown</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Loss Cost Price</TableHead>
-                  <TableHead>Total Loss Value</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Report Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  {!isSR && <TableHead className="w-40 text-right">Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={isSR ? 9 : 10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
-                ) : filtered.length === 0 ? (
-                  <TableRow><TableCell colSpan={isSR ? 9 : 10} className="h-24 text-center text-muted-foreground">No damage logs found</TableCell></TableRow>
-                ) : filtered.map((item: any) => (
-                  <TableRow key={item.id} className="data-table-row hover:bg-muted/50">
-                    <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.damageCode}</TableCell>
-                    <TableCell>{item.product?.name || "—"}</TableCell>
-                    <TableCell>
-                      {item.godown?.name || "—"}
-                      {item.godown?.status === "SUSPENDED" && <Badge className="ml-1 bg-red-100 text-red-700 text-[10px]">SUSPENDED</Badge>}
-                    </TableCell>
-                    <TableCell className="font-mono">{item.quantity || 0}</TableCell>
-                    <TableCell className="font-mono">
-                      {isVatAuditor ? <span className="text-amber-600">N/A (Audit Mode)</span> : (item.lossCostPrice != null ? `৳${bdFmt.format(Number(item.lossCostPrice))}` : "—")}
-                    </TableCell>
-                    <TableCell className="font-mono">
-                      {isVatAuditor ? <span className="text-amber-600">N/A (Audit Mode)</span> : (item.totalLossValue != null ? `৳${bdFmt.format(Number(item.totalLossValue))}` : "—")}
-                    </TableCell>
-                    <TableCell><Badge className={reasonBadgeColor(item.reason)}>{item.reason}</Badge></TableCell>
-                    <TableCell>{fmtDate(item.reportDate)}</TableCell>
-                    <TableCell>
-                      <Badge className={item.status === "Approved" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : item.status === "Rejected" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"}>
-                        {item.status}
-                      </Badge>
-                    </TableCell>
-                    {!isSR && (
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {item.status === "Pending" && !isVatAuditor && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs border-green-500 text-green-600"
-                              disabled={authorizingId === item.id}
-                              onClick={() => handleAuthorize(item)}
-                            >
-                              {authorizingId === item.id ? (
-                                <><RefreshCw className="w-3 h-3 mr-1 animate-spin" />Recalculating Logistical Asset Values & Shifting Intransit Batches...</>
-                              ) : (
-                                <><CheckCircle className="w-3 h-3 mr-1" />Authorize Damage Write-Off</>
-                              )}
-                            </Button>
-                          )}
-                          {isAdmin ? (
-                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="sm" className="text-red-300 cursor-not-allowed" disabled><Trash2 className="w-3.5 h-3.5" /></Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Only administrators can delete damage logs</TooltipContent>
-                            </Tooltip>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {data.length} damage logs</div>
-        </CardContent>
-      </Card>
-
-      {/* Create Dialog */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Create Damage Log</DialogTitle><DialogDescription>Record a new damage, loss, or write-off entry.</DialogDescription></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Product <span className="text-red-500">*</span></Label>
-                <Select value={formData.productId || ""} onValueChange={v => setFormData({ ...formData, productId: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
-                  <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Godown <span className="text-red-500">*</span></Label>
-                <Select value={formData.godownId || ""} onValueChange={v => setFormData({ ...formData, godownId: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
-                  <SelectContent>{godowns.map((g: any) => (
-                    <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
-                      {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
-                    </SelectItem>
-                  ))}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Batch Number <span className="text-muted-foreground text-xs">(Optional)</span></Label>
-                <Input placeholder="Optional batch reference" value={formData.batchNumber || ""} onChange={e => setFormData({ ...formData, batchNumber: e.target.value })} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Damage Quantity <span className="text-red-500">*</span></Label>
-                <Input
-                  type="number"
-                  min={1}
-                  placeholder="Must be > 0"
-                  value={formData.quantity || ""}
-                  onChange={e => { setFormData({ ...formData, quantity: e.target.value }); setQuantityError(false); }}
-                  className={quantityError ? "border-2 border-red-500 ring-2 ring-red-400/50 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" : ""}
-                />
-                {quantityError && <p className="text-xs text-red-600 font-semibold mt-1 flex items-center gap-1 animate-pulse">⚠ Quantity exceeds available physical stock at this location! Write-off DENIED — verify available balance first.</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Loss Cost Price <span className="text-red-500">*</span></Label>
-                <Input
-                  type="number"
-                  min={0.01}
-                  step="0.01"
-                  placeholder="Must be > 0"
-                  value={formData.lossCostPrice || ""}
-                  onChange={e => setFormData({ ...formData, lossCostPrice: e.target.value })}
-                  className={isVatAuditor ? "bg-muted cursor-not-allowed" : ""}
-                  disabled={isVatAuditor}
-                />
-                {isVatAuditor && <p className="text-xs text-amber-600">N/A (Audit Mode)</p>}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Reason <span className="text-red-500">*</span></Label>
-                <Select value={formData.reason || ""} onValueChange={v => setFormData({ ...formData, reason: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select Reason" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="BROKEN">BROKEN</SelectItem>
-                    <SelectItem value="EXPIRED">EXPIRED</SelectItem>
-                    <SelectItem value="THEFT">THEFT</SelectItem>
-                    <SelectItem value="MOISTURE">MOISTURE</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Report Date <span className="text-red-500">*</span></Label>
-                <Input type="date" value={formData.reportDate || ""} onChange={e => setFormData({ ...formData, reportDate: e.target.value })} />
-              </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label>Description <span className="text-muted-foreground text-xs">(Optional)</span></Label>
-                <Textarea placeholder="Detailed description of the damage..." value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} />
-              </div>
-            </div>
-
-            {/* Auto-calculated Total Loss Value */}
-            <Card className="bg-muted/30">
-              <CardContent className="p-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Total Loss Value:</span>
-                    <p className="font-mono font-bold text-lg text-red-600">
-                      {isVatAuditor ? "N/A (Audit Mode)" : `৳${bdFmt.format(totalLossValue)}`}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Calculation:</span>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {isVatAuditor ? "Masked" : `${formData.quantity || 0} × ৳${Number(formData.lossCostPrice || 0).toFixed(2)} = ৳${bdFmt.format(totalLossValue)}`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            {isSR || isVatAuditor ? (
-              <Button className="bg-gray-400 cursor-not-allowed" disabled>
-                <Lock className="w-4 h-4 mr-1" />Approval Required
-              </Button>
-            ) : (
-              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
-                {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}Create Damage Log
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Dialog */}
-      <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Damage Log {deleteItem?.damageCode}? This cannot be undone.</DialogDescription>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            {isAdmin ? (
-              <Button variant="destructive" onClick={handleDelete}>Delete</Button>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="destructive" disabled className="cursor-not-allowed opacity-60">Delete</Button>
-                </TooltipTrigger>
-                <TooltipContent>Only administrators can delete damage logs</TooltipContent>
-              </Tooltip>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
 // ============================================================
 // MAIN APP LAYOUT
 // ============================================================
@@ -7217,16 +6120,10 @@ function AppLayout() {
       }
     }
     items.push({ key: "dashboard", label: "Dashboard", group: "Home" });
-    if (user?.role === "admin") items.push({ key: "change-password", label: "Change Password", group: "Account" });
     items.push({ key: "profile", label: "My Profile", group: "Account" });
+    items.push({ key: "change-password", label: "Change Password", group: "Account" });
     items.push({ key: "audit-logs", label: "Audit Logs", group: "System" });
-    items.push({ key: "company-settings", label: "Company Settings", group: "System Settings", parent: "Configuration" });
-    items.push({ key: "invoice-templates", label: "Invoice Templates", group: "System Settings", parent: "Configuration" });
-    items.push({ key: "number-formats", label: "Number Formats", group: "System Settings", parent: "Configuration" });
-    items.push({ key: "audit-trail", label: "Audit Trail Viewer", group: "System Settings", parent: "Audit & Search" });
-    items.push({ key: "security-center", label: "Security Center", group: "System Settings", parent: "Audit & Search" });
-    items.push({ key: "performance-cache", label: "Performance & Cache", group: "System Settings", parent: "Audit & Search" });
-    items.push({ key: "staging-qa", label: "Staging & QA", group: "System Settings", parent: "Staging & QA" });
+    // System Settings items are already included from SIDEBAR_CONFIG above, avoid duplicates
     return items;
   }, [hasAccess, user]);
 
@@ -7256,57 +6153,28 @@ function AppLayout() {
     if (currentPage === "stock") return <StockPage />;
     if (currentPage === "stock-details") return <StockDetailsPage />;
     if (currentPage === "send-sms") return <SMSAnalyticsPage initialTab="send" />;
-    if (currentPage === "send-bulk-sms") return <SMSAnalyticsPage initialTab="send" />;
-    if (currentPage === "sms-inbox") return <SMSAnalyticsPage initialTab="logs" />;
+    if (currentPage === "send-bulk-sms") return <SMSAnalyticsPage initialTab="campaigns" />;
+    if (currentPage === "sms-inbox") return <SMSAnalyticsPage initialTab="inbox" />;
     if (currentPage === "sms-bills") return <SMSAnalyticsPage initialTab="billing" />;
     if (currentPage === "sms-report") return <SMSAnalyticsPage initialTab="dashboard" />;
     if (currentPage === "sms-settings") return <SMSAnalyticsPage initialTab="settings" />;
     if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage initialTab="billing" />;
-    if (currentPage === "change-password") {
-      if (userRole !== "admin") {
-        return (
-          <div className="page-enter space-y-4">
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Change Password</h2>
-            <Card className="max-w-lg border-red-300 dark:border-red-800">
-              <CardContent className="p-6 text-center space-y-4">
-                <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                  <Lock className="w-8 h-8 text-red-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">Access Denied</h3>
-                <p className="text-sm text-muted-foreground">
-                  Only administrators can change passwords. Your role ({userRole}) does not have this permission.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        );
-      }
-      return <ChangePasswordPage />;
-    }
-    if (currentPage === "profile") return <ProfileCenter />;
-    if (currentPage === "stock-transfers") return <StockTransfersPage />;
-    if (currentPage === "damage-logs") return <DamageLogsPage />;
-    if (currentPage === "pos-terminal") return <POSTerminalPage />;
-    // GROUP: Multi-Branch & Consolidation — dedicated MultiBranchConsolidationPage component
-    const multiBranchKeys = new Set(["branch-management", "inter-branch-transfers", "consolidated-statements", "consolidation-history"]);
-    if (multiBranchKeys.has(currentPage)) return <MultiBranchConsolidationPage key={currentPage} userRole={auth.user?.role || "admin"} userName={auth.user?.displayName || ""} userEmail={auth.user?.email || ""} activeTab={currentPage} />;
+    if (currentPage === "change-password") return <ChangePasswordPage />;
+    if (currentPage === "profile") return <ProfilePage />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
-    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po", "sales-orders", "hire-sales", "sales-returns", "purchase-returns", "replacements", "opening-stock", "batch-master", "stock", "stock-details", "stock-valuation", "stock-transfers", "damage-logs"]);
+    // Core Sales Module — dedicated SalesModulePage component (COGS, AR, Hire Installment Engine)
+    const salesModuleKeys = new Set(["sales-orders", "hire-sales", "sales-returns"]);
+    if (salesModuleKeys.has(currentPage)) return <SalesModulePage currentPage={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} />;
+    // Return & Replacement Module — dedicated ReturnReplacementModulePage (AP, COGS reversal, Financial Adjustment)
+    const returnReplacementKeys = new Set(["purchase-returns", "replacements"]);
+    if (returnReplacementKeys.has(currentPage)) return <ReturnReplacementModulePage currentPage={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} />;
+    const stockModuleKeys = new Set(["stock", "stock-details", "stock-transfers", "opening-stock", "batch-master", "valuation"]);
+    if (stockModuleKeys.has(currentPage)) return <StockModulePage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
+    const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
-    if (currentPage === "expenses") return <ExpensesIncomesPage />;
-    if (currentPage === "incomes") return <ExpensesIncomesPage />;
-    if (currentPage === "cash-collections") return <CashCollectionsDeliveriesPage />;
-    if (currentPage === "cash-deliveries") return <CashCollectionsDeliveriesPage />;
-    if (currentPage === "bank-transactions") return <BankTransactionsPage />;
-    if (currentPage === "chart-of-accounts") return <AccountsLedgerPage initialTab="coa-tree" />;
-    if (currentPage === "journal-voucher") return <AccountsLedgerPage initialTab="journal-voucher" />;
-    if (currentPage === "cash-receipt") return <AccountsLedgerPage initialTab="cash-bank" voucherType="CASH_RECEIPT" />;
-    if (currentPage === "cash-payment") return <AccountsLedgerPage initialTab="cash-bank" voucherType="CASH_PAYMENT" />;
-    if (currentPage === "bank-receipt") return <AccountsLedgerPage initialTab="cash-bank" voucherType="BANK_RECEIPT" />;
-    if (currentPage === "bank-payment") return <AccountsLedgerPage initialTab="cash-bank" voucherType="BANK_PAYMENT" />;
-    if (currentPage === "voucher-register") return <AccountsLedgerPage initialTab="voucher-register" />;
+    if (["expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads"].includes(currentPage)) return <AccountManagementPage />;
+    if (currentPage === "chart-of-accounts") return <ChartOfAccountsLedgerPage />;
     if (currentPage === "cash-in-hand") return <AccountingReportsPage initialTab="cash-in-hand" />;
-    if (currentPage === "financial-statements") return <FinancialStatementsPage />;
     if (currentPage === "trial-balance") return <AccountingReportsPage initialTab="trial-balance" />;
     if (currentPage === "profit-loss") return <AccountingReportsPage initialTab="profit-loss" />;
     if (currentPage === "balance-sheet") return <BalanceSheetPeriodClosePage initialTab="balance-sheet" />;
@@ -7314,24 +6182,33 @@ function AppLayout() {
     const investmentGroupKeys = new Set(["investment-heads", "investment", "fixed-asset", "current-asset", "liability-receive", "liability-pay", "liability-report"]);
     if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage key={currentPage} initialTab={currentPage} />;
 
-    // GROUP 2: Basic Foundation Modules — dedicated BasicModulesGroupPage component
-    const basicModuleKeys = new Set(["companies", "categories", "colors", "brands", "units", "departments", "godowns", "segments", "capacities", "sr-targets", "payment-options", "card-types", "card-type-setup"]);
+    // GROUP 2a: Structure Module — dedicated StructureModulePage with warehouse routing
+    const structureKeys = new Set(["departments", "godowns", "segments", "capacities"]);
+    if (structureKeys.has(currentPage)) return <StructureModulePage userRole={userRole} isVatAuditor={isVatAuditor} />;
+
+    // GROUP 2b: Interest Percentage Engine — dedicated InterestPercentageEnginePage
+    if (currentPage === "interest-percentages") return <InterestPercentageEnginePage userRole={userRole} isVatAuditor={isVatAuditor} />;
+
+    // GROUP 2c: Basic Foundation Modules — dedicated BasicModulesGroupPage component (Core Config only)
+    const basicModuleKeys = new Set(["companies", "categories", "colors", "brands", "units", "products", "banks"]);
     if (basicModuleKeys.has(currentPage)) return <BasicModulesGroupPage activeModule={currentPage} />;
+
+    // GROUP 2d: Operations Module — dedicated OperationsModulePage with Live Target Tracking, Payment Channel Mapping, Branded PDF/CSV
+    const operationsModuleKeys = new Set(["sr-targets", "payment-options", "card-types", "card-type-setup"]);
+    if (operationsModuleKeys.has(currentPage)) return <OperationsModulePage activeModule={currentPage} />;
 
     // GROUP 3: Personnel & CRM Ecosystem — dedicated PersonnelCRMGroupPage component
     const personnelCRMKeys = new Set(["designations", "employees", "employee-leaves", "customers", "suppliers"]);
     if (personnelCRMKeys.has(currentPage)) return <PersonnelCRMGroupPage activeModule={currentPage} />;
 
     // GROUP 5: Financial Auditing, Automated Ledgers & Data Integrity — dedicated FinancialAuditGroupPage component
-    const financialAuditKeys = new Set(["dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity"]);
+    const financialAuditKeys = new Set(["dashboard-kpi", "fraud-detection", "ledger-auto-post", "inventory-aging", "product-lifecycle", "specialized-reports", "notifications-integrity"]);
     if (financialAuditKeys.has(currentPage)) return <FinancialAuditGroupPage key={currentPage} initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
 
     // GROUP 6: Core Performance Configurations & System Settings — dedicated components
     const systemSettingsKeys = new Set(["company-settings", "invoice-templates", "number-formats", "performance-cache"]);
     if (systemSettingsKeys.has(currentPage)) return <SystemSettingsGroupPage key={currentPage} initialTab={currentPage} />;
     if (currentPage === "audit-trail") return <AuditTrailViewer />;
-    if (currentPage === "security-center") return <SecurityAuditCenter />;
-    if (currentPage === "staging-qa") return <StagingQAPage />;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 
@@ -7339,6 +6216,7 @@ function AppLayout() {
     const misReportKeys = new Set([
       "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report",
       "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern",
+      "stock-trends-report", "supplier-status-report", "sales-performance-report", "employee-records-report",
       "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report",
       "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales",
       "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary",
@@ -7376,7 +6254,7 @@ function AppLayout() {
   };
 
   return (
-    <div className="h-dvh flex flex-col bg-background overflow-hidden">
+    <div className="min-h-dvh flex flex-col bg-background overflow-hidden">
       {/* Header — Delegated to AppHeader component with live notification polling */}
       <AppHeader
         user={user}
@@ -7392,6 +6270,7 @@ function AppLayout() {
         onOpenSearch={() => setSearchOpen(true)}
         onChangePassword={() => navigate("change-password")}
         onLogout={logout}
+        onProfile={() => navigate("profile")}
       />
 
       {/* Search Dialog */}
@@ -7418,14 +6297,12 @@ function AppLayout() {
         </CommandList>
       </CommandDialog>
 
-      {/* Mobile sidebar overlay */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 sidebar-overlay md:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="sidebar-slide-in" onClick={e => e.stopPropagation()}>
-            <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} />
-          </div>
-        </div>
-      )}
+      {/* Mobile sidebar — Sheet component for proper drawer behavior */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="p-0 w-[280px] sm:w-[300px] bg-sidebar border-sidebar-border">
+          <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} />
+        </SheetContent>
+      </Sheet>
 
       {/* Desktop sidebar */}
       <div className="hidden md:contents">
@@ -7434,20 +6311,20 @@ function AppLayout() {
 
       {/* VAT Auditor Banner */}
       {isVatAuditor && (
-        <div className={`fixed top-14 right-0 z-20 bg-amber-500 text-white text-center py-1.5 text-sm font-medium shadow-md transition-all duration-300 left-0 ${sidebarCollapsed ? 'md:left-16' : 'md:left-64'}`}>
+        <div className={`fixed top-12 sm:top-14 right-0 z-20 bg-amber-500 text-white text-center py-1.5 text-sm font-medium shadow-md transition-all duration-300 left-0 ${sidebarCollapsed ? 'md:left-16' : 'md:left-64'}`}>
           🔒 VAT Auditor Mode — Internal margins and adjustments are hidden
         </div>
       )}
 
       {/* Main content */}
-      <main className={`flex-1 min-h-0 overflow-y-auto pt-14 transition-all duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
-        <div className="px-2 sm:px-4 md:p-6 max-w-[1600px] pb-8">
+      <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-all duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
+        <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8">
           {renderPage()}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className={`bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-all duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
+      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-all duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
         <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<span className="text-slate-300 font-medium">NextGen Digital Studio</span>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>

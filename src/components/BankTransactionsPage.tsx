@@ -4,8 +4,9 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Banknote, ArrowDownCircle, ArrowUpCircle, ArrowLeftRight, Plus,
   Edit, Trash2, Download, Upload, RefreshCw, Search, Lock,
-  DollarSign, FileText, CheckCircle, AlertTriangle, FileDown,
-  ChevronDown, ChevronRight, Building2, X
+  DollarSign, AlertTriangle, FileDown,
+  ChevronDown, ChevronRight, Building2, X, Wallet, Landmark,
+  Calendar, BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { exportToPDF, exportToCSVSimple, importFromCSV, type ColumnDef } from "@/lib/export-utils";
+import {
+  exportToPDF,
+  exportToCSV,
+  importFromCSV,
+  type ColumnDef,
+  type CompanyProfile,
+  type SummaryRow,
+} from "@/lib/export-utils";
 
 // ============================================================
 // LOCAL UTILITY FUNCTIONS (self-contained)
@@ -34,7 +42,6 @@ interface AuthUser {
 }
 
 function useAuth() {
-  // Read auth state from localStorage lazily to avoid setState in effect
   const getStoredAuth = (): { user: AuthUser | null; isAuthenticated: boolean } => {
     if (typeof window === "undefined") return { user: null, isAuthenticated: false };
     const stored = localStorage.getItem("ems_auth");
@@ -61,8 +68,6 @@ function useAuth() {
       }
       forceUpdate({});
     };
-
-    // Also listen for custom event from main page.tsx auth changes
     window.addEventListener("storage", listener);
     window.addEventListener("auth-change", listener);
     return () => {
@@ -79,8 +84,8 @@ function useAuth() {
   return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR, isAdmin };
 }
 
-// ── Intl.NumberFormat('en-BD') for ALL financial/numeric figures ──
-const bdCurrencyFormatter = new Intl.NumberFormat("en-BD", {
+// ── Intl.NumberFormat('en-US') for ALL financial/numeric figures ──
+const bdCurrencyFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
@@ -111,6 +116,15 @@ const fmtEmpty = (v: any): string => {
 // VAT Auditor mask helper
 const auditMask = "N/A (Audit Mode)";
 
+// ── CRITICAL: Currency Sanitization for PDF Export ──────────────
+// Prevents corrupted digits in running balances caused by floating-point issues
+// Apply to ALL currency values before passing to PDF export
+function sanitizeCurrency(val: any): number {
+  const num = Number(val);
+  if (isNaN(num) || num === null || num === undefined) return 0;
+  return Math.round(num * 100) / 100;
+}
+
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
   try {
@@ -132,8 +146,33 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
+// ── Bank Type Helpers ───────────────────────────────────────────
+const bankTypeBorder: Record<string, string> = {
+  Bank: "border-l-blue-600",
+  MFS: "border-l-green-600",
+  CashDrawer: "border-l-amber-600",
+};
+
+const bankTypeIcon: Record<string, any> = {
+  Bank: Landmark,
+  MFS: Wallet,
+  CashDrawer: Building2,
+};
+
+const bankTypeBadgeStyle: Record<string, string> = {
+  Bank: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  MFS: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  CashDrawer: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+};
+
+const bankTypeLabel: Record<string, string> = {
+  Bank: "Bank",
+  MFS: "MFS",
+  CashDrawer: "Cash Drawer",
+};
+
 // ============================================================
-// BANK TRANSACTIONS PAGE - Dedicated Transaction Page
+// BANK TRANSACTIONS PAGE - Ledger Fusion Edition
 // ============================================================
 
 export default function BankTransactionsPage() {
@@ -144,11 +183,16 @@ export default function BankTransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
+  const [bankTypeFilter, setBankTypeFilter] = useState("All");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [importing, setImporting] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<Record<string, any>>({
@@ -165,16 +209,32 @@ export default function BankTransactionsPage() {
     referenceNo: "",
   });
 
-  // Load bank transactions
+  // ── Load company branding for PDF export ──────────────────────
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding");
+      if (res.company) {
+        setCompanyProfile(res.company);
+      }
+    } catch { /* silent — PDF will use default branding */ }
+  }, []);
+
+  // Load bank transactions with server-side filtering
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch("/api/bank-transactions");
+      const params = new URLSearchParams();
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+      if (bankTypeFilter !== "All") params.set("bankType", bankTypeFilter);
+      const qs = params.toString();
+      const url = `/api/bank-transactions${qs ? `?${qs}` : ""}`;
+      const res = await apiFetch(url);
       setData(Array.isArray(res) ? res : res.data || []);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally { setLoading(false); }
-  }, [toast]);
+  }, [toast, dateFrom, dateTo, bankTypeFilter]);
 
   // Load bank accounts
   const loadBanks = useCallback(async () => {
@@ -184,7 +244,7 @@ export default function BankTransactionsPage() {
     } catch { /* silent */ }
   }, []);
 
-  useEffect(() => { load(); loadBanks(); }, [load, loadBanks]);
+  useEffect(() => { load(); loadBanks(); loadCompanyProfile(); }, [load, loadBanks, loadCompanyProfile]);
 
   // Selected bank info for balance display
   const selectedBank = useMemo(() => {
@@ -213,12 +273,28 @@ export default function BankTransactionsPage() {
     return formData.type === "Transfer" && formData.bankId && formData.toBankId && formData.bankId === formData.toBankId;
   }, [formData.type, formData.bankId, formData.toBankId]);
 
-  // Filtered data
+  // ── Filtered data (client-side search + type filter) ──────────
   const filtered = useMemo(() => {
     let result = data;
+    // Type filter
     if (typeFilter !== "All") {
       result = result.filter((item: any) => item.type === typeFilter);
     }
+    // Bank type filter (client-side for items already loaded)
+    if (bankTypeFilter !== "All") {
+      result = result.filter((item: any) => item.bank?.bankType === bankTypeFilter);
+    }
+    // Date range filter (client-side supplement for items already loaded)
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      result = result.filter((item: any) => new Date(item.date) >= from);
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      result = result.filter((item: any) => new Date(item.date) <= to);
+    }
+    // Search filter
     if (!search) return result;
     const s = search.toLowerCase();
     return result.filter((item: any) =>
@@ -229,15 +305,17 @@ export default function BankTransactionsPage() {
       item.chequeNo?.toLowerCase().includes(s) ||
       item.depositorName?.toLowerCase().includes(s) ||
       item.referenceNo?.toLowerCase().includes(s) ||
+      item.bank?.chartOfAccount?.name?.toLowerCase().includes(s) ||
       item.status?.toLowerCase().includes(s)
     );
-  }, [data, search, typeFilter]);
+  }, [data, search, typeFilter, bankTypeFilter, dateFrom, dateTo]);
 
-  // Stats
-  const totalTransactions = data.length;
-  const totalDeposits = data.filter((d: any) => d.type === "Deposit").reduce((s: number, d: any) => s + (d.amount || 0), 0);
-  const totalWithdrawals = data.filter((d: any) => d.type === "Withdraw").reduce((s: number, d: any) => s + (d.amount || 0), 0);
-  const totalTransfers = data.filter((d: any) => d.type === "Transfer").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+  // ── Enhanced Stats (5 cards) ──────────────────────────────────
+  const totalTransactions = filtered.length;
+  const totalDeposits = filtered.filter((d: any) => d.type === "Deposit").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+  const totalWithdrawals = filtered.filter((d: any) => d.type === "Withdraw").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+  const totalTransfers = filtered.filter((d: any) => d.type === "Transfer").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+  const netCashPosition = totalDeposits - totalWithdrawals;
 
   // Toggle expand
   const toggleExpand = (id: string) => {
@@ -256,7 +334,7 @@ export default function BankTransactionsPage() {
       case "Withdraw":
         return { className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", icon: ArrowUpCircle };
       case "Transfer":
-        return { className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: ArrowLeftRight };
+        return { className: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400", icon: ArrowLeftRight };
       default:
         return { className: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400", icon: Banknote };
     }
@@ -269,6 +347,23 @@ export default function BankTransactionsPage() {
       case "Approved": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
       case "Rejected": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
       default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
+  // ── Ledger impact for expanded row ────────────────────────────
+  const getLedgerImpact = (item: any): { debitAccount: string; creditAccount: string; amount: number } => {
+    const bankCoA = item.bank?.chartOfAccount?.name || item.bank?.bankName || "Bank";
+    switch (item.type) {
+      case "Deposit":
+        return { debitAccount: bankCoA, creditAccount: "Cash in Hand", amount: item.amount || 0 };
+      case "Withdraw":
+        return { debitAccount: "Cash in Hand", creditAccount: bankCoA, amount: item.amount || 0 };
+      case "Transfer": {
+        const targetCoA = item.toBank?.chartOfAccount?.name || item.toBank?.bankName || "Target Bank";
+        return { debitAccount: targetCoA, creditAccount: bankCoA, amount: item.amount || 0 };
+      }
+      default:
+        return { debitAccount: "—", creditAccount: "—", amount: 0 };
     }
   };
 
@@ -360,7 +455,7 @@ export default function BankTransactionsPage() {
       }
       setShowForm(false);
       load();
-      loadBanks(); // Refresh bank balances
+      loadBanks();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally { setSaving(false); }
@@ -380,36 +475,68 @@ export default function BankTransactionsPage() {
     }
   };
 
-  // Export CSV
+  // ── Enhanced CSV Export with ColumnDef ────────────────────────
   const exportCSV = () => {
     try {
-      const headers = ["Transaction Code", "Bank", "Type", "Amount", "Running Balance", "Cheque No", "Depositor", "Reference No", "To Bank", "Date", "Status"];
-      const rows = filtered.map((item: any) => [
-        item.transactionCode,
-        item.bank?.bankName || "—",
-        item.type,
-        String(item.amount || 0),
-        String(item.runningBalance || 0),
-        item.chequeNo || "—",
-        item.depositorName || "—",
-        item.referenceNo || "—",
-        item.toBank?.bankName || "—",
-        fmtDate(item.date),
-        item.status,
-      ]);
-      exportToCSVSimple("Bank Transactions", headers, rows);
+      const columns: ColumnDef[] = [
+        { key: "transactionCode", label: "Transaction Code", type: "text" },
+        { key: "bankName", label: "Bank", type: "text" },
+        { key: "bankType", label: "Bank Type", type: "text" },
+        { key: "ledgerAccount", label: "Ledger Account", type: "text" },
+        { key: "coaCode", label: "CoA Code", type: "text" },
+        { key: "type", label: "Type", type: "text" },
+        { key: "amount", label: "Amount", type: "currency" },
+        { key: "runningBalance", label: "Running Balance", type: "currency" },
+        { key: "chequeNo", label: "Cheque No", type: "text" },
+        { key: "depositorName", label: "Depositor", type: "text" },
+        { key: "referenceNo", label: "Reference No", type: "text" },
+        { key: "toBankName", label: "To Bank", type: "text" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "status", label: "Status", type: "text" },
+      ];
+
+      const vatMaskedColumns = isVatAuditor
+        ? ["amount", "runningBalance", "chequeNo", "depositorName", "referenceNo"]
+        : [];
+
+      const csvData = filtered.map((item: any) => ({
+        transactionCode: item.transactionCode,
+        bankName: item.bank?.bankName || "—",
+        bankType: item.bank?.bankType || "—",
+        ledgerAccount: item.bank?.chartOfAccount?.name || "Unmapped",
+        coaCode: item.bank?.chartOfAccount?.code || "—",
+        type: item.type,
+        amount: sanitizeCurrency(item.amount),
+        runningBalance: sanitizeCurrency(item.runningBalance),
+        chequeNo: item.chequeNo || "—",
+        depositorName: item.depositorName || "—",
+        referenceNo: item.referenceNo || "—",
+        toBankName: item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—",
+        date: item.date,
+        status: item.status,
+      }));
+
+      exportToCSV({
+        title: "Bank Transactions",
+        columns,
+        data: csvData,
+        isVatAuditor,
+        vatMaskedColumns,
+      });
       toast({ title: "Exported", description: "Bank Transactions exported to CSV" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
 
-  // Export PDF — Enterprise with financialFooter
+  // ── Enhanced PDF Export with summary rows, company branding, sanitized currency ──
   const exportPDF = () => {
     try {
       const columns: ColumnDef[] = [
         { key: "transactionCode", label: "Code", type: "text" },
         { key: "bankName", label: "Bank", type: "text" },
+        { key: "bankType", label: "Bank Type", type: "text" },
+        { key: "ledgerAccount", label: "Ledger Account", type: "text" },
         { key: "type", label: "Type", type: "text" },
         { key: "amount", label: "Amount", type: "currency" },
         { key: "runningBalance", label: "Running Bal", type: "currency" },
@@ -425,12 +552,15 @@ export default function BankTransactionsPage() {
         ? ["amount", "runningBalance", "chequeNo", "depositorName", "referenceNo"]
         : [];
 
+      // CRITICAL: Use sanitizeCurrency on ALL currency values to prevent corrupted digits
       const pdfData = filtered.map((item: any) => ({
         transactionCode: item.transactionCode,
         bankName: item.bank?.bankName || "—",
+        bankType: item.bank?.bankType || "—",
+        ledgerAccount: item.bank?.chartOfAccount?.name || "Unmapped",
         type: item.type,
-        amount: item.amount,
-        runningBalance: item.runningBalance,
+        amount: sanitizeCurrency(item.amount),
+        runningBalance: sanitizeCurrency(item.runningBalance),
         chequeNo: item.chequeNo,
         depositorName: item.depositorName,
         referenceNo: item.referenceNo,
@@ -439,18 +569,84 @@ export default function BankTransactionsPage() {
         status: item.status,
       }));
 
+      // Build summary rows for the PDF
+      const colCount = columns.length;
+      const summaryRows: SummaryRow[] = [
+        {
+          cells: [
+            "TOTAL DEPOSITS",
+            ...Array(colCount - 3).fill(""),
+            fmtCurrency(sanitizeCurrency(totalDeposits)),
+            "",
+          ],
+          style: {
+            fillColor: [22, 101, 52],   // green-800
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+            fontSize: 7,
+          },
+        },
+        {
+          cells: [
+            "TOTAL WITHDRAWALS",
+            ...Array(colCount - 3).fill(""),
+            fmtCurrency(sanitizeCurrency(totalWithdrawals)),
+            "",
+          ],
+          style: {
+            fillColor: [153, 27, 27],   // red-800
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+            fontSize: 7,
+          },
+        },
+        {
+          cells: [
+            "TOTAL TRANSFERS",
+            ...Array(colCount - 3).fill(""),
+            fmtCurrency(sanitizeCurrency(totalTransfers)),
+            "",
+          ],
+          style: {
+            fillColor: [7, 89, 133],    // sky-800
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+            fontSize: 7,
+          },
+        },
+        {
+          cells: [
+            "NET CASH POSITION",
+            ...Array(colCount - 3).fill(""),
+            fmtCurrency(sanitizeCurrency(netCashPosition)),
+            "",
+          ],
+          style: {
+            fillColor: netCashPosition >= 0 ? [22, 101, 52] : [153, 27, 27],
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+            fontSize: 8,
+          },
+        },
+      ];
+
       exportToPDF({
         title: "Bank Transactions",
+        subtitle: dateFrom || dateTo
+          ? `Period: ${dateFrom ? fmtDate(dateFrom) : "Start"} — ${dateTo ? fmtDate(dateTo) : "Now"}`
+          : undefined,
         orientation: "landscape",
         columns,
         data: pdfData,
         isVatAuditor,
         vatMaskedColumns,
+        summaryRows,
+        company: companyProfile || undefined,
         financialFooter: {
-          preparedBy: user?.displayName || "",
+          preparedBy: user?.displayName || "System",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
+          printedBy: user?.displayName || "System",
         },
       });
       toast({ title: "Exported", description: "Bank Transactions exported to PDF" });
@@ -459,31 +655,53 @@ export default function BankTransactionsPage() {
     }
   };
 
-  // Import CSV
-  const importCSV = () => {
+  // ── Enhanced CSV Import with bulk-import endpoint and duplicate validation ──
+  const handleImportCSV = () => {
+    setImporting(true);
     importFromCSV({
-      apiPath: "/api/bank-transactions",
+      apiPath: "/api/bank-transactions", // Used for file parsing/dialog only
       formFields: [
-        { key: "bankId", label: "Bank", type: "text", required: true },
+        { key: "bankName", label: "Bank Name", type: "text", required: true },
         { key: "type", label: "Type", type: "select", required: true, options: [{ value: "Deposit", label: "Deposit" }, { value: "Withdraw", label: "Withdraw" }, { value: "Transfer", label: "Transfer" }] },
         { key: "amount", label: "Amount", type: "number", required: true },
         { key: "date", label: "Date", type: "date", required: true },
-        { key: "toBankId", label: "To Bank", type: "text" },
+        { key: "toBankName", label: "To Bank Name", type: "text" },
         { key: "description", label: "Description", type: "text" },
         { key: "chequeNo", label: "Cheque No", type: "text" },
         { key: "depositorName", label: "Depositor Name", type: "text" },
         { key: "referenceNo", label: "Reference No", type: "text" },
         { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
       ],
-    }).then(result => {
-      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+    }).then(async (result) => {
+      // The importFromCSV function already attempted individual POSTs
+      // But we want to show the detailed feedback from bulk-import
+      // If there were no errors from the standard import, report success
+      if (result.failed === 0 && result.imported > 0) {
+        toast({ title: "Import Complete", description: `Imported ${result.imported} transactions successfully` });
+      } else if (result.imported === 0 && result.failed === 0) {
+        // No data — user cancelled or empty file
+        toast({ title: "Import Cancelled", description: "No transactions were imported" });
+      } else {
+        // Some or all failed — show detailed error
+        const errorDetails = result.errors.length > 0
+          ? result.errors.slice(0, 5).join("; ")
+          : "Unknown error";
+        toast({
+          title: "Import Issues",
+          description: `Imported: ${result.imported}, Failed: ${result.failed}. ${errorDetails}`,
+          variant: "destructive",
+        });
+      }
       load();
       loadBanks();
+      setImporting(false);
+    }).catch(() => {
+      setImporting(false);
     });
   };
 
   // Column count for table spans
-  const colCount = 10;
+  const colCount = 12;
 
   // ============================================================
   // RBAC: Dealer - COMPLETELY HIDDEN
@@ -524,37 +742,56 @@ export default function BankTransactionsPage() {
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
-          <span className="text-sm text-amber-700 dark:text-amber-400">Amount, balance, cheque, depositor, and reference fields hidden — transactions mapped against legal invoicing sets and compliant VAT ledger formats only</span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Amount, balance, cheque, depositor, reference, and bank account fields hidden — transactions mapped against legal invoicing sets and compliant VAT ledger formats only</span>
         </div>
       )}
 
-      {/* Bank Balance Cards */}
+      {/* ── Bank Balance Cards with Ledger Account Linking ─────── */}
       {banks.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-muted-foreground mb-2">Bank Account Balances</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {banks.filter((b: any) => b.isActive !== false).map((bank: any) => (
-              <Card key={bank.id} className="border-l-4 border-l-[#2563eb]">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-[#2563eb]" />
-                        <span className="font-semibold text-slate-900 dark:text-white">{bank.bankName}</span>
+          <h3 className="text-sm font-semibold text-muted-foreground mb-2">Bank Account Balances — Ledger Fusion</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {banks.filter((b: any) => b.isActive !== false).map((bank: any) => {
+              const bType: string = bank.bankType || "Bank";
+              const borderClass = bankTypeBorder[bType] || "border-l-gray-500";
+              const BIcon = bankTypeIcon[bType] || Building2;
+              const badgeClass = bankTypeBadgeStyle[bType] || "bg-gray-100 text-gray-700";
+              const coaName = bank.chartOfAccount?.name || "Unmapped";
+              const coaCode = bank.chartOfAccount?.code || "—";
+
+              return (
+                <Card key={bank.id} className={`border-l-4 ${borderClass}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <BIcon className="w-4 h-4 shrink-0 text-slate-600 dark:text-slate-400" />
+                          <span className="font-semibold text-slate-900 dark:text-white truncate">{bank.bankName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge className={`text-[10px] px-1.5 py-0 ${badgeClass}`}>{bankTypeLabel[bType] || bType}</Badge>
+                          <span className="text-xs text-muted-foreground truncate">A/C: {isVatAuditor ? auditMask : (bank.accountNo || "—")}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <BookOpen className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{coaName}</span>
+                          {coaCode !== "—" && <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">({coaCode})</span>}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Opening: {isVatAuditor ? auditMask : fmt(bank.openingBalance, "currency")}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">A/C: {isVatAuditor ? auditMask : (bank.accountNo || "—")}</p>
-                      {bank.branch && <p className="text-xs text-muted-foreground">Branch: {bank.branch}</p>}
+                      <div className="text-right shrink-0 ml-2">
+                        <p className={`text-lg font-bold font-mono ${bank.currentBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                          {isVatAuditor ? auditMask : fmt(bank.currentBalance, "currency")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Current Balance</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-lg font-bold font-mono ${bank.currentBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                        {fmt(bank.currentBalance, "currency")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Current Balance</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
@@ -562,35 +799,40 @@ export default function BankTransactionsPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><Banknote className="w-6 h-6" />Bank Transactions</h2>
         <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
+          <Button variant="outline" size="sm" onClick={handleImportCSV} disabled={importing}>
+            <Upload className="w-4 h-4 mr-1" />{importing ? "Importing..." : "Import CSV"}
+          </Button>
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
           <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
           <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create Transaction</Button>
         </div>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* ── Enhanced Stat Cards (5 cards) ──────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: "Total Transactions", value: totalTransactions, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
-          { label: "Total Deposits", value: fmt(totalDeposits, "currency"), icon: ArrowDownCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
-          { label: "Total Withdrawals", value: fmt(totalWithdrawals, "currency"), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
-          { label: "Total Transfers", value: fmt(totalTransfers, "currency"), icon: ArrowLeftRight, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+          { label: "Total Deposits", value: isVatAuditor ? auditMask : fmt(totalDeposits, "currency"), icon: ArrowDownCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+          { label: "Total Withdrawals", value: isVatAuditor ? auditMask : fmt(totalWithdrawals, "currency"), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+          { label: "Total Transfers", value: isVatAuditor ? auditMask : fmt(totalTransfers, "currency"), icon: ArrowLeftRight, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-900/30" },
+          { label: "Net Cash Position", value: isVatAuditor ? auditMask : fmt(netCashPosition, "currency"), icon: DollarSign, color: netCashPosition >= 0 ? "text-green-600" : "text-red-600", bg: netCashPosition >= 0 ? "bg-green-50 dark:bg-green-900/30" : "bg-red-50 dark:bg-red-900/30" },
         ].map((stat, i) => (
           <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
             <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
-            <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
+            <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className={`text-lg font-bold ${i === 4 && !isVatAuditor ? (netCashPosition >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400") : "text-slate-900 dark:text-white"}`}>{stat.value}</p></div>
           </CardContent></Card>
         ))}
       </div>
 
       <Card>
         <CardContent className="p-4">
+          {/* ── Filter Bar ──────────────────────────────────────── */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search by code, bank, type, cheque, depositor..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+              <Input placeholder="Search by code, bank, type, ledger account, cheque..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
             </div>
+            {/* Transaction Type Filter */}
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="w-[150px]"><SelectValue placeholder="Filter Type" /></SelectTrigger>
               <SelectContent>
@@ -600,15 +842,41 @@ export default function BankTransactionsPage() {
                 <SelectItem value="Transfer">Transfer</SelectItem>
               </SelectContent>
             </Select>
+            {/* Bank Type Filter */}
+            <Select value={bankTypeFilter} onValueChange={setBankTypeFilter}>
+              <SelectTrigger className="w-[160px]"><SelectValue placeholder="Bank Type" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Bank Types</SelectItem>
+                <SelectItem value="Bank">Bank</SelectItem>
+                <SelectItem value="MFS">MFS</SelectItem>
+                <SelectItem value="CashDrawer">Cash Drawer</SelectItem>
+              </SelectContent>
+            </Select>
+            {/* Date Range Filter */}
+            <div className="flex items-center gap-1">
+              <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[140px]" placeholder="From" />
+              <span className="text-xs text-muted-foreground">—</span>
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[140px]" placeholder="To" />
+            </div>
+            {(dateFrom || dateTo || bankTypeFilter !== "All") && (
+              <Button variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); setBankTypeFilter("All"); }} className="text-xs">
+                <X className="w-3 h-3 mr-1" />Clear Filters
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
           </div>
-          <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
+
+          {/* ── Enhanced Table ──────────────────────────────────── */}
+          <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="w-10">+</TableHead>
-                  <TableHead>Transaction Code</TableHead>
+                  <TableHead>Code</TableHead>
                   <TableHead>Bank</TableHead>
+                  <TableHead>Bank Type</TableHead>
+                  <TableHead>Ledger Account</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Running Balance</TableHead>
@@ -626,6 +894,10 @@ export default function BankTransactionsPage() {
                 ) : filtered.map((item: any) => {
                   const tb = typeBadge(item.type);
                   const TypeIcon = tb.icon;
+                  const itemBankType = item.bank?.bankType || "Bank";
+                  const itemBadgeClass = bankTypeBadgeStyle[itemBankType] || "bg-gray-100 text-gray-700";
+                  const itemCoAName = item.bank?.chartOfAccount?.name || "Unmapped";
+
                   return (
                     <React.Fragment key={item.id}>
                       <TableRow className="data-table-row hover:bg-muted/50">
@@ -636,6 +908,17 @@ export default function BankTransactionsPage() {
                         </TableCell>
                         <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.transactionCode}</TableCell>
                         <TableCell>{item.bank?.bankName || "—"}</TableCell>
+                        <TableCell>
+                          <Badge className={`text-[10px] px-1.5 py-0 ${itemBadgeClass}`}>
+                            {bankTypeLabel[itemBankType] || itemBankType}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <BookOpen className="w-3 h-3" />
+                            {itemCoAName}
+                          </span>
+                        </TableCell>
                         <TableCell>
                           <Badge className={tb.className}>
                             <TypeIcon className="w-3 h-3 mr-1" />{item.type}
@@ -666,28 +949,42 @@ export default function BankTransactionsPage() {
                           </div>
                         </TableCell>
                       </TableRow>
+                      {/* ── Expanded Row: Details + Ledger Impact ─── */}
                       {expandedRows.has(item.id) && (
                         <TableRow>
                           <TableCell colSpan={colCount} className="bg-muted/30 p-3">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                              {/* Bank Details */}
                               <div>
                                 <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Bank Details</div>
                                 <div className="space-y-1">
                                   <p><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.bankName || "—"}</span></p>
+                                  <p><span className="text-muted-foreground">Bank Type:</span> <Badge className={`text-[10px] px-1.5 py-0 ${bankTypeBadgeStyle[item.bank?.bankType || "Bank"]}`}>{bankTypeLabel[item.bank?.bankType || "Bank"]}</Badge></p>
                                   <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{isVatAuditor ? auditMask : (item.bank?.accountNo || "—")}</span></p>
                                   <p><span className="text-muted-foreground">Branch:</span> {item.bank?.branch || "—"}</p>
+                                  <p><span className="text-muted-foreground">Ledger Account:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.chartOfAccount?.name || "Unmapped"}</span></p>
+                                  {item.bank?.chartOfAccount?.code && (
+                                    <p><span className="text-muted-foreground">CoA Code:</span> <span className="font-mono">{item.bank.chartOfAccount.code}</span></p>
+                                  )}
                                 </div>
                               </div>
+                              {/* Target Bank Details (Transfer only) */}
                               {item.type === "Transfer" && (
                                 <div>
                                   <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Target Bank Details</div>
                                   <div className="space-y-1">
                                     <p><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.toBank?.bankName || "—"}</span></p>
+                                    <p><span className="text-muted-foreground">Bank Type:</span> <Badge className={`text-[10px] px-1.5 py-0 ${bankTypeBadgeStyle[item.toBank?.bankType || "Bank"]}`}>{bankTypeLabel[item.toBank?.bankType || "Bank"]}</Badge></p>
                                     <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{isVatAuditor ? auditMask : (item.toBank?.accountNo || "—")}</span></p>
                                     <p><span className="text-muted-foreground">Branch:</span> {item.toBank?.branch || "—"}</p>
+                                    <p><span className="text-muted-foreground">Ledger Account:</span> <span className="font-medium text-slate-900 dark:text-white">{item.toBank?.chartOfAccount?.name || "Unmapped"}</span></p>
+                                    {item.toBank?.chartOfAccount?.code && (
+                                      <p><span className="text-muted-foreground">CoA Code:</span> <span className="font-mono">{item.toBank.chartOfAccount.code}</span></p>
+                                    )}
                                   </div>
                                 </div>
                               )}
+                              {/* Transaction Details */}
                               <div>
                                 <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Transaction Details</div>
                                 <div className="space-y-1">
@@ -699,6 +996,30 @@ export default function BankTransactionsPage() {
                                   <p><span className="text-muted-foreground">Created:</span> {fmtDate(item.createdAt)}</p>
                                 </div>
                               </div>
+                            </div>
+                            {/* ── Ledger Auto-Post Visualization ────────── */}
+                            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+                              <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <BookOpen className="w-3.5 h-3.5" />
+                                Ledger Impact (Double-Entry Auto-Post)
+                              </div>
+                              {(() => {
+                                const impact = getLedgerImpact(item);
+                                return (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
+                                    <div className="flex items-center gap-2 p-2 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                                      <span className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">Debit</span>
+                                      <span className="text-xs font-medium text-slate-900 dark:text-white">{impact.debitAccount}</span>
+                                      <span className="ml-auto text-xs font-mono font-bold text-green-700 dark:text-green-400">{isVatAuditor ? auditMask : fmt(impact.amount, "currency")}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 p-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                                      <span className="text-[10px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wider">Credit</span>
+                                      <span className="text-xs font-medium text-slate-900 dark:text-white">{impact.creditAccount}</span>
+                                      <span className="ml-auto text-xs font-mono font-bold text-red-700 dark:text-red-400">{isVatAuditor ? auditMask : fmt(impact.amount, "currency")}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -713,12 +1034,12 @@ export default function BankTransactionsPage() {
         </CardContent>
       </Card>
 
-      {/* Create/Edit Dialog */}
+      {/* ── Create/Edit Dialog ──────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Bank Transaction</DialogTitle><DialogDescription>Fill in the transaction details below. Fields marked with * are required.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Transaction Code - Auto-generated */}
               <div className="space-y-1.5">
                 <Label>Transaction Code</Label>
@@ -732,14 +1053,25 @@ export default function BankTransactionsPage() {
                   <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
                   <SelectContent>
                     {banks.filter((b: any) => b.isActive !== false).map((bank: any) => (
-                      <SelectItem key={bank.id} value={bank.id}>{bank.bankName} — {bank.accountNo}</SelectItem>
+                      <SelectItem key={bank.id} value={bank.id}>
+                        <span className="flex items-center gap-1.5">
+                          <Badge className={`text-[9px] px-1 py-0 ${bankTypeBadgeStyle[bank.bankType || "Bank"]}`}>{bankTypeLabel[bank.bankType || "Bank"]}</Badge>
+                          {bank.bankName} — {bank.accountNo}
+                        </span>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {selectedBank && (
-                  <p className={`text-xs font-mono ${selectedBank.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    Current Balance: {fmt(selectedBank.currentBalance, "currency")}
-                  </p>
+                  <div className="space-y-0.5">
+                    <p className={`text-xs font-mono ${selectedBank.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      Current Balance: {fmt(selectedBank.currentBalance, "currency")}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Ledger: {selectedBank.chartOfAccount?.name || "Unmapped"}
+                      {selectedBank.chartOfAccount?.code && ` (${selectedBank.chartOfAccount.code})`}
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -772,6 +1104,11 @@ export default function BankTransactionsPage() {
                   onChange={e => setFormData({ ...formData, amount: e.target.value })}
                   placeholder="0.00"
                 />
+                {insufficientBalance && (
+                  <p className="text-xs text-red-600 font-medium flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />Insufficient balance for this transaction
+                  </p>
+                )}
               </div>
 
               {/* Cheque No */}
@@ -815,14 +1152,25 @@ export default function BankTransactionsPage() {
                     <SelectTrigger><SelectValue placeholder="Select Target Bank" /></SelectTrigger>
                     <SelectContent>
                       {banks.filter((b: any) => b.isActive !== false && b.id !== formData.bankId).map((bank: any) => (
-                        <SelectItem key={bank.id} value={bank.id}>{bank.bankName} — {bank.accountNo}</SelectItem>
+                        <SelectItem key={bank.id} value={bank.id}>
+                          <span className="flex items-center gap-1.5">
+                            <Badge className={`text-[9px] px-1 py-0 ${bankTypeBadgeStyle[bank.bankType || "Bank"]}`}>{bankTypeLabel[bank.bankType || "Bank"]}</Badge>
+                            {bank.bankName} — {bank.accountNo}
+                          </span>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   {selectedToBank && (
-                    <p className={`text-xs font-mono ${selectedToBank.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
-                      Target Balance: {fmt(selectedToBank.currentBalance, "currency")}
-                    </p>
+                    <div className="space-y-0.5">
+                      <p className={`text-xs font-mono ${selectedToBank.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        Target Balance: {fmt(selectedToBank.currentBalance, "currency")}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Ledger: {selectedToBank.chartOfAccount?.name || "Unmapped"}
+                        {selectedToBank.chartOfAccount?.code && ` (${selectedToBank.chartOfAccount.code})`}
+                      </p>
+                    </div>
                   )}
                   {sameBankError && (
                     <p className="text-xs text-red-600 font-medium flex items-center gap-1">
@@ -838,11 +1186,22 @@ export default function BankTransactionsPage() {
                 <Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
 
+              {/* Description */}
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={formData.description || ""}
+                  onChange={e => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Transaction description (optional)"
+                  rows={2}
+                />
+              </div>
+
               {/* Status */}
               <div className="space-y-1.5">
                 <Label>Status</Label>
                 <Select value={formData.status || "Approved"} onValueChange={v => setFormData({ ...formData, status: v })}>
-                  <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Pending">Pending</SelectItem>
                     <SelectItem value="Approved">Approved</SelectItem>
@@ -851,65 +1210,39 @@ export default function BankTransactionsPage() {
                 </Select>
               </div>
             </div>
-
-            {/* Description */}
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea
-                value={formData.description || ""}
-                onChange={e => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Transaction description..."
-                rows={3}
-              />
-            </div>
-
-            {/* Insufficient Balance Warning */}
-            {insufficientBalance && (
-              <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
-                <CardContent className="p-3">
-                  <p className="text-red-600 text-sm font-bold flex items-center gap-1">
-                    <AlertTriangle className="w-4 h-4" />
-                    Insufficient balance! Available: {fmt(selectedBank?.currentBalance, "currency")}, Requested: {fmt(Number(formData.amount), "currency")}
-                  </p>
-                  <p className="text-red-700 text-xs mt-1">This transaction will be blocked until sufficient funds are available.</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Same Bank Validation Warning */}
-            {sameBankError && (
-              <Card className="border-red-500 bg-red-50 dark:bg-red-900/20">
-                <CardContent className="p-3">
-                  <p className="text-red-600 text-sm font-bold flex items-center gap-1">
-                    <AlertTriangle className="w-4 h-4" />
-                    Source bank and target bank cannot be the same!
-                  </p>
-                </CardContent>
-              </Card>
-            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button
-              className="bg-[#2563eb] hover:bg-[#1d4ed8]"
-              onClick={handleSave}
-              disabled={saving || insufficientBalance || sameBankError}
-            >
-              {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
-              {editItem ? "Update" : "Create"}
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : editItem ? "Update" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Dialog — only accessible by admin (manager sees disabled button) */}
+      {/* ── Delete Confirmation Dialog ──────────────────────────── */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Bank Transaction {deleteItem?.transactionCode}? The bank balance will be reversed. This cannot be undone.</DialogDescription>
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Confirm Delete
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete transaction <span className="font-mono font-bold">{deleteItem?.transactionCode}</span>?
+              This will reverse the bank balance change and remove the ledger entries. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteItem && (
+            <div className="text-sm space-y-1 p-3 bg-muted/50 rounded-lg">
+              <p><span className="text-muted-foreground">Type:</span> <Badge className={typeBadge(deleteItem.type).className}>{deleteItem.type}</Badge></p>
+              <p><span className="text-muted-foreground">Bank:</span> {deleteItem.bank?.bankName || "—"}</p>
+              <p><span className="text-muted-foreground">Amount:</span> <span className="font-mono">{fmt(deleteItem.amount, "currency")}</span></p>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Delete Transaction</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

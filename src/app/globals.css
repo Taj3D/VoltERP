@@ -868,3 +868,60 @@ input:focus, select:focus, textarea:focus {
     border-radius: 0.5rem;
   }
 }
+
+/* ============================================================
+   PHASE 1: RESPONSIVE DESIGN OVERHAUL — Utility Classes
+   ============================================================ */
+
+/* Mobile sidebar animation */
+.sidebar-slide-in {
+  animation: slideInLeft 0.3s ease-out;
+}
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Touch-friendly targets — 44px minimum per WCAG 2.5.5 */
+@media (max-width: 768px) {
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Responsive table wrapper — smooth scrolling on touch devices */
+.table-responsive {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom scrollbar for mobile — thinner for small screens */
+@media (max-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-thumb {
+    border-radius: 2px;
+  }
+}
+
+/* Sheet sidebar overrides — remove default padding/gap from SheetContent when used as sidebar */
+[data-slot="sheet-content"].p-0 {
+  padding: 0;
+  gap: 0;
+}
+
+/* Ensure header touch targets don't overflow header height on mobile */
+@media (max-width: 767px) {
+  header button {
+    max-height: 44px;
+  }
+}
+
+/* Responsive footer — ensure full width on mobile (no sidebar offset) */
+@media (max-width: 767px) {
+  footer {
+    margin-left: 0 !important;
+  }
+}

@@ -174,8 +174,9 @@ export async function PUT(
 
       // Activity log with SMS-Billing-Settle module token
       await logUserActivity({
+          tx: tx,
         action: 'UPDATE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Billing-Settle',
         recordId: payment.id,
         recordLabel: `${payment.smsBill?.period || payment.id} - ${payment.amount}`,
         userId: security.user.id,
@@ -287,8 +288,9 @@ export async function DELETE(
 
       // Activity log with SMS-Billing-Settle module token
       await logUserActivity({
+          tx: tx,
         action: 'DELETE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Billing-Settle',
         recordId: payment.id,
         recordLabel: `${payment.smsBill?.period || payment.smsBillId} - ${payment.amount}`,
         userId: security.user.id,

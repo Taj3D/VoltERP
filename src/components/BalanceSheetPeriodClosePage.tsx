@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Lock, Plus, Edit, Trash2, Download, RefreshCw, Search,
+  Lock, Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   ChevronDown, ChevronRight, FileDown, CheckCircle, AlertTriangle,
   Scale, FileText, Shield, Calendar, LockOpen, Landmark, TrendingUp
 } from "lucide-react";
@@ -32,7 +32,7 @@ const AUDIT_MASK = "N/A (Audit Mode)";
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -278,7 +278,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
           Balance Sheet & Period Close
         </h2>
         <div className="flex gap-2 flex-wrap">
-          {activeTab === "period" && <Button variant="outline" size="sm" onClick={handlePerImportCSV}><Download className="w-4 h-4 mr-1" />Import CSV</Button>}
+          {activeTab === "period" && <Button variant="outline" size="sm" onClick={handlePerImportCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>}
           <Button variant="outline" size="sm" onClick={() => {
             if (activeTab === "bs" && bsData) {
               exportCSV("Balance-Sheet", ["Section", "Item", "Amount"],
@@ -327,7 +327,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={v => setActiveTab(v as "bs" | "period")}>
-        <TabsList>
+        <TabsList className="flex overflow-x-auto gap-1 pb-1 scrollbar-none">
           <TabsTrigger value="bs" className="flex items-center gap-1"><Scale className="w-4 h-4" />Balance Sheet</TabsTrigger>
           <TabsTrigger value="period" className="flex items-center gap-1"><Calendar className="w-4 h-4" />Period Close</TabsTrigger>
         </TabsList>
@@ -364,7 +364,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                   <CardTitle className="text-white text-sm">Financial Ratios</CardTitle>
                 </CardHeader>
                 <CardContent className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30"><TrendingUp className="w-5 h-5 text-blue-600" /></div>
                       <div>
@@ -386,7 +386,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
               </Card>
 
               {/* Assets & Liabilities Tables */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 {/* Assets */}
                 <Card>
                   <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg py-3 px-4">
@@ -437,7 +437,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
               </div>
 
               {/* Charts */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
                 {/* Asset Composition Pie */}
                 {(bsData.assetComposition || []).length > 0 && (
                   <Card>
@@ -517,7 +517,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
           )}
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3 mt-4">
             {[
               { label: "Total Periods", value: perStats.total, icon: Calendar, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
               { label: "Locked", value: perStats.locked, icon: Lock, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
@@ -537,8 +537,8 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
               <div className="flex flex-wrap items-center gap-2 mb-4">
                 <Button variant="outline" size="sm" onClick={loadPeriods}><RefreshCw className="w-4 h-4" /></Button>
               </div>
-              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                <Table>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>Code</TableHead>
@@ -604,10 +604,10 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
 
       {/* Period Close Create Dialog */}
       <Dialog open={perForm} onOpenChange={setPerForm}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-[95vw] sm:max-w-lg">
           <DialogHeader><DialogTitle>{perEdit ? "Edit" : "Create"} Period Close</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Code</Label>
                 <Input className="bg-muted cursor-not-allowed" value={perFormData.code || "Auto-generated"} readOnly />
@@ -650,7 +650,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
 
       {/* Period Delete Dialog */}
       <Dialog open={!!perDelete} onOpenChange={() => setPerDelete(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
           <DialogDescription>
             {perDelete?.isLocked

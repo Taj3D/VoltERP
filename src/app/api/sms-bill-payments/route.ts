@@ -155,8 +155,9 @@ export async function POST(request: NextRequest) {
 
       // Activity log with SMS-Billing-Settle module token
       await logUserActivity({
+          tx: tx,
         action: 'CREATE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Billing-Settle',
         recordId: payment.id,
         recordLabel: `${payment.smsBill?.period || payment.id} - ${payment.amount}`,
         userId: security.user.id,

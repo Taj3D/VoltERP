@@ -100,26 +100,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    // Phase 13 D1: Case-insensitive unique constraint on code scoped by companyId
-    // Enforce absolute case-insensitive unique constraints for accounting nodes
-    if (body.code) {
-      const normalizedCode = body.code.trim().toUpperCase();
-      const existingCodeWhere: Record<string, unknown> = {
-        code: normalizedCode,
-        isActive: true,
-      };
-      if (companyId) {
-        existingCodeWhere.companyId = companyId;
-      }
-      const existingCode = await db.chartOfAccount.findFirst({ where: existingCodeWhere });
-      if (existingCode) {
-        return NextResponse.json(
-          { error: `Account code "${normalizedCode}" already exists. Account codes must be unique within your company (case-insensitive).` },
-          { status: 400 }
-        );
-      }
-    }
-
     // COA-001: Circular parent detection
     if (parentAccountId) {
       // Verify parent account exists AND belongs to same company

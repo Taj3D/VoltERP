@@ -27,8 +27,8 @@ import type { ColumnDef } from "@/lib/export-utils";
 
 type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
-/** Intl.NumberFormat('en-BD') for ALL financial/numeric figures */
-const bdCurrencyFmt = new Intl.NumberFormat("en-BD", {
+/** Intl.NumberFormat('en-US') for ALL financial/numeric figures */
+const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
@@ -469,10 +469,10 @@ export default function CashCollectionsDeliveriesPage() {
   const exportPDFHandler = (type: "collection" | "delivery") => {
     try {
       const financialFooter = {
-        preparedBy: user?.displayName || "",
+        preparedBy: user?.displayName || "System",
         checkedBy: "",
         authorizedBy: "",
-        printedBy: user?.displayName || user?.email || "",
+        printedBy: user?.displayName || "System",
       };
 
       if (type === "collection") {
@@ -630,7 +630,7 @@ export default function CashCollectionsDeliveriesPage() {
 
       {/* Tabs - SR cannot see Cash Deliveries tab */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="flex overflow-x-auto gap-1 pb-1 scrollbar-none">
           <TabsTrigger value="collections">Cash Collections</TabsTrigger>
           {!isSR && <TabsTrigger value="deliveries">Cash Deliveries</TabsTrigger>}
         </TabsList>
@@ -638,7 +638,7 @@ export default function CashCollectionsDeliveriesPage() {
         {/* ============ COLLECTIONS TAB ============ */}
         <TabsContent value="collections" className="space-y-4">
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
             {[
               { label: "Total Collections", value: collStats.total, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
               { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(collStats.totalAmount), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
@@ -662,8 +662,8 @@ export default function CashCollectionsDeliveriesPage() {
                 </div>
                 <Button variant="outline" size="sm" onClick={loadCollections}><RefreshCw className="w-4 h-4" /></Button>
               </div>
-              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                <Table>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="w-10">+</TableHead>
@@ -728,7 +728,7 @@ export default function CashCollectionsDeliveriesPage() {
                         {collExpandedRows.has(item.id) && (
                           <TableRow>
                             <TableCell colSpan={11} className="bg-muted/30 p-3">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                                 <div><span className="text-muted-foreground">Customer:</span> <span className="font-medium text-slate-900 dark:text-white">{item.customer?.name || "—"}</span></div>
                                 <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{maskBankName(item.bank)}</span></div>
                                 <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
@@ -754,7 +754,7 @@ export default function CashCollectionsDeliveriesPage() {
         {!isSR && (
           <TabsContent value="deliveries" className="space-y-4">
             {/* Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
               {[
                 { label: "Total Deliveries", value: delStats.total, icon: ArrowDownCircle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
                 { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(delStats.totalAmount), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
@@ -778,8 +778,8 @@ export default function CashCollectionsDeliveriesPage() {
                   </div>
                   <Button variant="outline" size="sm" onClick={loadDeliveries}><RefreshCw className="w-4 h-4" /></Button>
                 </div>
-                <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                  <Table>
+                <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                  <Table className="min-w-[600px]">
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-10">+</TableHead>
@@ -844,7 +844,7 @@ export default function CashCollectionsDeliveriesPage() {
                           {delExpandedRows.has(item.id) && (
                             <TableRow>
                               <TableCell colSpan={11} className="bg-muted/30 p-3">
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                                   <div><span className="text-muted-foreground">Supplier:</span> <span className="font-medium text-slate-900 dark:text-white">{item.supplier?.name || "—"}</span></div>
                                   <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{maskBankName(item.bank)}</span></div>
                                   <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
@@ -870,7 +870,7 @@ export default function CashCollectionsDeliveriesPage() {
 
       {/* ============ CREATE / EDIT DIALOG ============ */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editItem ? "Edit" : formType === "collection" ? "Record Collection" : "Record Delivery"} {formType === "collection" ? "Cash Collection" : "Cash Delivery"}
@@ -881,7 +881,7 @@ export default function CashCollectionsDeliveriesPage() {
             {formType === "collection" ? (
               /* ---- Collection Form ---- */
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>Collection Code</Label>
                     <Input className="bg-muted cursor-not-allowed" value={collForm.collectionCode || "Auto-generated"} readOnly />
@@ -960,7 +960,7 @@ export default function CashCollectionsDeliveriesPage() {
             ) : (
               /* ---- Delivery Form ---- */
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>Delivery Code</Label>
                     <Input className="bg-muted cursor-not-allowed" value={delForm.deliveryCode || "Auto-generated"} readOnly />
@@ -1049,7 +1049,7 @@ export default function CashCollectionsDeliveriesPage() {
 
       {/* ============ DELETE CONFIRMATION DIALOG ============ */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
             <DialogDescription>Are you sure you want to delete this {formType === "collection" ? "cash collection" : "cash delivery"}? This action will soft-delete the record and reverse any bank impact.</DialogDescription>

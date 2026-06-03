@@ -1,9 +1,7 @@
 // ============================================================
-// SMS SETTINGS API ROUTE — Block 12 (Domain 19) Audit Rewrite
+// SMS SETTINGS API ROUTE — Stage 11 Rebuild
 // Multi-tenant companyId isolation, RBAC, VAT Auditor masking,
-// Input field trim (Directive 1), credit balance fields,
-// Activity logging with Comm-SMS-Marketing module token,
-// safe financial arithmetic
+// Activity logging with module tokens, safe financial arithmetic
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -18,17 +16,10 @@ import {
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// Helper: convert empty string to null, trim whitespace/line breaks (Directive 1)
-function trimAndNullIfEmpty(val: string | undefined | null): string | null {
-  if (val === undefined || val === null) return null;
-  const trimmed = val.trim().replace(/[\r\n]+$/g, '');
-  return trimmed === '' ? null : trimmed;
-}
-
-// Helper: trim string fields (Directive 1 — strip trailing spaces/line breaks)
-function trimField(val: string | undefined | null): string {
-  if (val === undefined || val === null) return '';
-  return val.trim().replace(/[\r\n]+$/g, '');
+// Helper: convert empty string to null
+function nullIfEmpty(val: string | undefined | null): string | null {
+  if (val === undefined || val === null || val.trim() === '') return null;
+  return val;
 }
 
 // GET /api/sms-settings — List all active SMS settings for current tenant
@@ -70,7 +61,6 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/sms-settings — Create SMS setting (admin only)
-// Directive 1: All text fields are trimmed of trailing spaces/line breaks
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'SmsSettings', 'POST');
   if (!security.authorized) return security.response;
@@ -83,16 +73,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const companyId = security.user.companyId;
 
-    // Directive 1: Trim all input fields — strip trailing spaces/line breaks
-    const apiUrl = trimField(body.apiUrl);
-    const apiKey = trimField(body.apiKey);
-    const senderId = trimField(body.senderId);
-    const maskingName = trimAndNullIfEmpty(body.maskingName);
-    const maskingRegId = trimAndNullIfEmpty(body.maskingRegId);
-    const gatewayName = trimAndNullIfEmpty(body.gatewayName);
-
-    // Validate required fields after trimming
-    if (!apiUrl || !apiKey || !senderId) {
+    // Validate required fields
+    if (!body.apiUrl || !body.apiKey || !body.senderId) {
       return NextResponse.json(
         { error: 'Missing required fields: apiUrl, apiKey, senderId' },
         { status: 400 }
@@ -102,26 +84,25 @@ export async function POST(request: NextRequest) {
     const item = await db.$transaction(async (tx) => {
       const record = await tx.smsSetting.create({
         data: {
-          apiUrl,
-          apiKey,
-          senderId,
-          maskingName,
-          maskingRegId,
-          gatewayName,
+          apiUrl: body.apiUrl,
+          apiKey: body.apiKey,
+          senderId: body.senderId,
+          maskingName: nullIfEmpty(body.maskingName),
+          maskingRegId: nullIfEmpty(body.maskingRegId),
+          gatewayName: nullIfEmpty(body.gatewayName),
           ratePerSms: safeFinancialRound(Number(body.ratePerSms) || 0),
           unicodeRate: safeFinancialRound(Number(body.unicodeRate) || 0),
           setupCost: safeFinancialRound(Number(body.setupCost) || 0),
-          creditBalanceLimit: safeFinancialRound(Number(body.creditBalanceLimit) || 0),
-          lastKnownCreditBalance: safeFinancialRound(Number(body.lastKnownCreditBalance) || 0),
           isActive: body.isActive ?? true,
           ...(companyId && { companyId }),
         },
       });
 
-      // Activity log with Comm-SMS-Marketing module token (Directive 4)
+      // Activity log with SMS-Gateway-Dispatch module token
       await logUserActivity({
+          tx: tx,
         action: 'CREATE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Gateway-Dispatch',
         recordId: record.id,
         recordLabel: record.senderId || record.apiUrl || record.id,
         userId: security.user.id,
@@ -131,7 +112,6 @@ export async function POST(request: NextRequest) {
           senderId: record.senderId,
           gatewayName: record.gatewayName,
           ratePerSms: record.ratePerSms,
-          creditBalanceLimit: record.creditBalanceLimit,
         }),
       });
 

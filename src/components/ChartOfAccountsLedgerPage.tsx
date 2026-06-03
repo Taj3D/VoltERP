@@ -28,7 +28,7 @@ const AUDIT_MASK = "N/A (Audit Mode)";
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -513,14 +513,14 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={v => setActiveTab(v as "coa" | "ledger")}>
-        <TabsList>
+        <TabsList className="flex overflow-x-auto gap-1 pb-1 scrollbar-none">
           <TabsTrigger value="coa" className="flex items-center gap-1"><BookOpen className="w-4 h-4" />Chart of Accounts</TabsTrigger>
           <TabsTrigger value="ledger" className="flex items-center gap-1"><FileText className="w-4 h-4" />Ledger Entries</TabsTrigger>
         </TabsList>
 
         <TabsContent value="coa">
           {/* COA Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3 mt-4">
             {[
               { label: "Total Accounts", value: coaStats.total, icon: BookOpen, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
               { label: "Assets", value: coaStats.assets, icon: Shield, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
@@ -555,8 +555,8 @@ export default function ChartOfAccountsLedgerPage() {
                 </Select>
                 <Button variant="outline" size="sm" onClick={loadCOA}><RefreshCw className="w-4 h-4" /></Button>
               </div>
-              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                <Table>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="w-10">+</TableHead>
@@ -598,7 +598,7 @@ export default function ChartOfAccountsLedgerPage() {
                         {expandedCOA.has(item.id) && (
                           <TableRow>
                             <TableCell colSpan={8} className="bg-muted/30 p-3">
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 text-sm">
                                 <div><span className="text-muted-foreground">Parent:</span> <span className="font-medium text-slate-900 dark:text-white">{item.parentAccount?.name || "—"}</span></div>
                                 <div><span className="text-muted-foreground">Child Accounts:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.childAccounts || 0}</span></div>
                                 <div><span className="text-muted-foreground">Ledger Entries:</span> <span className="font-medium text-slate-900 dark:text-white">{item._count?.ledgerEntries || 0}</span></div>
@@ -666,7 +666,7 @@ export default function ChartOfAccountsLedgerPage() {
           </div>
 
           {/* Ledger Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3 mt-4">
             {[
               { label: "Total Entries", value: ledStats.total, icon: FileText, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
               { label: "Total Debit", value: isVatAuditor ? AUDIT_MASK : fmt(ledStats.totalDebit, "currency"), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
@@ -699,8 +699,8 @@ export default function ChartOfAccountsLedgerPage() {
                 </Select>
                 <Button variant="outline" size="sm" onClick={loadLedger}><RefreshCw className="w-4 h-4" /></Button>
               </div>
-              <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
-                <Table>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead>Entry Code</TableHead>
@@ -756,10 +756,10 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* COA Create/Edit Dialog */}
       <Dialog open={coaForm} onOpenChange={setCoaForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{coaEdit ? "Edit" : "Create"} Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Code</Label>
                 <Input className="bg-muted cursor-not-allowed" value={coaFormData.code || "Auto-generated"} readOnly />
@@ -824,10 +824,10 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* Ledger Create/Edit Dialog */}
       <Dialog open={ledForm} onOpenChange={setLedForm}>
-        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{ledEdit ? "Edit" : "Create"} Ledger Entry</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Entry Code</Label>
                 <Input className="bg-muted cursor-not-allowed" value={ledFormData.entryCode || "Auto-generated"} readOnly />
@@ -908,7 +908,7 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* COA Delete Dialog */}
       <Dialog open={!!coaDelete} onOpenChange={() => setCoaDelete(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
           <DialogDescription>Delete account {coaDelete?.code}? This cannot be undone.</DialogDescription>
           <DialogFooter>
@@ -920,7 +920,7 @@ export default function ChartOfAccountsLedgerPage() {
 
       {/* Ledger Delete Dialog */}
       <Dialog open={!!ledDelete} onOpenChange={() => setLedDelete(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
           <DialogDescription>Delete entry {ledDelete?.entryCode}? This cannot be undone.</DialogDescription>
           <DialogFooter>

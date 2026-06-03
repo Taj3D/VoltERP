@@ -1,335 +1,693 @@
-import { db } from '@/lib/db';
+// ============================================================
+// LIABILITY MODULE SINGLE-ITEM API ROUTES - Phase 4 Rewrite
+// GET: Single liability with cross-tenant validation + VAT masking
+// PUT: Update with ledger reversal, bank balance adjustment, zero-balance protection
+// DELETE: Soft delete with admin-only permission + bank balance reversal
+// ============================================================
+
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 import {
   withApiSecurity,
   checkPeriodClose,
+  maskForVatAuditorFinancial,
   checkFinancialDeletePermission,
   safeFinancialRound,
-  safeFinancialSubtract,
   safeFinancialAdd,
-  maskForVatAuditorFinancial,
+  safeFinancialSubtract,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-const AUDIT_MODULE = 'Inv-Asset-Ledger';
+// ────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────
 
-/**
- * computeAgingBucket - Determines the aging classification of a liability
- * based on how many days it is past its due date.
- */
-function computeAgingBucket(dueDate: Date | null, referenceDate: Date): string {
-  if (!dueDate) return 'Current';
-
-  const diffMs = referenceDate.getTime() - new Date(dueDate).getTime();
-  const overdueDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (overdueDays <= 0) return 'Current';
-  if (overdueDays <= 30) return '1-30';
-  if (overdueDays <= 60) return '31-60';
-  if (overdueDays <= 90) return '61-90';
-  return '90+';
+function nullIfEmpty(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  const str = String(val).trim();
+  return str === '' ? null : str;
 }
 
 /**
- * computeOverdueDays - Calculates the number of days a liability is past its due date.
+ * Auto-generate an entry code for LedgerEntry in pattern LED-XXXXX
  */
-function computeOverdueDays(dueDate: Date | null, referenceDate: Date): number {
-  if (!dueDate) return 0;
-  const diffMs = referenceDate.getTime() - new Date(dueDate).getTime();
-  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+async function generateLedgerEntryCode(
+  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0]
+): Promise<string> {
+  const all = await tx.ledgerEntry.findMany({
+    select: { entryCode: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.entryCode) {
+      const match = r.entryCode.match(/LED-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `LED-${String(maxNum + 1).padStart(5, '0')}`;
 }
 
 /**
- * getHeadOutstandingBalance - Calculates the outstanding balance for an InvestmentHead.
- * Formula: openingBalance + sum(received amounts) - sum(paid amounts)
- * Excludes the liability being updated (by excludeId) to avoid counting it twice.
+ * Find or create a ChartOfAccount under "Liability" classification for a given head name.
  */
-async function getHeadOutstandingBalance(
+async function findOrCreateLiabilityAccount(
   tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
-  investmentHeadId: string,
-  excludeId?: string
-): Promise<number> {
-  const head = await tx.investmentHead.findUnique({
-    where: { id: investmentHeadId },
-    select: { openingBalance: true },
+  headName: string,
+  companyId: string | null
+): Promise<{ id: string; code: string }> {
+  const existing = await tx.chartOfAccount.findFirst({
+    where: {
+      name: headName,
+      classification: 'Liability',
+      isActive: true,
+      ...(companyId ? { companyId } : {}),
+    },
   });
 
-  const receivedWhere: Record<string, unknown> = {
-    investmentHeadId,
-    type: 'received',
-    isActive: true,
-  };
-  if (excludeId) receivedWhere.id = { not: excludeId };
+  if (existing) {
+    return { id: existing.id, code: existing.code };
+  }
 
-  const paidWhere: Record<string, unknown> = {
-    investmentHeadId,
-    type: 'pay',
-    isActive: true,
-  };
-  if (excludeId) paidWhere.id = { not: excludeId };
-
-  const receivedAgg = await tx.liability.aggregate({
-    _sum: { amount: true },
-    where: receivedWhere,
+  const parentLiability = await tx.chartOfAccount.findFirst({
+    where: {
+      classification: 'Liability',
+      name: 'Liability',
+      isActive: true,
+      ...(companyId ? { companyId } : {}),
+    },
   });
 
-  const paidAgg = await tx.liability.aggregate({
-    _sum: { amount: true },
-    where: paidWhere,
+  const coaCount = await tx.chartOfAccount.count();
+  const coaCode = `COA-${String(coaCount + 1).padStart(5, '0')}`;
+
+  const newAccount = await tx.chartOfAccount.create({
+    data: {
+      code: coaCode,
+      name: headName,
+      classification: 'Liability',
+      parentAccountId: parentLiability?.id || null,
+      openingBalance: 0,
+      openingBalanceType: 'Cr',
+      companyId: companyId || null,
+    },
   });
 
-  const openingBalance = head?.openingBalance || 0;
-  const totalReceived = receivedAgg._sum.amount || 0;
-  const totalPaid = paidAgg._sum.amount || 0;
-
-  return safeFinancialSubtract(safeFinancialAdd(openingBalance, totalReceived), totalPaid);
+  return { id: newAccount.id, code: newAccount.code };
 }
 
-// ── GET Handler ──
+// ────────────────────────────────────────────────────────────
+// GET /api/liabilities/[id] - Single liability with cross-tenant + VAT masking
+// ────────────────────────────────────────────────────────────
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const security = await withApiSecurity(request, 'Liabilities', 'GET');
   if (!security.authorized) return security.response;
 
+  const { role, companyId } = security.user;
+
   try {
     const { id } = await params;
-    const companyId = security.user.companyId;
-
     const item = await db.liability.findUnique({
       where: { id },
       include: { investmentHead: true },
     });
 
-    if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!item) {
+      return NextResponse.json(
+        { error: 'Liability not found' },
+        { status: 404 }
+      );
+    }
 
     // Cross-tenant validation
     if (companyId && item.companyId && item.companyId !== companyId) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Liability not found' },
+        { status: 404 }
+      );
     }
 
+    // Apply VAT Auditor financial masking
     const masked = maskForVatAuditorFinancial(
-      item as unknown as Record<string, unknown>,
-      security.user.role
+      item as Record<string, unknown>,
+      role
     );
 
     return NextResponse.json(masked);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
+    console.error('[Liabilities GET /id] Error:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch liability' },
+      { status: 500 }
+    );
   }
 }
 
-// ── PUT Handler ──
+// ────────────────────────────────────────────────────────────
+// PUT /api/liabilities/[id] - Update with ledger reversal + bank adjustment
+// ────────────────────────────────────────────────────────────
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const security = await withApiSecurity(request, 'Liabilities', 'PUT');
   if (!security.authorized) return security.response;
 
+  const { id: userId, name: userName, role, companyId } = security.user;
+
   try {
     const { id } = await params;
-    const companyId = security.user.companyId;
     const body = await request.json();
 
-    // Period close check
-    if (body.date) {
-      const periodLock = await checkPeriodClose(body.date);
-      if (periodLock) return periodLock;
+    // Fetch existing record for cross-tenant validation and reversal
+    const existing = await db.liability.findUnique({
+      where: { id },
+      include: { investmentHead: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Liability not found' },
+        { status: 404 }
+      );
     }
 
-    const item = await db.$transaction(async (tx) => {
-      // Cross-tenant validation
-      const existing = await tx.liability.findUnique({ where: { id } });
-      if (!existing) throw new Error('Not found');
-      if (companyId && existing.companyId && existing.companyId !== companyId) {
-        throw new Error('Cross-tenant access denied');
+    // Cross-tenant validation
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'Liability not found' },
+        { status: 404 }
+      );
+    }
+
+    // Period-close lock check
+    const checkDate = body.date ? new Date(body.date) : (existing.date || new Date());
+    const periodLock = await checkPeriodClose(checkDate);
+    if (periodLock) return periodLock;
+
+    // ──────────────────────────────────────────────────────────
+    // Deactivated Head Shield: if investmentHeadId changes, verify new head is active
+    // ──────────────────────────────────────────────────────────
+    const newHeadId = body.investmentHeadId !== undefined
+      ? String(body.investmentHeadId)
+      : existing.investmentHeadId;
+
+    if (body.investmentHeadId && body.investmentHeadId !== existing.investmentHeadId) {
+      const newHead = await db.investmentHead.findUnique({
+        where: { id: newHeadId },
+      });
+      if (!newHead || newHead.isActive === false) {
+        return NextResponse.json(
+          { error: 'Cannot create liability against a deactivated/archived Liability Head' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Compute old and new values
+    const oldAmount = existing.amount;
+    const oldBankId = existing.bankId;
+    const oldType = existing.type;
+    const oldHead = existing.investmentHead;
+
+    const newAmount = body.amount !== undefined
+      ? safeFinancialRound(parseFloat(String(body.amount)))
+      : existing.amount;
+    const newBankId = body.bankId !== undefined
+      ? nullIfEmpty(body.bankId)
+      : existing.bankId;
+    const newType = body.type || existing.type;
+    const newLiabilityType = body.liabilityType || existing.liabilityType;
+    const newPrincipalAmount = body.principalAmount !== undefined
+      ? safeFinancialRound(parseFloat(String(body.principalAmount)))
+      : existing.principalAmount;
+    const newInterestRate = body.interestRate !== undefined
+      ? parseFloat(String(body.interestRate))
+      : existing.interestRate;
+    const newLoanDurationMonths = body.loanDurationMonths !== undefined
+      ? parseInt(String(body.loanDurationMonths), 10)
+      : existing.loanDurationMonths;
+    const transactionDate = body.date ? new Date(body.date) : existing.date;
+
+    // ──────────────────────────────────────────────────────────
+    // For type="received" edits: recalculate outstandingBalance
+    // ──────────────────────────────────────────────────────────
+    let newOutstandingBalance = existing.outstandingBalance;
+    if (newType === 'received') {
+      newOutstandingBalance = safeFinancialRound(newPrincipalAmount);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // For type="pay" edits: re-validate zero balance protection
+    // ──────────────────────────────────────────────────────────
+    if (newType === 'pay') {
+      newOutstandingBalance = 0;
+
+      // Include opening balance in outstanding computation
+      const headForBalance = await db.investmentHead.findUnique({
+        where: { id: newHeadId },
+        select: { openingBalance: true, type: true },
+      });
+      const openingBal = (headForBalance?.type === 'Liability' ? (headForBalance?.openingBalance || 0) : 0);
+
+      // Compute outstanding for this head (excluding current record)
+      const receivedAgg = await db.liability.aggregate({
+        _sum: { amount: true },
+        where: {
+          investmentHeadId: newHeadId,
+          type: 'received',
+          isActive: true,
+          ...(companyId ? { companyId } : {}),
+        },
+      });
+      const payAgg = await db.liability.aggregate({
+        _sum: { amount: true },
+        where: {
+          investmentHeadId: newHeadId,
+          type: 'pay',
+          isActive: true,
+          id: { not: id }, // Exclude current record
+          ...(companyId ? { companyId } : {}),
+        },
+      });
+
+      const totalReceived = receivedAgg._sum.amount || 0;
+      const totalOtherPay = payAgg._sum.amount || 0;
+      const projectedOutstanding = safeFinancialSubtract(
+        safeFinancialSubtract(safeFinancialAdd(openingBal, totalReceived), totalOtherPay),
+        newAmount
+      );
+
+      if (projectedOutstanding < 0) {
+        return NextResponse.json(
+          { error: 'Action Blocked: Repayment value exceeds total outstanding liability balance.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // Pre-validate: if bankId provided for pay, check bank balance
+    // ──────────────────────────────────────────────────────────
+    if (newType === 'pay' && newBankId) {
+      const bankCheck = await db.bank.findUnique({
+        where: { id: newBankId },
+        select: { currentBalance: true },
+      });
+      if (bankCheck && bankCheck.currentBalance < newAmount) {
+        return NextResponse.json(
+          { error: 'Insufficient bank balance for liability repayment' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Clean optional string fields
+    const cleanPaymentMethod = body.paymentMethod !== undefined
+      ? nullIfEmpty(body.paymentMethod)
+      : existing.paymentMethod;
+    const cleanVoucherNo = body.voucherNo !== undefined
+      ? nullIfEmpty(body.voucherNo)
+      : existing.voucherNo;
+    const cleanChequeNo = body.chequeNo !== undefined
+      ? nullIfEmpty(body.chequeNo)
+      : existing.chequeNo;
+    const cleanDescription = body.description !== undefined
+      ? nullIfEmpty(body.description)
+      : existing.description;
+
+    // ──────────────────────────────────────────────────────────
+    // Atomic transaction: reverse old, apply new
+    // ──────────────────────────────────────────────────────────
+    const result = await db.$transaction(async (tx) => {
+      // ────────────────────────────────────────────────────────
+      // STEP 1: Reverse old bank balance impact
+      // ────────────────────────────────────────────────────────
+      if (oldBankId) {
+        const oldBankRecord = await tx.bank.findUnique({
+          where: { id: oldBankId },
+          select: { currentBalance: true },
+        });
+        if (oldBankRecord) {
+          let reversedBalance: number;
+          if (oldType === 'received') {
+            // Received incremented bank, so reverse by subtracting
+            reversedBalance = safeFinancialSubtract(oldBankRecord.currentBalance, oldAmount);
+          } else {
+            // Pay decremented bank, so reverse by adding
+            reversedBalance = safeFinancialAdd(oldBankRecord.currentBalance, oldAmount);
+          }
+          await tx.bank.update({
+            where: { id: oldBankId },
+            data: { currentBalance: reversedBalance },
+          });
+        }
       }
 
-      // Check Investment Head isActive if changing head
+      // ────────────────────────────────────────────────────────
+      // STEP 2: Create reversal ledger entries (2 reversal entries)
+      // ────────────────────────────────────────────────────────
+      // Resolve old head name for reversal
+      const oldHeadName = oldHead?.name || 'Unknown';
+      const oldCashAccount = oldBankId
+        ? 'Cash/Bank'
+        : 'Cash in Hand';
+
+      if (oldType === 'received') {
+        // Original: Dr head.name, Cr Cash/Bank
+        // Reversal: Cr head.name, Dr Cash/Bank
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            account: oldHeadName,
+            particulars: 'Reversal: Liability receive update',
+            debit: 0,
+            credit: oldAmount,
+            reference: existing.voucherNo || id,
+            referenceType: 'LiabilityReceive',
+            companyId: companyId || null,
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            account: oldCashAccount,
+            particulars: 'Reversal: Liability receive update',
+            debit: oldAmount,
+            credit: 0,
+            reference: existing.voucherNo || id,
+            referenceType: 'LiabilityReceive',
+            companyId: companyId || null,
+          },
+        });
+      } else {
+        // Original: Dr head.name, Cr Cash/Bank (pay)
+        // Reversal: Cr head.name, Dr Cash/Bank
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            account: oldHeadName,
+            particulars: 'Reversal: Liability pay update',
+            debit: 0,
+            credit: oldAmount,
+            reference: existing.voucherNo || id,
+            referenceType: 'LiabilityPay',
+            companyId: companyId || null,
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            account: oldCashAccount,
+            particulars: 'Reversal: Liability pay update',
+            debit: oldAmount,
+            credit: 0,
+            reference: existing.voucherNo || id,
+            referenceType: 'LiabilityPay',
+            companyId: companyId || null,
+          },
+        });
+      }
+
+      // ────────────────────────────────────────────────────────
+      // STEP 3: Apply new bank balance impact
+      // ────────────────────────────────────────────────────────
+      if (newBankId) {
+        const newBankRecord = await tx.bank.findUnique({
+          where: { id: newBankId },
+          select: { currentBalance: true },
+        });
+        if (newBankRecord) {
+          let updatedBalance: number;
+          if (newType === 'received') {
+            // Receive increments bank
+            updatedBalance = safeFinancialAdd(newBankRecord.currentBalance, newAmount);
+          } else {
+            // Pay decrements bank
+            updatedBalance = safeFinancialSubtract(newBankRecord.currentBalance, newAmount);
+          }
+          await tx.bank.update({
+            where: { id: newBankId },
+            data: { currentBalance: updatedBalance },
+          });
+        }
+      }
+
+      // ────────────────────────────────────────────────────────
+      // STEP 4: Create new ledger entries (2 new entries)
+      // ────────────────────────────────────────────────────────
+      // Resolve new head for new entries
+      let newHeadName = oldHeadName;
       if (body.investmentHeadId && body.investmentHeadId !== existing.investmentHeadId) {
-        const head = await tx.investmentHead.findUnique({ where: { id: body.investmentHeadId } });
-        if (!head || !head.isActive) {
-          throw new Error('Action Blocked: Chosen Investment Head is inactive or archived.');
-        }
+        const headRecord = await tx.investmentHead.findUnique({
+          where: { id: newHeadId },
+          select: { name: true },
+        });
+        newHeadName = headRecord?.name || 'Unknown';
       }
 
-      // Amount must be > 0 if provided
-      if (body.amount !== undefined && Number(body.amount) <= 0) {
-        throw new Error('Amount must be > 0');
+      const newCashAccount = newBankId ? 'Cash/Bank' : 'Cash in Hand';
+
+      // Find or create ChartOfAccount
+      const liabilityAccount = await findOrCreateLiabilityAccount(tx, newHeadName, companyId);
+
+      if (newType === 'received') {
+        // Dr: head.name (Liabilities), Cr: Cash/Bank
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            accountId: liabilityAccount.id,
+            account: newHeadName,
+            particulars: cleanDescription || `Liability received: ${newHeadName}`,
+            debit: newAmount,
+            credit: 0,
+            reference: cleanVoucherNo || id,
+            referenceType: 'LiabilityReceive',
+            companyId: companyId || null,
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            account: newCashAccount,
+            particulars: cleanDescription || `Liability received: ${newHeadName}`,
+            debit: 0,
+            credit: newAmount,
+            reference: cleanVoucherNo || id,
+            referenceType: 'LiabilityReceive',
+            companyId: companyId || null,
+          },
+        });
+      } else {
+        // Dr: head.name (Liabilities), Cr: Cash/Bank (pay)
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            accountId: liabilityAccount.id,
+            account: newHeadName,
+            particulars: cleanDescription || `Liability payment: ${newHeadName}`,
+            debit: newAmount,
+            credit: 0,
+            reference: cleanVoucherNo || id,
+            referenceType: 'LiabilityPay',
+            companyId: companyId || null,
+          },
+        });
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: await generateLedgerEntryCode(tx),
+            date: transactionDate,
+            account: newCashAccount,
+            particulars: cleanDescription || `Liability payment: ${newHeadName}`,
+            debit: 0,
+            credit: newAmount,
+            reference: cleanVoucherNo || id,
+            referenceType: 'LiabilityPay',
+            companyId: companyId || null,
+          },
+        });
       }
 
-      // ── Determine the new values ──
-      const newAmount = body.amount !== undefined ? safeFinancialRound(Number(body.amount)) : existing.amount;
-      const newType = body.type || existing.type;
-      const newDate = body.date ? new Date(body.date as string) : existing.date;
-
-      // ── When updating to "pay" type, verify payment doesn't exceed outstanding balance ──
-      if (newType === 'pay') {
-        const headId = body.investmentHeadId || existing.investmentHeadId;
-        // Exclude this record from balance calculation to avoid double-counting
-        const outstandingBalance = await getHeadOutstandingBalance(tx, headId, id);
-        if (outstandingBalance < newAmount) {
-          throw new Error('Action Blocked: Payment amount exceeds outstanding balance for this head.');
-        }
-      }
-
-      // ── Recalculate aging bucket and overdue days when amount or date changes ──
-      let agingBucket = body.agingBucket !== undefined ? (body.agingBucket as string) : existing.agingBucket;
-      let dueDate = existing.dueDate;
-      let overdueDays = existing.overdueDays;
-
-      // If dueDate is explicitly provided, use it
-      if (body.dueDate !== undefined) {
-        dueDate = body.dueDate ? new Date(body.dueDate as string) : null;
-      }
-
-      // Recalculate aging if date or amount changed
-      if (body.date !== undefined || body.amount !== undefined || body.dueDate !== undefined || body.agingBucket === undefined) {
-        // For "received" type, ensure dueDate is set (default: date + 30 days)
-        if (newType === 'received' && !dueDate) {
-          dueDate = new Date(newDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-        }
-
-        const now = new Date();
-        if (body.agingBucket === undefined) {
-          // Only auto-compute if not explicitly provided
-          agingBucket = computeAgingBucket(dueDate, now);
-        }
-        overdueDays = computeOverdueDays(dueDate, now);
-      }
-
-      // ── Build update data ──
-      const updateData: Record<string, unknown> = {
-        investmentHeadId: body.investmentHeadId || undefined,
-        date: body.date ? new Date(body.date as string) : undefined,
-        amount: body.amount !== undefined ? safeFinancialRound(Number(body.amount)) : undefined,
-        type: body.type || undefined,
-        paymentMethod: body.paymentMethod !== undefined ? body.paymentMethod : undefined,
-        description: body.description !== undefined ? (body.description || null) : undefined,
-        isActive: body.isActive !== undefined ? body.isActive : undefined,
-        // New AP Sync fields
-        agingBucket,
-        apSyncStatus: body.apSyncStatus !== undefined ? (body.apSyncStatus as string) : existing.apSyncStatus,
-        dueDate,
-        overdueDays,
-      };
-
-      const record = await tx.liability.update({
+      // ────────────────────────────────────────────────────────
+      // STEP 5: Update the liability record
+      // ────────────────────────────────────────────────────────
+      const updated = await tx.liability.update({
         where: { id },
-        data: updateData,
+        data: {
+          investmentHeadId: newHeadId,
+          date: transactionDate,
+          amount: newAmount,
+          type: newType,
+          liabilityType: newLiabilityType,
+          principalAmount: newPrincipalAmount,
+          interestRate: newInterestRate,
+          loanDurationMonths: newLoanDurationMonths,
+          outstandingBalance: newOutstandingBalance,
+          paymentMethod: cleanPaymentMethod,
+          bankId: newBankId,
+          voucherNo: cleanVoucherNo,
+          chequeNo: cleanChequeNo,
+          description: cleanDescription,
+        },
         include: { investmentHead: true },
       });
 
+      // ────────────────────────────────────────────────────────
+      // STEP 6: AuditLog
+      // ────────────────────────────────────────────────────────
       await tx.auditLog.create({
         data: {
           action: 'UPDATE',
-          module: AUDIT_MODULE,
-          recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
-          userId: security.user.id,
-          userName: security.user.name,
+          module: 'Fin-Liability-Core',
+          recordId: updated.id,
+          recordLabel: `${updated.investmentHead?.name || updated.id} - ৳${updated.amount}`,
+          userId,
+          userName,
           details: JSON.stringify({
-            investmentHeadId: record.investmentHeadId,
-            amount: record.amount,
-            type: record.type,
-            agingBucket: record.agingBucket,
-            apSyncStatus: record.apSyncStatus,
-            dueDate: record.dueDate,
-            overdueDays: record.overdueDays,
+            type: newType,
+            previousAmount: oldAmount,
+            newAmount,
+            previousBankId: oldBankId,
+            newBankId,
+            previousType: oldType,
+            newType,
+            bankBalanceAdjusted: !!(oldBankId || newBankId),
+            ledgerReversalCreated: true,
+            ledgerNewEntriesCreated: true,
           }),
         },
       });
 
-      return record;
+      return updated;
     });
 
-    await logUserActivity({
-      action: 'UPDATE',
-      module: AUDIT_MODULE,
-      recordId: item.id,
-      recordLabel: `${item.investmentHead?.name || item.id} - ৳${item.amount}`,
-      userId: security.user.id,
-      userName: security.user.name,
-      details: `Updated liability: ${item.investmentHead?.name || item.id} - ৳${item.amount}`,
-    });
-
-    return NextResponse.json(item);
-  } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Not found') return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      if (error.message === 'Cross-tenant access denied') return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      if (error.message.startsWith('Action Blocked:') || error.message.includes('must be')) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
-    }
-    return NextResponse.json({ error: 'Failed to update' }, { status: 500 });
+    return NextResponse.json(result);
+  } catch (error: unknown) {
+    console.error('[Liabilities PUT /id] Error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update liability';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
-// ── DELETE Handler ──
+// ────────────────────────────────────────────────────────────
+// DELETE /api/liabilities/[id] - Soft delete (admin-only) with bank reversal
+// ────────────────────────────────────────────────────────────
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const security = await withApiSecurity(request, 'Liabilities', 'DELETE');
   if (!security.authorized) return security.response;
 
-  // Admin-only delete
-  const deleteCheck = checkFinancialDeletePermission(security.user.role);
+  const { id: userId, name: userName, role, companyId } = security.user;
+
+  // Only admin can delete financial posts
+  const deleteCheck = checkFinancialDeletePermission(role);
   if (deleteCheck) return deleteCheck;
 
   try {
     const { id } = await params;
-    const companyId = security.user.companyId;
+
+    const existing = await db.liability.findUnique({
+      where: { id },
+      include: { investmentHead: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: 'Liability not found' },
+        { status: 404 }
+      );
+    }
+
+    // Cross-tenant validation
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'Liability not found' },
+        { status: 404 }
+      );
+    }
+
+    if (!existing.isActive) {
+      return NextResponse.json(
+        { error: 'Liability is already deleted' },
+        { status: 400 }
+      );
+    }
+
+    // Period-close lock check
+    const periodLock = await checkPeriodClose(existing.date || new Date());
+    if (periodLock) return periodLock;
 
     await db.$transaction(async (tx) => {
-      const record = await tx.liability.findUnique({
-        where: { id },
-        include: { investmentHead: true },
-      });
-      if (!record) throw new Error('Not found');
-
-      // Cross-tenant validation
-      if (companyId && record.companyId && record.companyId !== companyId) {
-        throw new Error('Cross-tenant access denied');
+      // ────────────────────────────────────────────────────────
+      // Reverse bank balance impact if bankId existed
+      // ────────────────────────────────────────────────────────
+      if (existing.bankId) {
+        const bankRecord = await tx.bank.findUnique({
+          where: { id: existing.bankId },
+          select: { currentBalance: true },
+        });
+        if (bankRecord) {
+          let reversedBalance: number;
+          if (existing.type === 'received') {
+            // Received incremented bank balance, so reverse by subtracting
+            reversedBalance = safeFinancialSubtract(bankRecord.currentBalance, existing.amount);
+          } else {
+            // Pay decremented bank balance, so reverse by adding back
+            reversedBalance = safeFinancialAdd(bankRecord.currentBalance, existing.amount);
+          }
+          await tx.bank.update({
+            where: { id: existing.bankId },
+            data: { currentBalance: reversedBalance },
+          });
+        }
       }
 
+      // Soft delete
       await tx.liability.update({
         where: { id },
         data: { isActive: false },
       });
 
+      // AuditLog — module token: Fin-Liability-Core
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
-          module: AUDIT_MODULE,
-          recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
-          userId: security.user.id,
-          userName: security.user.name,
+          module: 'Fin-Liability-Core',
+          recordId: existing.id,
+          recordLabel: `${existing.investmentHead?.name || existing.id} - ৳${existing.amount}`,
+          userId,
+          userName,
           details: JSON.stringify({
-            investmentHeadId: record.investmentHeadId,
-            amount: record.amount,
+            type: existing.type,
             softDelete: true,
+            amount: existing.amount,
+            bankId: existing.bankId,
+            bankBalanceReversed: !!existing.bankId,
           }),
         },
       });
-
-      return record;
     });
 
-    await logUserActivity({
-      action: 'DELETE',
-      module: AUDIT_MODULE,
-      recordId: id,
-      recordLabel: id,
-      userId: security.user.id,
-      userName: security.user.name,
-      details: `Soft-deleted liability: ${id}`,
-    });
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ message: 'Liability deleted successfully' });
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Not found') return NextResponse.json({ error: 'Not found' }, { status: 404 });
-      if (error.message === 'Cross-tenant access denied') return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    }
-    return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
+    console.error('[Liabilities DELETE /id] Error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete liability' },
+      { status: 500 }
+    );
   }
 }

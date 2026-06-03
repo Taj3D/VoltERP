@@ -161,28 +161,13 @@ export async function calculateAccountBalance(
  * @returns The next sequential code string
  */
 export async function generateNextCode(
-  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose' | 'journalVoucher' | 'fiscalYear',
+  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose',
   prefix: string
 ): Promise<string> {
-  // Map model names to their code fields and db accessors
-  const modelConfig: Record<string, { codeField: string; dbModel: string }> = {
-    chartOfAccount: { codeField: 'code', dbModel: 'chartOfAccount' },
-    ledgerEntry: { codeField: 'entryCode', dbModel: 'ledgerEntry' },
-    periodClose: { codeField: 'code', dbModel: 'periodClose' },
-    journalVoucher: { codeField: 'voucherNo', dbModel: 'journalVoucher' },
-    fiscalYear: { codeField: 'code', dbModel: 'fiscalYear' },
-  };
-
-  const config = modelConfig[model];
-  if (!config) {
-    return `${prefix}00001`;
-  }
-
-  const { codeField, dbModel } = config;
-  const latestRecord = await (db as any)[dbModel].findFirst({
-    where: { [codeField]: { startsWith: prefix } },
-    orderBy: { [codeField]: 'desc' },
-    select: { [codeField]: true },
+  const latestRecord = await (db[model] as any).findFirst({
+    where: { code: { startsWith: prefix } },
+    orderBy: { code: 'desc' },
+    select: { code: true },
   });
 
   if (!latestRecord) {
@@ -190,7 +175,7 @@ export async function generateNextCode(
   }
 
   // Extract the numeric portion after the prefix
-  const numericPart = latestRecord[codeField].replace(prefix, '');
+  const numericPart = latestRecord.code.replace(prefix, '');
   const lastNumber = parseInt(numericPart, 10) || 0;
   const nextNumber = lastNumber + 1;
 
@@ -259,32 +244,4 @@ export async function verifyLedgerBalance(filters?: {
     difference: safeFinancialRound(difference),
     entryCount: countResult,
   };
-}
-
-/**
- * Phase 14: Fiscal Year Immutable Period Interlock
- * Checks if a given date falls within any CLOSED fiscal year for the tenant.
- * If closed, returns an error message. If open or no fiscal year covers the date, returns null.
- * 
- * @param date - The date to check
- * @param companyId - The tenant's companyId
- * @returns Error message string if date falls in a closed fiscal year, null otherwise
- */
-export async function checkFiscalYearInterlock(
-  date: Date,
-  companyId: string | null
-): Promise<string | null> {
-  const where: Record<string, unknown> = {
-    status: 'CLOSED',
-    isActive: true,
-    startDate: { lte: date },
-    endDate: { gte: date },
-  };
-  if (companyId) where.companyId = companyId;
-
-  const closedFY = await db.fiscalYear.findFirst({ where });
-  if (closedFY) {
-    return `Immutable Period Interlock: Date ${date.toISOString().split('T')[0]} falls within closed fiscal year "${closedFY.name}" (${closedFY.code}). No mutations are allowed for closed periods.`;
-  }
-  return null;
 }

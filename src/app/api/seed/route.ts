@@ -661,23 +661,34 @@ export async function POST() {
       ]);
 
       // ============================================================
-      // LEDGER ENTRIES
+      // LEDGER ENTRIES — Balanced double-entry bookkeeping
       // ============================================================
       await Promise.all([
+        // Opening balance: Cash Dr, Opening Balance Equity Cr
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00001', date: twoMonthsAgo, account: 'Cash', particulars: 'Opening balance brought forward', debit: 1500000, credit: 0, reference: 'OB-2025' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00001B', date: twoMonthsAgo, account: 'Opening Balance Equity', particulars: 'Opening balance equity contra', debit: 0, credit: 1500000, reference: 'OB-2025' } }),
+        // PO-001: Purchase Dr, Accounts Payable Cr (balanced)
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00002', date: twoMonthsAgo, account: 'Purchase', particulars: 'Samsung stock purchase PO-001', debit: 4690000, credit: 0, reference: 'PO-001' } }),
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00003', date: twoMonthsAgo, account: 'Accounts Payable', particulars: 'Payable to Samsung Bangladesh', debit: 0, credit: 4690000, reference: 'PO-001' } }),
+        // PO-002: Purchase Dr, Accounts Payable Cr (balanced)
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00004', date: oneMonthAgo, account: 'Purchase', particulars: 'LG + Dell stock purchase PO-002', debit: 1788000, credit: 0, reference: 'PO-002' } }),
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00005', date: oneMonthAgo, account: 'Accounts Payable', particulars: 'Payable to LG Electronics', debit: 0, credit: 1788000, reference: 'PO-002' } }),
+        // INV-001: AR Dr, Sales Cr (balanced)
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00006', date: twoWeeksAgo, account: 'Accounts Receivable', particulars: 'Sale to Al-Amin Electronics INV-001', debit: 618000, credit: 0, reference: 'INV-001' } }),
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00007', date: twoWeeksAgo, account: 'Sales', particulars: 'Sales revenue INV-001', debit: 0, credit: 618000, reference: 'INV-001' } }),
+        // INV-002: AR Dr, Sales Cr (balanced)
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00008', date: oneWeekAgo, account: 'Accounts Receivable', particulars: 'Sale to Rafi Traders INV-002', debit: 248000, credit: 0, reference: 'INV-002' } }),
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00009', date: oneWeekAgo, account: 'Sales', particulars: 'Sales revenue INV-002', debit: 0, credit: 248000, reference: 'INV-002' } }),
+        // INV-003: Cash Dr (200k partial), AR Dr (150k outstanding), Sales Cr (350k total) — balanced
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00010', date: yesterday, account: 'Cash', particulars: 'Payment received Rahman IT INV-003', debit: 200000, credit: 0, reference: 'INV-003' } }),
-        tx.ledgerEntry.create({ data: { entryCode: 'LED-00011', date: yesterday, account: 'Accounts Receivable', particulars: 'Sale to Rahman IT INV-003', debit: 350000, credit: 0, reference: 'INV-003' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00011', date: yesterday, account: 'Accounts Receivable', particulars: 'Outstanding from Rahman IT INV-003', debit: 150000, credit: 0, reference: 'INV-003' } }),
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00012', date: yesterday, account: 'Sales', particulars: 'Sales revenue INV-003', debit: 0, credit: 350000, reference: 'INV-003' } }),
+        // EXP-001: Rent Expense Dr, Cash in Hand Cr (balanced)
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00013', date: oneMonthAgo, account: 'Rent Expense', particulars: 'Showroom rent February', debit: 65000, credit: 0, reference: 'EXP-001' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00013B', date: oneMonthAgo, account: 'Cash in Hand', particulars: 'Payment for rent EXP-001', debit: 0, credit: 65000, reference: 'EXP-001' } }),
+        // EXP-004: Salary Expense Dr, Cash in Hand Cr (balanced)
         tx.ledgerEntry.create({ data: { entryCode: 'LED-00014', date: oneWeekAgo, account: 'Salary Expense', particulars: 'Staff payroll February', debit: 320000, credit: 0, reference: 'EXP-004' } }),
+        tx.ledgerEntry.create({ data: { entryCode: 'LED-00014B', date: oneWeekAgo, account: 'Cash in Hand', particulars: 'Payment for salaries EXP-004', debit: 0, credit: 320000, reference: 'EXP-004' } }),
       ]);
 
       // ============================================================
@@ -702,37 +713,6 @@ export async function POST() {
         tx.auditLog.create({ data: { action: 'UPDATE', module: 'Banks', recordLabel: 'Dutch Bangla Bank', userName: 'Admin User', createdAt: new Date(today.getTime() - 345600000) } }),
         tx.auditLog.create({ data: { action: 'IMPORT', module: 'Products', recordLabel: '15 records', userName: 'Admin User', createdAt: new Date(today.getTime() - 432000000) } }),
       ]);
-
-      // ============================================================
-      // 20. LOGISTICS CHART OF ACCOUNTS (3)
-      // Required for intransit valuation state machine and damage
-      // write-off double-entry. Check by code, create if not exists.
-      // ============================================================
-      const logisticsCoaNodes = [
-        { code: 'COA-INV-ASSET', name: 'Inventory Asset', classification: 'Asset', openingBalance: 0, openingBalanceType: 'Dr' },
-        { code: 'COA-INV-TRANSIT', name: 'Inventory In-Transit', classification: 'Asset', openingBalance: 0, openingBalanceType: 'Dr' },
-        { code: 'COA-INV-LOSS', name: 'Inventory Loss / Wastage', classification: 'Expense', openingBalance: 0, openingBalanceType: 'Dr' },
-      ];
-
-      for (const coaNode of logisticsCoaNodes) {
-        const existingCoa = await tx.chartOfAccount.findUnique({
-          where: { code: coaNode.code },
-          select: { id: true },
-        });
-
-        if (!existingCoa) {
-          await tx.chartOfAccount.create({
-            data: {
-              code: coaNode.code,
-              name: coaNode.name,
-              classification: coaNode.classification,
-              openingBalance: coaNode.openingBalance,
-              openingBalanceType: coaNode.openingBalanceType,
-              isActive: true,
-            },
-          });
-        }
-      }
     });
 
     return NextResponse.json({

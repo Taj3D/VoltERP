@@ -1,3 +1,8 @@
+// ============================================================
+// Cash Deliveries [id] API — Double-Entry CoA Alignment, Status Transition, Ledger Reversal
+// Module Token: Fin-Ledger-Transaction
+// ============================================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import {
@@ -9,21 +14,81 @@ import {
   safeFinancialAdd,
   safeFinancialSubtract,
 } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// Helper: normalize empty strings to null for optional string fields
-function nullIfEmpty(value: string | undefined | null): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value === 'string' && value.trim() === '') return null;
-  return value;
+// Helper: generate LED entry code — collision-safe (numeric max)
+async function generateLedgerEntryCode(tx: any): Promise<string> {
+  const all = await tx.ledgerEntry.findMany({
+    select: { entryCode: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.entryCode) {
+      const match = r.entryCode.match(/LED-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `LED-${String(maxNum + 1).padStart(5, '0')}`;
 }
 
-// GET /api/cash-deliveries/[id] - Get single cash delivery with cross-tenant validation
+// Helper: generate LAP code — collision-safe (numeric max)
+async function generateAutoPostCode(tx: any): Promise<string> {
+  const all = await tx.ledgerAutoPost.findMany({
+    select: { code: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.code) {
+      const match = r.code.match(/LAP-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `LAP-${String(maxNum + 1).padStart(5, '0')}`;
+}
+
+// AP Forward: Re-add supplier credit balance when cash delivery is cancelled/deleted
+function computeApForward(
+  currentBalance: number,
+  currentBalanceType: string,
+  amount: number
+): { newBalance: number; newBalanceType: string } {
+  if (currentBalanceType === 'Cr') {
+    return {
+      newBalance: safeFinancialAdd(currentBalance, amount),
+      newBalanceType: 'Cr',
+    };
+  } else {
+    // Dr balance
+    if (amount > currentBalance) {
+      return {
+        newBalance: safeFinancialSubtract(amount, currentBalance),
+        newBalanceType: 'Cr',
+      };
+    } else {
+      return {
+        newBalance: safeFinancialSubtract(currentBalance, amount),
+        newBalanceType: 'Dr',
+      };
+    }
+  }
+}
+
+// Allowed status transitions for CashDelivery
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  Pending: ['Approved', 'Rejected'],
+  Approved: ['Rejected'],
+  Rejected: [],
+};
+
+// GET /api/cash-deliveries/[id] — Single cash delivery with CoA includes
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'CashDeliveries', 'GET');
   if (!security.authorized) return security.response;
+
+  const { role, companyId } = security.user;
 
   try {
     const { id } = await params;
@@ -33,39 +98,27 @@ export async function GET(
         supplier: true,
         paymentOption: true,
         bank: true,
+        chartOfAccount: true,
       },
     });
 
-    if (!item) {
-      return NextResponse.json(
-        { error: 'Cash delivery not found' },
-        { status: 404 }
-      );
+    if (!item || !item.isActive) {
+      return NextResponse.json({ error: 'Cash delivery not found' }, { status: 404 });
     }
 
-    // Cross-tenant validation: companyId mismatch → 404
-    const companyId = security.user.companyId;
     if (companyId && item.companyId && item.companyId !== companyId) {
-      return NextResponse.json(
-        { error: 'Cash delivery not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Cash delivery not found' }, { status: 404 });
     }
 
-    // Apply VAT Auditor financial masking for single record
-    const maskedItem = maskForVatAuditorFinancial(item, security.user.role);
-
+    const maskedItem = maskForVatAuditorFinancial(item as Record<string, unknown>, role);
     return NextResponse.json(maskedItem);
   } catch (error) {
     console.error('Error fetching cash delivery:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch cash delivery' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch cash delivery' }, { status: 500 });
   }
 }
 
-// PUT /api/cash-deliveries/[id] - Update with bank reversal + re-entry with sufficient balance validation
+// PUT /api/cash-deliveries/[id] — Status transition, ledger reversal on rejection
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -73,266 +126,194 @@ export async function PUT(
   const security = await withApiSecurity(request, 'CashDeliveries', 'PUT');
   if (!security.authorized) return security.response;
 
+  const { id: userId, name: userName, companyId } = security.user;
+
   try {
     const { id } = await params;
     const body = await request.json();
-    const {
-      supplierId,
-      date,
-      amount,
-      paymentOptionId,
-      bankId,
-      chequeNo,
-      voucherNo,
-      description,
-      status,
-    } = body;
+    const { status } = body;
 
-    // Fetch existing record
     const existing = await db.cashDelivery.findUnique({
       where: { id },
-      include: {
-        supplier: true,
-        bank: true,
-      },
+      include: { supplier: true, bank: true },
     });
 
     if (!existing) {
-      return NextResponse.json(
-        { error: 'Cash delivery not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Cash delivery not found' }, { status: 404 });
     }
 
-    // Cross-tenant validation
-    const companyId = security.user.companyId;
     if (companyId && existing.companyId && existing.companyId !== companyId) {
-      return NextResponse.json(
-        { error: 'Cash delivery not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Cash delivery not found' }, { status: 404 });
     }
 
-    // Period-close lock check
-    const checkDate = date ? new Date(date) : (existing.date || new Date());
+    const checkDate = body.date ? new Date(body.date) : (existing.date || new Date());
     const periodLock = await checkPeriodClose(checkDate);
     if (periodLock) return periodLock;
 
-    // deliveryCode is immutable - never update it
-
-    const oldBankId = existing.bankId;
-    const oldAmount = existing.amount;
-    const oldStatus = existing.status;
-    const newBankId = bankId !== undefined ? (bankId || null) : oldBankId;
-    const newAmount = amount !== undefined ? safeFinancialRound(parseFloat(amount) || 0) : oldAmount;
-    const newStatus = status || oldStatus;
-    const newChequeNo = chequeNo !== undefined ? nullIfEmpty(chequeNo) : existing.chequeNo;
-    const newVoucherNo = voucherNo !== undefined ? nullIfEmpty(voucherNo) : existing.voucherNo;
-    const newDescription = description !== undefined ? nullIfEmpty(description) : existing.description;
-
-    // Pre-transaction balance validation for CashDelivery:
-    // If new status is Approved and there's a bankId, validate sufficient balance.
-    if (newStatus === 'Approved' && newBankId) {
-      const bank = await db.bank.findUnique({
-        where: { id: newBankId },
-        select: { currentBalance: true, bankName: true },
-      });
-
-      if (!bank) {
+    // Status transition validation
+    if (status && status !== existing.status) {
+      const allowed = ALLOWED_TRANSITIONS[existing.status] || [];
+      if (!allowed.includes(status)) {
         return NextResponse.json(
-          { error: `Bank with id ${newBankId} not found` },
-          { status: 400 }
-        );
-      }
-
-      // Simulate: reverse old first (if old was Approved with same bankId, add oldAmount back)
-      let projectedBalance = bank.currentBalance;
-      if (oldStatus === 'Approved' && oldBankId === newBankId) {
-        projectedBalance = safeFinancialAdd(projectedBalance, oldAmount);
-      } else if (oldStatus === 'Approved' && oldBankId && oldBankId !== newBankId) {
-        // Old bank gets reversed (different bank), new bank only gets decremented
-        projectedBalance = bank.currentBalance; // new bank hasn't been touched yet
-      }
-
-      if (projectedBalance < newAmount) {
-        return NextResponse.json(
-          {
-            error: `Insufficient bank balance. ${bank.bankName} projected balance is ৳${projectedBalance} but delivery amount is ৳${newAmount}`,
-          },
+          { error: `Invalid status transition: ${existing.status} → ${status}. Allowed: [${allowed.join(', ')}]` },
           { status: 400 }
         );
       }
     }
 
-    const result = await db.$transaction(async (tx) => {
-      // ── STEP 1: Reverse old bank impact if old status was Approved ──
-      // (payment to supplier was made, so add the amount back to the bank)
-      if (oldStatus === 'Approved' && oldBankId) {
-        const bankRecord = await tx.bank.findUnique({
-          where: { id: oldBankId },
-          select: { currentBalance: true },
-        });
-        const reversedBalance = safeFinancialAdd(bankRecord?.currentBalance ?? 0, oldAmount);
-        await tx.bank.update({
-          where: { id: oldBankId },
-          data: { currentBalance: reversedBalance },
-        });
-      }
+    const newStatus = status ? String(status) : existing.status;
 
-      // ── STEP 2: Create reversal ledger entries for the old state ──
-      if (oldStatus === 'Approved') {
-        // Resolve old cash/bank account name for reversal
-        let oldCashAccountName = 'Cash in Hand';
-        if (oldBankId) {
-          const oldBankRecord = await tx.bank.findUnique({
-            where: { id: oldBankId },
-            select: { bankName: true },
+    const result = await db.$transaction(async (tx: any) => {
+      // On Rejection: reverse ledger entries and bank balance
+      if (newStatus === 'Rejected' && existing.ledgerPosted) {
+        // Reverse bank balance (delivery decremented, now add back)
+        if (existing.bankId) {
+          const bankRecord = await tx.bank.findUnique({
+            where: { id: existing.bankId },
+            select: { currentBalance: true },
           });
-          oldCashAccountName = oldBankRecord?.bankName || 'Bank';
+          if (bankRecord) {
+            const reversedBalance = safeFinancialAdd(bankRecord.currentBalance, existing.amount);
+            await tx.bank.update({
+              where: { id: existing.bankId },
+              data: { currentBalance: reversedBalance },
+            });
+          }
         }
 
-        // Reversal: Dr: [old cash/bank] (reverses original credit from cash/bank)
+        // Create reversal ledger entries
+        const reversalDrCode = await generateLedgerEntryCode(tx);
+        const reversalCrCode = `LED-${String(parseInt(reversalDrCode.match(/LED-(\d+)/)?.[1] || '0', 10) + 1).padStart(5, '0')}`;
+
+        const debitAccount = existing.supplier?.name || 'Unknown Supplier';
+        let creditAccount = 'Cash in Hand';
+        if (existing.bankId) {
+          const bankRecord = await tx.bank.findUnique({
+            where: { id: existing.bankId },
+            select: { bankName: true },
+          });
+          creditAccount = bankRecord?.bankName || 'Bank';
+        }
+
+        // Reversal: Dr: cash/bank (reverses original Cr)
         await tx.ledgerEntry.create({
           data: {
+            entryCode: reversalDrCode,
             date: checkDate,
-            account: oldCashAccountName,
-            particulars: 'Reversal: Cash Delivery update',
-            debit: oldAmount,
+            account: creditAccount,
+            particulars: 'Reversal: Cash Delivery rejected',
+            debit: existing.amount,
             credit: 0,
             reference: existing.deliveryCode,
             referenceType: 'CashDelivery',
+            companyId: existing.companyId,
           },
         });
 
-        // Reversal: Cr: [old supplier] (reverses original debit to supplier)
+        // Reversal: Cr: supplier (reverses original Dr)
         await tx.ledgerEntry.create({
           data: {
+            entryCode: reversalCrCode,
             date: checkDate,
-            account: existing.supplier.name,
-            particulars: 'Reversal: Cash Delivery update',
+            account: debitAccount,
+            particulars: 'Reversal: Cash Delivery rejected',
             debit: 0,
-            credit: oldAmount,
+            credit: existing.amount,
             reference: existing.deliveryCode,
             referenceType: 'CashDelivery',
+            companyId: existing.companyId,
           },
         });
-      }
 
-      // ── STEP 3: Apply new bank impact if new status is Approved ──
-      if (newStatus === 'Approved' && newBankId) {
-        // Re-validate inside transaction for consistency
-        const currentBank = await tx.bank.findUnique({
-          where: { id: newBankId },
-          select: { currentBalance: true },
+        // Reversal LedgerAutoPost
+        const lapCode = await generateAutoPostCode(tx);
+        await tx.ledgerAutoPost.create({
+          data: {
+            code: lapCode,
+            sourceType: 'CashDelivery',
+            sourceId: id,
+            sourceCode: existing.deliveryCode,
+            debitEntryId: reversalDrCode,
+            creditEntryId: reversalCrCode,
+            debitAccount: creditAccount,
+            creditAccount: debitAccount,
+            amount: existing.amount,
+            postingDate: checkDate,
+            status: 'Reversed',
+            companyId: existing.companyId,
+            reversalReason: 'Cash Delivery rejected',
+            postedBy: userId,
+          },
         });
 
-        if (!currentBank || currentBank.currentBalance < newAmount) {
-          throw new Error(
-            `Insufficient bank balance. Bank has ৳${currentBank?.currentBalance ?? 0} but delivery amount is ৳${newAmount}`
+        await tx.cashDelivery.update({
+          where: { id },
+          data: { ledgerPosted: false },
+        });
+
+        // ── AP Forward: Re-add supplier credit balance on rejection ──
+        if (existing.supplierId && existing.supplier) {
+          const { newBalance, newBalanceType } = computeApForward(
+            existing.supplier.currentBalance,
+            existing.supplier.currentBalanceType,
+            existing.amount
           );
+          await tx.supplier.update({
+            where: { id: existing.supplierId },
+            data: { currentBalance: newBalance, currentBalanceType: newBalanceType },
+          });
         }
-
-        const newBalance = safeFinancialSubtract(currentBank.currentBalance, newAmount);
-        await tx.bank.update({
-          where: { id: newBankId },
-          data: { currentBalance: newBalance },
-        });
       }
 
-      // ── STEP 4: Create new ledger entries if new status is Approved ──
-      if (newStatus === 'Approved') {
-        // Get the supplier name for ledger entry (may have changed)
-        let supplierName = existing.supplier.name;
-        if (supplierId && supplierId !== existing.supplierId) {
-          const newSupplier = await tx.supplier.findUnique({
-            where: { id: supplierId },
-            select: { name: true },
-          });
-          if (newSupplier) supplierName = newSupplier.name;
-        }
-
-        // Resolve new cash/bank account name
-        let newCashAccountName = 'Cash in Hand';
-        if (newBankId) {
-          const newBankRecord = await tx.bank.findUnique({
-            where: { id: newBankId },
-            select: { bankName: true },
-          });
-          newCashAccountName = newBankRecord?.bankName || 'Bank';
-        }
-
-        const newParticulars = newDescription || 'Cash Delivery to supplier (updated)';
-
-        // Dr: Supplier
-        await tx.ledgerEntry.create({
-          data: {
-            date: checkDate,
-            account: supplierName,
-            particulars: newParticulars,
-            debit: newAmount,
-            credit: 0,
-            reference: existing.deliveryCode,
-            referenceType: 'CashDelivery',
-          },
-        });
-        // Cr: Cash/Bank
-        await tx.ledgerEntry.create({
-          data: {
-            date: checkDate,
-            account: newCashAccountName,
-            particulars: newParticulars,
-            debit: 0,
-            credit: newAmount,
-            reference: existing.deliveryCode,
-            referenceType: 'CashDelivery',
-          },
-        });
-      }
-
-      // ── STEP 5: Update the cash delivery record ──
+      // Update the cash delivery record
       const updated = await tx.cashDelivery.update({
         where: { id },
         data: {
-          ...(supplierId && { supplierId }),
-          ...(date && { date: new Date(date) }),
-          ...(amount !== undefined && { amount: newAmount }),
-          ...(paymentOptionId !== undefined && { paymentOptionId: paymentOptionId || null }),
-          ...(bankId !== undefined && { bankId: newBankId }),
-          ...(chequeNo !== undefined && { chequeNo: newChequeNo }),
-          ...(voucherNo !== undefined && { voucherNo: newVoucherNo }),
-          ...(description !== undefined && { description: newDescription }),
-          ...(status && { status: newStatus }),
+          ...(body.supplierId && { supplierId: String(body.supplierId) }),
+          ...(body.date && { date: new Date(body.date) }),
+          ...(body.amount !== undefined && { amount: safeFinancialRound(parseFloat(String(body.amount))) }),
+          ...(body.paymentOptionId !== undefined && { paymentOptionId: body.paymentOptionId ? String(body.paymentOptionId) : null }),
+          ...(body.bankId !== undefined && { bankId: body.bankId ? String(body.bankId) : null }),
+          ...(body.chequeNo !== undefined && { chequeNo: body.chequeNo ? String(body.chequeNo) : null }),
+          ...(body.voucherNo !== undefined && { voucherNo: body.voucherNo ? String(body.voucherNo) : null }),
+          ...(body.description !== undefined && { description: body.description ? String(body.description) : null }),
+          ...(status !== undefined && { status: newStatus }),
         },
         include: {
           supplier: true,
           paymentOption: true,
           bank: true,
+          chartOfAccount: true,
         },
       });
 
-      // ── STEP 6: AuditLog with "Fin-Ledger-Transaction" module token ──
       await tx.auditLog.create({
         data: {
           action: 'UPDATE',
           module: 'Fin-Ledger-Transaction',
           recordId: updated.id,
           recordLabel: existing.deliveryCode,
-          userId: security.user.id,
-          userName: security.user.name,
+          userId,
+          userName,
           details: JSON.stringify({
             type: 'CashDelivery',
-            previousBankId: oldBankId,
-            newBankId,
-            previousAmount: oldAmount,
-            newAmount,
-            previousStatus: oldStatus,
+            previousStatus: existing.status,
             newStatus,
-            bankImpactReversed: !!(oldStatus === 'Approved' && oldBankId),
-            bankImpactApplied: !!(newStatus === 'Approved' && newBankId),
-            ledgerReversalCreated: oldStatus === 'Approved',
-            ledgerNewEntriesCreated: newStatus === 'Approved',
+            ledgerReversed: newStatus === 'Rejected' && existing.ledgerPosted,
+            bankBalanceReversed: newStatus === 'Rejected' && !!existing.bankId,
           }),
         },
+      });
+
+      await logUserActivity({
+        tx: tx,
+        action: 'UPDATE',
+        module: 'Fin-Ledger-Transaction',
+        recordId: id,
+        recordLabel: existing.deliveryCode,
+        userId,
+        userName,
+        details: `Updated cash delivery ${existing.deliveryCode}: status ${existing.status} → ${newStatus}`,
       });
 
       return updated;
@@ -341,14 +322,13 @@ export async function PUT(
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error('Error updating cash delivery:', error);
-    const message =
-      error instanceof Error ? error.message : 'Failed to update cash delivery';
+    const message = error instanceof Error ? error.message : 'Failed to update cash delivery';
     const statusCode = message.includes('Insufficient') ? 400 : 500;
     return NextResponse.json({ error: message }, { status: statusCode });
   }
 }
 
-// DELETE /api/cash-deliveries/[id] - Soft delete (admin only), bank balance reversal
+// DELETE /api/cash-deliveries/[id] — Soft delete with ledger reversal
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -356,9 +336,10 @@ export async function DELETE(
   const security = await withApiSecurity(request, 'CashDeliveries', 'DELETE');
   if (!security.authorized) return security.response;
 
-  // Manager delete restriction: only admin can delete financial posts
   const deleteCheck = checkFinancialDeletePermission(security.user.role);
   if (deleteCheck) return deleteCheck;
+
+  const { id: userId, name: userName, companyId } = security.user;
 
   try {
     const { id } = await params;
@@ -373,82 +354,162 @@ export async function DELETE(
         status: true,
         date: true,
         companyId: true,
+        ledgerPosted: true,
+        supplierId: true,
       },
     });
 
     if (!existing) {
-      return NextResponse.json(
-        { error: 'Cash delivery not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Cash delivery not found' }, { status: 404 });
     }
 
-    // Cross-tenant validation
-    const companyId = security.user.companyId;
     if (companyId && existing.companyId && existing.companyId !== companyId) {
-      return NextResponse.json(
-        { error: 'Cash delivery not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Cash delivery not found' }, { status: 404 });
     }
 
     if (!existing.isActive) {
-      return NextResponse.json(
-        { error: 'Cash delivery is already deleted' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Cash delivery is already deleted' }, { status: 400 });
     }
 
-    // Period-close lock check
     const periodLock = await checkPeriodClose(existing.date || new Date());
     if (periodLock) return periodLock;
 
-    await db.$transaction(async (tx) => {
-      // Soft delete
-      await tx.cashDelivery.update({
-        where: { id },
-        data: { isActive: false },
-      });
-
-      // If the delivery was Approved and had a bankId, reverse the bank impact
-      // (payment to supplier was made, so add the amount back to the bank)
-      if (existing.status === 'Approved' && existing.bankId) {
+    await db.$transaction(async (tx: any) => {
+      // Reverse bank balance if ledgerPosted (delivery decremented, now add back)
+      if (existing.ledgerPosted && existing.bankId) {
         const bankRecord = await tx.bank.findUnique({
           where: { id: existing.bankId },
           select: { currentBalance: true },
         });
-        const newBalance = safeFinancialAdd(bankRecord?.currentBalance ?? 0, existing.amount);
-        await tx.bank.update({
-          where: { id: existing.bankId },
-          data: { currentBalance: newBalance },
+        if (bankRecord) {
+          const reversedBalance = safeFinancialAdd(bankRecord.currentBalance, existing.amount);
+          await tx.bank.update({
+            where: { id: existing.bankId },
+            data: { currentBalance: reversedBalance },
+          });
+        }
+      }
+
+      // If ledgerPosted, create reversal ledger entries
+      if (existing.ledgerPosted) {
+        const supplier = await tx.supplier.findUnique({
+          where: { id: existing.supplierId },
+          select: { name: true, currentBalance: true, currentBalanceType: true },
+        });
+
+        // ── AP Forward: Re-add supplier credit balance on delete ──
+        if (supplier) {
+          const { newBalance, newBalanceType } = computeApForward(
+            supplier.currentBalance,
+            supplier.currentBalanceType,
+            existing.amount
+          );
+          await tx.supplier.update({
+            where: { id: existing.supplierId },
+            data: { currentBalance: newBalance, currentBalanceType: newBalanceType },
+          });
+        }
+
+        let creditAccount = 'Cash in Hand';
+        if (existing.bankId) {
+          const bankRecord = await tx.bank.findUnique({
+            where: { id: existing.bankId },
+            select: { bankName: true },
+          });
+          creditAccount = bankRecord?.bankName || 'Bank';
+        }
+
+        const reversalDrCode = await generateLedgerEntryCode(tx);
+        const reversalCrCode = `LED-${String(parseInt(reversalDrCode.match(/LED-(\d+)/)?.[1] || '0', 10) + 1).padStart(5, '0')}`;
+
+        // Reversal: Dr: cash/bank (reverses original Cr)
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: reversalDrCode,
+            date: existing.date || new Date(),
+            account: creditAccount,
+            particulars: 'Reversal: Cash Delivery deleted',
+            debit: existing.amount,
+            credit: 0,
+            reference: existing.deliveryCode,
+            referenceType: 'CashDelivery',
+            companyId: existing.companyId,
+          },
+        });
+
+        // Reversal: Cr: supplier (reverses original Dr)
+        await tx.ledgerEntry.create({
+          data: {
+            entryCode: reversalCrCode,
+            date: existing.date || new Date(),
+            account: supplier?.name || 'Unknown',
+            particulars: 'Reversal: Cash Delivery deleted',
+            debit: 0,
+            credit: existing.amount,
+            reference: existing.deliveryCode,
+            referenceType: 'CashDelivery',
+            companyId: existing.companyId,
+          },
+        });
+
+        const lapCode = await generateAutoPostCode(tx);
+        await tx.ledgerAutoPost.create({
+          data: {
+            code: lapCode,
+            sourceType: 'CashDelivery',
+            sourceId: id,
+            sourceCode: existing.deliveryCode,
+            debitEntryId: reversalDrCode,
+            creditEntryId: reversalCrCode,
+            debitAccount: creditAccount,
+            creditAccount: supplier?.name || 'Unknown',
+            amount: existing.amount,
+            postingDate: existing.date || new Date(),
+            status: 'Reversed',
+            companyId: existing.companyId,
+            reversalReason: 'Cash Delivery soft-deleted',
+            postedBy: userId,
+          },
         });
       }
 
-      // AuditLog with "Fin-Ledger-Transaction" module token
+      await tx.cashDelivery.update({
+        where: { id },
+        data: { isActive: false, ledgerPosted: false },
+      });
+
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
           module: 'Fin-Ledger-Transaction',
           recordId: id,
           recordLabel: existing.deliveryCode,
-          userId: security.user.id,
-          userName: security.user.name,
+          userId,
+          userName,
           details: JSON.stringify({
             type: 'CashDelivery',
             softDelete: true,
-            bankImpactReversed: !!(existing.status === 'Approved' && existing.bankId),
-            reversedAmount: existing.status === 'Approved' && existing.bankId ? existing.amount : 0,
+            bankBalanceReversed: !!(existing.ledgerPosted && existing.bankId),
+            ledgerReversed: existing.ledgerPosted,
           }),
         },
+      });
+
+      await logUserActivity({
+        tx: tx,
+        action: 'DELETE',
+        module: 'Fin-Ledger-Transaction',
+        recordId: id,
+        recordLabel: existing.deliveryCode,
+        userId,
+        userName,
+        details: `Soft-deleted cash delivery ${existing.deliveryCode}`,
       });
     });
 
     return NextResponse.json({ message: 'Cash delivery deleted successfully' });
   } catch (error) {
     console.error('Error deleting cash delivery:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete cash delivery' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to delete cash delivery' }, { status: 500 });
   }
 }

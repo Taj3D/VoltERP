@@ -32,7 +32,7 @@ import {
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -464,7 +464,7 @@ export default function CustomerSupplierLedgerPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Name</span>
                 <p className="font-semibold text-slate-900 dark:text-white">
@@ -508,8 +508,8 @@ export default function CustomerSupplierLedgerPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="table-container overflow-auto max-h-[55vh] rounded-b-lg border">
-              <Table>
+            <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     <TableHead>Date</TableHead>
@@ -614,7 +614,7 @@ export default function CustomerSupplierLedgerPage({
         </Card>
 
         {/* Bottom Cards: Aging Summary + Credit Utilization */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Aging Summary Card */}
           <Card>
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg py-3 px-4">
@@ -733,8 +733,8 @@ export default function CustomerSupplierLedgerPage({
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="table-container overflow-auto max-h-[55vh] rounded-b-lg border">
-            <Table>
+          <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead
@@ -893,7 +893,7 @@ export default function CustomerSupplierLedgerPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Name</span>
                 <p className="font-semibold text-slate-900 dark:text-white">
@@ -937,8 +937,8 @@ export default function CustomerSupplierLedgerPage({
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="table-container overflow-auto max-h-[55vh] rounded-b-lg border">
-              <Table>
+            <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     <TableHead>Date</TableHead>
@@ -1043,7 +1043,7 @@ export default function CustomerSupplierLedgerPage({
         </Card>
 
         {/* Bottom Cards: Aging Summary + Credit Utilization */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Aging Summary Card */}
           <Card>
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg py-3 px-4">
@@ -1162,8 +1162,8 @@ export default function CustomerSupplierLedgerPage({
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="table-container overflow-auto max-h-[55vh] rounded-b-lg border">
-            <Table>
+          <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead
@@ -1403,7 +1403,7 @@ export default function CustomerSupplierLedgerPage({
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="table-container overflow-auto max-h-[55vh] rounded-b-lg border">
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -1518,7 +1518,7 @@ export default function CustomerSupplierLedgerPage({
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
                   {[
                     {
                       label: "Current (0-30d)",
@@ -1565,7 +1565,7 @@ export default function CustomerSupplierLedgerPage({
           )}
 
           {/* Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Stacked Bar Chart */}
             {agingBarData.length > 0 && (
               <Card>
@@ -2013,7 +2013,7 @@ export default function CustomerSupplierLedgerPage({
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as "customer" | "supplier" | "aging")}
       >
-        <TabsList>
+        <TabsList className="flex overflow-x-auto gap-1 pb-1 scrollbar-none">
           <TabsTrigger value="customer" className="flex items-center gap-1">
             <UserCircle className="w-4 h-4" />
             Customer Ledger

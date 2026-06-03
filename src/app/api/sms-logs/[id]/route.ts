@@ -134,8 +134,9 @@ export async function PUT(
 
       // Activity log with SMS-Gateway-Dispatch module token
       await logUserActivity({
+          tx: tx,
         action: 'UPDATE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Gateway-Dispatch',
         recordId: record.id,
         recordLabel: record.recipient || record.id,
         userId: security.user.id,
@@ -202,8 +203,9 @@ export async function DELETE(
 
       // Activity log with SMS-Gateway-Dispatch module token
       await logUserActivity({
+          tx: tx,
         action: 'DELETE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Gateway-Dispatch',
         recordId: record.id,
         recordLabel: record.recipient || record.id,
         userId: security.user.id,

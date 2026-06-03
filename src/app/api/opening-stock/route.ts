@@ -3,43 +3,84 @@ import { db } from '@/lib/db';
 import {
   withApiSecurity,
   checkPeriodClose,
-  safeFinancialRound,
-  safeFinancialAdd,
+  maskForVatAuditor,
   maskFinancialArray,
+  safeFinancialRound,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/opening-stock — List opening stock entries with multi-tenant isolation + VAT Auditor masking
+// ============================================================
+// GET /api/opening-stock — List opening stock entries with product, godown info
+// Filters: fiscalYear, status, godownId
+// ============================================================
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Stock', 'GET');
   if (!security.authorized) return security.response;
 
-  const { role, companyId } = security.user;
-
   try {
-    const stockEntries = await db.stockEntry.findMany({
-      where: {
-        isActive: true,
-        referenceType: 'OpeningStock',
-        ...(companyId ? { companyId } : {}),
-      },
+    const { searchParams } = new URL(request.url);
+    const fiscalYear = searchParams.get('fiscalYear');
+    const status = searchParams.get('status');
+    const godownId = searchParams.get('godownId');
+
+    const where: Record<string, unknown> = { isActive: true };
+    if (fiscalYear) where.fiscalYear = fiscalYear;
+    if (status) where.status = status;
+    if (godownId) where.godownId = godownId;
+
+    // Company isolation for non-admin users
+    if (security.user.companyId && security.user.role !== 'admin') {
+      where.companyId = security.user.companyId;
+    }
+
+    const openingStocks = await db.openingStock.findMany({
+      where,
       include: {
-        product: true,
-        batch: true,
+        product: {
+          include: {
+            category: true,
+            brand: true,
+            godown: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Apply VAT Auditor financial masking on costPrice, totalCost fields
-    const masked = maskFinancialArray(
-      stockEntries as Record<string, unknown>[],
+    // Enrich with computed fields
+    const enriched = openingStocks.map(os => ({
+      ...os,
+      totalValue: safeFinancialRound(os.quantity * os.costPrice),
+    }));
+
+    // Apply VAT Auditor masking
+    const role = security.user.role;
+    const maskedStocks = maskFinancialArray(
+      enriched as Record<string, unknown>[],
       role,
-      ['costPrice', 'totalCost']
+      ['costPrice', 'totalValue', 'quantity']
     );
 
-    return NextResponse.json(masked);
+    // Mask nested product cost fields
+    const finalStocks = maskedStocks.map(os => {
+      let masked = os;
+      if (masked.product && typeof masked.product === 'object' && role === 'vat_auditor') {
+        masked = {
+          ...masked,
+          product: maskForVatAuditor(
+            masked.product as Record<string, unknown>,
+            role,
+            ['costPrice', 'salePrice', 'wholesalePrice', 'dealerPrice', 'openingStock']
+          ),
+        };
+      }
+      return masked;
+    });
+
+    return NextResponse.json(finalStocks);
   } catch (error) {
-    console.error('Error fetching opening stock entries:', error);
+    console.error('[OpeningStock] GET error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch opening stock entries' },
       { status: 500 }
@@ -47,361 +88,242 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/opening-stock — Post Product Opening Stock with atomic CoA double-entry
+// ============================================================
+// POST /api/opening-stock — Create opening stock entry
+// - Validate productId exists, productCode matches product
+// - Compute totalValue = quantity * costPrice
+// - If status="Posted": create StockEntry (type=IN, referenceType="OpeningStock")
+// - Period-close check, idempotency via referenceKey
+// - Auto-generate effectiveDate if not provided (start of fiscal year)
+// ============================================================
+
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'Stock', 'POST');
   if (!security.authorized) return security.response;
 
-  const { id: userId, name: userName, companyId } = security.user;
-
   try {
     const body = await request.json();
     const {
+      productCode,
       productId,
       godownId,
+      batchId,
       quantity,
       costPrice,
-      batchNumber,
-      expiryDate,
-      date,
+      effectiveDate,
+      fiscalYear,
+      status = 'Posted',
+      referenceKey,
       notes,
     } = body;
 
-    // ── Required field validation ──
-    if (!productId || !godownId || quantity === undefined || quantity === null || costPrice === undefined || costPrice === null) {
+    // ── Validation ──
+    if (!productId) {
+      return NextResponse.json({ error: 'productId is required' }, { status: 400 });
+    }
+    if (!quantity || quantity <= 0) {
+      return NextResponse.json({ error: 'quantity must be a positive number' }, { status: 400 });
+    }
+    if (costPrice === undefined || costPrice < 0) {
+      return NextResponse.json({ error: 'costPrice must be a non-negative number' }, { status: 400 });
+    }
+
+    // Validate product exists
+    const product = await db.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        name: true,
+        productCode: true,
+        costPrice: true,
+        salePrice: true,
+        wholesalePrice: true,
+        godownId: true,
+        isActive: true,
+      },
+    });
+    if (!product || !product.isActive) {
+      return NextResponse.json({ error: 'Product not found or inactive' }, { status: 400 });
+    }
+
+    // Validate productCode matches product
+    if (productCode && productCode !== product.productCode) {
       return NextResponse.json(
-        { error: 'productId, godownId, quantity, and costPrice are required' },
+        { error: `productCode "${productCode}" does not match product's code "${product.productCode}"` },
         { status: 400 }
       );
     }
 
-    // ── Numeric integrity: reject zero, negative, NaN ──
-    const parsedQty = parseFloat(String(quantity));
-    const parsedCost = parseFloat(String(costPrice));
-
-    if (isNaN(parsedQty) || parsedQty <= 0) {
-      return NextResponse.json(
-        { error: 'quantity must be a positive number (zero, negative, and NaN are rejected)' },
-        { status: 400 }
-      );
+    // Validate godown if provided
+    const effectiveGodownId = godownId || product.godownId;
+    if (effectiveGodownId) {
+      const godown = await db.godown.findUnique({
+        where: { id: effectiveGodownId },
+        select: { id: true, name: true, status: true, isActive: true },
+      });
+      if (!godown || !godown.isActive) {
+        return NextResponse.json({ error: 'Godown not found or inactive' }, { status: 400 });
+      }
+      if (godown.status === 'SUSPENDED') {
+        return NextResponse.json(
+          { error: `EMERGENCY CLOSURE: Warehouse "${godown.name}" is SUSPENDED. Cannot post opening stock.` },
+          { status: 403 }
+        );
+      }
     }
 
-    if (isNaN(parsedCost) || parsedCost <= 0) {
-      return NextResponse.json(
-        { error: 'costPrice must be a positive number (zero, negative, and NaN are rejected)' },
-        { status: 400 }
-      );
+    // Validate batchId if provided
+    if (batchId) {
+      const batch = await db.batchMaster.findUnique({
+        where: { id: batchId },
+        select: { id: true, productId: true },
+      });
+      if (!batch) {
+        return NextResponse.json({ error: 'Batch not found' }, { status: 400 });
+      }
+      if (batch.productId !== productId) {
+        return NextResponse.json({ error: 'Batch does not belong to this product' }, { status: 400 });
+      }
     }
 
-    const safeQty = safeFinancialRound(parsedQty);
-    const safeCost = safeFinancialRound(parsedCost);
-    const totalCost = safeFinancialRound(safeQty * safeCost);
+    // Auto-generate effectiveDate if not provided (start of fiscal year)
+    let effectiveDateValue: Date;
+    if (effectiveDate) {
+      effectiveDateValue = new Date(effectiveDate);
+    } else if (fiscalYear) {
+      // Parse fiscal year like "2025-2026" and use July 1 of start year
+      const startYear = parseInt(fiscalYear.split('-')[0], 10);
+      effectiveDateValue = new Date(startYear, 6, 1); // July 1
+    } else {
+      // Default to start of current year
+      const now = new Date();
+      effectiveDateValue = new Date(now.getFullYear(), 0, 1); // January 1
+    }
 
-    // ── Period-close lock check ──
-    const transactionDate = date ? new Date(date as string) : new Date();
-    const periodLock = await checkPeriodClose(transactionDate);
+    // Period-close check
+    const periodLock = await checkPeriodClose(effectiveDateValue);
     if (periodLock) return periodLock;
 
-    // ── XSS sanitization on string inputs ──
-    const sanitize = (val: unknown): string | null => {
-      if (!val || typeof val !== 'string') return null;
-      return val.replace(/<[^>]*>/g, '').trim() || null;
-    };
+    // Idempotency check via referenceKey
+    if (referenceKey) {
+      const existing = await db.openingStock.findFirst({
+        where: { referenceKey },
+      });
+      if (existing) {
+        return NextResponse.json(
+          {
+            error: 'Duplicate submission detected. This opening stock entry has already been created.',
+            referenceKey,
+            existingId: existing.id,
+          },
+          { status: 409 }
+        );
+      }
+    }
 
-    const cleanBatchNumber = sanitize(batchNumber);
-    const cleanNotes = sanitize(notes);
+    // Compute totalValue
+    const totalValue = safeFinancialRound(quantity * costPrice);
 
-    // ── Atomic transaction ──
+    // Validate status
+    const validStatuses = ['Draft', 'Posted', 'Reversed'];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json(
+        { error: `Invalid status "${status}". Must be one of: ${validStatuses.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Create opening stock entry atomically
     const result = await db.$transaction(async (tx) => {
-      // Godown SUSPENDED check
-      const godown = await tx.godown.findFirst({
-        where: { id: String(godownId), isActive: true },
-      });
+      // Determine fiscal year
+      const effectiveFiscalYear = fiscalYear || (() => {
+        const y = effectiveDateValue.getFullYear();
+        const m = effectiveDateValue.getMonth(); // 0-based
+        // If month is July or later, fiscal year is YYYY-YYYY+1, else YYYY-1-YYYY
+        return m >= 6 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+      })();
 
-      if (!godown) {
-        throw new Error('Godown not found or inactive');
-      }
-
-      if (godown.status === 'SUSPENDED') {
-        throw new Error('Godown is SUSPENDED. Stock operations are blocked.');
-      }
-
-      // Find or create ProductStock record (upsert on @@unique([productId, godownId]))
-      const existingStock = await tx.productStock.findFirst({
-        where: {
-          productId: String(productId),
-          godownId: String(godownId),
-          isActive: true,
+      const openingStock = await tx.openingStock.create({
+        data: {
+          productCode: product.productCode,
+          productId,
+          godownId: effectiveGodownId || null,
+          batchId: batchId || null,
+          quantity: safeFinancialRound(quantity),
+          costPrice: safeFinancialRound(costPrice),
+          totalValue,
+          effectiveDate: effectiveDateValue,
+          fiscalYear: effectiveFiscalYear,
+          status,
+          referenceKey: referenceKey || null,
+          notes: notes || null,
+          companyId: security.user.companyId || null,
         },
       });
 
-      let productStock;
-      if (existingStock) {
-        const newQty = safeFinancialAdd(existingStock.quantity, safeQty);
-        const newTotalValue = safeFinancialRound(newQty * safeCost);
-        productStock = await tx.productStock.update({
-          where: { id: existingStock.id },
+      // If status="Posted": create StockEntry (type=IN, referenceType="OpeningStock")
+      if (status === 'Posted') {
+        await tx.stockEntry.create({
           data: {
-            quantity: newQty,
-            costPrice: safeCost,
-            totalValue: newTotalValue,
-          },
-        });
-      } else {
-        productStock = await tx.productStock.create({
-          data: {
-            productId: String(productId),
-            godownId: String(godownId),
-            quantity: safeQty,
-            costPrice: safeCost,
-            totalValue: totalCost,
-            companyId: companyId || null,
+            productId,
+            godownId: effectiveGodownId || null,
+            type: 'IN',
+            quantity: safeFinancialRound(quantity),
+            reference: `OS-${openingStock.id.substring(0, 8)}`,
+            referenceType: 'OpeningStock',
+            date: effectiveDateValue,
+            batchId: batchId || null,
+            costPrice: safeFinancialRound(costPrice),
+            notes: `Opening stock entry: ${product.productCode}`,
+            companyId: security.user.companyId || null,
           },
         });
       }
 
-      // Create StockEntry with type: "IN", referenceType: "OpeningStock"
-      const stockEntry = await tx.stockEntry.create({
+      // Audit log
+      await tx.auditLog.create({
         data: {
-          productId: String(productId),
-          godownId: String(godownId),
-          type: 'IN',
-          quantity: safeQty,
-          costPrice: safeCost,
-          totalCost,
-          referenceType: 'OpeningStock',
-          date: transactionDate,
-          notes: cleanNotes,
-          companyId: companyId || null,
+          action: 'CREATE',
+          module: 'Stock',
+          recordId: openingStock.id,
+          recordLabel: `OS-${product.productCode}`,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            type: 'OpeningStock',
+            productId,
+            productName: product.name,
+            productCode: product.productCode,
+            quantity,
+            costPrice,
+            totalValue,
+            status,
+            fiscalYear: effectiveFiscalYear,
+            godownId: effectiveGodownId,
+          }),
         },
       });
 
-      // Create or update BatchMaster if batchNumber is provided
-      if (cleanBatchNumber) {
-        const existingBatch = await tx.batchMaster.findFirst({
-          where: {
-            batchNumber: cleanBatchNumber,
-            productId: String(productId),
-            isActive: true,
-            ...(companyId ? { companyId } : {}),
-          },
-        });
-
-        if (existingBatch) {
-          const newBatchQty = safeFinancialAdd(existingBatch.quantity, safeQty);
-          const newBatchTotalCost = safeFinancialRound(newBatchQty * safeCost);
-          await tx.batchMaster.update({
-            where: { id: existingBatch.id },
-            data: {
-              quantity: newBatchQty,
-              costPrice: safeCost,
-              totalCost: newBatchTotalCost,
-              expiryDate: expiryDate ? new Date(expiryDate as string) : existingBatch.expiryDate,
-              godownId: String(godownId),
-            },
-          });
-
-          // Link stock entry to batch
-          await tx.stockEntry.update({
-            where: { id: stockEntry.id },
-            data: { batchId: existingBatch.id },
-          });
-        } else {
-          const newBatch = await tx.batchMaster.create({
-            data: {
-              batchNumber: cleanBatchNumber,
-              productId: String(productId),
-              godownId: String(godownId),
-              quantity: safeQty,
-              costPrice: safeCost,
-              totalCost,
-              expiryDate: expiryDate ? new Date(expiryDate as string) : null,
-              companyId: companyId || null,
-            },
-          });
-
-          // Link stock entry to batch
-          await tx.stockEntry.update({
-            where: { id: stockEntry.id },
-            data: { batchId: newBatch.id },
-          });
-        }
-      }
-
-      // ── Double-Entry Auto-Post to CoA ──
-      // Fetch product details for naming
-      const product = await tx.product.findUnique({
-        where: { id: String(productId) },
-        select: { name: true, productCode: true, openingStock: true, coaAccountId: true },
-      });
-
-      if (!product) {
-        throw new Error('Product not found');
-      }
-
-      // Find Inventory Asset parent node
-      const inventoryAssetParent = await tx.chartOfAccount.findFirst({
-        where: {
-          classification: 'Asset',
-          name: { contains: 'Inventory' },
-          companyId: companyId || null,
-          isActive: true,
-        },
-      });
-
-      // Find or create product-specific sub-node under Inventory Asset
-      let inventoryNode = await tx.chartOfAccount.findFirst({
-        where: {
-          name: product.name,
-          classification: 'Asset',
-          parentAccountId: inventoryAssetParent?.id || null,
-          companyId: companyId || null,
-          isActive: true,
-        },
-      });
-
-      if (!inventoryNode) {
-        const code = `COA-INV-${Date.now()}`;
-        inventoryNode = await tx.chartOfAccount.create({
-          data: {
-            code,
-            name: product.name,
-            classification: 'Asset',
-            parentAccountId: inventoryAssetParent?.id || null,
-            openingBalance: 0,
-            openingBalanceType: 'Dr',
-            companyId: companyId || null,
-            isActive: true,
-          },
-        });
-      }
-
-      // Find or create Retained Earnings under Equity
-      let retainedEarnings = await tx.chartOfAccount.findFirst({
-        where: {
-          classification: 'Equity',
-          name: { contains: 'Retained Earnings' },
-          companyId: companyId || null,
-          isActive: true,
-        },
-      });
-
-      if (!retainedEarnings) {
-        const reCode = `COA-RE-${Date.now()}`;
-        retainedEarnings = await tx.chartOfAccount.create({
-          data: {
-            code: reCode,
-            name: 'Retained Earnings',
-            classification: 'Equity',
-            openingBalance: 0,
-            openingBalanceType: 'Cr',
-            companyId: companyId || null,
-            isActive: true,
-          },
-        });
-      }
-
-      // Double-entry: Debit Inventory Asset, Credit Retained Earnings
-      const entryCodeDr = `LED-${Date.now()}-DR`;
-      const entryCodeCr = `LED-${Date.now()}-CR`;
-
-      await tx.ledgerEntry.create({
-        data: {
-          entryCode: entryCodeDr,
-          date: transactionDate,
-          accountId: inventoryNode.id,
-          account: inventoryNode.name,
-          particulars: `Opening Stock: ${product.name} (${safeQty} units @ ${safeCost})`,
-          debit: totalCost,
-          credit: 0,
-          reference: `OpeningStock-${product.productCode}`,
-          referenceType: 'OpeningStock',
-          companyId: companyId || null,
-          isActive: true,
-        },
-      });
-
-      await tx.ledgerEntry.create({
-        data: {
-          entryCode: entryCodeCr,
-          date: transactionDate,
-          accountId: retainedEarnings.id,
-          account: retainedEarnings.name,
-          particulars: `Opening Stock Contra: ${product.name}`,
-          debit: 0,
-          credit: totalCost,
-          reference: `OpeningStock-${product.productCode}`,
-          referenceType: 'OpeningStock',
-          companyId: companyId || null,
-          isActive: true,
-        },
-      });
-
-      // LedgerAutoPost tracking
-      const lapCode = `LAP-${Date.now()}`;
-      await tx.ledgerAutoPost.create({
-        data: {
-          code: lapCode,
-          sourceType: 'OpeningStock',
-          sourceId: stockEntry.id,
-          sourceCode: product.productCode,
-          debitEntryId: entryCodeDr,
-          creditEntryId: entryCodeCr,
-          debitAccount: inventoryNode.name,
-          creditAccount: retainedEarnings.name,
-          amount: totalCost,
-          postingDate: transactionDate,
-          status: 'Posted',
-          companyId: companyId || null,
-          postedBy: userName,
-        },
-      });
-
-      // Update Product: coaAccountId + openingStock
-      await tx.product.update({
-        where: { id: String(productId) },
-        data: {
-          coaAccountId: inventoryNode.id,
-          openingStock: safeFinancialAdd(product.openingStock, safeQty),
-        },
-      });
-
-      return { stockEntry, productStock, totalCost, inventoryNodeId: inventoryNode.id };
+      return openingStock;
     });
 
-    // Log activity with Inv-Stock-Core module token
+    // Activity log
     await logUserActivity({
       action: 'CREATE',
-      module: 'Inv-Stock-Core',
-      recordId: result.stockEntry.id,
-      recordLabel: `OpeningStock-${productId}`,
-      userId,
-      userName,
-      details: JSON.stringify({
-        productId: String(productId),
-        godownId: String(godownId),
-        quantity: safeQty,
-        costPrice: safeCost,
-        totalCost,
-        batchNumber: cleanBatchNumber,
-        companyId: companyId || null,
-      }),
+      module: 'Inv-Opening-Stock',
+      recordId: result.id,
+      recordLabel: `OS-${product.productCode}`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: `Created opening stock entry for ${product.name} (${product.productCode}): ${quantity} units at ৳${costPrice}`,
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error: unknown) {
-    console.error('Error posting opening stock:', error);
-    const message = error instanceof Error ? error.message : 'Failed to post opening stock';
-
-    // Return 400 for known business logic errors
-    if (
-      message.includes('SUSPENDED') ||
-      message.includes('not found') ||
-      message.includes('required')
-    ) {
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (error) {
+    console.error('[OpeningStock] POST error:', error);
+    return NextResponse.json(
+      { error: 'Failed to create opening stock entry' },
+      { status: 500 }
+    );
   }
 }

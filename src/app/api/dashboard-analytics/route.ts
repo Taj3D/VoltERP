@@ -80,56 +80,91 @@ async function handleKPI(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  // Batch 1: Core aggregates (all with companyId filter)
-  const salesAgg = await db.salesOrder.aggregate({
-    where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
-    _sum: { grandTotal: true },
-  });
-  const purchasesAgg = await db.purchaseOrder.aggregate({
-    where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
-    _sum: { grandTotal: true },
-  });
-  const expensesAgg = await db.expense.aggregate({
-    where: { ...dateFilter({ isActive: true, ...companyFilter }) },
-    _sum: { amount: true },
-  });
-  const incomeAgg = await db.income.aggregate({
-    where: { ...dateFilter({ isActive: true, ...companyFilter }) },
-    _sum: { amount: true },
-  });
-  const totalCustomers = await db.customer.count({ where: { isActive: true, ...companyFilter } });
-  const totalSuppliers = await db.supplier.count({ where: { isActive: true, ...companyFilter } });
-  const totalProducts = await db.product.count({ where: { isActive: true, ...companyFilter } });
-  const bankBalanceAgg = await db.bank.aggregate({
-    where: { ...companyFilter },
-    _sum: { currentBalance: true },
-  });
-  const todaysSalesAgg = await db.salesOrder.aggregate({
-    where: { date: { gte: todayStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const todaysPurchasesAgg = await db.purchaseOrder.aggregate({
-    where: { date: { gte: todayStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const todaysCollectionsAgg = await db.cashCollection.aggregate({
-    where: { date: { gte: todayStart }, isActive: true, ...companyFilter }, _sum: { amount: true },
-  });
-  const mtdSalesAgg = await db.salesOrder.aggregate({
-    where: { date: { gte: monthStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const mtdPurchasesAgg = await db.purchaseOrder.aggregate({
-    where: { date: { gte: monthStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
+  // Performance: Run all independent DB queries in parallel with Promise.all
+  const [
+    salesAgg, purchasesAgg, expensesAgg, incomeAgg,
+    totalCustomers, totalSuppliers, totalProducts,
+    bankBalanceAgg,
+    todaysSalesAgg, todaysPurchasesAgg, todaysCollectionsAgg,
+    mtdSalesAgg, mtdPurchasesAgg,
+    allProductsForStock,
+    salesLinesForCOGS,
+    activeProducts,
+    totalReceivables,
+    totalPayables,
+  ] = await Promise.all([
+    // Core revenue aggregates
+    db.salesOrder.aggregate({
+      where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
+      _sum: { grandTotal: true },
+    }),
+    db.purchaseOrder.aggregate({
+      where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
+      _sum: { grandTotal: true },
+    }),
+    db.expense.aggregate({
+      where: { ...dateFilter({ isActive: true, ...companyFilter }) },
+      _sum: { amount: true },
+    }),
+    db.income.aggregate({
+      where: { ...dateFilter({ isActive: true, ...companyFilter }) },
+      _sum: { amount: true },
+    }),
+    // Counts
+    db.customer.count({ where: { isActive: true, ...companyFilter } }),
+    db.supplier.count({ where: { isActive: true, ...companyFilter } }),
+    db.product.count({ where: { isActive: true, ...companyFilter } }),
+    // Bank balance
+    db.bank.aggregate({
+      where: { ...companyFilter },
+      _sum: { currentBalance: true },
+    }),
+    // Today's aggregates
+    db.salesOrder.aggregate({
+      where: { date: { gte: todayStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.purchaseOrder.aggregate({
+      where: { date: { gte: todayStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.cashCollection.aggregate({
+      where: { date: { gte: todayStart }, isActive: true, ...companyFilter }, _sum: { amount: true },
+    }),
+    // Month-to-date aggregates
+    db.salesOrder.aggregate({
+      where: { date: { gte: monthStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.purchaseOrder.aggregate({
+      where: { date: { gte: monthStart }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    // Low stock products
+    db.product.findMany({
+      where: { isActive: true, ...companyFilter },
+      select: { openingStock: true, reorderLevel: true },
+    }),
+    // COGS: sales order lines with product cost price
+    db.salesOrderLine.findMany({
+      where: {
+        salesOrder: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
+      },
+      include: {
+        product: { select: { costPrice: true } },
+      },
+    }),
+    // Inventory value
+    db.product.findMany({
+      where: { isActive: true, ...companyFilter },
+      select: { costPrice: true, openingStock: true },
+    }),
+    // Receivables and Payables
+    calculateTotalReceivables(companyFilter),
+    calculateTotalPayables(companyFilter),
+  ]);
 
-  // FIX 2: Count low stock products where openingStock <= reorderLevel
-  // With companyId filter
-  const allProductsForStock = await db.product.findMany({
-    where: { isActive: true, ...companyFilter },
-    select: { openingStock: true, reorderLevel: true },
-  });
+  // Compute derived values from parallel results
   const lowStockProducts = allProductsForStock.filter(
     (p) => Number(p.openingStock) <= Number(p.reorderLevel)
   ).length;
@@ -139,16 +174,6 @@ async function handleKPI(
   const totalExpenses = Number(expensesAgg._sum.amount || 0);
   const totalIncomes = Number(incomeAgg._sum.amount || 0);
 
-  // FIX: COGS = sum of (quantity × costPrice) from sales order lines for confirmed sales
-  // Filter by salesOrder with companyId
-  const salesLinesForCOGS = await db.salesOrderLine.findMany({
-    where: {
-      salesOrder: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
-    },
-    include: {
-      product: { select: { costPrice: true } },
-    },
-  });
   const cogs = salesLinesForCOGS.reduce((sum, line) => {
     const costPrice = Number(line.product?.costPrice || 0);
     return safeFinancialAdd(sum, safeFinancialRound(Number(line.quantity) * costPrice));
@@ -157,16 +182,8 @@ async function handleKPI(
   const grossProfit = safeFinancialSubtract(totalRevenue, cogs);
   const netProfit = safeFinancialSubtract(safeFinancialAdd(grossProfit, totalIncomes), totalExpenses);
 
-  const totalReceivables = await calculateTotalReceivables(companyFilter);
-  const totalPayables = await calculateTotalPayables(companyFilter);
   const totalBankBalance = Number(bankBalanceAgg._sum.currentBalance || 0);
 
-  // FIX 1: Compute inventory value as SUM(costPrice * openingStock) per product
-  // With companyId filter
-  const activeProducts = await db.product.findMany({
-    where: { isActive: true, ...companyFilter },
-    select: { costPrice: true, openingStock: true },
-  });
   const totalInventoryValue = activeProducts.reduce(
     (sum, p) => safeFinancialAdd(sum, safeFinancialRound(Number(p.costPrice) * Number(p.openingStock))),
     0
@@ -334,57 +351,65 @@ async function handleCategoryTurnover(
   userId: string,
   userName: string,
 ) {
-  const categories = await db.category.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true },
-  });
-
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  const data = await Promise.all(
-    categories.map(async (cat) => {
-      const salesWhere: Record<string, unknown> = {
-        product: { categoryId: cat.id, isActive: true, ...companyFilter },
+  // Performance: Batch query all sales and purchase lines with product categories
+  // instead of N+1 per-category queries
+  const [categories, allSalesLines, allPurchaseLines] = await Promise.all([
+    db.category.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+    }),
+    db.salesOrderLine.findMany({
+      where: {
+        product: { isActive: true, ...companyFilter },
         salesOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-      };
-      dateFilter(salesWhere.product as Record<string, unknown>);
-
-      const purchaseWhere: Record<string, unknown> = {
-        product: { categoryId: cat.id, isActive: true, ...companyFilter },
+      },
+      select: { quantity: true, total: true, product: { select: { categoryId: true } } },
+    }),
+    db.purchaseOrderLine.findMany({
+      where: {
+        product: { isActive: true, ...companyFilter },
         purchaseOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-      };
-      dateFilter(purchaseWhere.product as Record<string, unknown>);
+      },
+      select: { quantity: true, total: true, product: { select: { categoryId: true } } },
+    }),
+  ]);
 
-      const [salesLines, purchaseLines] = await Promise.all([
-        db.salesOrderLine.findMany({
-          where: salesWhere as never,
-          select: { quantity: true, total: true },
-        }),
-        db.purchaseOrderLine.findMany({
-          where: purchaseWhere as never,
-          select: { quantity: true, total: true },
-        }),
-      ]);
+  // Aggregate by category in JavaScript (avoids N+1 queries)
+  const salesByCategory: Record<string, { qty: number; value: number }> = {};
+  const purchaseByCategory: Record<string, { qty: number; value: number }> = {};
 
-      const totalSalesQty = salesLines.reduce((s, l) => s + Number(l.quantity), 0);
-      const totalSalesValue = salesLines.reduce((s, l) => safeFinancialAdd(s, Number(l.total)), 0);
-      const totalPurchaseQty = purchaseLines.reduce((s, l) => s + Number(l.quantity), 0);
-      const totalPurchaseValue = purchaseLines.reduce((s, l) => safeFinancialAdd(s, Number(l.total)), 0);
-      const turnoverRatio = totalPurchaseValue > 0 ? totalSalesValue / totalPurchaseValue : 0;
+  for (const line of allSalesLines) {
+    const catId = line.product?.categoryId || 'uncategorized';
+    if (!salesByCategory[catId]) salesByCategory[catId] = { qty: 0, value: 0 };
+    salesByCategory[catId].qty += Number(line.quantity);
+    salesByCategory[catId].value = safeFinancialAdd(salesByCategory[catId].value, Number(line.total));
+  }
 
-      return {
-        name: cat.name,
-        totalSalesQty,
-        totalSalesValue,
-        totalPurchaseQty,
-        totalPurchaseValue,
-        turnoverRatio: safeFinancialRound(Math.round(turnoverRatio * 100) / 100),
-        // PieChart format
-        value: totalSalesValue,
-      };
-    })
-  );
+  for (const line of allPurchaseLines) {
+    const catId = line.product?.categoryId || 'uncategorized';
+    if (!purchaseByCategory[catId]) purchaseByCategory[catId] = { qty: 0, value: 0 };
+    purchaseByCategory[catId].qty += Number(line.quantity);
+    purchaseByCategory[catId].value = safeFinancialAdd(purchaseByCategory[catId].value, Number(line.total));
+  }
+
+  const data = categories.map((cat) => {
+    const sales = salesByCategory[cat.id] || { qty: 0, value: 0 };
+    const purchases = purchaseByCategory[cat.id] || { qty: 0, value: 0 };
+    const turnoverRatio = purchases.value > 0 ? sales.value / purchases.value : 0;
+
+    return {
+      name: cat.name,
+      totalSalesQty: sales.qty,
+      totalSalesValue: sales.value,
+      totalPurchaseQty: purchases.qty,
+      totalPurchaseValue: purchases.value,
+      turnoverRatio: safeFinancialRound(Math.round(turnoverRatio * 100) / 100),
+      value: sales.value,
+    };
+  });
 
   // Sort by sales value descending, filter out zero
   const filtered = data.filter((d) => typeof d.value === 'number' && d.value > 0);
@@ -472,33 +497,50 @@ async function handleFinancialRatios(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  const salesAgg = await db.salesOrder.aggregate({
-    where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
-    _sum: { grandTotal: true },
-  });
-  const purchasesAgg = await db.purchaseOrder.aggregate({
-    where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
-    _sum: { grandTotal: true },
-  });
-  const expensesAgg = await db.expense.aggregate({
-    where: { ...dateFilter({ isActive: true, ...companyFilter }) },
-    _sum: { amount: true },
-  });
-  const incomeAgg = await db.income.aggregate({
-    where: { ...dateFilter({ isActive: true, ...companyFilter }) },
-    _sum: { amount: true },
-  });
-  const bankBalanceAgg = await db.bank.aggregate({
-    where: { ...companyFilter },
-    _sum: { currentBalance: true },
-  });
+  // Performance: Run all independent DB queries in parallel
+  const [
+    salesAgg, purchasesAgg, expensesAgg, incomeAgg,
+    bankBalanceAgg, activeProducts, salesLinesForCOGS,
+    totalReceivables, totalPayables,
+  ] = await Promise.all([
+    db.salesOrder.aggregate({
+      where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
+      _sum: { grandTotal: true },
+    }),
+    db.purchaseOrder.aggregate({
+      where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
+      _sum: { grandTotal: true },
+    }),
+    db.expense.aggregate({
+      where: { ...dateFilter({ isActive: true, ...companyFilter }) },
+      _sum: { amount: true },
+    }),
+    db.income.aggregate({
+      where: { ...dateFilter({ isActive: true, ...companyFilter }) },
+      _sum: { amount: true },
+    }),
+    db.bank.aggregate({
+      where: { ...companyFilter },
+      _sum: { currentBalance: true },
+    }),
+    // Inventory value
+    db.product.findMany({
+      where: { isActive: true, ...companyFilter },
+      select: { costPrice: true, openingStock: true },
+    }),
+    // COGS
+    db.salesOrderLine.findMany({
+      where: {
+        salesOrder: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
+      },
+      include: {
+        product: { select: { costPrice: true } },
+      },
+    }),
+    calculateTotalReceivables(companyFilter),
+    calculateTotalPayables(companyFilter),
+  ]);
 
-  // FIX 1: Compute inventory value as SUM(costPrice * openingStock) per product
-  // With companyId filter
-  const activeProducts = await db.product.findMany({
-    where: { isActive: true, ...companyFilter },
-    select: { costPrice: true, openingStock: true },
-  });
   const totalInventoryValue = activeProducts.reduce(
     (sum, p) => safeFinancialAdd(sum, safeFinancialRound(Number(p.costPrice) * Number(p.openingStock))),
     0
@@ -509,16 +551,6 @@ async function handleFinancialRatios(
   const totalExpenses = Number(expensesAgg._sum.amount || 0);
   const totalIncomes = Number(incomeAgg._sum.amount || 0);
 
-  // FIX: COGS = sum of (quantity × costPrice) from sales order lines for confirmed sales
-  // Filter by salesOrder with companyId
-  const salesLinesForCOGS = await db.salesOrderLine.findMany({
-    where: {
-      salesOrder: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
-    },
-    include: {
-      product: { select: { costPrice: true } },
-    },
-  });
   const cogs = salesLinesForCOGS.reduce((sum, line) => {
     const costPrice = Number(line.product?.costPrice || 0);
     return safeFinancialAdd(sum, safeFinancialRound(Number(line.quantity) * costPrice));
@@ -528,9 +560,6 @@ async function handleFinancialRatios(
   const netProfit = safeFinancialSubtract(safeFinancialAdd(grossProfit, totalIncomes), totalExpenses);
 
   const totalBankBalance = Number(bankBalanceAgg._sum.currentBalance || 0);
-
-  const totalReceivables = await calculateTotalReceivables(companyFilter);
-  const totalPayables = await calculateTotalPayables(companyFilter);
 
   // Current assets = bank + inventory + receivables
   const currentAssets = safeFinancialAdd(safeFinancialAdd(totalBankBalance, totalInventoryValue), totalReceivables);
@@ -732,26 +761,30 @@ async function handlePaymentMix(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  const paymentOptions = await db.paymentOption.findMany({
-    where: { isActive: true, ...companyFilter },
-    select: { id: true, name: true },
-  });
+  // Performance: Use groupBy instead of N+1 per-payment-option queries
+  const [paymentOptions, salesByPayment] = await Promise.all([
+    db.paymentOption.findMany({
+      where: { isActive: true, ...companyFilter },
+      select: { id: true, name: true },
+    }),
+    db.salesOrder.groupBy({
+      by: ['paymentOptionId'],
+      where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+  ]);
 
-  const data = await Promise.all(
-    paymentOptions.map(async (po) => {
-      const agg = await db.salesOrder.aggregate({
-        where: { paymentOptionId: po.id, status: revenueStatusFilter, isActive: true, ...companyFilter },
-        _sum: { grandTotal: true },
-      });
+  // Build a lookup map for payment option aggregates
+  const paymentAggMap: Record<string, number> = {};
+  for (const row of salesByPayment) {
+    paymentAggMap[row.paymentOptionId || ''] = Number(row._sum.grandTotal || 0);
+  }
 
-      const value = Number(agg._sum.grandTotal || 0);
-      return {
-        name: po.name,
-        value,
-        paymentOptionId: po.id,
-      };
-    })
-  );
+  const data = paymentOptions.map((po) => ({
+    name: po.name,
+    value: paymentAggMap[po.id] || 0,
+    paymentOptionId: po.id,
+  }));
 
   // Filter out zero values
   const filtered = data.filter((d) => d.value > 0);
@@ -854,6 +887,25 @@ async function handleReceivablesAging(
     }
   }
 
+  // FIX: Include customer opening Dr/Cr balances in aging
+  // Opening Dr balances are outstanding receivables, Opening Cr balances reduce them
+  const customerOpeningDr = await db.customer.aggregate({
+    where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
+    _sum: { openingBalance: true },
+  });
+  const customerOpeningCr = await db.customer.aggregate({
+    where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
+    _sum: { openingBalance: true },
+  });
+  const openingDrTotal = Number(customerOpeningDr._sum.openingBalance || 0);
+  const openingCrTotal = Number(customerOpeningCr._sum.openingBalance || 0);
+  const openingBalanceNet = safeFinancialSubtract(openingDrTotal, openingCrTotal);
+
+  // Opening balance receivables are typically aged (assume 90+ days as they're historical)
+  if (openingBalanceNet > 0) {
+    days90plus = safeFinancialAdd(days90plus, openingBalanceNet);
+  }
+
   const totalOutstanding = safeFinancialAdd(safeFinancialAdd(safeFinancialAdd(current, days31to60), days61to90), days90plus);
 
   const result: Record<string, unknown> = {
@@ -863,6 +915,7 @@ async function handleReceivablesAging(
     days31to60,
     days61to90,
     days90plus,
+    openingBalance: openingBalanceNet,
     vatMode: vatMode || undefined,
   };
 
@@ -884,26 +937,29 @@ async function handleReceivablesAging(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function calculateTotalReceivables(companyFilter: Record<string, unknown>): Promise<number> {
-  const salesAgg = await db.salesOrder.aggregate({
-    where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const collectionsAgg = await db.cashCollection.aggregate({
-    where: { isActive: true, ...companyFilter },
-    _sum: { amount: true },
-  });
-  const returnsAgg = await db.salesReturn.aggregate({
-    where: { isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const customerOpeningDr = await db.customer.aggregate({
-    where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
-    _sum: { openingBalance: true },
-  });
-  const customerOpeningCr = await db.customer.aggregate({
-    where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
-    _sum: { openingBalance: true },
-  });
+  // Performance: Run all independent queries in parallel
+  const [salesAgg, collectionsAgg, returnsAgg, customerOpeningDr, customerOpeningCr] = await Promise.all([
+    db.salesOrder.aggregate({
+      where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.cashCollection.aggregate({
+      where: { isActive: true, ...companyFilter },
+      _sum: { amount: true },
+    }),
+    db.salesReturn.aggregate({
+      where: { isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.customer.aggregate({
+      where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
+      _sum: { openingBalance: true },
+    }),
+    db.customer.aggregate({
+      where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
+      _sum: { openingBalance: true },
+    }),
+  ]);
 
   const totalSales = Number(salesAgg._sum.grandTotal || 0);
   const totalCollections = Number(collectionsAgg._sum.amount || 0);
@@ -919,26 +975,29 @@ async function calculateTotalReceivables(companyFilter: Record<string, unknown>)
 }
 
 async function calculateTotalPayables(companyFilter: Record<string, unknown>): Promise<number> {
-  const purchasesAgg = await db.purchaseOrder.aggregate({
-    where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const deliveriesAgg = await db.cashDelivery.aggregate({
-    where: { isActive: true, ...companyFilter },
-    _sum: { amount: true },
-  });
-  const returnsAgg = await db.purchaseReturn.aggregate({
-    where: { isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-  });
-  const supplierOpeningCr = await db.supplier.aggregate({
-    where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
-    _sum: { openingBalance: true },
-  });
-  const supplierOpeningDr = await db.supplier.aggregate({
-    where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
-    _sum: { openingBalance: true },
-  });
+  // Performance: Run all independent queries in parallel
+  const [purchasesAgg, deliveriesAgg, returnsAgg, supplierOpeningCr, supplierOpeningDr] = await Promise.all([
+    db.purchaseOrder.aggregate({
+      where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.cashDelivery.aggregate({
+      where: { isActive: true, ...companyFilter },
+      _sum: { amount: true },
+    }),
+    db.purchaseReturn.aggregate({
+      where: { isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.supplier.aggregate({
+      where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
+      _sum: { openingBalance: true },
+    }),
+    db.supplier.aggregate({
+      where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
+      _sum: { openingBalance: true },
+    }),
+  ]);
 
   const totalPurchases = Number(purchasesAgg._sum.grandTotal || 0);
   const totalDeliveries = Number(deliveriesAgg._sum.amount || 0);

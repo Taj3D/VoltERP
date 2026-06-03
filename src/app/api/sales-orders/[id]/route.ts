@@ -3,64 +3,201 @@ import { db } from '@/lib/db';
 import {
   withApiSecurity,
   checkPeriodClose,
-  maskForVatAuditor,
   maskForVatAuditorFinancial,
   safeFinancialRound,
   safeFinancialAdd,
   safeFinancialSubtract,
-  checkFinancialDeletePermission,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
-import { dispatchAutoSms, buildPurchaseSms } from '@/lib/sms-auto-trigger';
 
-// ─────────────────────────────────────────────────────────────
-// Helper: normalize empty strings to null for optional fields
-// ─────────────────────────────────────────────────────────────
-function nullIfEmpty(value: string | undefined | null): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value === 'string' && value.trim() === '') return null;
-  return value;
-}
+// ============================================================
+// SHARED: Compute current stock for a product
+// ============================================================
 
-// ─────────────────────────────────────────────────────────────
-// Helper: Find or Create CoA Account for double-entry ledger
-// ─────────────────────────────────────────────────────────────
-async function findOrCreateCoAAccount(
-  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
-  name: string,
-  classification: string,
-  parentCode: string,
-  companyId: string | null
-): Promise<string> {
-  // Try to find existing
-  let account = await tx.chartOfAccount.findFirst({
-    where: { name, classification, ...(companyId && { companyId }) },
+async function computeCurrentStock(
+  tx: any,
+  productId: string,
+  godownId?: string
+): Promise<number> {
+  const product = await tx.product.findUnique({
+    where: { id: productId },
+    select: { openingStock: true },
   });
-  if (account) return account.id;
+  if (!product) return 0;
 
-  // Find parent
-  const parent = await tx.chartOfAccount.findFirst({
-    where: { code: parentCode, ...(companyId && { companyId }) },
-  });
-
-  // Create
-  const code = `COA-${String(Date.now()).slice(-5)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
-  account = await tx.chartOfAccount.create({
-    data: {
-      code,
-      name,
-      classification,
-      parentAccountId: parent?.id || null,
-      ...(companyId && { companyId }),
+  const stockEntries = await tx.stockEntry.findMany({
+    where: {
+      productId,
+      ...(godownId ? { godownId } : {}),
     },
+    select: { type: true, quantity: true },
   });
-  return account.id;
+
+  const stockDelta = stockEntries.reduce(
+    (sum: number, e: { type: string; quantity: number }) =>
+      sum + (e.type === 'IN' ? e.quantity : -e.quantity),
+    0
+  );
+
+  return safeFinancialRound(product.openingStock + stockDelta);
 }
 
-// ─────────────────────────────────────────────────────────────
-// GET /api/sales-orders/[id] - Single sales order with
-// cross-tenant validation, VAT masking, and customer credit info
-// ─────────────────────────────────────────────────────────────
+// ============================================================
+// SHARED: Line-level Financial Computation for Sales
+// ============================================================
+
+interface SOLineInput {
+  productId: string;
+  quantity: number;
+  rate: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  vatAmount?: number;
+}
+
+interface ComputedSOLine {
+  productId: string;
+  quantity: number;
+  rate: number;
+  discountPercent: number;
+  discountAmount: number;
+  vatAmount: number;
+  total: number;
+  costPrice: number;
+  cogsAmount: number;
+  grossProfit: number;
+}
+
+function computeSalesLineFinancials(
+  line: SOLineInput,
+  costPrice: number
+): ComputedSOLine {
+  const lineGross = safeFinancialRound(line.quantity * line.rate);
+  const discountPercent = line.discountPercent ?? 0;
+
+  let discountAmount: number;
+  if (line.discountAmount !== undefined && line.discountAmount > 0) {
+    discountAmount = safeFinancialRound(line.discountAmount);
+  } else {
+    discountAmount = safeFinancialRound(lineGross * (discountPercent / 100));
+  }
+
+  const afterDiscount = safeFinancialSubtract(lineGross, discountAmount);
+  const vatAmount = safeFinancialRound(line.vatAmount ?? 0);
+  const total = safeFinancialAdd(afterDiscount, vatAmount);
+
+  const cogsAmount = safeFinancialRound(line.quantity * costPrice);
+  const grossProfit = safeFinancialSubtract(total, cogsAmount);
+
+  return {
+    productId: line.productId,
+    quantity: line.quantity,
+    rate: line.rate,
+    discountPercent,
+    discountAmount,
+    vatAmount,
+    total,
+    costPrice,
+    cogsAmount,
+    grossProfit,
+  };
+}
+
+// ============================================================
+// SHARED: Order-level Financial Computation for Sales
+// ============================================================
+
+function computeSalesOrderFinancials(
+  computedLines: ComputedSOLine[],
+  discountPercent: number,
+  vatPercentage: number,
+  discount?: number
+) {
+  const subTotal = computedLines.reduce(
+    (sum, l) => safeFinancialAdd(sum, l.total),
+    0
+  );
+
+  const orderDiscount = discount !== undefined && discount > 0
+    ? safeFinancialRound(discount)
+    : safeFinancialRound(subTotal * (discountPercent / 100));
+
+  const afterDiscount = safeFinancialSubtract(subTotal, orderDiscount);
+  const vatAmount = safeFinancialRound(afterDiscount * (vatPercentage / 100));
+  const grandTotal = safeFinancialAdd(afterDiscount, vatAmount);
+
+  const cogsTotal = computedLines.reduce(
+    (sum, l) => safeFinancialAdd(sum, l.cogsAmount),
+    0
+  );
+  const grossProfit = safeFinancialSubtract(grandTotal, cogsTotal);
+  const profitMargin = grandTotal > 0 ? safeFinancialRound((grossProfit / grandTotal) * 100) : 0;
+
+  return { subTotal, discount: orderDiscount, vatAmount, grandTotal, cogsTotal, grossProfit, profitMargin };
+}
+
+// ============================================================
+// SHARED: AR Ledger balance update for Customer
+// ============================================================
+
+function computeNewArBalance(
+  currentBalance: number,
+  currentBalanceType: string,
+  grandTotal: number
+): { newBalance: number; newBalanceType: string } {
+  if (currentBalanceType === 'Dr') {
+    return {
+      newBalance: safeFinancialAdd(currentBalance, grandTotal),
+      newBalanceType: 'Dr',
+    };
+  } else {
+    if (grandTotal > currentBalance) {
+      return {
+        newBalance: safeFinancialSubtract(grandTotal, currentBalance),
+        newBalanceType: 'Dr',
+      };
+    } else {
+      return {
+        newBalance: safeFinancialSubtract(currentBalance, grandTotal),
+        newBalanceType: 'Cr',
+      };
+    }
+  }
+}
+
+function computeArReversal(
+  currentBalance: number,
+  currentBalanceType: string,
+  grandTotal: number
+): { newBalance: number; newBalanceType: string } {
+  if (currentBalanceType === 'Dr') {
+    if (grandTotal >= currentBalance) {
+      return {
+        newBalance: safeFinancialSubtract(grandTotal, currentBalance),
+        newBalanceType: 'Cr',
+      };
+    } else {
+      return {
+        newBalance: safeFinancialSubtract(currentBalance, grandTotal),
+        newBalanceType: 'Dr',
+      };
+    }
+  } else {
+    return {
+      newBalance: safeFinancialAdd(currentBalance, grandTotal),
+      newBalanceType: 'Cr',
+    };
+  }
+}
+
+const fmtBD = (v: number) =>
+  // Use en-US to guarantee Latin digits — en-US may produce Bengali numerals
+  new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+
+// ============================================================
+// GET /api/sales-orders/[id] — Get single sales order with full relations
+// ============================================================
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -68,113 +205,57 @@ export async function GET(
   const security = await withApiSecurity(request, 'SalesOrders', 'GET');
   if (!security.authorized) return security.response;
 
-  const role = security.user.role;
-  const companyId = security.user.companyId;
-
   try {
     const { id } = await params;
+
     const salesOrder = await db.salesOrder.findUnique({
       where: { id },
       include: {
         customer: true,
         godown: true,
         paymentOption: true,
+        company: true,
+        sr: {
+          include: {
+            designation: true,
+          },
+        },
         lines: {
           include: {
-            product: true,
+            product: {
+              include: {
+                category: true,
+                brand: true,
+              },
+            },
           },
         },
       },
     });
 
-    if (!salesOrder || !salesOrder.isActive) {
+    if (!salesOrder) {
       return NextResponse.json(
         { error: 'Sales order not found' },
         { status: 404 }
       );
     }
 
-    // Cross-tenant validation
-    if (companyId && salesOrder.companyId && salesOrder.companyId !== companyId) {
+    if (!salesOrder.isActive) {
       return NextResponse.json(
-        { error: 'Sales order not found' },
-        { status: 404 }
+        { error: 'Sales order has been deleted' },
+        { status: 410 }
       );
     }
 
-    // Calculate customer credit info for Credit Shield
-    let customerCreditInfo: {
-      creditLimit: number;
-      currentOutstanding: number;
-    } | null = null;
-
-    if (salesOrder.customer && salesOrder.customer.creditLimit > 0) {
-      const existingOrders = await db.salesOrder.findMany({
-        where: {
-          customerId: salesOrder.customerId,
-          status: { not: 'Cancelled' },
-          isActive: true,
-        },
-        select: { grandTotal: true },
-      });
-      const totalOrderValue = existingOrders.reduce(
-        (sum, o) => safeFinancialAdd(sum, o.grandTotal),
-        0
-      );
-
-      const existingCollections = await db.cashCollection.findMany({
-        where: {
-          customerId: salesOrder.customerId,
-          status: 'Approved',
-          isActive: true,
-        },
-        select: { amount: true },
-      });
-      const totalCollections = existingCollections.reduce(
-        (sum, c) => safeFinancialAdd(sum, c.amount),
-        0
-      );
-
-      const outstanding = safeFinancialSubtract(totalOrderValue, totalCollections);
-
-      customerCreditInfo = {
-        creditLimit: salesOrder.customer.creditLimit,
-        currentOutstanding: outstanding,
-      };
-    }
-
-    // Enrich with customerName, godownName, paymentOptionName
-    const enriched = {
-      ...salesOrder,
-      customerName: salesOrder.customer?.name || '',
-      godownName: salesOrder.godown?.name || '',
-      paymentOptionName: salesOrder.paymentOption?.name || '',
-      customerCreditInfo,
-    };
-
-    // Apply VAT Auditor masking
-    let masked = maskForVatAuditorFinancial(enriched, role);
-
-    // Mask additional sales-order-specific fields
-    masked = maskForVatAuditor(
-      masked,
-      role,
-      ['subTotal', 'discount', 'vatAmount', 'grandTotal', 'deliveryCost', 'cashAmount', 'bankAmount', 'mfsAmount', 'cardAmount']
+    // VAT Auditor masking
+    const masked = maskForVatAuditorFinancial(
+      salesOrder as Record<string, unknown>,
+      security.user.role
     );
-
-    // Mask line-level financial fields
-    if (Array.isArray(masked.lines)) {
-      masked = {
-        ...masked,
-        lines: masked.lines.map((line: Record<string, unknown>) =>
-          maskForVatAuditor(line, role, ['rate', 'discountPercent', 'discountAmount', 'vatAmount', 'total'])
-        ),
-      };
-    }
 
     return NextResponse.json(masked);
   } catch (error) {
-    console.error('Error fetching sales order:', error);
+    console.error('[SalesOrders] GET /[id] error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch sales order' },
       { status: 500 }
@@ -182,22 +263,17 @@ export async function GET(
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// PUT /api/sales-orders/[id] - Same validations as POST,
-// credit shield check on updates, stock/ledger operations
-// when status transitions to Confirmed/Delivered
-// ─────────────────────────────────────────────────────────────
+// ============================================================
+// PUT /api/sales-orders/[id] — Update sales order
+// Status transitions: Draft → Confirmed → Delivered → Completed → Cancelled
+// ============================================================
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'SalesOrders', 'PUT');
   if (!security.authorized) return security.response;
-
-  const companyId = security.user.companyId;
-  const userId = security.user.id;
-  const userName = security.user.name;
-  const userRole = security.user.role;
 
   try {
     const { id } = await params;
@@ -206,410 +282,282 @@ export async function PUT(
       customerId,
       date,
       godownId,
-      discount,
-      paymentOptionId,
       notes,
       status,
+      discount,
+      discountPercent,
       vatPercentage,
+      paymentOptionId,
+      srId,
       lines,
-      deliveryCost,
-      dueDate,
-      cashAmount,
-      bankAmount,
-      mfsAmount,
-      cardAmount,
-      creditOverride,
     } = body;
 
-    // ── Fetch existing record for validation ──
+    // Fetch existing record for validation and audit
     const existing = await db.salesOrder.findUnique({
       where: { id },
       include: {
+        lines: true,
         customer: true,
         godown: true,
-        paymentOption: true,
-        lines: { include: { product: true } },
       },
     });
 
-    if (!existing || !existing.isActive) {
+    if (!existing) {
       return NextResponse.json(
         { error: 'Sales order not found' },
         { status: 404 }
       );
     }
 
-    // Cross-tenant validation
-    if (companyId && existing.companyId && existing.companyId !== companyId) {
+    if (!existing.isActive) {
       return NextResponse.json(
-        { error: 'Sales order not found' },
-        { status: 404 }
+        { error: 'Cannot update a deleted sales order' },
+        { status: 400 }
       );
     }
 
-    // Period-close lock check
-    const periodLock = await checkPeriodClose(
-      date ? new Date(date) : existing.date || new Date()
-    );
-    if (periodLock) return periodLock;
+    // Validate status transition if status is being changed
+    const newStatus = status || existing.status;
+    const validTransitions: Record<string, string[]> = {
+      Draft: ['Confirmed', 'Cancelled'],
+      Confirmed: ['Delivered', 'Cancelled'],
+      Delivered: ['Completed', 'Cancelled'],
+      Completed: ['Cancelled'],
+      Cancelled: [],
+    };
 
-    // ── 1. Godown Status Validation (SUSPENDED = 403) ──
-    const effectiveGodownId = godownId !== undefined ? (godownId || null) : existing.godownId;
-    if (effectiveGodownId) {
-      const godown = await db.godown.findUnique({ where: { id: effectiveGodownId } });
-      if (godown && godown.status === 'SUSPENDED') {
+    if (status && status !== existing.status) {
+      const allowed = validTransitions[existing.status] || [];
+      if (!allowed.includes(status)) {
         return NextResponse.json(
-          { error: `Godown "${godown.name}" is SUSPENDED. All stock operations are blocked. Contact an administrator.` },
-          { status: 403 }
+          {
+            error: `Invalid status transition from "${existing.status}" to "${status}". Allowed transitions: ${allowed.join(', ') || 'none'}`,
+          },
+          { status: 400 }
         );
       }
     }
 
-    // ── 2. Strict Numeric Validation (400) ──
-    let processedLines: {
-      productId: string;
-      quantity: number;
-      rate: number;
-      discountPercent: number;
-      discountAmount: number;
-      vatAmount: number;
-      total: number;
-    }[] | undefined;
+    // Period close check: use the request date or existing record's date
+    const effectiveDate = date ? new Date(date) : existing.date;
+    const periodLock = await checkPeriodClose(effectiveDate);
+    if (periodLock) return periodLock;
 
-    if (lines && Array.isArray(lines)) {
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const lineQty = Number(line.quantity);
-        const lineRate = Number(line.rate);
-
-        if (!line.productId) {
-          return NextResponse.json(
-            { error: `Line ${i + 1}: productId is required` },
-            { status: 400 }
-          );
-        }
-        if (isNaN(lineQty) || lineQty <= 0) {
-          return NextResponse.json(
-            { error: `Line ${i + 1}: quantity must be greater than 0` },
-            { status: 400 }
-          );
-        }
-        if (isNaN(lineRate) || lineRate <= 0) {
-          return NextResponse.json(
-            { error: `Line ${i + 1}: rate must be greater than 0` },
-            { status: 400 }
-          );
-        }
-      }
-
-      processedLines = lines.map((line: Record<string, unknown>) => {
-        const lineQty = Number(line.quantity) || 0;
-        const lineRate = Number(line.rate) || 0;
-        const lineDiscPct = Number(line.discountPercent) || 0;
-        const lineDiscAmt = Number(line.discountAmount) || safeFinancialRound(lineQty * lineRate * (lineDiscPct / 100));
-        const lineGross = safeFinancialRound(lineQty * lineRate);
-        const afterLineDisc = safeFinancialSubtract(lineGross, lineDiscAmt);
-        const lineVatAmt = Number(line.vatAmount) || 0;
-        const lineTotal = safeFinancialAdd(afterLineDisc, lineVatAmt);
-        return {
-          productId: line.productId as string,
-          quantity: lineQty,
-          rate: lineRate,
-          discountPercent: lineDiscPct,
-          discountAmount: lineDiscAmt,
-          vatAmount: lineVatAmt,
-          total: lineTotal,
-        };
-      });
-    }
-
-    // deliveryCost validation
-    const effectiveDeliveryCost = deliveryCost !== undefined ? Number(deliveryCost) : existing.deliveryCost;
-    if (effectiveDeliveryCost < 0) {
-      return NextResponse.json(
-        { error: 'deliveryCost must be greater than or equal to 0' },
-        { status: 400 }
-      );
-    }
-
-    // Payment breakdown validation
-    if (cashAmount !== undefined && Number(cashAmount) < 0) {
-      return NextResponse.json(
-        { error: 'cashAmount must be >= 0' },
-        { status: 400 }
-      );
-    }
-    if (bankAmount !== undefined && Number(bankAmount) < 0) {
-      return NextResponse.json(
-        { error: 'bankAmount must be >= 0' },
-        { status: 400 }
-      );
-    }
-    if (mfsAmount !== undefined && Number(mfsAmount) < 0) {
-      return NextResponse.json(
-        { error: 'mfsAmount must be >= 0' },
-        { status: 400 }
-      );
-    }
-    if (cardAmount !== undefined && Number(cardAmount) < 0) {
-      return NextResponse.json(
-        { error: 'cardAmount must be >= 0' },
-        { status: 400 }
-      );
-    }
-
-    // ── Calculate totals from lines if provided ──
-    let subTotal: number | undefined;
-    let vatAmount: number | undefined;
-    let grandTotal: number | undefined;
-
-    const totalDiscount = discount !== undefined ? Number(discount) : existing.discount;
-    const vatPct = vatPercentage !== undefined ? Number(vatPercentage) : existing.vatPercentage;
-
-    if (processedLines) {
-      subTotal = safeFinancialRound(processedLines.reduce((sum, l) => safeFinancialAdd(sum, l.total), 0));
-      const afterDiscount = safeFinancialSubtract(subTotal, totalDiscount);
-      const afterDelivery = safeFinancialAdd(afterDiscount, effectiveDeliveryCost);
-      vatAmount = safeFinancialRound(afterDelivery * (vatPct / 100));
-      grandTotal = safeFinancialAdd(afterDelivery, vatAmount);
-    } else if (discount !== undefined || vatPercentage !== undefined || deliveryCost !== undefined) {
-      // Recalculate from existing lines
-      subTotal = existing.lines.reduce((sum, l) => safeFinancialAdd(sum, l.total), 0);
-      const afterDiscount = safeFinancialSubtract(subTotal, totalDiscount);
-      const afterDelivery = safeFinancialAdd(afterDiscount, effectiveDeliveryCost);
-      vatAmount = safeFinancialRound(afterDelivery * (vatPct / 100));
-      grandTotal = safeFinancialAdd(afterDelivery, vatAmount);
-    }
-
-    // ── 4. B2B Customer Credit Shield Interlock on updates ──
-    const effectiveCustomerId = customerId || existing.customerId;
-    const effectiveGrandTotal = grandTotal || existing.grandTotal;
-    const effectiveStatus = status || existing.status;
-
-    const customer = await db.customer.findUnique({
-      where: { id: effectiveCustomerId },
-      include: { coaAccount: true },
-    });
-
-    let creditOverrideApplied = existing.creditOverride;
-    let overrideByUser = existing.overrideBy;
-
-    if (customer && customer.creditLimit > 0 && effectiveGrandTotal !== existing.grandTotal) {
-      // Recalculate credit check if grandTotal changed
-      const existingOrders = await db.salesOrder.findMany({
-        where: {
-          customerId: effectiveCustomerId,
-          status: { not: 'Cancelled' },
-          isActive: true,
-          id: { not: id }, // Exclude current order from calculation
-        },
-        select: { grandTotal: true },
-      });
-      const totalOrderValue = existingOrders.reduce(
-        (sum, o) => safeFinancialAdd(sum, o.grandTotal),
-        0
-      );
-
-      const existingCollections = await db.cashCollection.findMany({
-        where: { customerId: effectiveCustomerId, status: 'Approved', isActive: true },
-        select: { amount: true },
-      });
-      const totalCollections = existingCollections.reduce(
-        (sum, c) => safeFinancialAdd(sum, c.amount),
-        0
-      );
-
-      const currentOutstanding = safeFinancialSubtract(totalOrderValue, totalCollections);
-
-      if (safeFinancialAdd(currentOutstanding, effectiveGrandTotal) > customer.creditLimit) {
-        if (creditOverride === true && userRole === 'admin') {
-          creditOverrideApplied = true;
-          overrideByUser = userId;
-        } else {
-          const excess = safeFinancialSubtract(
-            safeFinancialAdd(currentOutstanding, effectiveGrandTotal),
-            customer.creditLimit
-          );
-          return NextResponse.json(
-            {
-              error: 'Credit Shield Violation: Customer balance threshold breached. Transaction rejected.',
-              creditShieldViolation: true,
-              currentDue: currentOutstanding,
-              newOrderValue: effectiveGrandTotal,
-              creditLimit: customer.creditLimit,
-              excess,
-            },
-            { status: 422 }
-          );
-        }
-      }
-    }
-
-    // ── 5. Negative Stock Prevention (only for Confirmed/Delivered transitions) ──
-    const wasConfirmedOrDelivered = existing.status === 'Confirmed' || existing.status === 'Delivered';
-    const isNowConfirmedOrDelivered = effectiveStatus === 'Confirmed' || effectiveStatus === 'Delivered';
-
-    if (isNowConfirmedOrDelivered && processedLines && effectiveGodownId) {
-      for (const line of processedLines) {
-        const product = await db.product.findUnique({
-          where: { id: line.productId },
-        });
-        if (!product) {
-          return NextResponse.json(
-            { error: `Product not found: ${line.productId}` },
-            { status: 400 }
-          );
-        }
-
-        const productStock = await db.productStock.findUnique({
-          where: { productId_godownId: { productId: line.productId, godownId: effectiveGodownId } },
-        });
-
-        // If already confirmed, existing line quantities were already deducted,
-        // so add them back before checking
-        let available = productStock?.quantity || 0;
-        if (wasConfirmedOrDelivered) {
-          // Add back the existing line quantities for this product
-          const existingLineForProduct = existing.lines.find(
-            (l) => l.productId === line.productId
-          );
-          if (existingLineForProduct) {
-            available = safeFinancialAdd(available, existingLineForProduct.quantity);
-          }
-        }
-
-        if (available < line.quantity) {
-          return NextResponse.json(
-            {
-              error: `Insufficient stock for '${product.name}'. Available: ${available}, Requested: ${line.quantity}. Transaction rejected.`,
-              stockViolation: true,
-            },
-            { status: 409 }
-          );
-        }
-      }
-    }
-
-    // ── 6. Atomic Double-Entry Bookkeeping ($transaction) ──
+    // ── Transaction: update with recalculation ──
     const result = await db.$transaction(async (tx) => {
-      // If transitioning from Confirmed/Delivered to non-confirmed, reverse stock and ledger
-      if (wasConfirmedOrDelivered && !isNowConfirmedOrDelivered) {
-        // Reverse ProductStock increments (add stock back)
-        for (const line of existing.lines) {
-          if (existing.godownId) {
-            const currentStock = await tx.productStock.findUnique({
-              where: { productId_godownId: { productId: line.productId, godownId: existing.godownId } },
+      let computedLines: ComputedSOLine[] | undefined;
+      let newSubTotal: number | undefined;
+      let newDiscount: number | undefined;
+      let newVatAmount: number | undefined;
+      let newGrandTotal: number | undefined;
+      let newCogsTotal: number | undefined;
+      let newGrossProfit: number | undefined;
+      let newProfitMargin: number | undefined;
+
+      const orderDiscountPercent = discountPercent !== undefined
+        ? Number(discountPercent)
+        : existing.discountPercent;
+      const orderVatPercentage = vatPercentage !== undefined
+        ? Number(vatPercentage)
+        : existing.vatPercentage;
+      const orderDiscount = discount !== undefined ? Number(discount) : undefined;
+
+      // If lines are provided, recalculate everything
+      if (lines && Array.isArray(lines)) {
+        computedLines = [];
+        for (const line of lines) {
+          if (!line.productId) {
+            throw Object.assign(new Error('VALIDATION_ERROR'), {
+              validationError: 'Each line must have a productId',
             });
-            if (currentStock) {
-              await tx.productStock.update({
-                where: { id: currentStock.id },
-                data: { quantity: { increment: line.quantity } },
-              });
-            }
           }
 
-          // Create reversal StockEntry (type="IN")
+          const product = await tx.product.findUnique({
+            where: { id: line.productId },
+            select: { id: true, name: true, costPrice: true, openingStock: true },
+          });
+
+          if (!product) {
+            throw Object.assign(new Error('VALIDATION_ERROR'), {
+              validationError: `Product with ID "${line.productId}" not found`,
+            });
+          }
+
+          // Stock safety check for new lines
+          const effectiveGodownId = (godownId !== undefined ? godownId : existing.godownId) || undefined;
+          const currentStock = await computeCurrentStock(
+            tx,
+            line.productId,
+            effectiveGodownId
+          );
+
+          const lineQuantity = Number(line.quantity) || 0;
+          if (currentStock < lineQuantity) {
+            throw Object.assign(new Error('INSUFFICIENT_STOCK'), {
+              stockError: `Insufficient stock for "${product.name}". Available: ${currentStock}, Requested: ${lineQuantity}.`,
+            });
+          }
+
+          const costPrice = product.costPrice || 0;
+          const computed = computeSalesLineFinancials(
+            {
+              productId: line.productId,
+              quantity: lineQuantity,
+              rate: Number(line.rate) || 0,
+              discountPercent: Number(line.discountPercent) || 0,
+              discountAmount: line.discountAmount !== undefined ? Number(line.discountAmount) : undefined,
+              vatAmount: line.vatAmount !== undefined ? Number(line.vatAmount) : undefined,
+            },
+            costPrice
+          );
+          computedLines.push(computed);
+        }
+
+        // Recalculate order totals including COGS
+        const orderFinancials = computeSalesOrderFinancials(
+          computedLines,
+          orderDiscountPercent,
+          orderVatPercentage,
+          orderDiscount
+        );
+        newSubTotal = orderFinancials.subTotal;
+        newDiscount = orderFinancials.discount;
+        newVatAmount = orderFinancials.vatAmount;
+        newGrandTotal = orderFinancials.grandTotal;
+        newCogsTotal = orderFinancials.cogsTotal;
+        newGrossProfit = orderFinancials.grossProfit;
+        newProfitMargin = orderFinancials.profitMargin;
+
+        // Delete existing lines and recreate
+        await tx.salesOrderLine.deleteMany({
+          where: { salesOrderId: id },
+        });
+      } else if (discount !== undefined || vatPercentage !== undefined || discountPercent !== undefined) {
+        // If only discount/vat changed, recalculate from existing lines
+        // Need to recalculate COGS as well
+        const existingLines = existing.lines;
+        computedLines = existingLines.map((line) => ({
+          productId: line.productId,
+          quantity: line.quantity,
+          rate: line.rate,
+          discountPercent: line.discountPercent,
+          discountAmount: line.discountAmount,
+          vatAmount: line.vatAmount,
+          total: line.total,
+          costPrice: line.costPrice,
+          cogsAmount: line.cogsAmount,
+          grossProfit: line.grossProfit,
+        }));
+
+        const orderFinancials = computeSalesOrderFinancials(
+          computedLines,
+          orderDiscountPercent,
+          orderVatPercentage,
+          orderDiscount
+        );
+        newSubTotal = orderFinancials.subTotal;
+        newDiscount = orderFinancials.discount;
+        newVatAmount = orderFinancials.vatAmount;
+        newGrandTotal = orderFinancials.grandTotal;
+        newCogsTotal = orderFinancials.cogsTotal;
+        newGrossProfit = orderFinancials.grossProfit;
+        newProfitMargin = orderFinancials.profitMargin;
+      }
+
+      // ── Handle status transitions ──
+
+      // When status changes to "Cancelled": reverse stock entries and adjust AR
+      if (status === 'Cancelled' && existing.status !== 'Cancelled') {
+        // Reverse stock entries — create IN entries to reverse the OUT entries
+        const linesToReverse = computedLines || existing.lines;
+        for (const line of linesToReverse) {
           await tx.stockEntry.create({
             data: {
               productId: line.productId,
               godownId: existing.godownId || null,
               type: 'IN',
               quantity: line.quantity,
-              costPrice: line.rate,
-              totalCost: safeFinancialRound(line.quantity * line.rate),
               reference: existing.invoiceNo,
               referenceType: 'SalesOrder',
-              ...(companyId && { companyId }),
               date: new Date(),
-              notes: 'Reversal: SO status changed from confirmed',
+              notes: `Reversal: SO ${existing.invoiceNo} cancelled`,
             },
           });
         }
 
-        // Reverse ledger entries
-        const existingLedgerEntries = await tx.ledgerEntry.findMany({
-          where: { reference: existing.invoiceNo, referenceType: 'SalesOrder' },
-        });
-
-        for (const entry of existingLedgerEntries) {
-          // Create reversal entry
-          const lastLedgerEntry = await tx.ledgerEntry.findFirst({
-            orderBy: { entryCode: 'desc' },
-            select: { entryCode: true },
+        // Adjust AR — subtract grandTotal from customer balance
+        if (existing.arPosted) {
+          const previousGrandTotal = newGrandTotal !== undefined ? newGrandTotal : existing.grandTotal;
+          const customer = await tx.customer.findUnique({
+            where: { id: existing.customerId },
           });
-          let ledgerNextNum = 1;
-          if (lastLedgerEntry?.entryCode) {
-            const match = lastLedgerEntry.entryCode.match(/LED-(\d+)/);
-            if (match) {
-              ledgerNextNum = parseInt(match[1], 10) + 1;
+          if (customer) {
+            const { newBalance, newBalanceType } = computeArReversal(
+              customer.currentBalance,
+              customer.currentBalanceType,
+              previousGrandTotal
+            );
+
+            // Recompute credit status
+            let newCreditStatus = customer.creditStatus;
+            if (newBalanceType === 'Dr' && customer.creditLimit > 0 && newBalance > customer.creditLimit) {
+              newCreditStatus = 'OverLimit';
+            } else if (newBalanceType === 'Cr' || (newBalanceType === 'Dr' && newBalance <= customer.creditLimit)) {
+              // If previously OverLimit, check if we should revert to Active
+              if (customer.creditStatus === 'OverLimit') {
+                newCreditStatus = 'Active';
+              }
             }
+
+            await tx.customer.update({
+              where: { id: existing.customerId },
+              data: {
+                currentBalance: newBalance,
+                currentBalanceType: newBalanceType,
+                creditStatus: newCreditStatus,
+              },
+            });
           }
-          const reversalCode = `LED-${String(ledgerNextNum).padStart(5, '0')}`;
-
-          await tx.ledgerEntry.create({
-            data: {
-              entryCode: reversalCode,
-              date: new Date(),
-              accountId: entry.accountId,
-              account: entry.account,
-              particulars: `Reversal: ${entry.particulars || ''}`,
-              debit: entry.credit,  // Swap debit/credit
-              credit: entry.debit,
-              reference: existing.invoiceNo,
-              referenceType: 'SalesOrder',
-              ...(companyId && { companyId }),
-            },
-          });
         }
-
-        // Soft-delete existing LedgerAutoPost
-        await tx.ledgerAutoPost.updateMany({
-          where: { sourceType: 'SalesOrder', sourceId: id },
-          data: { status: 'Reversed' },
-        });
       }
 
-      // Delete existing lines if lines are provided
-      if (processedLines) {
-        await tx.salesOrderLine.deleteMany({
-          where: { salesOrderId: id },
-        });
-      }
+      // Build update data object
+      const updateData: Record<string, unknown> = {};
 
-      // Build update data
-      const updateData: Record<string, unknown> = {
-        ...(customerId && { customerId }),
-        ...(date && { date: new Date(date) }),
-        ...(godownId !== undefined && { godownId: godownId || null }),
-        ...(discount !== undefined && { discount: totalDiscount }),
-        ...(vatPercentage !== undefined && { vatPercentage: vatPct }),
-        ...(paymentOptionId !== undefined && { paymentOptionId: paymentOptionId || null }),
-        ...(notes !== undefined && { notes }),
-        ...(status && { status: effectiveStatus }),
-        ...(subTotal !== undefined && { subTotal }),
-        ...(vatAmount !== undefined && { vatAmount }),
-        ...(grandTotal !== undefined && { grandTotal }),
-        ...(deliveryCost !== undefined && { deliveryCost: effectiveDeliveryCost }),
-        ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
-        ...(cashAmount !== undefined && { cashAmount: Number(cashAmount) || 0 }),
-        ...(bankAmount !== undefined && { bankAmount: Number(bankAmount) || 0 }),
-        ...(mfsAmount !== undefined && { mfsAmount: Number(mfsAmount) || 0 }),
-        ...(cardAmount !== undefined && { cardAmount: Number(cardAmount) || 0 }),
-        ...(creditOverride !== undefined && { creditOverride: creditOverrideApplied, overrideBy: overrideByUser }),
-        ...(processedLines && {
-          lines: {
-            create: processedLines.map((line) => ({
-              productId: line.productId,
-              quantity: line.quantity,
-              rate: line.rate,
-              discountPercent: line.discountPercent,
-              discountAmount: line.discountAmount,
-              vatAmount: line.vatAmount,
-              total: line.total,
-            })),
-          },
-        }),
-      };
+      if (customerId) updateData.customerId = customerId;
+      if (date) updateData.date = new Date(date);
+      if (godownId !== undefined) updateData.godownId = godownId || null;
+      if (notes !== undefined) updateData.notes = notes;
+      if (status) updateData.status = newStatus;
+      if (paymentOptionId !== undefined) updateData.paymentOptionId = paymentOptionId || null;
+      if (srId !== undefined) updateData.srId = srId || null;
+      if (discountPercent !== undefined) updateData.discountPercent = orderDiscountPercent;
+      if (vatPercentage !== undefined) updateData.vatPercentage = orderVatPercentage;
+      if (newSubTotal !== undefined) updateData.subTotal = newSubTotal;
+      if (newDiscount !== undefined) updateData.discount = newDiscount;
+      if (newVatAmount !== undefined) updateData.vatAmount = newVatAmount;
+      if (newGrandTotal !== undefined) updateData.grandTotal = newGrandTotal;
+      if (newCogsTotal !== undefined) updateData.cogsTotal = newCogsTotal;
+      if (newGrossProfit !== undefined) updateData.grossProfit = newGrossProfit;
+      if (newProfitMargin !== undefined) updateData.profitMargin = newProfitMargin;
+
+      // Add new lines if computed from provided lines
+      if (computedLines && lines && Array.isArray(lines)) {
+        updateData.lines = {
+          create: computedLines.map((cl) => ({
+            productId: cl.productId,
+            quantity: cl.quantity,
+            rate: cl.rate,
+            discountPercent: cl.discountPercent,
+            discountAmount: cl.discountAmount,
+            vatAmount: cl.vatAmount,
+            total: cl.total,
+            costPrice: cl.costPrice,
+            cogsAmount: cl.cogsAmount,
+            grossProfit: cl.grossProfit,
+          })),
+        };
+      }
 
       const salesOrder = await tx.salesOrder.update({
         where: { id },
@@ -618,178 +566,109 @@ export async function PUT(
           customer: true,
           godown: true,
           paymentOption: true,
-          lines: { include: { product: true } },
+          company: true,
+          sr: { include: { designation: true } },
+          lines: { include: { product: { include: { category: true, brand: true } } } },
         },
       });
 
-      // If transitioning to Confirmed/Delivered (and wasn't before), process stock and ledger
-      if (isNowConfirmedOrDelivered && !wasConfirmedOrDelivered) {
-        const linesToProcess = processedLines || existing.lines.map((l) => ({
-          productId: l.productId,
-          quantity: l.quantity,
-          rate: l.rate,
-          discountPercent: l.discountPercent,
-          discountAmount: l.discountAmount,
-          vatAmount: l.vatAmount,
-          total: l.total,
-        }));
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'SalesOrders',
+          recordId: id,
+          recordLabel: existing.invoiceNo,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            previousStatus: existing.status,
+            newStatus: status || existing.status,
+            previousGrandTotal: existing.grandTotal,
+            newGrandTotal: newGrandTotal || existing.grandTotal,
+            linesChanged: !!lines,
+            stockReversed: status === 'Cancelled' && existing.status !== 'Cancelled',
+            arAdjusted: status === 'Cancelled' && existing.arPosted,
+          }),
+        },
+      });
 
-        for (const line of linesToProcess) {
-          // b) Decrement ProductStock
-          if (effectiveGodownId) {
-            const currentStock = await tx.productStock.findUnique({
-              where: { productId_godownId: { productId: line.productId, godownId: effectiveGodownId } },
-            });
-            if (!currentStock || currentStock.quantity < line.quantity) {
-              const product = await tx.product.findUnique({ where: { id: line.productId } });
-              throw new Error(`Insufficient stock for '${product?.name || line.productId}'`);
-            }
-            await tx.productStock.update({
-              where: { id: currentStock.id },
-              data: { quantity: { decrement: line.quantity } },
-            });
-          }
-
-          // c) Create StockEntry (type="OUT" with costPrice and totalCost)
-          await tx.stockEntry.create({
-            data: {
-              productId: line.productId,
-              godownId: effectiveGodownId || null,
-              type: 'OUT',
-              quantity: line.quantity,
-              costPrice: line.rate,
-              totalCost: safeFinancialRound(line.quantity * line.rate),
-              reference: salesOrder.invoiceNo,
-              referenceType: 'SalesOrder',
-              ...(companyId && { companyId }),
-              date: salesOrder.date,
-            },
-          });
-        }
-
-        // d) Double-Entry Ledger Auto-Post
-        const effectiveCustomer = customer || existing.customer;
-        const customerCoaId = effectiveCustomer?.coaAccountId || await findOrCreateCoAAccount(
-          tx, effectiveCustomer?.name || 'Customer', 'Asset', 'COA-AR', companyId
-        );
-        const salesRevenueCoaId = await findOrCreateCoAAccount(
-          tx, 'Sales Revenue', 'Income', 'COA-INC', companyId
-        );
-
-        // Auto-generate entry codes: LED-XXXXX
-        const lastLedgerEntry = await tx.ledgerEntry.findFirst({
-          orderBy: { entryCode: 'desc' },
-          select: { entryCode: true },
-        });
-        let ledgerNextNum = 1;
-        if (lastLedgerEntry?.entryCode) {
-          const match = lastLedgerEntry.entryCode.match(/LED-(\d+)/);
-          if (match) {
-            ledgerNextNum = parseInt(match[1], 10) + 1;
-          }
-        }
-        const entryCode1 = `LED-${String(ledgerNextNum).padStart(5, '0')}`;
-        const entryCode2 = `LED-${String(ledgerNextNum + 1).padStart(5, '0')}`;
-
-        const effectiveGrandTotalForLedger = grandTotal || existing.grandTotal;
-
-        // Debit: Accounts Receivable
-        await tx.ledgerEntry.create({
-          data: {
-            entryCode: entryCode1,
-            date: salesOrder.date,
-            accountId: customerCoaId,
-            account: 'Accounts Receivable',
-            particulars: `Invoice ${salesOrder.invoiceNo} - ${effectiveCustomer?.name || 'Customer'}`,
-            debit: effectiveGrandTotalForLedger,
-            credit: 0,
-            reference: salesOrder.invoiceNo,
-            referenceType: 'SalesOrder',
-            ...(companyId && { companyId }),
-          },
-        });
-
-        // Credit: Sales Revenue
-        await tx.ledgerEntry.create({
-          data: {
-            entryCode: entryCode2,
-            date: salesOrder.date,
-            accountId: salesRevenueCoaId,
-            account: 'Sales Revenue',
-            particulars: `Invoice ${salesOrder.invoiceNo} - Sales`,
-            debit: 0,
-            credit: effectiveGrandTotalForLedger,
-            reference: salesOrder.invoiceNo,
-            referenceType: 'SalesOrder',
-            ...(companyId && { companyId }),
-          },
-        });
-
-        // Create LedgerAutoPost record: LAP-XXXXX
-        const lastAutoPost = await tx.ledgerAutoPost.findFirst({
-          orderBy: { code: 'desc' },
-          select: { code: true },
-        });
-        let lapNextNum = 1;
-        if (lastAutoPost?.code) {
-          const match = lastAutoPost.code.match(/LAP-(\d+)/);
-          if (match) {
-            lapNextNum = parseInt(match[1], 10) + 1;
-          }
-        }
-        const lapCode = `LAP-${String(lapNextNum).padStart(5, '0')}`;
-
-        await tx.ledgerAutoPost.create({
-          data: {
-            code: lapCode,
-            sourceType: 'SalesOrder',
-            sourceId: salesOrder.id,
-            sourceCode: salesOrder.invoiceNo,
-            debitEntryId: entryCode1,
-            creditEntryId: entryCode2,
-            debitAccount: 'Accounts Receivable',
-            creditAccount: 'Sales Revenue',
-            amount: effectiveGrandTotalForLedger,
-            postingDate: salesOrder.date,
-            status: 'Posted',
-            postedBy: userId,
-            ...(companyId && { companyId }),
-          },
-        });
-      }
-
-      // Activity Logger with "Inv-Orders-Core" token
+      // Activity log
       await logUserActivity({
+          tx: tx,
         action: 'UPDATE',
-        module: 'Inv-Orders-Core',
+        module: 'Inv-SalesOrder-Pipeline',
         recordId: id,
-        recordLabel: salesOrder.invoiceNo,
-        userId,
-        userName,
-        details: JSON.stringify({
-          status: effectiveStatus,
-          grandTotal: grandTotal || existing.grandTotal,
-          creditOverride: creditOverrideApplied,
-          deliveryCost: effectiveDeliveryCost,
-        }),
+        recordLabel: existing.invoiceNo,
+        userId: security.user.id,
+        userName: security.user.name,
+        details: `Updated sales order ${existing.invoiceNo}: status ${existing.status} → ${status || existing.status}`,
       });
 
       return salesOrder;
+    }).catch((error: any) => {
+      if (error?.message === 'VALIDATION_ERROR') {
+        return { _validationError: true, message: error.validationError };
+      }
+      if (error?.message === 'INSUFFICIENT_STOCK') {
+        return { _stockError: true, message: error.stockError };
+      }
+      throw error;
     });
+
+    // Handle validation failure
+    if (result && typeof result === 'object' && '_validationError' in result) {
+      return NextResponse.json(
+        { error: result.message },
+        { status: 400 }
+      );
+    }
+
+    // Handle insufficient stock
+    if (result && typeof result === 'object' && '_stockError' in result) {
+      return NextResponse.json(
+        { error: result.message },
+        { status: 400 }
+      );
+    }
+
+    // Automated SMS: Sales Confirmation Event (when status changes TO Confirmed)
+    if (
+      result &&
+      typeof result === 'object' &&
+      'status' in result &&
+      (result as any).status === 'Confirmed' &&
+      existing.status !== 'Confirmed'
+    ) {
+      try {
+        const { triggerSalesConfirmationSms } = await import('@/lib/sms-event-hooks');
+        await triggerSalesConfirmationSms({
+          id: (result as any).id,
+          invoiceNo: (result as any).invoiceNo,
+          customerId: (result as any).customerId,
+          grandTotal: (result as any).grandTotal,
+          date: (result as any).date,
+          companyId: (result as any).companyId || undefined,
+        });
+      } catch (smsError) {
+        console.error('[SalesOrders] SMS trigger failed (non-blocking):', smsError);
+      }
+    }
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error updating sales order:', error);
-    const message = error instanceof Error ? error.message : 'Failed to update sales order';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[SalesOrders] PUT /[id] error:', error);
+    return NextResponse.json(
+      { error: 'Failed to update sales order' },
+      { status: 500 }
+    );
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// DELETE /api/sales-orders/[id] - Soft delete with
-// checkFinancialDeletePermission, cross-tenant validation,
-// stock reversal, ledger reversal, activity logging
-// ─────────────────────────────────────────────────────────────
+// ============================================================
+// DELETE /api/sales-orders/[id] — Soft delete with stock reversal and AR adjustment
+// ============================================================
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -797,149 +676,151 @@ export async function DELETE(
   const security = await withApiSecurity(request, 'SalesOrders', 'DELETE');
   if (!security.authorized) return security.response;
 
-  const role = security.user.role;
-  const companyId = security.user.companyId;
-  const userId = security.user.id;
-  const userName = security.user.name;
-
-  // Only admin can delete financial posts
-  const deletePermission = checkFinancialDeletePermission(role);
-  if (deletePermission) return deletePermission;
-
   try {
     const { id } = await params;
 
-    // Fetch existing record for validation
+    // Fetch existing record for validation, period lock, and audit
     const existing = await db.salesOrder.findUnique({
       where: { id },
-      include: { lines: true },
+      include: {
+        lines: true,
+      },
     });
 
-    if (!existing || !existing.isActive) {
+    if (!existing) {
       return NextResponse.json(
         { error: 'Sales order not found' },
         { status: 404 }
       );
     }
 
-    // Cross-tenant validation
-    if (companyId && existing.companyId && existing.companyId !== companyId) {
+    if (!existing.isActive) {
       return NextResponse.json(
-        { error: 'Sales order not found' },
-        { status: 404 }
+        { error: 'Sales order is already deleted' },
+        { status: 400 }
       );
     }
 
-    // Period-close lock check
-    const periodLock = await checkPeriodClose(existing.date || new Date());
+    // Period close check: use existing record's date
+    const periodLock = await checkPeriodClose(existing.date);
     if (periodLock) return periodLock;
 
-    const wasConfirmedOrDelivered = existing.status === 'Confirmed' || existing.status === 'Delivered';
-
     await db.$transaction(async (tx) => {
-      // If SO was Confirmed/Delivered, reverse stock and ledger entries
-      if (wasConfirmedOrDelivered) {
-        // Reverse ProductStock increments (add stock back)
-        for (const line of existing.lines) {
-          if (existing.godownId) {
-            const currentStock = await tx.productStock.findUnique({
-              where: { productId_godownId: { productId: line.productId, godownId: existing.godownId } },
-            });
-            if (currentStock) {
-              await tx.productStock.update({
-                where: { id: currentStock.id },
-                data: { quantity: { increment: line.quantity } },
-              });
-            }
-          }
-
-          // Create reversal StockEntry (type="IN")
-          await tx.stockEntry.create({
-            data: {
-              productId: line.productId,
-              godownId: existing.godownId || null,
-              type: 'IN',
-              quantity: line.quantity,
-              costPrice: line.rate,
-              totalCost: safeFinancialRound(line.quantity * line.rate),
-              reference: existing.invoiceNo,
-              referenceType: 'SalesOrder',
-              ...(companyId && { companyId }),
-              date: new Date(),
-              notes: 'Reversal: SO soft-deleted',
-            },
-          });
-        }
-
-        // Reverse ledger entries
-        const existingLedgerEntries = await tx.ledgerEntry.findMany({
-          where: { reference: existing.invoiceNo, referenceType: 'SalesOrder' },
-        });
-
-        for (const entry of existingLedgerEntries) {
-          const lastLedgerEntry = await tx.ledgerEntry.findFirst({
-            orderBy: { entryCode: 'desc' },
-            select: { entryCode: true },
-          });
-          let ledgerNextNum = 1;
-          if (lastLedgerEntry?.entryCode) {
-            const match = lastLedgerEntry.entryCode.match(/LED-(\d+)/);
-            if (match) {
-              ledgerNextNum = parseInt(match[1], 10) + 1;
-            }
-          }
-          const reversalCode = `LED-${String(ledgerNextNum).padStart(5, '0')}`;
-
-          await tx.ledgerEntry.create({
-            data: {
-              entryCode: reversalCode,
-              date: new Date(),
-              accountId: entry.accountId,
-              account: entry.account,
-              particulars: `Reversal: ${entry.particulars || ''} (SO deleted)`,
-              debit: entry.credit,  // Swap debit/credit
-              credit: entry.debit,
-              reference: existing.invoiceNo,
-              referenceType: 'SalesOrder',
-              ...(companyId && { companyId }),
-            },
-          });
-        }
-
-        // Mark LedgerAutoPost as Reversed
-        await tx.ledgerAutoPost.updateMany({
-          where: { sourceType: 'SalesOrder', sourceId: id },
-          data: { status: 'Reversed', reversalReason: 'Sales order soft-deleted' },
-        });
-      }
-
       // Soft delete the sales order
       await tx.salesOrder.update({
         where: { id },
-        data: { isActive: false, status: 'Cancelled' },
+        data: { isActive: false },
       });
 
-      // Activity Logger with "Inv-Orders-Core" token
+      // Reverse stock entries — for any status that had stock OUT entries
+      // (all sales orders create OUT entries on creation)
+      if (existing.status !== 'Cancelled') {
+        for (const line of existing.lines) {
+          // Check if there's a corresponding OUT stock entry
+          const existingOutEntry = await tx.stockEntry.findFirst({
+            where: {
+              productId: line.productId,
+              reference: existing.invoiceNo,
+              referenceType: 'SalesOrder',
+              type: 'OUT',
+            },
+          });
+
+          if (existingOutEntry) {
+            // Create a reversal IN entry
+            await tx.stockEntry.create({
+              data: {
+                productId: line.productId,
+                godownId: existing.godownId || null,
+                type: 'IN',
+                quantity: line.quantity,
+                reference: existing.invoiceNo,
+                referenceType: 'SalesOrder',
+                date: new Date(),
+                notes: `Reversal: SO ${existing.invoiceNo} deleted`,
+              },
+            });
+          }
+        }
+      }
+
+      // ── AR Ledger Adjustment ──
+      // If the order was AR-posted, reverse the balance impact
+      if (existing.arPosted && existing.status !== 'Cancelled') {
+        const customer = await tx.customer.findUnique({
+          where: { id: existing.customerId },
+        });
+        if (customer) {
+          const { newBalance, newBalanceType } = computeArReversal(
+            customer.currentBalance,
+            customer.currentBalanceType,
+            existing.grandTotal
+          );
+
+          // Recompute credit status
+          let newCreditStatus = customer.creditStatus;
+          if (newBalanceType === 'Dr' && customer.creditLimit > 0 && newBalance > customer.creditLimit) {
+            newCreditStatus = 'OverLimit';
+          } else if (customer.creditStatus === 'OverLimit') {
+            // Check if we should revert from OverLimit
+            if (newBalanceType === 'Cr' || (newBalanceType === 'Dr' && newBalance <= customer.creditLimit)) {
+              newCreditStatus = 'Active';
+            }
+          }
+
+          await tx.customer.update({
+            where: { id: existing.customerId },
+            data: {
+              currentBalance: newBalance,
+              currentBalanceType: newBalanceType,
+              creditStatus: newCreditStatus,
+            },
+          });
+        }
+      }
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'DELETE',
+          module: 'SalesOrders',
+          recordId: id,
+          recordLabel: existing.invoiceNo || id,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            softDelete: true,
+            previousStatus: existing.status,
+            previousGrandTotal: existing.grandTotal,
+            stockReversed: existing.status !== 'Cancelled',
+            arAdjusted: existing.arPosted && existing.status !== 'Cancelled',
+          }),
+        },
+      });
+
+      // Activity log
       await logUserActivity({
+          tx: tx,
         action: 'DELETE',
-        module: 'Inv-Orders-Core',
+        module: 'Inv-SalesOrder-Pipeline',
         recordId: id,
         recordLabel: existing.invoiceNo || id,
-        userId,
-        userName,
-        details: JSON.stringify({
-          softDelete: true,
-          previousStatus: existing.status,
-          previousGrandTotal: existing.grandTotal,
-          stockReversed: wasConfirmedOrDelivered,
-        }),
+        userId: security.user.id,
+        userName: security.user.name,
+        details: `Deleted sales order ${existing.invoiceNo} (status was: ${existing.status})`,
       });
     });
 
-    return NextResponse.json({ message: 'Sales order deleted successfully' });
+    return NextResponse.json({
+      message: 'Sales order deleted successfully',
+      stockReversed: existing.status !== 'Cancelled',
+      arAdjusted: existing.arPosted && existing.status !== 'Cancelled',
+    });
   } catch (error) {
-    console.error('Error deleting sales order:', error);
-    const message = error instanceof Error ? error.message : 'Failed to delete sales order';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[SalesOrders] DELETE /[id] error:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete sales order' },
+      { status: 500 }
+    );
   }
 }

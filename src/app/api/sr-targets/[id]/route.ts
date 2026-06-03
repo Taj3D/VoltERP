@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, safeFinancialRound } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
 
-// GET /api/sr-targets/[id]
+// ============================================================
+// SR TARGET SETUP [id] — Phase 7: Operations & Field Controls
+// Financial Benchmark Shields, Monthly Overlap Interlock,
+// Multi-tenant Isolation, Activity Logging
+// Module token: "Sys-Ops-Channels"
+// ============================================================
+
+// GET /api/sr-targets/[id] - Get single SR target with cross-tenant validation
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'SRTargets', 'GET');
   if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
+    const companyId = security.user.companyId;
+
     const target = await db.sRTargetSetup.findUnique({
       where: { id },
       include: {
@@ -18,7 +29,15 @@ export async function GET(
       },
     });
 
-    if (!target) {
+    if (!target || !target.isActive) {
+      return NextResponse.json(
+        { error: 'SR target not found' },
+        { status: 404 }
+      );
+    }
+
+    // ── Cross-tenant validation ──
+    if (companyId && target.companyId && target.companyId !== companyId) {
       return NextResponse.json(
         { error: 'SR target not found' },
         { status: 404 }
@@ -35,47 +54,135 @@ export async function GET(
   }
 }
 
-// PUT /api/sr-targets/[id]
+// PUT /api/sr-targets/[id] - Update SR target with Phase 7 shields
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'SRTargets', 'PUT');
   if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
+    const companyId = security.user.companyId;
     const body = await request.json();
-    const { employeeId, month, year, targetAmount, isActive } = body;
 
-    // Validate month and year if provided
-    if (month !== undefined && (month < 1 || month > 12)) {
+    const { employeeId, month, year, targetAmount, minimumSalesQuota, commissionPercentage, status, isActive } = body;
+
+    // ── Pre-fetch record for cross-tenant validation ──
+    const existing = await db.sRTargetSetup.findUnique({
+      where: { id },
+      include: { employee: true },
+    });
+
+    if (!existing || !existing.isActive) {
       return NextResponse.json(
-        { error: 'Month must be between 1 and 12' },
-        { status: 400 }
-      );
-    }
-    if (year !== undefined && (year < 2000 || year > 2100)) {
-      return NextResponse.json(
-        { error: 'Year must be between 2000 and 2100' },
-        { status: 400 }
-      );
-    }
-    if (targetAmount !== undefined && targetAmount < 0) {
-      return NextResponse.json(
-        { error: 'Target amount must be a positive number' },
-        { status: 400 }
+        { error: 'SR target not found' },
+        { status: 404 }
       );
     }
 
+    // ── Cross-tenant validation ──
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'SR target not found' },
+        { status: 404 }
+      );
+    }
+
+    // ── Month validation (1-12) if provided ──
+    const effectiveMonth = month !== undefined ? Number(month) : existing.month;
+    if (month !== undefined && (!Number.isInteger(effectiveMonth) || effectiveMonth < 1 || effectiveMonth > 12)) {
+      return NextResponse.json(
+        { error: 'Month must be an integer between 1 and 12' },
+        { status: 400 }
+      );
+    }
+
+    // ── Year validation if provided ──
+    const effectiveYear = year !== undefined ? Number(year) : existing.year;
+    if (year !== undefined && (!Number.isInteger(effectiveYear) || effectiveYear < 2000 || effectiveYear > 2100)) {
+      return NextResponse.json(
+        { error: 'Year must be an integer between 2000 and 2100' },
+        { status: 400 }
+      );
+    }
+
+    // ── Financial Benchmark Shield: targetAmount must be > 0 if provided ──
+    let safeTargetAmount: number | undefined;
+    if (targetAmount !== undefined) {
+      safeTargetAmount = safeFinancialRound(Number(targetAmount));
+      if (!safeTargetAmount || safeTargetAmount <= 0) {
+        return NextResponse.json(
+          { error: 'targetAmount must be greater than zero. Negative, zero, or null values are not allowed.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ── Financial Benchmark Shield: minimumSalesQuota must be > 0 if provided ──
+    let safeMinimumSalesQuota: number | undefined;
+    if (minimumSalesQuota !== undefined) {
+      safeMinimumSalesQuota = safeFinancialRound(Number(minimumSalesQuota));
+      if (!safeMinimumSalesQuota || safeMinimumSalesQuota <= 0) {
+        return NextResponse.json(
+          { error: 'minimumSalesQuota must be greater than zero. Negative, zero, or null values are not allowed.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ── Financial Benchmark Shield: commissionPercentage must be >= 0 if provided ──
+    let safeCommissionPercentage: number | undefined;
+    if (commissionPercentage !== undefined) {
+      safeCommissionPercentage = safeFinancialRound(Number(commissionPercentage));
+      if (safeCommissionPercentage < 0 || isNaN(safeCommissionPercentage)) {
+        return NextResponse.json(
+          { error: 'commissionPercentage must be zero or greater. Negative values are not allowed.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ── Monthly Overlap Interlock (excluding current record by id) ──
+    const effectiveEmployeeId = employeeId ? String(employeeId) : existing.employeeId;
+    const overlapFilter: Record<string, unknown> = {
+      employeeId: effectiveEmployeeId,
+      month: effectiveMonth,
+      year: effectiveYear,
+      isActive: true,
+      id: { not: id },
+    };
+    if (companyId) {
+      overlapFilter.companyId = companyId;
+    } else if (existing.companyId) {
+      overlapFilter.companyId = existing.companyId;
+    }
+
+    const overlappingTarget = await db.sRTargetSetup.findFirst({
+      where: overlapFilter,
+    });
+
+    if (overlappingTarget) {
+      return NextResponse.json(
+        { error: `Monthly overlap detected. An active SR target already exists for employee ${effectiveEmployeeId} in month ${effectiveMonth}/${effectiveYear}. Cannot create duplicate or overlapping target configurations.` },
+        { status: 409 }
+      );
+    }
+
+    // ── Update with transaction ──
     const result = await db.$transaction(async (tx) => {
       const target = await tx.sRTargetSetup.update({
         where: { id },
         data: {
-          ...(employeeId && { employeeId }),
-          ...(month !== undefined && { month }),
-          ...(year !== undefined && { year }),
-          ...(targetAmount !== undefined && { targetAmount }),
-          ...(isActive !== undefined && { isActive }),
+          ...(employeeId && { employeeId: String(employeeId) }),
+          ...(month !== undefined && { month: effectiveMonth }),
+          ...(year !== undefined && { year: effectiveYear }),
+          ...(safeTargetAmount !== undefined && { targetAmount: safeTargetAmount }),
+          ...(safeMinimumSalesQuota !== undefined && { minimumSalesQuota: safeMinimumSalesQuota }),
+          ...(safeCommissionPercentage !== undefined && { commissionPercentage: safeCommissionPercentage }),
+          ...(status !== undefined && { status: String(status) }),
+          ...(isActive !== undefined && { isActive: Boolean(isActive) }),
         },
         include: {
           employee: true,
@@ -85,12 +192,21 @@ export async function PUT(
       await tx.auditLog.create({
         data: {
           action: 'UPDATE',
-          module: 'SRTargets',
+          module: 'Sys-Ops-Channels',
           recordId: target.id,
           recordLabel: `${target.employee?.name || target.id} - ${target.month}/${target.year}`,
-          userId: security.user?.id || 'system',
-          userName: security.user?.name || 'System',
-          details: JSON.stringify({ employeeId, month, year, targetAmount, isActive }),
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            employeeId: employeeId ? String(employeeId) : undefined,
+            month: month !== undefined ? effectiveMonth : undefined,
+            year: year !== undefined ? effectiveYear : undefined,
+            targetAmount: safeTargetAmount,
+            minimumSalesQuota: safeMinimumSalesQuota,
+            commissionPercentage: safeCommissionPercentage,
+            status: status !== undefined ? String(status) : undefined,
+            isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+          }),
         },
       });
 
@@ -107,42 +223,68 @@ export async function PUT(
   }
 }
 
-// DELETE /api/sr-targets/[id]
+// DELETE /api/sr-targets/[id] - Soft-delete SR target with cross-tenant validation
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const security = await withApiSecurity(request, 'SRTargets', 'DELETE');
   if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
+    const companyId = security.user.companyId;
 
+    // ── Pre-fetch record for cross-tenant validation ──
+    const existing = await db.sRTargetSetup.findUnique({
+      where: { id },
+      include: { employee: true },
+    });
+
+    if (!existing || !existing.isActive) {
+      return NextResponse.json(
+        { error: 'SR target not found' },
+        { status: 404 }
+      );
+    }
+
+    // ── Cross-tenant validation ──
+    if (companyId && existing.companyId && existing.companyId !== companyId) {
+      return NextResponse.json(
+        { error: 'SR target not found' },
+        { status: 404 }
+      );
+    }
+
+    // ── Soft-delete with transaction ──
     await db.$transaction(async (tx) => {
-      const record = await tx.sRTargetSetup.findUnique({
-        where: { id },
-        include: { employee: true },
-      });
-      if (!record) throw new Error('Not found');
-
-      // SRTargetSetup has no FK references, safe to soft-delete
       await tx.sRTargetSetup.update({
         where: { id },
-        data: { isActive: false },
+        data: {
+          isActive: false,
+          status: 'INACTIVE',
+        },
       });
 
       await tx.auditLog.create({
         data: {
           action: 'DELETE',
-          module: 'SRTargets',
-          recordId: record.id,
-          recordLabel: `${record.employee?.name || record.id} - ${record.month}/${record.year}`,
-          userId: security.user?.id || 'system',
-          userName: security.user?.name || 'System',
-          details: JSON.stringify({ employeeId: record.employeeId, month: record.month, year: record.year, softDelete: true }),
+          module: 'Sys-Ops-Channels',
+          recordId: existing.id,
+          recordLabel: `${existing.employee?.name || existing.id} - ${existing.month}/${existing.year}`,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            employeeId: existing.employeeId,
+            month: existing.month,
+            year: existing.year,
+            targetAmount: existing.targetAmount,
+            minimumSalesQuota: existing.minimumSalesQuota,
+            commissionPercentage: existing.commissionPercentage,
+            softDelete: true,
+          }),
         },
       });
-
-      return record;
     });
 
     return NextResponse.json({ success: true });

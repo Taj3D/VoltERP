@@ -64,6 +64,10 @@ const REPORT_CATEGORIES: Record<ReportCategoryKey, ReportCategory> = {
       { value: "stock-qty", label: "Stock Quantity Report" },
       { value: "stock-forecast-product", label: "Stock Forecasting (Product Wise)" },
       { value: "stock-forecast-concern", label: "Stock Forecasting (Concern Wise)" },
+      { value: "stock-trends", label: "Stock Trend Analysis" },
+      { value: "supplier-status", label: "Supplier Status Grid" },
+      { value: "sales-performance", label: "Sales Performance Indicators" },
+      { value: "employee-records", label: "Enhanced Employee Records" },
     ],
   },
   purchase: {
@@ -159,6 +163,10 @@ const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype:
   "stock-qty-report": { category: "basic", subtype: "stock-qty" },
   "stock-forecast-product": { category: "basic", subtype: "stock-forecast-product" },
   "stock-forecast-concern": { category: "basic", subtype: "stock-forecast-concern" },
+  "stock-trends-report": { category: "basic", subtype: "stock-trends" },
+  "supplier-status-report": { category: "basic", subtype: "supplier-status" },
+  "sales-performance-report": { category: "basic", subtype: "sales-performance" },
+  "employee-records-report": { category: "basic", subtype: "employee-records" },
   // Purchase Report
   "supplier-ledger-report": { category: "purchase", subtype: "supplier-ledger" },
   "daily-purchase-report": { category: "purchase", subtype: "daily-purchase" },
@@ -265,10 +273,12 @@ function useAuth() {
 // UTILITY FUNCTIONS
 // ============================================================
 
+const misCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: unknown, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency")
-    return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+    return `৳${misCurrencyFmt.format(Number(v))}`;
   if (type === "date")
     return v
       ? new Date(v as string).toLocaleDateString("en-GB", {
@@ -647,12 +657,18 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
         })
       );
       const subtitle = `Period: ${fmt(fromDate, "date")} - ${fmt(toDate, "date")}${isVatAuditor ? " | VAT AUDIT MODE" : ""}`;
-      exportToPDFSimple(reportData.title || "MIS Report", headers, body, "landscape", subtitle);
+      const printedBy = user?.displayName || user?.name || "System";
+      exportToPDFSimple(reportData.title || "MIS Report", headers, body, "landscape", subtitle, undefined, {
+        preparedBy: printedBy,
+        checkedBy: "",
+        authorizedBy: "",
+        printedBy,
+      });
       toast({ title: "Exported", description: "PDF exported successfully" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
-  }, [reportData, sortedRows, isVatAuditor, fromDate, toDate, toast]);
+  }, [reportData, sortedRows, isVatAuditor, fromDate, toDate, user, toast]);
 
   const importCSV = useCallback(() => {
     if (!reportData) {
@@ -775,7 +791,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as ReportCategoryKey)}
       >
-        <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
+        <TabsList className="flex overflow-x-auto scrollbar-none h-auto gap-1 bg-muted/50 p-1">
           {(
             [
               ["basic", "Basic Report"],
@@ -1008,7 +1024,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
         <div className="space-y-4">
           {/* ---- Summary Stat Cards ---- */}
           {statCards.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
               {statCards.map((stat, i) => (
                 <Card key={i} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-4 flex items-center gap-3">
@@ -1151,8 +1167,8 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="max-h-[55vh] overflow-y-auto styled-scrollbar">
-                <Table>
+              <div className="max-h-[55vh] overflow-x-auto overflow-y-auto styled-scrollbar -mx-2 sm:mx-0">
+                <Table className="min-w-[700px]">
                   <TableHeader>
                     <TableRow className="bg-muted/60 hover:bg-muted/60 sticky top-0 z-10">
                       <TableHead className="w-12 text-center">#</TableHead>

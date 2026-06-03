@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import { safeFinancialAdd, safeFinancialSubtract, safeFinancialRound } from '@/lib/api-security';
 import type { UserRole } from '@/lib/api-security';
 
 // ============================================================
@@ -98,8 +99,10 @@ function maskVat(val: unknown, vatMode: boolean): unknown {
   return val;
 }
 
+const misApiCurrencyFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function fmt(num: number): string {
-  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return misApiCurrencyFmt.format(num);
 }
 
 function emptyReport(title: string, columns: ColumnDef[]): ReportResult {
@@ -557,6 +560,412 @@ async function stockForecastConcern(params: QueryParams): Promise<ReportResult> 
       totalBelowReorder: Array.from(companyMap.values()).reduce((s, v) => s + v.belowReorder, 0),
     },
     chartData: Array.from(companyMap.values()).map((v) => ({ name: v.company, products: v.totalProducts, belowReorder: v.belowReorder })),
+  };
+}
+
+// ============================================================
+// BASIC REPORTS — EXTENDED SUB-REPORTS
+// ============================================================
+
+async function stockTrends(params: QueryParams): Promise<ReportResult> {
+  const where: Record<string, unknown> = { isActive: true };
+  if (params.categoryId) where.categoryId = params.categoryId;
+  if (params.companyId) where.companyId = params.companyId;
+  if (params.productId) where.id = params.productId;
+  if (params.godownId) where.godownId = params.godownId;
+
+  const products = await db.product.findMany({
+    where,
+    include: { category: true, stockEntries: {} },
+  });
+
+  const columns: ColumnDef[] = [
+    { key: 'product', label: 'Product' },
+    { key: 'category', label: 'Category' },
+    { key: 'currentQty', label: 'Current Qty' },
+    { key: 'avgDailyOut', label: 'Avg Daily Out' },
+    { key: 'daysUntilStockout', label: 'Days Until Stockout' },
+    { key: 'trendDirection', label: 'Trend Direction' },
+  ];
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  let rows = products.map((p) => {
+    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+    const currentQty = p.openingStock + stockIn - stockOut;
+
+    // Calculate 30-day out rate
+    const recentOut = p.stockEntries
+      .filter((se) => se.type === 'OUT' && new Date(se.date) >= thirtyDaysAgo)
+      .reduce((s, se) => s + se.quantity, 0);
+    const recentIn = p.stockEntries
+      .filter((se) => se.type === 'IN' && new Date(se.date) >= thirtyDaysAgo)
+      .reduce((s, se) => s + se.quantity, 0);
+    const avgDailyOut = safeFinancialRound(recentOut / 30);
+    const daysUntilStockout = avgDailyOut > 0 ? Math.floor(currentQty / avgDailyOut) : Infinity;
+
+    // Trend direction: compare recent IN vs OUT
+    let trendDirection = '→';
+    if (recentOut > recentIn * 1.2) trendDirection = '↓';
+    else if (recentIn > recentOut * 1.2) trendDirection = '↑';
+
+    return {
+      product: p.name,
+      category: p.category?.name || '',
+      currentQty,
+      avgDailyOut: safeFinancialRound(avgDailyOut),
+      daysUntilStockout: daysUntilStockout === Infinity ? '∞' : daysUntilStockout,
+      trendDirection,
+    };
+  });
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
+
+  const trendingUp = rows.filter((r) => r.trendDirection === '↑').length;
+  const trendingDown = rows.filter((r) => r.trendDirection === '↓').length;
+  const criticalStockout = rows.filter(
+    (r) => typeof r.daysUntilStockout === 'number' && (r.daysUntilStockout as number) <= 7
+  ).length;
+
+  return {
+    title: 'Stock Trend Analysis Report',
+    columns,
+    rows,
+    summary: {
+      totalProducts: products.length,
+      trendingUp,
+      trendingDown,
+      criticalStockout,
+    },
+    chartData: rows.slice(0, 20).map((r) => ({
+      name: String(r.product),
+      currentQty: r.currentQty,
+      avgDailyOut: r.avgDailyOut,
+    })),
+  };
+}
+
+async function supplierStatus(params: QueryParams): Promise<ReportResult> {
+  const supplierWhere: Record<string, unknown> = { isActive: true };
+  if (params.supplierId) supplierWhere.id = params.supplierId;
+
+  const suppliers = await db.supplier.findMany({
+    where: supplierWhere,
+    include: {
+      purchaseOrders: { where: { isActive: true } },
+      purchaseReturns: { where: { isActive: true } },
+      cashDeliveries: { where: { isActive: true } },
+    },
+  });
+
+  const columns: ColumnDef[] = [
+    { key: 'supplierCode', label: 'Supplier Code' },
+    { key: 'supplierName', label: 'Supplier Name' },
+    { key: 'totalPurchase', label: 'Total Purchase' },
+    { key: 'totalPaid', label: 'Total Paid' },
+    { key: 'outstandingBalance', label: 'Outstanding Balance' },
+    { key: 'paymentStatus', label: 'Payment Status' },
+    { key: 'lastTransactionDate', label: 'Last Transaction Date' },
+  ];
+
+  let rows = suppliers.map((s) => {
+    const totalPurchase = safeFinancialRound(s.purchaseOrders.reduce((sum, po) => safeFinancialAdd(sum, po.grandTotal), 0));
+    const totalReturns = safeFinancialRound(s.purchaseReturns.reduce((sum, r) => safeFinancialAdd(sum, r.grandTotal), 0));
+    const totalPaid = safeFinancialRound(s.cashDeliveries.reduce((sum, d) => safeFinancialAdd(sum, d.amount), 0));
+    const outstandingBalance = safeFinancialRound(
+      Math.max(safeFinancialAdd(s.openingBalance, safeFinancialSubtract(totalPurchase, safeFinancialAdd(totalPaid, totalReturns))), 0)
+    );
+
+    // Payment status
+    let paymentStatus = 'Clear';
+    if (outstandingBalance > 0) {
+      // Check if overdue — if supplier has outstanding and last PO is older than 30 days
+      const lastPODate = s.purchaseOrders.length > 0
+        ? new Date(Math.max(...s.purchaseOrders.map((po) => new Date(po.date).getTime())))
+        : null;
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      if (lastPODate && lastPODate < thirtyDaysAgo) {
+        paymentStatus = 'Overdue';
+      } else {
+        paymentStatus = 'Current';
+      }
+    }
+
+    // Last transaction date — latest of PO, return, or delivery
+    const allDates = [
+      ...s.purchaseOrders.map((po) => new Date(po.date).getTime()),
+      ...s.purchaseReturns.map((r) => new Date(r.date).getTime()),
+      ...s.cashDeliveries.map((d) => new Date(d.date).getTime()),
+    ];
+    const lastTransactionDate = allDates.length > 0
+      ? new Date(Math.max(...allDates)).toLocaleDateString()
+      : '—';
+
+    return {
+      supplierCode: s.supplierCode,
+      supplierName: s.name,
+      totalPurchase: maskVat(totalPurchase, params.vatMode),
+      totalPaid: maskVat(totalPaid, params.vatMode),
+      outstandingBalance: maskVat(outstandingBalance, params.vatMode),
+      paymentStatus,
+      lastTransactionDate,
+    };
+  });
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
+
+  const totalOutstanding = suppliers.reduce((sum, s) => {
+    const totalPurchase = s.purchaseOrders.reduce((a, po) => safeFinancialAdd(a, po.grandTotal), 0);
+    const totalReturns = s.purchaseReturns.reduce((a, r) => safeFinancialAdd(a, r.grandTotal), 0);
+    const totalPaid = s.cashDeliveries.reduce((a, d) => safeFinancialAdd(a, d.amount), 0);
+    return safeFinancialAdd(sum, Math.max(safeFinancialAdd(s.openingBalance, safeFinancialSubtract(totalPurchase, safeFinancialAdd(totalPaid, totalReturns))), 0));
+  }, 0);
+
+  const overdueCount = rows.filter((r) => r.paymentStatus === 'Overdue').length;
+  const clearCount = rows.filter((r) => r.paymentStatus === 'Clear').length;
+
+  return {
+    title: 'Supplier Status Grid',
+    columns,
+    rows,
+    summary: {
+      totalSuppliers: suppliers.length,
+      totalOutstanding: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalOutstanding)),
+      overdueCount,
+      clearCount,
+    },
+    chartData: [
+      { name: 'Clear', count: clearCount },
+      { name: 'Current', count: rows.filter((r) => r.paymentStatus === 'Current').length },
+      { name: 'Overdue', count: overdueCount },
+    ],
+  };
+}
+
+async function salesPerformance(params: QueryParams): Promise<ReportResult> {
+  const where: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] } };
+  if (params.customerId) where.customerId = params.customerId;
+  if (params.employeeId) where.srId = params.employeeId;
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) where.date = dateFilter;
+
+  const salesOrders = await db.salesOrder.findMany({
+    where,
+    include: {
+      sr: { include: { designation: true } },
+      lines: { include: { product: true } },
+    },
+  });
+
+  // Fetch SR targets for commission lookup
+  const srTargets = await db.sRTargetSetup.findMany({
+    where: { isActive: true, status: 'ACTIVE' },
+  });
+
+  const columns: ColumnDef[] = [
+    { key: 'srName', label: 'SR Name' },
+    { key: 'month', label: 'Month' },
+    { key: 'totalOrders', label: 'Total Orders' },
+    { key: 'totalRevenue', label: 'Total Revenue' },
+    { key: 'avgOrderValue', label: 'Avg Order Value' },
+    { key: 'topProduct', label: 'Top Product' },
+    { key: 'commission', label: 'Commission' },
+  ];
+
+  // Group by SR and month
+  const srMonthMap = new Map<string, {
+    srName: string;
+    month: string;
+    totalOrders: number;
+    totalRevenue: number;
+    productCounts: Record<string, number>;
+    srId: string;
+  }>();
+
+  for (const so of salesOrders) {
+    if (!so.sr) continue;
+    const monthKey = new Date(so.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+    const mapKey = `${so.srId}:${monthKey}`;
+    const existing = srMonthMap.get(mapKey);
+    const revenue = so.grandTotal;
+
+    if (existing) {
+      existing.totalOrders += 1;
+      existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, revenue);
+      for (const line of so.lines) {
+        const pName = line.product?.name || 'Unknown';
+        existing.productCounts[pName] = (existing.productCounts[pName] || 0) + line.quantity;
+      }
+    } else {
+      const productCounts: Record<string, number> = {};
+      for (const line of so.lines) {
+        const pName = line.product?.name || 'Unknown';
+        productCounts[pName] = (productCounts[pName] || 0) + line.quantity;
+      }
+      srMonthMap.set(mapKey, {
+        srName: so.sr.name,
+        month: monthKey,
+        totalOrders: 1,
+        totalRevenue: revenue,
+        productCounts,
+        srId: so.srId || '',
+      });
+    }
+  }
+
+  let rows = Array.from(srMonthMap.values()).map((v) => {
+    const avgOrderValue = v.totalOrders > 0 ? safeFinancialRound(v.totalRevenue / v.totalOrders) : 0;
+    const topProduct = Object.entries(v.productCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+
+    // Lookup commission from srTargets
+    const target = srTargets.find((t) => t.employeeId === v.srId);
+    const commission = target ? safeFinancialRound(v.totalRevenue * target.commissionPercentage / 100) : 0;
+
+    return {
+      srName: v.srName,
+      month: v.month,
+      totalOrders: v.totalOrders,
+      totalRevenue: maskVat(v.totalRevenue, params.vatMode),
+      avgOrderValue: maskVat(avgOrderValue, params.vatMode),
+      topProduct,
+      commission: maskVat(commission, params.vatMode),
+    };
+  });
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
+
+  // Summary
+  const totalRevenue = salesOrders.reduce((s, so) => safeFinancialAdd(s, so.grandTotal), 0);
+  const totalOrders = salesOrders.length;
+  const avgOrderValue = totalOrders > 0 ? safeFinancialRound(totalRevenue / totalOrders) : 0;
+
+  // Top SR by revenue
+  const srRevenueMap = new Map<string, number>();
+  for (const so of salesOrders) {
+    if (!so.sr) continue;
+    const current = srRevenueMap.get(so.sr.name) || 0;
+    srRevenueMap.set(so.sr.name, safeFinancialAdd(current, so.grandTotal));
+  }
+  const topSR = Array.from(srRevenueMap.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+
+  return {
+    title: 'Sales Performance Indicators',
+    columns,
+    rows,
+    summary: {
+      totalRevenue: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalRevenue)),
+      avgOrderValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(avgOrderValue),
+      topSR,
+      totalOrders,
+    },
+    chartData: Array.from(srRevenueMap.entries()).slice(0, 10).map(([name, revenue]) => ({
+      name,
+      revenue: params.vatMode ? 0 : revenue,
+    })),
+  };
+}
+
+async function employeeRecords(params: QueryParams): Promise<ReportResult> {
+  const where: Record<string, unknown> = { isActive: true };
+  if (params.employeeId) where.id = params.employeeId;
+  if (params.companyId) where.companyId = params.companyId;
+
+  const employees = await db.employee.findMany({
+    where,
+    include: {
+      designation: true,
+      department: true,
+      leaveAllocations: { where: { isActive: true } },
+    },
+  });
+
+  const columns: ColumnDef[] = [
+    { key: 'employeeCode', label: 'Code' },
+    { key: 'name', label: 'Name' },
+    { key: 'designation', label: 'Designation' },
+    { key: 'department', label: 'Department' },
+    { key: 'joiningDate', label: 'Joining Date' },
+    { key: 'baseSalary', label: 'Base Salary' },
+    { key: 'casualLeave', label: 'Casual Leave' },
+    { key: 'sickLeave', label: 'Sick Leave' },
+    { key: 'annualLeave', label: 'Annual Leave' },
+    { key: 'status', label: 'Status' },
+    { key: 'serviceYears', label: 'Service Years' },
+  ];
+
+  const currentYear = new Date().getFullYear();
+
+  let rows = employees.map((e) => {
+    // Compute leave balances from LeaveAllocation
+    const casualAlloc = e.leaveAllocations.find((la) => la.leaveType === 'Casual' && la.year === currentYear);
+    const sickAlloc = e.leaveAllocations.find((la) => la.leaveType === 'Sick' && la.year === currentYear);
+    const annualAlloc = e.leaveAllocations.find((la) => la.leaveType === 'Annual' && la.year === currentYear);
+
+    const casualLeave = casualAlloc ? `${casualAlloc.remainingDays}/${casualAlloc.allocatedDays}` : '0/0';
+    const sickLeave = sickAlloc ? `${sickAlloc.remainingDays}/${sickAlloc.allocatedDays}` : '0/0';
+    const annualLeave = annualAlloc ? `${annualAlloc.remainingDays}/${annualAlloc.allocatedDays}` : '0/0';
+
+    // Service years
+    const joinDate = e.joiningDate ? new Date(e.joiningDate) : null;
+    const serviceYears = joinDate
+      ? safeFinancialRound((Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+      : 0;
+
+    return {
+      employeeCode: e.employeeCode,
+      name: e.name,
+      designation: e.designation?.name || '',
+      department: e.department?.name || '',
+      joiningDate: e.joiningDate ? new Date(e.joiningDate).toLocaleDateString() : '',
+      baseSalary: maskVat(e.baseSalary, params.vatMode),
+      casualLeave,
+      sickLeave,
+      annualLeave,
+      status: e.isActive ? 'Active' : 'Inactive',
+      serviceYears,
+    };
+  });
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
+
+  // Summary
+  const totalEmployees = employees.length;
+  const avgSalary = totalEmployees > 0
+    ? safeFinancialRound(employees.reduce((s, e) => safeFinancialAdd(s, e.baseSalary), 0) / totalEmployees)
+    : 0;
+  const avgServiceYears = totalEmployees > 0
+    ? safeFinancialRound(employees.reduce((s, e) => {
+        const joinDate = e.joiningDate ? new Date(e.joiningDate) : null;
+        const years = joinDate ? (Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000) : 0;
+        return s + years;
+      }, 0) / totalEmployees)
+    : 0;
+
+  // Department breakdown
+  const deptBreakdown: Record<string, number> = {};
+  for (const e of employees) {
+    const dept = e.department?.name || 'Unknown';
+    deptBreakdown[dept] = (deptBreakdown[dept] || 0) + 1;
+  }
+
+  return {
+    title: 'Enhanced Employee Records',
+    columns,
+    rows,
+    summary: {
+      totalEmployees,
+      avgSalary: params.vatMode ? 'N/A (Audit Mode)' : fmt(avgSalary),
+      avgServiceYears: safeFinancialRound(avgServiceYears),
+      departmentBreakdown: deptBreakdown,
+    },
+    chartData: Object.entries(deptBreakdown).map(([name, count]) => ({ name, count })),
   };
 }
 
@@ -2130,6 +2539,459 @@ async function expenseReport(params: QueryParams): Promise<ReportResult> {
   };
 }
 
+// ============================================================
+// MANAGEMENT REPORTS — INDIVIDUAL SUBTYPES
+// ============================================================
+
+async function productWiseBenefit(params: QueryParams): Promise<ReportResult> {
+  const dateFilter = buildDateFilter(params.from, params.to);
+  const soWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] } };
+  if (params.customerId) soWhere.customerId = params.customerId;
+  if (dateFilter) soWhere.date = dateFilter;
+
+  const salesOrders = await db.salesOrder.findMany({
+    where: soWhere,
+    include: { lines: { include: { product: { include: { category: true } } } } },
+  });
+
+  // Aggregate by product
+  const prodMap = new Map<string, { product: string; category: string; qtySold: number; totalRevenue: number; totalCost: number }>();
+  for (const so of salesOrders) {
+    for (const line of so.lines) {
+      const pName = line.product?.name || 'Unknown';
+      const existing = prodMap.get(pName);
+      const revenue = line.lineTotal || (line.quantity * line.unitPrice);
+      const cost = line.product?.costPrice ? line.product.costPrice * line.quantity : 0;
+      if (existing) {
+        existing.qtySold += line.quantity;
+        existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, revenue);
+        existing.totalCost = safeFinancialAdd(existing.totalCost, cost);
+      } else {
+        prodMap.set(pName, {
+          product: pName,
+          category: line.product?.category?.name || 'Unknown',
+          qtySold: line.quantity,
+          totalRevenue: revenue,
+          totalCost: cost,
+        });
+      }
+    }
+  }
+
+  const columns: ColumnDef[] = [
+    { key: 'product', label: 'Product' },
+    { key: 'category', label: 'Category' },
+    { key: 'qtySold', label: 'Qty Sold' },
+    { key: 'totalRevenue', label: 'Total Revenue' },
+    { key: 'totalCost', label: 'Total Cost' },
+    { key: 'profit', label: 'Profit' },
+    { key: 'margin', label: 'Margin %' },
+  ];
+
+  let rows = Array.from(prodMap.values()).map((v) => {
+    const profit = safeFinancialSubtract(v.totalRevenue, v.totalCost);
+    const margin = v.totalRevenue > 0 ? safeFinancialRound((profit / v.totalRevenue) * 100) : 0;
+    return {
+      product: v.product,
+      category: v.category,
+      qtySold: v.qtySold,
+      totalRevenue: maskVat(v.totalRevenue, params.vatMode),
+      totalCost: maskVat(v.totalCost, params.vatMode),
+      profit: maskVat(profit, params.vatMode),
+      margin: maskVat(`${margin}%`, params.vatMode),
+    };
+  });
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+
+  const totalRevenue = Array.from(prodMap.values()).reduce((s, v) => safeFinancialAdd(s, v.totalRevenue), 0);
+  const totalCost = Array.from(prodMap.values()).reduce((s, v) => safeFinancialAdd(s, v.totalCost), 0);
+  const totalProfit = safeFinancialSubtract(totalRevenue, totalCost);
+
+  return {
+    title: 'Product Wise Benefit Report',
+    columns,
+    rows,
+    summary: {
+      totalProducts: prodMap.size,
+      totalRevenue: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalRevenue)),
+      totalCost: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalCost)),
+      totalProfit: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalProfit)),
+    },
+    chartData: Array.from(prodMap.values()).slice(0, 20).map((v) => ({
+      name: v.product,
+      revenue: params.vatMode ? 0 : v.totalRevenue,
+      cost: params.vatMode ? 0 : v.totalCost,
+    })),
+  };
+}
+
+async function incomeReport(params: QueryParams): Promise<ReportResult> {
+  const where: Record<string, unknown> = { isActive: true };
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) where.date = dateFilter;
+  if (params.bankId) where.bankId = params.bankId;
+
+  const incomes = await db.income.findMany({
+    where,
+    include: { head: true, paymentOption: true, bank: true },
+    orderBy: { date: 'desc' },
+  });
+
+  const headMap = new Map<string, { head: string; count: number; totalAmount: number }>();
+  for (const inc of incomes) {
+    const name = inc.head?.name || 'Unknown';
+    const existing = headMap.get(name);
+    if (existing) {
+      existing.count += 1;
+      existing.totalAmount = safeFinancialAdd(existing.totalAmount, inc.amount);
+    } else {
+      headMap.set(name, { head: name, count: 1, totalAmount: inc.amount });
+    }
+  }
+
+  const columns: ColumnDef[] = [
+    { key: 'head', label: 'Income Head' },
+    { key: 'count', label: 'Count' },
+    { key: 'totalAmount', label: 'Total Amount' },
+  ];
+
+  let rows = Array.from(headMap.values());
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+
+  const totalAmount = incomes.reduce((s, i) => safeFinancialAdd(s, i.amount), 0);
+
+  return {
+    title: 'Income Report',
+    columns,
+    rows,
+    summary: {
+      totalIncomes: incomes.length,
+      totalAmount: fmt(safeFinancialRound(totalAmount)),
+      avgIncome: incomes.length > 0 ? fmt(safeFinancialRound(totalAmount / incomes.length)) : '0.00',
+    },
+    chartData: Array.from(headMap.values()).map((v) => ({ name: v.head, amount: v.totalAmount })),
+  };
+}
+
+async function adjustmentReport(params: QueryParams): Promise<ReportResult> {
+  // Adjustment report covers ledger adjustments and period-close adjustments
+  const dateFilter = buildDateFilter(params.from, params.to);
+
+  const ledgerWhere: Record<string, unknown> = {};
+  if (dateFilter) ledgerWhere.date = dateFilter;
+
+  const ledgerEntries = await db.ledgerEntry.findMany({
+    where: ledgerWhere,
+    include: { chartOfAccount: true },
+    orderBy: { date: 'desc' },
+    take: 500,
+  });
+
+  // Filter for adjustment-type entries (journalVoucher exists or narration includes 'adjust')
+  const adjustments = ledgerEntries.filter(
+    (le) => le.journalVoucher || (le.narration && le.narration.toLowerCase().includes('adjust'))
+  );
+
+  const columns: ColumnDef[] = [
+    { key: 'date', label: 'Date' },
+    { key: 'account', label: 'Account' },
+    { key: 'debit', label: 'Debit' },
+    { key: 'credit', label: 'Credit' },
+    { key: 'narration', label: 'Narration' },
+    { key: 'voucherNo', label: 'Voucher No' },
+  ];
+
+  let rows = adjustments.map((le) => ({
+    date: new Date(le.date).toLocaleDateString(),
+    account: le.chartOfAccount?.name || '',
+    debit: le.debit,
+    credit: le.credit,
+    narration: le.narration || '',
+    voucherNo: le.journalVoucher || '',
+  }));
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+
+  const totalDebit = adjustments.reduce((s, a) => safeFinancialAdd(s, a.debit), 0);
+  const totalCredit = adjustments.reduce((s, a) => safeFinancialAdd(s, a.credit), 0);
+
+  return {
+    title: 'Adjustment Report',
+    columns,
+    rows,
+    summary: {
+      totalAdjustments: adjustments.length,
+      totalDebit: fmt(safeFinancialRound(totalDebit)),
+      totalCredit: fmt(safeFinancialRound(totalCredit)),
+    },
+    chartData: [],
+  };
+}
+
+async function transactionSummary(params: QueryParams): Promise<ReportResult> {
+  const dateFilter = buildDateFilter(params.from, params.to);
+
+  // Count transactions by type
+  const soWhere: Record<string, unknown> = { isActive: true };
+  const poWhere: Record<string, unknown> = { isActive: true };
+  const expWhere: Record<string, unknown> = { isActive: true };
+  const incWhere: Record<string, unknown> = { isActive: true };
+  const ccWhere: Record<string, unknown> = { isActive: true };
+  const cdWhere: Record<string, unknown> = { isActive: true };
+  const btWhere: Record<string, unknown> = { isActive: true };
+
+  if (dateFilter) {
+    soWhere.date = dateFilter;
+    poWhere.date = dateFilter;
+    expWhere.date = dateFilter;
+    incWhere.date = dateFilter;
+    ccWhere.date = dateFilter;
+    cdWhere.date = dateFilter;
+    btWhere.date = dateFilter;
+  }
+
+  const [salesCount, purchaseCount, expenseCount, incomeCount, collectionCount, deliveryCount, bankTxCount] = await Promise.all([
+    db.salesOrder.count({ where: soWhere }),
+    db.purchaseOrder.count({ where: poWhere }),
+    db.expense.count({ where: expWhere }),
+    db.income.count({ where: incWhere }),
+    db.cashCollection.count({ where: ccWhere }),
+    db.cashDelivery.count({ where: cdWhere }),
+    db.bankTransaction.count({ where: btWhere }),
+  ]);
+
+  const [salesTotal, purchaseTotal, expenseTotal, incomeTotal, collectionTotal, deliveryTotal, bankTxTotal] = await Promise.all([
+    db.salesOrder.aggregate({ where: soWhere, _sum: { grandTotal: true } }),
+    db.purchaseOrder.aggregate({ where: poWhere, _sum: { grandTotal: true } }),
+    db.expense.aggregate({ where: expWhere, _sum: { amount: true } }),
+    db.income.aggregate({ where: incWhere, _sum: { amount: true } }),
+    db.cashCollection.aggregate({ where: ccWhere, _sum: { amount: true } }),
+    db.cashDelivery.aggregate({ where: cdWhere, _sum: { amount: true } }),
+    db.bankTransaction.aggregate({ where: btWhere, _sum: { amount: true } }),
+  ]);
+
+  const columns: ColumnDef[] = [
+    { key: 'transactionType', label: 'Transaction Type' },
+    { key: 'count', label: 'Count' },
+    { key: 'totalAmount', label: 'Total Amount' },
+  ];
+
+  const rows: Record<string, unknown>[] = [
+    { transactionType: 'Sales Orders', count: salesCount, totalAmount: salesTotal._sum.grandTotal || 0 },
+    { transactionType: 'Purchase Orders', count: purchaseCount, totalAmount: purchaseTotal._sum.grandTotal || 0 },
+    { transactionType: 'Expenses', count: expenseCount, totalAmount: expenseTotal._sum.amount || 0 },
+    { transactionType: 'Incomes', count: incomeCount, totalAmount: incomeTotal._sum.amount || 0 },
+    { transactionType: 'Cash Collections', count: collectionCount, totalAmount: collectionTotal._sum.amount || 0 },
+    { transactionType: 'Cash Deliveries', count: deliveryCount, totalAmount: deliveryTotal._sum.amount || 0 },
+    { transactionType: 'Bank Transactions', count: bankTxCount, totalAmount: bankTxTotal._sum.amount || 0 },
+  ];
+
+  const totalTransactions = salesCount + purchaseCount + expenseCount + incomeCount + collectionCount + deliveryCount + bankTxCount;
+
+  return {
+    title: 'Transaction Summary Report',
+    columns,
+    rows,
+    summary: {
+      totalTransactions,
+      transactionTypes: 7,
+    },
+    chartData: rows.map((r) => ({ name: String(r.transactionType), count: r.count, amount: r.totalAmount })),
+  };
+}
+
+async function monthlyTransaction(params: QueryParams): Promise<ReportResult> {
+  const dateFilter = buildDateFilter(params.from, params.to);
+
+  const soWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] } };
+  const poWhere: Record<string, unknown> = { isActive: true };
+  const expWhere: Record<string, unknown> = { isActive: true };
+  if (dateFilter) { soWhere.date = dateFilter; poWhere.date = dateFilter; expWhere.date = dateFilter; }
+
+  const [salesOrders, purchaseOrders, expenses] = await Promise.all([
+    db.salesOrder.findMany({ where: soWhere, select: { grandTotal: true, date: true } }),
+    db.purchaseOrder.findMany({ where: poWhere, select: { grandTotal: true, date: true } }),
+    db.expense.findMany({ where: expWhere, select: { amount: true, date: true } }),
+  ]);
+
+  // Group by month
+  const monthMap = new Map<string, { month: string; sales: number; purchases: number; expenses: number }>();
+  for (const so of salesOrders) {
+    const key = new Date(so.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
+    existing.sales = safeFinancialAdd(existing.sales, so.grandTotal);
+    monthMap.set(key, existing);
+  }
+  for (const po of purchaseOrders) {
+    const key = new Date(po.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
+    existing.purchases = safeFinancialAdd(existing.purchases, po.grandTotal);
+    monthMap.set(key, existing);
+  }
+  for (const exp of expenses) {
+    const key = new Date(exp.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
+    existing.expenses = safeFinancialAdd(existing.expenses, exp.amount);
+    monthMap.set(key, existing);
+  }
+
+  const columns: ColumnDef[] = [
+    { key: 'month', label: 'Month' },
+    { key: 'sales', label: 'Sales' },
+    { key: 'purchases', label: 'Purchases' },
+    { key: 'expenses', label: 'Expenses' },
+    { key: 'net', label: 'Net (Sales - Purchases - Expenses)' },
+  ];
+
+  let rows = Array.from(monthMap.values()).map((v) => ({
+    month: v.month,
+    sales: maskVat(v.sales, params.vatMode),
+    purchases: maskVat(v.purchases, params.vatMode),
+    expenses: v.expenses,
+    net: maskVat(safeFinancialSubtract(v.sales, safeFinancialAdd(v.purchases, v.expenses)), params.vatMode),
+  }));
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+
+  const totalSales = Array.from(monthMap.values()).reduce((s, v) => safeFinancialAdd(s, v.sales), 0);
+  const totalPurchases = Array.from(monthMap.values()).reduce((s, v) => safeFinancialAdd(s, v.purchases), 0);
+  const totalExpenses = Array.from(monthMap.values()).reduce((s, v) => safeFinancialAdd(s, v.expenses), 0);
+
+  return {
+    title: 'Monthly Transaction Report',
+    columns,
+    rows,
+    summary: {
+      totalMonths: monthMap.size,
+      totalSales: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalSales)),
+      totalPurchases: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalPurchases)),
+      totalExpenses: fmt(safeFinancialRound(totalExpenses)),
+    },
+    chartData: Array.from(monthMap.values()).map((v) => ({
+      month: v.month,
+      sales: params.vatMode ? 0 : v.sales,
+      purchases: params.vatMode ? 0 : v.purchases,
+      expenses: v.expenses,
+    })),
+  };
+}
+
+async function showroomAnalysis(params: QueryParams): Promise<ReportResult> {
+  const dateFilter = buildDateFilter(params.from, params.to);
+
+  // Analyze by godown/showroom
+  const soWhere: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] } };
+  if (dateFilter) soWhere.date = dateFilter;
+
+  const salesOrders = await db.salesOrder.findMany({
+    where: soWhere,
+    include: { lines: { include: { product: { include: { godown: true } } } } },
+  });
+
+  const godownMap = new Map<string, { showroom: string; totalOrders: number; totalRevenue: number; totalQty: number }>();
+  for (const so of salesOrders) {
+    for (const line of so.lines) {
+      const godown = line.product?.godown?.name || 'Unassigned';
+      const existing = godownMap.get(godown) || { showroom: godown, totalOrders: 0, totalRevenue: 0, totalQty: 0 };
+      existing.totalOrders += 1;
+      existing.totalQty += line.quantity;
+      existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, line.lineTotal || line.quantity * line.unitPrice);
+      godownMap.set(godown, existing);
+    }
+  }
+
+  const columns: ColumnDef[] = [
+    { key: 'showroom', label: 'Showroom / Godown' },
+    { key: 'totalOrders', label: 'Total Orders' },
+    { key: 'totalQty', label: 'Qty Sold' },
+    { key: 'totalRevenue', label: 'Total Revenue' },
+    { key: 'avgOrderValue', label: 'Avg Order Value' },
+  ];
+
+  let rows = Array.from(godownMap.values()).map((v) => ({
+    showroom: v.showroom,
+    totalOrders: v.totalOrders,
+    totalQty: v.totalQty,
+    totalRevenue: maskVat(v.totalRevenue, params.vatMode),
+    avgOrderValue: maskVat(v.totalOrders > 0 ? safeFinancialRound(v.totalRevenue / v.totalOrders) : 0, params.vatMode),
+  }));
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+
+  const totalRevenue = Array.from(godownMap.values()).reduce((s, v) => safeFinancialAdd(s, v.totalRevenue), 0);
+  const totalOrders = Array.from(godownMap.values()).reduce((s, v) => s + v.totalOrders, 0);
+
+  return {
+    title: 'Showroom Analysis Report',
+    columns,
+    rows,
+    summary: {
+      totalShowrooms: godownMap.size,
+      totalOrders,
+      totalRevenue: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalRevenue)),
+    },
+    chartData: Array.from(godownMap.values()).map((v) => ({
+      name: v.showroom,
+      revenue: params.vatMode ? 0 : v.totalRevenue,
+      orders: v.totalOrders,
+    })),
+  };
+}
+
+async function transferReport(params: QueryParams): Promise<ReportResult> {
+  const where: Record<string, unknown> = { isActive: true, type: 'Transfer' };
+  if (params.bankId) where.bankId = params.bankId;
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) where.date = dateFilter;
+
+  const transfers = await db.bankTransaction.findMany({
+    where,
+    include: { bank: true, toBank: true },
+    orderBy: { date: 'desc' },
+  });
+
+  const columns: ColumnDef[] = [
+    { key: 'date', label: 'Date' },
+    { key: 'transactionCode', label: 'Code' },
+    { key: 'fromBank', label: 'From Bank' },
+    { key: 'toBank', label: 'To Bank' },
+    { key: 'amount', label: 'Amount' },
+    { key: 'description', label: 'Description' },
+  ];
+
+  let rows = transfers.map((t) => ({
+    date: new Date(t.date).toLocaleDateString(),
+    transactionCode: t.transactionCode,
+    fromBank: t.bank?.bankName || '',
+    toBank: t.toBank?.bankName || '',
+    amount: t.amount,
+    description: t.description || '',
+  }));
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+
+  const totalAmount = transfers.reduce((s, t) => safeFinancialAdd(s, t.amount), 0);
+
+  // Group by from-bank
+  const fromBankMap = new Map<string, number>();
+  for (const t of transfers) {
+    const name = t.bank?.bankName || 'Unknown';
+    fromBankMap.set(name, safeFinancialAdd(fromBankMap.get(name) || 0, t.amount));
+  }
+
+  return {
+    title: 'Transfer Report',
+    columns,
+    rows,
+    summary: {
+      totalTransfers: transfers.length,
+      totalAmount: fmt(safeFinancialRound(totalAmount)),
+    },
+    chartData: Array.from(fromBankMap.entries()).map(([name, amount]) => ({ name, amount })),
+  };
+}
+
 async function managementReport(params: QueryParams): Promise<ReportResult> {
   const dateFilter = buildDateFilter(params.from, params.to);
 
@@ -2353,7 +3215,8 @@ async function advanceSearch(params: QueryParams): Promise<ReportResult> {
     ]);
   }
 
-  const containsFilter = { contains: keyword, mode: 'insensitive' as const };
+  // SQLite is case-insensitive by default for ASCII; mode:'insensitive' crashes SQLite
+  const containsFilter = { contains: keyword };
   const dateFilter = buildDateFilter(params.from, params.to);
 
   const [products, customers, suppliers, salesOrders, purchaseOrders] = await Promise.all([
@@ -2538,6 +3401,18 @@ export async function GET(request: NextRequest) {
       case 'basic:stock-forecast-concern':
         result = await stockForecastConcern(params);
         break;
+      case 'basic:stock-trends':
+        result = await stockTrends(params);
+        break;
+      case 'basic:supplier-status':
+        result = await supplierStatus(params);
+        break;
+      case 'basic:sales-performance':
+        result = await salesPerformance(params);
+        break;
+      case 'basic:employee-records':
+        result = await employeeRecords(params);
+        break;
 
       // Purchase Reports
       case 'purchase:supplier-ledger':
@@ -2640,6 +3515,24 @@ export async function GET(request: NextRequest) {
       case 'management:expense-report':
         result = await expenseReport(params);
         break;
+      case 'management:product-wise-benefit':
+        result = await productWiseBenefit(params);
+        break;
+      case 'management:income-report':
+        result = await incomeReport(params);
+        break;
+      case 'management:adjustment-report':
+        result = await adjustmentReport(params);
+        break;
+      case 'management:transaction-summary':
+        result = await transactionSummary(params);
+        break;
+      case 'management:monthly-transaction':
+        result = await monthlyTransaction(params);
+        break;
+      case 'management:showroom-analysis':
+        result = await showroomAnalysis(params);
+        break;
       case 'management:management-report':
         result = await managementReport(params);
         break;
@@ -2648,8 +3541,12 @@ export async function GET(request: NextRequest) {
       case 'bank:bank-transaction-report':
         result = await bankTransactionReport(params);
         break;
+      case 'bank:bank-ledger-report':
       case 'bank:bank-balance-report':
         result = await bankBalanceReport(params);
+        break;
+      case 'bank:transfer-report':
+        result = await transferReport(params);
         break;
 
       // Advance Search
@@ -2665,6 +3562,7 @@ export async function GET(request: NextRequest) {
             availableTypes: [
               'basic:employee-information', 'basic:product-information', 'basic:stock-details', 'basic:stock-summary',
               'basic:stock-ledger', 'basic:stock-qty', 'basic:stock-forecast-product', 'basic:stock-forecast-concern',
+              'basic:stock-trends', 'basic:supplier-status', 'basic:sales-performance', 'basic:employee-records',
               'purchase:supplier-ledger', 'purchase:daily-purchase', 'purchase:supplier-wise-purchase',
               'purchase:supplier-cash-delivery', 'purchase:supplier-due', 'purchase:model-wise-purchase', 'purchase:vat-report',
               'sales:daily-sales', 'sales:replacement-report', 'sales:model-wise-sales',
@@ -2676,8 +3574,10 @@ export async function GET(request: NextRequest) {
               'customer-wise:customer-wise-sales', 'customer-wise:category-wise-customer-due',
               'customer-wise:customer-ledger', 'customer-wise:customer-due-report',
               'customer-wise:customer-cash-collection', 'customer-wise:customer-ledger-summary',
-              'management:expense-report', 'management:management-report',
-              'bank:bank-transaction-report', 'bank:bank-balance-report',
+              'management:expense-report', 'management:product-wise-benefit', 'management:income-report',
+              'management:adjustment-report', 'management:transaction-summary', 'management:monthly-transaction',
+              'management:showroom-analysis', 'management:management-report',
+              'bank:bank-transaction-report', 'bank:bank-ledger-report', 'bank:bank-balance-report', 'bank:transfer-report',
               'advance-search',
             ],
           },

@@ -10,78 +10,6 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import Papa from "papaparse";
 
-// ============================================================
-// TELEMETRY — Server-side Export/Import Action Logging
-// Every PDF export, CSV export, and CSV import across ALL
-// modules triggers a non-blocking telemetry POST to /api/auth/telemetry
-// which appends metadata, timestamp, and target module to the
-// user's live profile activity logs in the AuditLog table.
-// ============================================================
-
-/**
- * Log an export/import action to the server-side telemetry API.
- * This is non-blocking — failures are silently caught to never
- * disrupt the main export/import flow.
- */
-function logExportTelemetry(
-  actionType: "PDF_EXPORT" | "CSV_EXPORT" | "CSV_IMPORT",
-  module: string,
-  filename: string,
-  recordCount?: number
-): void {
-  // Fire-and-forget telemetry logging
-  try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-
-    // Attach authenticated user email for RBAC
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem("ems_auth");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed?.user?.email) {
-            headers["X-User-Email"] = parsed.user.email;
-          }
-        }
-      } catch {}
-    }
-
-    fetch("/api/auth/telemetry", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        actionType,
-        module,
-        filename,
-        recordCount: recordCount || null,
-      }),
-    }).catch(() => {
-      // Non-blocking: telemetry failure must never break the export/import
-    });
-  } catch {
-    // Non-blocking: telemetry failure must never break the export/import
-  }
-}
-
-/**
- * Get the authenticated user's display name for PDF footers.
- * Returns clean display name, never raw username patterns.
- */
-function getTelemetryUserName(): string {
-  if (typeof window === "undefined") return "System";
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const name = parsed?.user?.displayName || parsed?.user?.name || "System";
-      // Safety net: never leak raw username patterns like "emart.amit"
-      if (typeof name === "string" && name.startsWith("emart.")) return "System";
-      return name;
-    }
-  } catch {}
-  return "System";
-}
-
 // NOTE: We use the standalone autoTable(doc, options) function instead of the
 // applyPlugin(jsPDF) + doc.autoTable() pattern. The applyPlugin approach patches
 // jsPDF.API but breaks in Next.js webpack/turbopack because the bundled jsPDF
@@ -120,13 +48,10 @@ export interface CompanyProfile {
   website?: string;
   logo?: string;       // Base64 data URL
   brandLogo?: string;  // Brand logo (high-res)
-  logoData?: string;   // High-density base64 binary storage (fallback for logo)
   logoWidth?: number;  // mm (default 30)
   logoHeight?: number; // mm (default 20)
   vatNumber?: string;
   tradeLicense?: string;
-  binNumber?: string;       // Business Identification Number
-  currencySymbol?: string;  // Currency symbol for financial documents (e.g. "৳", "$", "€")
   invoicePrefix?: string;
   thankYouMsg?: string;
   systemNote?: string;
@@ -160,11 +85,14 @@ export interface PDFOptions {
   customHeader?: (doc: jsPDF, pageNumber: number, pageWidth: number, pageHeight: number) => void;
   /** Optional company profile for dynamic branding in header/footer */
   company?: CompanyProfile;
+  /** System notice statement rendered below the subtitle in the header */
+  systemNotice?: string;
   /** Enterprise Financial Footer: "Prepared By", "Checked By", "Authorized By" signature blocks */
   financialFooter?: {
     preparedBy?: string;
     checkedBy?: string;
     authorizedBy?: string;
+    approvedBy?: string;  // Double-signature panel
     printedBy: string; // Username of the person who generated the PDF
   };
 }
@@ -196,6 +124,161 @@ export interface ImportResult {
 
 const MASKING_SENTINEL = "N/A (Audit Mode)";
 
+// ============================================================
+// UTILITY: Safe BDT Number Formatter
+// GUARANTEES Latin digits (0-9) in all environments.
+// The "en-US" locale is NOT a standard IETF locale tag and
+// causes engines to fall back to Bengali numerals (০-৯) which
+// appear garbled/corrupted in PDF output. We use a custom
+// formatter that always produces Latin digits with standard
+// grouping (1,234,567.89) and exactly 2 decimal places.
+// ============================================================
+
+const bdtFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+  useGrouping: true,
+});
+
+/** Format a number as BDT currency string with guaranteed Latin digits and 2 decimal places */
+export function formatBDT(value: number): string {
+  return bdtFormatter.format(value);
+}
+
+// ============================================================
+// UTILITY: Currency Sanitization Filter
+// Eliminates corrupted numerical digits in running balances
+// Strips non-numeric characters, validates the result, and
+// formats using the safe BDT formatter for consistent output
+// ============================================================
+
+export function sanitizeCurrencyValue(value: any): number {
+  if (value === null || value === undefined || value === '') return 0;
+  
+  // Convert to string and strip all non-numeric chars except . and -
+  let raw = String(value);
+  
+  // Remove known corruption patterns:
+  // - Unicode taka symbol ৳ (U+09F3)
+  // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯
+  // - Comma separators that may have digit corruption
+  // - Any non-ASCII digits that might have been inserted
+  raw = raw.replace(/[\u09F3\u09E6-\u09EF]/g, ''); // Remove ৳ symbol and Bengali digits
+  raw = raw.replace(/[^\d.\-]/g, ''); // Keep only digits, decimal point, and minus sign
+  
+  // Handle multiple decimal points (keep only the first)
+  const parts = raw.split('.');
+  if (parts.length > 2) {
+    raw = parts[0] + '.' + parts.slice(1).join('');
+  }
+  
+  const num = Number(raw);
+  if (isNaN(num)) return 0;
+  return Math.round(num * 100) / 100; // Sanitize to 2 decimal places
+}
+
+/** Format a sanitized currency value for PDF display (right-aligned, guaranteed Latin digits) */
+export function formatSanitizedCurrency(value: any): string {
+  const sanitized = sanitizeCurrencyValue(value);
+  return `\u09F3${formatBDT(sanitized)}`;
+}
+
+// ============================================================
+// UTILITY: Number to Words (BDT Format)
+// Converts a numeric amount to Bangladeshi Taka words:
+// "Taka One Thousand Two Hundred Thirty Four and Paisa Fifty Six Only"
+// Uses South Asian grouping: Crore, Lakh, Thousand, Hundred
+// ============================================================
+
+const TAKA_ONES = [
+  "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+  "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+  "Seventeen", "Eighteen", "Nineteen",
+];
+
+const TAKA_TENS = [
+  "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
+];
+
+function takaConvertHundreds(num: number): string {
+  if (num === 0) return "";
+  let result = "";
+  if (num >= 100) {
+    result += TAKA_ONES[Math.floor(num / 100)] + " Hundred";
+    num %= 100;
+    if (num > 0) result += " ";
+  }
+  if (num >= 20) {
+    result += TAKA_TENS[Math.floor(num / 10)];
+    num %= 10;
+    if (num > 0) result += " " + TAKA_ONES[num];
+  } else if (num > 0) {
+    result += TAKA_ONES[num];
+  }
+  return result;
+}
+
+/** Convert a number to Bangladeshi Taka words (South Asian grouping: Crore, Lakh, Thousand) */
+export function numberToTakaWords(amount: number): string {
+  if (amount === 0) return "Taka Zero Only";
+
+  const isNegative = amount < 0;
+  const absAmount = Math.abs(amount);
+
+  // Split into Taka and Paisa
+  const taka = Math.floor(absAmount);
+  const paisa = Math.round((absAmount - taka) * 100);
+
+  let takaWords = "";
+
+  if (taka === 0) {
+    takaWords = "Zero";
+  } else {
+    // Handle crore (10,000,000)
+    if (taka >= 10000000) {
+      const crore = Math.floor(taka / 10000000);
+      takaWords += takaConvertHundreds(crore) + " Crore";
+      const remainder = taka % 10000000;
+      if (remainder > 0) takaWords += " ";
+    }
+
+    // Handle lakh (100,000)
+    const afterCrore = taka % 10000000;
+    if (afterCrore >= 100000) {
+      const lakh = Math.floor(afterCrore / 100000);
+      takaWords += takaConvertHundreds(lakh) + " Lakh";
+      const remainder = afterCrore % 100000;
+      if (remainder > 0) takaWords += " ";
+    }
+
+    // Handle thousand (1,000)
+    const afterLakh = afterCrore % 100000;
+    if (afterLakh >= 1000) {
+      const thousand = Math.floor(afterLakh / 1000);
+      takaWords += takaConvertHundreds(thousand) + " Thousand";
+      const remainder = afterLakh % 1000;
+      if (remainder > 0) takaWords += " ";
+    }
+
+    // Handle hundreds and below
+    const belowThousand = afterLakh % 1000;
+    if (belowThousand > 0) {
+      takaWords += takaConvertHundreds(belowThousand);
+    }
+  }
+
+  let result = "";
+  if (isNegative) result += "Minus ";
+
+  if (paisa > 0) {
+    result += "Taka " + takaWords + " and Paisa " + takaConvertHundreds(paisa) + " Only";
+  } else {
+    result += "Taka " + takaWords + " Only";
+  }
+
+  return result.trim().replace(/\s+/g, " ");
+}
+
 function formatCellValue(
   value: any,
   type?: string,
@@ -211,12 +294,9 @@ function formatCellValue(
   if (value === MASKING_SENTINEL) return MASKING_SENTINEL;
   if (value === null || value === undefined || value === "") return "\u2014";
   if (type === "currency") {
-    const num = Number(value);
-    if (isNaN(num)) return "\u2014";
-    // Use bn-BD locale for proper Bangladeshi Taka formatting
-    // This ensures correct digit grouping (lakhs/crores) and 2-decimal precision
-    const bdFmt = new Intl.NumberFormat('bn-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return `\u09F3${bdFmt.format(num)}`;
+    const num = sanitizeCurrencyValue(value);
+    if (num === 0 && (value === null || value === undefined || value === "")) return "\u2014";
+    return `\u09F3${formatBDT(num)}`;
   }
   if (type === "boolean") return value ? "Active" : "Inactive";
   if (type === "date") {
@@ -234,8 +314,7 @@ function formatCellValue(
   if (type === "number") {
     const num = Number(value);
     if (isNaN(num)) return String(value);
-    const bdFmt = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 2 });
-    return bdFmt.format(num);
+    return formatBDT(num);
   }
   return String(value);
 }
@@ -321,12 +400,13 @@ function drawCorporateHeader(
   isVatAuditor: boolean,
   pageWidth: number,
   margin: number,
-  company?: CompanyProfile
+  company?: CompanyProfile,
+  systemNotice?: string
 ): number {
-  const companyName = company?.name || "VoltERP";
+  const companyName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
   const companyAddress = company?.address || "";
   const companyMobile = company?.mobile || company?.phone || "";
-  const headerHeight = 34;
+  const headerHeight = 28;
 
   // Navy blue header bar
   doc.setFillColor(10, 22, 40);
@@ -336,14 +416,12 @@ function drawCorporateHeader(
   let textStartX = margin;
 
   // Company logo (if provided as base64 data URL)
-  // Use logoData as fallback if logo is not present
-  const logoSource = company?.logo || company?.logoData;
-  if (logoSource) {
+  if (company?.logo) {
     const logoW = company.logoWidth || 30;
     const logoH = company.logoHeight || 20;
     const logoY = (headerHeight - logoH) / 2; // vertically centered in header
     try {
-      const logoUrl = logoSource.startsWith("data:") ? logoSource : `data:image/png;base64,${logoSource}`;
+      const logoUrl = company.logo.startsWith("data:") ? company.logo : `data:image/png;base64,${company.logo}`;
       doc.addImage(logoUrl, margin, logoY, logoW, logoH);
     } catch {
       // If logo rendering fails, skip it silently
@@ -364,6 +442,8 @@ function drawCorporateHeader(
     }
   }
 
+  // ── LEFT SIDE: Company info ──
+
   // Company name
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
@@ -371,13 +451,13 @@ function drawCorporateHeader(
   doc.text(companyName, textStartX, 11);
 
   // Company address (below name if provided)
-  let addressY = 15;
+  let leftY = 15;
   if (companyAddress) {
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(200, 210, 225); // slightly dimmer white
     doc.text(companyAddress, textStartX, 15);
-    addressY = 19;
+    leftY = 19;
   }
 
   // Company mobile/phone (if available, after address)
@@ -385,8 +465,8 @@ function drawCorporateHeader(
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(220, 220, 230);
-    doc.text(`Mobile: ${companyMobile}`, textStartX, addressY);
-    addressY += 3;
+    doc.text(`Mobile: ${companyMobile}`, textStartX, leftY);
+    leftY += 3;
   }
 
   // Company email (below address/mobile)
@@ -394,25 +474,15 @@ function drawCorporateHeader(
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(200, 210, 225);
-    const emailY = companyMobile ? addressY + 3 : 19;
-    doc.text(company.email, textStartX, emailY);
-    addressY = companyMobile ? emailY + 3 : emailY + 4;
+    doc.text(company.email, textStartX, leftY);
+    leftY += 3;
   }
 
-  // Report title
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(255, 255, 255);
-  doc.text(title, textStartX, addressY + 3);
-
-  // Subtitle / period
-  if (subtitle) {
-    doc.setFontSize(9);
-    doc.text(subtitle, textStartX, addressY + 8);
-  }
+  // ── RIGHT SIDE: Timestamp + VAT/Trade ──
 
   // Generation timestamp (right-aligned)
   doc.setFontSize(8);
+  doc.setTextColor(255, 255, 255);
   const now = new Date();
   const timestamp = `Generated: ${now.toLocaleDateString("en-GB", {
     day: "2-digit",
@@ -422,55 +492,44 @@ function drawCorporateHeader(
   const tsWidth = doc.getTextWidth(timestamp);
   doc.text(timestamp, pageWidth - margin - tsWidth, 11);
 
-  // Company phone/mobile (right-aligned, below timestamp)
-  if (companyMobile) {
-    doc.setFontSize(7);
+  // Report title (right-aligned, below timestamp)
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(255, 255, 255);
+  const titleWidth = doc.getTextWidth(title);
+  doc.text(title, pageWidth - margin - titleWidth, 17);
+
+  // Subtitle / period (right-aligned, below title)
+  if (subtitle) {
+    doc.setFontSize(9);
     doc.setTextColor(200, 210, 225);
-    const mobileWidth = doc.getTextWidth(companyMobile);
-    doc.text(companyMobile, pageWidth - margin - mobileWidth, 15);
-  } else if (company?.phone) {
-    doc.setFontSize(7);
-    doc.setTextColor(200, 210, 225);
-    const phoneWidth = doc.getTextWidth(company.phone);
-    doc.text(company.phone, pageWidth - margin - phoneWidth, 15);
+    const subWidth = doc.getTextWidth(subtitle);
+    doc.text(subtitle, pageWidth - margin - subWidth, 22);
   }
 
-  // Company email (right-aligned, below phone)
-  if (company?.email) {
+  // System notice statement (right-aligned, below subtitle or title)
+  if (systemNotice) {
     doc.setFontSize(7);
-    doc.setTextColor(200, 210, 225);
-    const emailWidth = doc.getTextWidth(company.email);
-    doc.text(company.email, pageWidth - margin - emailWidth, 19);
-  }
-
-  // BIN Number (right-aligned, below email)
-  if (company?.binNumber) {
-    doc.setFontSize(6);
+    doc.setFont("helvetica", "italic");
     doc.setTextColor(180, 190, 200);
-    const binWidth = doc.getTextWidth(`BIN: ${company.binNumber}`);
-    doc.text(`BIN: ${company.binNumber}`, pageWidth - margin - binWidth, 22);
+    const noticeWidth = doc.getTextWidth(systemNotice);
+    doc.text(systemNotice, pageWidth - margin - noticeWidth, subtitle ? 26 : 22);
   }
 
-  // VAT Number and Trade License (right-aligned, below email)
+  // VAT Number and Trade License (left-aligned, below email/mobile, tiny text)
+  let regY = headerHeight - 2;
   if (company?.vatNumber) {
     doc.setFontSize(6);
     doc.setTextColor(180, 190, 200);
-    const vatWidth = doc.getTextWidth(`VAT: ${company.vatNumber}`);
-    doc.text(`VAT: ${company.vatNumber}`, pageWidth - margin - vatWidth, 25);
-  }
-  if (company?.tradeLicense) {
+    doc.text(`VAT: ${company.vatNumber}`, textStartX, regY);
+    if (company?.tradeLicense) {
+      const vatW = doc.getTextWidth(`VAT: ${company.vatNumber}  `);
+      doc.text(`Trade License: ${company.tradeLicense}`, textStartX + vatW, regY);
+    }
+  } else if (company?.tradeLicense) {
     doc.setFontSize(6);
     doc.setTextColor(180, 190, 200);
-    const tradeWidth = doc.getTextWidth(`Trade License: ${company.tradeLicense}`);
-    doc.text(`Trade License: ${company.tradeLicense}`, pageWidth - margin - tradeWidth, 28);
-  }
-
-  // Currency symbol (right-aligned, below trade license)
-  if (company?.currencySymbol) {
-    doc.setFontSize(6);
-    doc.setTextColor(180, 190, 200);
-    const currWidth = doc.getTextWidth(`Currency: ${company.currencySymbol}`);
-    doc.text(`Currency: ${company.currencySymbol}`, pageWidth - margin - currWidth, 31);
+    doc.text(`Trade License: ${company.tradeLicense}`, textStartX, regY);
   }
 
   // VAT Auditor badge
@@ -485,7 +544,7 @@ function drawCorporateHeader(
     doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 28);
   }
 
-  return headerHeight + 4; // 38mm start position for table
+  return headerHeight + 4; // 32mm start position for table
 }
 
 // ============================================================
@@ -506,41 +565,76 @@ function drawFooter(
 
   // If financial footer is provided, draw the enterprise signature block ABOVE the navy bar
   if (financialFooter) {
-    const signatureY = pageHeight - 28; // Position above the navy bar
+    const signatureY = pageHeight - 38; // Position above the navy bar (increased from 32 to 38 for more space)
     doc.setTextColor(60, 60, 60);
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
 
+    // Four signature columns: Customer's Signature, Prepared By, Checked By, Authorized By
     const signatureFields = [
+      { label: "Customer's Signature", value: "" },
       { label: "Prepared By", value: financialFooter.preparedBy || "" },
       { label: "Checked By", value: financialFooter.checkedBy || "" },
       { label: "Authorized By", value: financialFooter.authorizedBy || "" },
     ];
 
-    // Draw three signature columns evenly spaced
-    const colWidth = (pageWidth - margin * 2) / 3;
+    // Draw four signature columns evenly spaced
+    const colWidth = (pageWidth - margin * 2) / 4;
     signatureFields.forEach((field, i) => {
       const x = margin + i * colWidth;
+      // Label
       doc.setFont("helvetica", "bold");
-      doc.text(`${field.label}:`, x, signatureY);
-      doc.setFont("helvetica", "normal");
+      doc.setTextColor(80, 80, 80);
+      doc.text(field.label, x + (colWidth - 10) / 2 - doc.getTextWidth(field.label) / 2, signatureY);
       // Underline for signature
-      doc.setDrawColor(150, 150, 150);
+      doc.setDrawColor(180, 180, 180);
       doc.setLineWidth(0.3);
       doc.line(x, signatureY + 1.5, x + colWidth - 10, signatureY + 1.5);
+      // Value below line
       if (field.value) {
-        doc.text(field.value, x, signatureY + 5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(60, 60, 60);
+        doc.text(field.value, x + (colWidth - 10) / 2 - doc.getTextWidth(field.value) / 2, signatureY + 5);
       }
     });
 
-    // Printed By + ISO timestamp (right-aligned)
+    // Thank you message from company settings (centered)
+    const thankYouMsg = company?.thankYouMsg || "Thank You Come Again.";
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(60, 60, 60);
+    const tyWidth = doc.getTextWidth(thankYouMsg);
+    doc.text(thankYouMsg, pageWidth / 2 - tyWidth / 2, signatureY + 9);
+
+    // System disclaimer (centered, below thank you) — professional dark grey, NOT red
+    const systemNote = company?.systemNote || "This is a system generated document; no seal or signature is required unless explicitly stated.";
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(130, 130, 130); // Dark grey instead of red
+    const snWidth = doc.getTextWidth(systemNote);
+    doc.text(systemNote, pageWidth / 2 - snWidth / 2, signatureY + 13);
+
+    // Currency specification (centered, below disclaimer)
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(130, 130, 130);
+    const currencyNote = "Amount in Bangladeshi Taka (BDT)";
+    const cnWidth = doc.getTextWidth(currencyNote);
+    doc.text(currencyNote, pageWidth / 2 - cnWidth / 2, signatureY + 16.5);
+
+    // Printed By + Print Date (left-aligned)
     const now = new Date();
-    const isoTimestamp = now.toISOString().replace("T", " ").substring(0, 19);
-    const printedByText = `Printed By: ${financialFooter.printedBy} | ${isoTimestamp}`;
-    doc.setFontSize(6);
+    const printDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const printTime = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const printedByText = `Printed By: ${financialFooter.printedBy}  |  Print Date: ${printDate} ${printTime}`;
+    doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);
-    const ptbWidth = doc.getTextWidth(printedByText);
-    doc.text(printedByText, pageWidth - margin - ptbWidth, signatureY + 9);
+    doc.setFont("helvetica", "normal");
+    doc.text(printedByText, margin, signatureY + 20);
+
+    // Page number on the right side of the signature section
+    const pageInfoText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
+    doc.text(pageInfoText, pageWidth - margin - doc.getTextWidth(pageInfoText), signatureY + 20);
   }
 
   // Navy blue footer bar
@@ -552,21 +646,9 @@ function drawFooter(
   doc.setFont("helvetica", "normal");
 
   // Left: copyright — use company name when provided, fallback to default
-  const footerName = company?.name || "VoltERP";
-  doc.text(`\u00A9 ${footerName}`, margin, footerY);
-
-  // Corporate Disclaimer Stamp (just above navy bar, on last page only for cleaner output)
-  if (company?.systemNote && pageNumber === 1) {
-    doc.setFontSize(5);
-    doc.setFont("helvetica", "italic");
-    doc.setTextColor(160, 160, 170);
-    const maxDisclaimerWidth = pageWidth - margin * 2;
-    const disclaimerLines = doc.splitTextToSize(company.systemNote, maxDisclaimerWidth);
-    const disclaimerStartY = pageHeight - 14 - (disclaimerLines.length * 2.5);
-    disclaimerLines.forEach((line: string, i: number) => {
-      doc.text(line, margin, disclaimerStartY + i * 2.5);
-    });
-  }
+  const footerName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+  const currentYear = new Date().getFullYear();
+  doc.text(`\u00A9 ${currentYear} ${footerName}`, margin, footerY);
 
   // Right: page number (with placeholder for total)
   const pageText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
@@ -631,7 +713,7 @@ export function exportToPDF(options: PDFOptions): void {
     const vatMaskSet = new Set(vatMaskedColumns);
 
     // ── Corporate Header ──
-    const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+    const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company, options.systemNotice);
 
     // ── Adjust bottom margin for financial footer (more space needed for signature blocks) ──
     const bottomMargin = options.financialFooter ? 36 : 18;
@@ -681,6 +763,34 @@ export function exportToPDF(options: PDFOptions): void {
       columnStyles[i] = colConfig;
     });
 
+    // ── Fix right-aligned currency column widths ──
+    // Calculate the maximum width needed for each currency column based on
+    // the longest formatted value. Setting a fixed cellWidth ensures all
+    // currency values in a column occupy the same width, making right-alignment
+    // visually correct (the ৳ symbol is consistently placed on the left of
+    // each value, and numbers line up properly).
+    {
+      const tempDoc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+      tempDoc.setFontSize(7);
+      visibleColumns.forEach((c, i) => {
+        if (c.type === "currency") {
+          // Find the longest formatted value in this column
+          let maxTextWidth = 0;
+          for (const row of body) {
+            const cellText = row[i] || "";
+            const tw = tempDoc.getTextWidth(String(cellText));
+            if (tw > maxTextWidth) maxTextWidth = tw;
+          }
+          // Add padding (cellPadding * 2 = 5mm) and a small buffer
+          const calculatedWidth = maxTextWidth + 6;
+          // Only set if the calculated width fits within the column bounds
+          const minW = columnStyles[i]?.minCellWidth || 12;
+          const maxW = columnStyles[i]?.maxCellWidth || 80;
+          columnStyles[i].cellWidth = Math.max(minW, Math.min(calculatedWidth, maxW));
+        }
+      });
+    }
+
     // ── Draw Main Table ──
     // We use {total} as placeholder; second pass will fix it
     const TOTAL_PLACEHOLDER = "{total}";
@@ -714,7 +824,7 @@ export function exportToPDF(options: PDFOptions): void {
       let currentSummaryY: number;
       if (summaryStartY > pageHeight - (options.financialFooter ? 44 : 30)) {
         doc.addPage();
-        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company, options.systemNotice);
         drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
         currentSummaryY = 36; // Below corporate header on new page
       } else {
@@ -731,7 +841,7 @@ export function exportToPDF(options: PDFOptions): void {
         // Check if summary row fits on current page
         if (currentSummaryY > pageHeight - (options.financialFooter ? 44 : 25)) {
           doc.addPage();
-          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
+          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company, options.systemNotice);
           drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
           currentSummaryY = 36; // Below corporate header
         }
@@ -774,9 +884,6 @@ export function exportToPDF(options: PDFOptions): void {
       filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
-
-    // ── Telemetry: Log PDF export to server-side activity trail ──
-    logExportTelemetry("PDF_EXPORT", title, `${safeFilename}.pdf`, data.length);
   } catch (error: any) {
     console.error("Export PDF Error:", error);
     throw new Error(`PDF export failed: ${error.message || "Unknown error"}`);
@@ -794,7 +901,8 @@ export function exportToPDFSimple(
   rows: string[][],
   orientation: "landscape" | "portrait" = "landscape",
   subtitle?: string,
-  company?: CompanyProfile
+  company?: CompanyProfile,
+  financialFooter?: PDFOptions["financialFooter"]
 ): void {
   try {
     const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
@@ -838,7 +946,7 @@ export function exportToPDFSimple(
       alternateRowStyles: { fillColor: [240, 244, 252] },
       columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
-        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company);
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
       },
     });
 
@@ -848,12 +956,352 @@ export function exportToPDFSimple(
     const rawFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
     doc.save(`${safeFilename}.pdf`);
-
-    // ── Telemetry: Log PDF export to server-side activity trail ──
-    logExportTelemetry("PDF_EXPORT", title, `${safeFilename}.pdf`, rows.length);
   } catch (error: any) {
     console.error("Export PDF Simple Error:", error);
     throw new Error(`PDF export failed: ${error.message || "Unknown error"}`);
+  }
+}
+
+// ============================================================
+// AUDIT REPORT PDF ENGINE
+// Specialized PDF export for audit reports with classification
+// badge, integrity score, summary section, financial footer,
+// and system disclaimer
+// ============================================================
+
+export interface AuditReportOptions {
+  title: string;
+  subtitle?: string;
+  columns: ColumnDef[];
+  data: any[];
+  summaryRows?: SummaryRow[];
+  /** Integrity score 0-100; displayed as a visual gauge in the report */
+  integrityScore?: number;
+  isVatAuditor?: boolean;
+  vatMaskedColumns?: string[];
+  company?: CompanyProfile;
+  financialFooter?: PDFOptions["financialFooter"];
+  /** Document classification level — rendered as a badge in the header */
+  classification?: "CONFIDENTIAL" | "INTERNAL" | "PUBLIC";
+}
+
+/** Draw a classification badge on the header area */
+function drawClassificationBadge(
+  doc: jsPDF,
+  classification: "CONFIDENTIAL" | "INTERNAL" | "PUBLIC",
+  pageWidth: number,
+  margin: number
+): void {
+  const colors: Record<string, { bg: number[]; fg: number[] }> = {
+    CONFIDENTIAL: { bg: [220, 38, 38], fg: [255, 255, 255] },   // red-600 / white
+    INTERNAL: { bg: [245, 158, 11], fg: [255, 255, 255] },      // amber-500 / white
+    PUBLIC: { bg: [34, 197, 94], fg: [255, 255, 255] },         // green-500 / white
+  };
+  const { bg, fg } = colors[classification] || colors.INTERNAL;
+
+  doc.setFillColor(bg[0], bg[1], bg[2]);
+  const badgeText = `  ${classification}  `;
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(fg[0], fg[1], fg[2]);
+  const badgeWidth = doc.getTextWidth(badgeText) + 4;
+  // Position the badge in the top-right area of the header, offset below the VAT auditor badge line
+  const badgeX = pageWidth - margin - badgeWidth;
+  const badgeY = 2;
+  doc.roundedRect(badgeX, badgeY, badgeWidth, 7, 1, 1, "F");
+  doc.text(badgeText.trim(), badgeX + 2, badgeY + 5);
+}
+
+/** Draw an integrity score gauge on the PDF */
+function drawIntegrityScore(
+  doc: jsPDF,
+  score: number,
+  startY: number,
+  margin: number,
+  pageWidth: number
+): number {
+  const labelX = margin;
+  const barX = margin + 35;
+  const barWidth = pageWidth - margin * 2 - 70;
+  const barHeight = 5;
+
+  // Label
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(30, 41, 59);
+  doc.text("Integrity Score:", labelX, startY + 3.5);
+
+  // Background bar (gray)
+  doc.setFillColor(226, 232, 240); // slate-200
+  doc.roundedRect(barX, startY, barWidth, barHeight, 1, 1, "F");
+
+  // Score bar (color based on score)
+  const fillWidth = (barWidth * Math.min(Math.max(score, 0), 100)) / 100;
+  let barColor: number[];
+  if (score >= 80) {
+    barColor = [34, 197, 94]; // green-500
+  } else if (score >= 50) {
+    barColor = [245, 158, 11]; // amber-500
+  } else {
+    barColor = [220, 38, 38]; // red-600
+  }
+  if (fillWidth > 0) {
+    doc.setFillColor(barColor[0], barColor[1], barColor[2]);
+    doc.roundedRect(barX, startY, fillWidth, barHeight, 1, 1, "F");
+  }
+
+  // Score text
+  const scoreText = `${score}/100`;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(30, 41, 59);
+  const scoreTextWidth = doc.getTextWidth(scoreText);
+  doc.text(scoreText, barX + barWidth + 4, startY + 3.5);
+
+  return startY + barHeight + 4;
+}
+
+/** Draw the system disclaimer at the bottom of the audit report */
+function drawSystemDisclaimer(
+  doc: jsPDF,
+  startY: number,
+  margin: number,
+  pageWidth: number,
+  pageHeight: number,
+  financialFooter?: PDFOptions["financialFooter"]
+): void {
+  const disclaimerText = "This report is generated from live transactional data and is subject to verification. Any discrepancies should be reported to the finance department immediately.";
+
+  // Check if disclaimer fits; if not, add new page
+  const disclaimerHeight = 12;
+  const bottomSpace = financialFooter ? 44 : 25;
+  let y = startY;
+  if (y > pageHeight - bottomSpace - disclaimerHeight) {
+    doc.addPage();
+    y = 36;
+  }
+
+  // Disclaimer box with border
+  doc.setDrawColor(203, 213, 225); // slate-300
+  doc.setFillColor(248, 250, 252); // slate-50
+  doc.setLineWidth(0.3);
+  const boxWidth = pageWidth - margin * 2;
+  doc.roundedRect(margin, y, boxWidth, disclaimerHeight, 1, 1, "FD");
+
+  // Warning icon + text
+  doc.setFontSize(6.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(100, 116, 139); // slate-500
+  const disclaimerLabel = "DISCLAIMER: ";
+  const labelWidth = doc.getTextWidth(`\u26A0 ${disclaimerLabel}`);
+  doc.text(`\u26A0 ${disclaimerLabel}`, margin + 3, y + 4.5);
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(6);
+  doc.setTextColor(120, 120, 120);
+  // Wrap text if needed
+  const maxTextWidth = boxWidth - 6 - labelWidth;
+  const lines = doc.splitTextToSize(disclaimerText, maxTextWidth);
+  doc.text(lines, margin + 3 + labelWidth, y + 4.5);
+}
+
+export function exportAuditReportPDF(options: AuditReportOptions): void {
+  const {
+    title,
+    subtitle,
+    columns,
+    data,
+    summaryRows,
+    integrityScore,
+    isVatAuditor = false,
+    vatMaskedColumns = [],
+    company,
+    financialFooter,
+    classification = "INTERNAL",
+  } = options;
+
+  try {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    const vatMaskSet = new Set(vatMaskedColumns);
+
+    // ── Corporate Header ──
+    const auditSubtitle = subtitle ? `AUDIT REPORT \u2014 ${subtitle}` : "AUDIT REPORT";
+    const tableStartY = drawCorporateHeader(
+      doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company,
+      "Audit Report \u2014 Generated from verified transactional data"
+    );
+
+    // ── Classification Badge ──
+    drawClassificationBadge(doc, classification, pageWidth, margin);
+
+    // ── Adjust bottom margin for financial footer ──
+    const bottomMargin = financialFooter ? 36 : 18;
+
+    // ── Prepare Table Data ──
+    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+    const headers = visibleColumns.map((c) => c.label);
+    const body = data.map((item: any) =>
+      visibleColumns.map((c) =>
+        formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key))
+      )
+    );
+
+    // ── autoTable Configuration ──
+    const headStyles: any = {
+      fillColor: [10, 22, 40], // Navy blue for audit reports (distinct from regular reports)
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 8,
+      halign: "left",
+      cellPadding: 3,
+    };
+
+    const alternateRowStyles: any = {
+      fillColor: [248, 250, 252], // slate-50
+    };
+
+    const styles: any = {
+      fontSize: 7,
+      cellPadding: 2.5,
+      textColor: [30, 41, 59],
+      lineWidth: 0.1,
+      lineColor: [203, 213, 225],
+    };
+
+    // Currency/number columns right-aligned + column width bounds + fixed width for currency
+    const columnStyles: Record<number, any> = {};
+    const colWidths = calculateColumnWidths(visibleColumns.length, pageWidth, margin);
+    visibleColumns.forEach((c, i) => {
+      const colConfig: any = {};
+      if (c.type === "currency" || c.type === "number") {
+        colConfig.halign = "right";
+      }
+      colConfig.minCellWidth = colWidths[i].minW;
+      colConfig.maxCellWidth = colWidths[i].maxW;
+      columnStyles[i] = colConfig;
+    });
+
+    // ── Fix right-aligned currency column widths (same logic as exportToPDF) ──
+    {
+      const tempDoc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      tempDoc.setFontSize(7);
+      visibleColumns.forEach((c, i) => {
+        if (c.type === "currency") {
+          let maxTextWidth = 0;
+          for (const row of body) {
+            const cellText = row[i] || "";
+            const tw = tempDoc.getTextWidth(String(cellText));
+            if (tw > maxTextWidth) maxTextWidth = tw;
+          }
+          const calculatedWidth = maxTextWidth + 6;
+          const minW = columnStyles[i]?.minCellWidth || 12;
+          const maxW = columnStyles[i]?.maxCellWidth || 80;
+          columnStyles[i].cellWidth = Math.max(minW, Math.min(calculatedWidth, maxW));
+        }
+      });
+    }
+
+    // ── Draw Main Table ──
+    const TOTAL_PLACEHOLDER = "{total}";
+
+    autoTable(doc, {
+      head: [headers],
+      body,
+      startY: tableStartY,
+      margin: { left: margin, right: margin, bottom: bottomMargin },
+      styles,
+      headStyles,
+      alternateRowStyles,
+      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+      didDrawPage: (data: any) => {
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+      },
+    });
+
+    // ── Post-table content position ──
+    const lastTable = (doc as any).lastAutoTable;
+    let currentY = lastTable ? lastTable.finalY + 4 : tableStartY + 30;
+
+    // ── Summary Rows ──
+    if (summaryRows && summaryRows.length > 0) {
+      // Check if summary fits on current page
+      if (currentY > pageHeight - (financialFooter ? 54 : 40)) {
+        doc.addPage();
+        drawCorporateHeader(doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company);
+        drawClassificationBadge(doc, classification, pageWidth, margin);
+        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+        currentY = 36;
+      }
+
+      summaryRows.forEach((summaryRow) => {
+        const rowStyle = summaryRow.style || {
+          fillColor: [10, 22, 40],
+          textColor: [255, 255, 255],
+          fontStyle: "bold" as const,
+          fontSize: 8,
+        };
+
+        if (currentY > pageHeight - (financialFooter ? 54 : 35)) {
+          doc.addPage();
+          drawCorporateHeader(doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company);
+          drawClassificationBadge(doc, classification, pageWidth, margin);
+          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+          currentY = 36;
+        }
+
+        autoTable(doc, {
+          body: [summaryRow.cells],
+          startY: currentY,
+          margin: { left: margin, right: margin, bottom: 18 },
+          styles: {
+            fontSize: rowStyle.fontSize || 8,
+            cellPadding: 3,
+            textColor: rowStyle.textColor || [255, 255, 255],
+            fontStyle: rowStyle.fontStyle || "bold",
+            lineWidth: 0.1,
+            lineColor: [203, 213, 225],
+          },
+          bodyStyles: {
+            fillColor: rowStyle.fillColor || [10, 22, 40],
+          },
+          columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+          didDrawPage: (data: any) => {
+            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+          },
+        });
+
+        const nextTable = (doc as any).lastAutoTable;
+        if (nextTable) currentY = nextTable.finalY + 2;
+      });
+    }
+
+    // ── Integrity Score Display ──
+    if (integrityScore !== undefined) {
+      if (currentY > pageHeight - (financialFooter ? 54 : 40)) {
+        doc.addPage();
+        drawCorporateHeader(doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company);
+        drawClassificationBadge(doc, classification, pageWidth, margin);
+        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+        currentY = 36;
+      }
+      currentY = drawIntegrityScore(doc, integrityScore, currentY + 2, margin, pageWidth);
+    }
+
+    // ── System Disclaimer ──
+    drawSystemDisclaimer(doc, currentY + 2, margin, pageWidth, pageHeight, financialFooter);
+
+    // ── Second Pass: Fix "Page X of Y" ──
+    fixPageXOfY(doc, pageHeight, pageWidth, margin);
+
+    // ── Save ──
+    const rawFilename = `audit-${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
+    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
+    doc.save(`${safeFilename}.pdf`);
+  } catch (error: any) {
+    console.error("Export Audit Report PDF Error:", error);
+    throw new Error(`Audit report PDF export failed: ${error.message || "Unknown error"}`);
   }
 }
 
@@ -882,16 +1330,19 @@ export function exportToCSV(options: CSVOptions): void {
       .map((c) => escapeCSVField(c.label, false))
       .join(",");
 
-    // Build data rows
+    // Build data rows — dates formatted as dd/MM/yyyy for Excel compatibility
     const dataRows = data.map((item: any) =>
       visibleColumns
         .map((c) => {
-          const rawValue = formatCellValue(
-            item[c.key],
-            c.type,
-            isVatAuditor,
-            vatMaskSet.has(c.key)
-          );
+          // Use dd/MM/yyyy format for date columns in CSV export
+          const rawValue = c.type === "date"
+            ? formatDateForCSV(item[c.key])
+            : formatCellValue(
+                item[c.key],
+                c.type,
+                isVatAuditor,
+                vatMaskSet.has(c.key)
+              );
           const isNumeric = c.type === "number" || c.type === "currency";
           return escapeCSVField(rawValue, isNumeric);
         })
@@ -916,9 +1367,6 @@ export function exportToCSV(options: CSVOptions): void {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
-    // ── Telemetry: Log CSV export to server-side activity trail ──
-    logExportTelemetry("CSV_EXPORT", title, `${safeCsvFilename}.csv`, data.length);
   } catch (error: any) {
     console.error("Export CSV Error:", error);
     throw new Error(`CSV export failed: ${error.message || "Unknown error"}`);
@@ -955,12 +1403,126 @@ export function exportToCSVSimple(
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
-    // ── Telemetry: Log CSV export to server-side activity trail ──
-    logExportTelemetry("CSV_EXPORT", title, `${safeSimpleFilename}.csv`, rows.length);
   } catch (error: any) {
     console.error("Export CSV Simple Error:", error);
     throw new Error(`CSV export failed: ${error.message || "Unknown error"}`);
+  }
+}
+
+// ============================================================
+// EXPORT CSV ENGINE — Memory-Efficient Streaming
+// Handles large datasets without memory bloat by fetching data
+// in batches and accumulating CSV chunks in an array before
+// creating a single Blob. Avoids string concatenation O(n²)
+// memory issues.
+// ============================================================
+
+export interface CSVStreamOptions {
+  title: string;
+  columns: ColumnDef[];
+  dataFetcher: (offset: number, limit: number) => Promise<{ data: any[]; hasMore: boolean }>;
+  isVatAuditor?: boolean;
+  vatMaskedColumns?: string[];
+  filename?: string;
+  /** Number of rows per fetch batch (default: 500) */
+  batchSize?: number;
+  /** Maximum total rows to export (safety limit, default: 100000) */
+  maxRows?: number;
+}
+
+export async function exportToCSVStreaming(options: CSVStreamOptions): Promise<{ totalRows: number; filename: string }> {
+  const {
+    title,
+    columns,
+    dataFetcher,
+    isVatAuditor = false,
+    vatMaskedColumns = [],
+    filename,
+    batchSize = 500,
+    maxRows = 100000,
+  } = options;
+
+  try {
+    const vatMaskSet = new Set(vatMaskedColumns);
+    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+
+    // Accumulate CSV chunks in an array to avoid O(n²) string concatenation
+    const chunks: string[] = [];
+
+    // UTF-8 BOM is ALWAYS injected for Excel compatibility
+    chunks.push("\uFEFF");
+
+    // Header row
+    const headerRow = visibleColumns
+      .map((c) => escapeCSVField(c.label, false))
+      .join(",");
+    chunks.push(headerRow);
+    chunks.push("\n");
+
+    // Fetch data in batches
+    let offset = 0;
+    let totalRows = 0;
+    let hasMore = true;
+
+    while (hasMore && totalRows < maxRows) {
+      const effectiveBatchSize = Math.min(batchSize, maxRows - totalRows);
+      const result = await dataFetcher(offset, effectiveBatchSize);
+
+      if (!result.data || result.data.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      // Convert each row in the batch to CSV and push as a chunk
+      for (const item of result.data) {
+        if (totalRows >= maxRows) break;
+
+        const row = visibleColumns
+          .map((c) => {
+            // Use dd/MM/yyyy format for date columns in CSV export
+            const rawValue = c.type === "date"
+              ? formatDateForCSV(item[c.key])
+              : formatCellValue(
+                  item[c.key],
+                  c.type,
+                  isVatAuditor,
+                  vatMaskSet.has(c.key)
+                );
+            const isNumeric = c.type === "number" || c.type === "currency";
+            return escapeCSVField(rawValue, isNumeric);
+          })
+          .join(",");
+        chunks.push(row);
+        chunks.push("\n");
+        totalRows++;
+      }
+
+      hasMore = result.hasMore;
+      offset += result.data.length;
+    }
+
+    // Create a single Blob from all chunks — this is memory-efficient
+    // because the Blob constructor accepts an array of strings without
+    // concatenating them into a single large string first
+    const blob = new Blob(chunks, { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+
+    const rawCsvFilename =
+      filename || `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
+    const safeCsvFilename = rawCsvFilename.replace(/\.csv$/i, "");
+    const finalFilename = `${safeCsvFilename}.csv`;
+    a.download = finalFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    return { totalRows, filename: finalFilename };
+  } catch (error: any) {
+    console.error("Export CSV Streaming Error:", error);
+    throw new Error(`CSV streaming export failed: ${error.message || "Unknown error"}`);
   }
 }
 
@@ -985,6 +1547,74 @@ function stripBOM(str: string): string {
     return str.slice(1);
   }
   return str;
+}
+
+// ============================================================
+// CSV IMPORT: Security & Validation Constants
+// ============================================================
+
+/** Maximum string length for any imported text field */
+const MAX_CSV_STRING_LENGTH = 500;
+
+/** Bangladesh mobile phone regex: accepts +880, 880, or 0 prefix + 1[3-9] + 8 digits */
+const BD_PHONE_REGEX = /^(\+880|880|0)?1[3-9]\d{8}$/;
+
+/** Field key patterns that indicate a phone number field */
+const PHONE_FIELD_PATTERNS = /phone|mobile|cell|contact|whatsapp|telegram/i;
+
+/** CSV Text Sanitizer — strips security exploit patterns from input values
+ *  1. Strips HTML tags (XSS prevention)
+ *  2. Strips SQL injection patterns
+ *  3. Strips JavaScript protocol handlers
+ *  4. Strips event handler attributes
+ *  5. Enforces maximum string length (truncates with warning)
+ */
+function sanitizeCSVText(value: string): string {
+  if (!value) return value;
+  let sanitized = value;
+  // Strip HTML tags
+  sanitized = sanitized.replace(/<\s*\/?\s*(script|iframe|object|embed|form|input|textarea|button|link|style|meta|img|svg|math|base|body|html|head)[^>]*>/gi, '');
+  // Strip SQL injection patterns
+  sanitized = sanitized.replace(/(\b(OR|AND)\s+\d+\s*=\s*\d+|--|;\s*DROP\b|;\s*DELETE\b|;\s*UPDATE\b|;\s*INSERT\b|UNION\s+SELECT|;\s*ALTER\b)/gi, '');
+  // Strip JavaScript protocol handlers
+  sanitized = sanitized.replace(/javascript\s*:/gi, '');
+  // Strip event handler attributes
+  sanitized = sanitized.replace(/\b(on\w+)\s*=\s*["'][^"']*["']/gi, '');
+  // Enforce maximum string length
+  sanitized = sanitized.trim();
+  if (sanitized.length > MAX_CSV_STRING_LENGTH) {
+    sanitized = sanitized.slice(0, MAX_CSV_STRING_LENGTH);
+  }
+  return sanitized;
+}
+
+/** Validate Bangladesh phone number format.
+ *  Accepts: +8801XXXXXXXXX, 8801XXXXXXXXX, 01XXXXXXXXX
+ *  Returns: formatted +880XXXXXXXXXX or null if invalid
+ */
+function validateBDPhone(phone: string): string | null {
+  if (!phone) return null;
+  const cleaned = phone.trim().replace(/[\s\-()]/g, '');
+  if (!BD_PHONE_REGEX.test(cleaned)) return null;
+  // Extract the 11-digit local format and prepend +880
+  const match = cleaned.match(/1[3-9]\d{8}$/);
+  if (!match) return null;
+  return `+880${match[0]}`;
+}
+
+/** Format date value to dd/MM/yyyy for CSV export (Excel-friendly) */
+function formatDateForCSV(value: any): string {
+  if (!value) return '';
+  try {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch {
+    return String(value);
+  }
 }
 
 export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> {
@@ -1101,6 +1731,22 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
                 continue;
               }
               record[field.key] = num;
+
+              // Negative value guard: drop rows with negative transaction quantities
+              if (record[field.key] < 0) {
+                const isQuantityField = /quantity|days|allocated|count|stock|amount|balance|limit|price|rate|total|qty/i.test(field.key);
+                if (isQuantityField) {
+                  failed++;
+                  errors.push(`Row ${i + 2}: Negative value not allowed for "${field.label}" (${record[field.key]}). Row dropped.`);
+                  fieldErrors.push({
+                    row: i + 2,
+                    field: field.label,
+                    message: `Negative value (${record[field.key]}) rejected by input sanitization rules`,
+                  });
+                  rowHasError = true;
+                  break; // Stop processing this row
+                }
+              }
             } else if (field.type === "checkbox") {
               record[field.key] =
                 value.toLowerCase() === "true" ||
@@ -1132,6 +1778,46 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
                 continue;
               }
               record[field.key] = value;
+            } else if (field.type === "text" || field.type === "textarea") {
+              // Apply text sanitizer for security exploit protection
+              const originalValue = value;
+              const sanitized = sanitizeCSVText(value);
+              if (sanitized !== originalValue.trim()) {
+                // Determine what kind of sanitization occurred
+                const wasTruncated = sanitized.length >= MAX_CSV_STRING_LENGTH && originalValue.trim().length > MAX_CSV_STRING_LENGTH;
+                const wasDangerous = sanitized !== originalValue.trim() && !wasTruncated;
+                if (wasTruncated) {
+                  fieldErrors.push({
+                    row: i + 2,
+                    field: field.label,
+                    message: `Input truncated: value exceeds ${MAX_CSV_STRING_LENGTH} character limit`,
+                  });
+                }
+                if (wasDangerous) {
+                  fieldErrors.push({
+                    row: i + 2,
+                    field: field.label,
+                    message: `Input sanitized: potentially dangerous content removed`,
+                  });
+                }
+              }
+              // Phone field validation with Bangladesh +880 format
+              if (PHONE_FIELD_PATTERNS.test(field.key) && sanitized) {
+                const validatedPhone = validateBDPhone(sanitized);
+                if (validatedPhone) {
+                  record[field.key] = validatedPhone;
+                } else {
+                  // Non-BD format: still accept but warn
+                  fieldErrors.push({
+                    row: i + 2,
+                    field: field.label,
+                    message: `Phone "${sanitized}" does not match Bangladesh +880 format. Accepted as-is.`,
+                  });
+                  record[field.key] = sanitized;
+                }
+              } else {
+                record[field.key] = sanitized;
+              }
             } else {
               record[field.key] = value;
             }
@@ -1171,9 +1857,45 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
           validatedRecords.push({ record, rowIndex: i + 2 });
         }
 
+        // ── Duplicate detection: remove records with identical unique keys ──
+        // Build a composite key from fields that typically identify a unique record:
+        // name, code, phone, email — whichever are present in the record
+        const seenKeys = new Map<string, number>(); // compositeKey → first rowIndex
+        const dedupedRecords: { record: Record<string, any>; rowIndex: number }[] = [];
+        const duplicateRows: number[] = [];
+
+        for (const vr of validatedRecords) {
+          const keyParts: string[] = [];
+          // Use code, name, phone, email, productCode, supplierCode, customerCode, employeeCode as identity fields
+          const identityFields = ['code', 'name', 'phone', 'email', 'productCode', 'supplierCode', 'customerCode', 'employeeCode', 'invoiceNo', 'poNumber', 'bankName', 'accountNo'];
+          for (const f of identityFields) {
+            if (vr.record[f] !== undefined && vr.record[f] !== null && vr.record[f] !== '') {
+              keyParts.push(`${f}:${String(vr.record[f]).toLowerCase().trim()}`);
+            }
+          }
+          const compositeKey = keyParts.length > 0 ? keyParts.join('|') : `__row_${vr.rowIndex}`;
+
+          if (seenKeys.has(compositeKey)) {
+            duplicateRows.push(vr.rowIndex);
+            failed++;
+            errors.push(`Row ${vr.rowIndex}: Duplicate record (same identity as row ${seenKeys.get(compositeKey)}). Skipped.`);
+            fieldErrors.push({
+              row: vr.rowIndex,
+              field: 'duplicate',
+              message: `Duplicate of row ${seenKeys.get(compositeKey)}`,
+            });
+          } else {
+            seenKeys.set(compositeKey, vr.rowIndex);
+            dedupedRecords.push(vr);
+          }
+        }
+
+        // Replace validatedRecords with deduped version
+        const recordsToInsert = duplicateRows.length > 0 ? dedupedRecords : validatedRecords;
+
         // ── Batch insert: groups of batchSize rows per API call ──
-        for (let batchStart = 0; batchStart < validatedRecords.length; batchStart += batchSize) {
-          const batch = validatedRecords.slice(batchStart, batchStart + batchSize);
+        for (let batchStart = 0; batchStart < recordsToInsert.length; batchStart += batchSize) {
+          const batch = recordsToInsert.slice(batchStart, batchStart + batchSize);
           const batchRecords = batch.map((b) => b.record);
 
           try {
@@ -1240,9 +1962,6 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
           }
         }
 
-        // ── Telemetry: Log CSV import to server-side activity trail ──
-        logExportTelemetry("CSV_IMPORT", apiPath.split("/").pop() || "Unknown", `import-${Date.now()}.csv`, imported);
-
         resolve({ imported, failed, errors, fieldErrors });
       } catch (error: any) {
         resolve({ imported: 0, failed: 0, errors: [`File read error: ${error.message}`] });
@@ -1298,648 +2017,20 @@ export function isVatMasked(columnKey: string, extraMasked?: string[]): boolean 
   return allMasked.some((m) => columnKey.toLowerCase().includes(m.toLowerCase()));
 }
 
-/** Get list of masked column keys from a column definition array */
+/** Get list of masked column keys from a column definition array.
+ *  Includes columns that match the VAT_MASKED_COLUMNS name patterns
+ *  AND all columns with type "currency". */
 export function getVatMaskedKeys(columns: ColumnDef[], extraMasked?: string[]): string[] {
-  return columns.filter((c) => isVatMasked(c.key, extraMasked)).map((c) => c.key);
-}
-
-// ============================================================
-// INVOICE PDF CANVAS ENGINE — Phase 11 Refactoring
-// Corporate criteria: metadata matrix, payment summary,
-// legal compliance footer, invoice export orchestration
-// ============================================================
-
-// ── New Types ──
-
-/** Invoice metadata for two-column metadata matrix rendering */
-export interface InvoiceMetadata {
-  documentNo: string;           // PO Number or Invoice Number
-  counterpartyCode?: string;    // Supplier Code or Customer Code
-  counterpartyName: string;     // Supplier Name or Customer Name
-  counterpartyMobile?: string;  // Counterparty phone
-  counterpartyAddress?: string; // Counterparty address
-  creationDate: string;         // Document creation date
-  dueDate?: string;             // Expected delivery or payment due date
-  previousOutstanding?: number; // Previous outstanding balance
-  balanceStatus?: string;       // "Clear", "Due", "Overdue"
-  branchLocation?: string;      // Specific Branch/Showroom Location
-}
-
-/** Payment type breakdown for invoice rendering */
-export interface PaymentBreakdown {
-  cash: number;     // Cash amount collected
-  bank: number;     // Bank transfer amount
-  mfs: number;      // Mobile Financial Services (bKash/Nagad)
-  card: number;     // Card payment amount
-}
-
-/** Legal compliance footer configuration */
-export interface LegalFooterConfig {
-  legalText?: string;      // Default: "This is a system-generated secure document. No physical seal or manual signature is required."
-  greetingText?: string;   // Default: "Thank you for choosing our enterprise solutions."
-}
-
-/** Extended PDF options for invoice-specific rendering */
-export interface InvoicePDFOptions extends PDFOptions {
-  metadata?: InvoiceMetadata;
-  paymentBreakdown?: PaymentBreakdown;
-  legalFooter?: LegalFooterConfig;
-}
-
-// ── Helper: Format currency for invoice rendering ──
-
-function invoiceCurrencyFmt(value: number, company?: CompanyProfile): string {
-  const symbol = company?.currencySymbol || "\u09F3";
-  const formatted = value.toLocaleString("en-BD", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `${symbol}${formatted}`;
-}
-
-// ── New Drawing Functions ──
-
-/**
- * Draw a two-column metadata matrix BELOW the header block.
- * LEFT COLUMN:  Document No, Counterparty Code, Counterparty Name, Mobile, Address
- * RIGHT COLUMN: Creation Date, Due Date, Previous Outstanding (formatted with currency), Balance Status
- *
- * Returns the Y position after the metadata matrix.
- */
-export function drawMetadataMatrix(
-  doc: jsPDF,
-  metadata: InvoiceMetadata,
-  startY: number,
-  pageWidth: number,
-  margin: number,
-  company?: CompanyProfile
-): number {
-  const contentWidth = pageWidth - margin * 2;
-  const colWidth = contentWidth / 2;
-  const labelWidth = 38;
-  const rowHeight = 5.5;
-  const sectionPadding = 2;
-
-  // ── Section title ──
-  let currentY = startY + sectionPadding;
-
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(10, 22, 40);
-  doc.text("Document Information", margin, currentY);
-  currentY += 1;
-
-  // ── Light gray background for the entire matrix ──
-  // Count rows: LEFT has 5 rows, RIGHT has 4 rows → 5 rows total
-  const totalRows = 5;
-  const matrixHeight = totalRows * rowHeight + sectionPadding * 2;
-  doc.setFillColor(248, 249, 250); // #f8f9fa
-  doc.setDrawColor(203, 213, 225); // slate-300
-  doc.setLineWidth(0.2);
-  doc.roundedRect(margin, currentY, contentWidth, matrixHeight, 1, 1, "FD");
-
-  const matrixStartY = currentY + sectionPadding;
-
-  // ── LEFT COLUMN ──
-  const leftRows: Array<{ label: string; value: string }> = [
-    { label: "Document No", value: metadata.documentNo || "\u2014" },
-    { label: "Counterparty Code", value: metadata.counterpartyCode || "\u2014" },
-    { label: "Counterparty Name", value: metadata.counterpartyName || "\u2014" },
-    { label: "Mobile", value: metadata.counterpartyMobile || "\u2014" },
-    { label: "Address", value: metadata.counterpartyAddress || "\u2014" },
-  ];
-
-  // ── RIGHT COLUMN ──
-  const rightRows: Array<{ label: string; value: string }> = [
-    { label: "Creation Date", value: formatCellValue(metadata.creationDate, "date") },
-    {
-      label: "Due Date",
-      value: metadata.dueDate ? formatCellValue(metadata.dueDate, "date") : "\u2014",
-    },
-    {
-      label: "Previous Outstanding",
-      value:
-        metadata.previousOutstanding !== undefined && metadata.previousOutstanding !== null
-          ? invoiceCurrencyFmt(metadata.previousOutstanding, company)
-          : "\u2014",
-    },
-    { label: "Balance Status", value: metadata.balanceStatus || "\u2014" },
-  ];
-
-  // Add branch location to right column if present
-  if (metadata.branchLocation) {
-    rightRows.push({ label: "Branch", value: metadata.branchLocation });
-  }
-
-  doc.setFontSize(7);
-
-  // Draw LEFT column rows
-  leftRows.forEach((row, i) => {
-    const rowY = matrixStartY + i * rowHeight + 3.5;
-
-    // Label (bold)
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(80, 80, 80);
-    doc.text(`${row.label}:`, margin + 3, rowY);
-
-    // Value (normal)
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 41, 59);
-    const valueX = margin + 3 + labelWidth;
-    const maxValueWidth = colWidth - labelWidth - 6;
-    const displayValue =
-      doc.getTextWidth(row.value) > maxValueWidth
-        ? doc.splitTextToSize(row.value, maxValueWidth)[0]
-        : row.value;
-    doc.text(displayValue, valueX, rowY);
-
-    // Light separator line
-    if (i < leftRows.length - 1) {
-      doc.setDrawColor(220, 220, 220);
-      doc.setLineWidth(0.1);
-      doc.line(margin + 3, rowY + 1.5, margin + colWidth - 3, rowY + 1.5);
+  const masked: string[] = extraMasked ? [...extraMasked] : [];
+  for (const col of columns) {
+    // Include columns that match standard VAT masking patterns by name
+    if (isVatMasked(col.key)) {
+      masked.push(col.key);
     }
-  });
-
-  // Draw RIGHT column rows
-  rightRows.forEach((row, i) => {
-    const rowY = matrixStartY + i * rowHeight + 3.5;
-    const colX = margin + colWidth;
-
-    // Label (bold)
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(80, 80, 80);
-    doc.text(`${row.label}:`, colX + 3, rowY);
-
-    // Value (normal)
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 41, 59);
-    const valueX = colX + 3 + labelWidth;
-    const maxValueWidth = colWidth - labelWidth - 6;
-    const displayValue =
-      doc.getTextWidth(row.value) > maxValueWidth
-        ? doc.splitTextToSize(row.value, maxValueWidth)[0]
-        : row.value;
-    doc.text(displayValue, valueX, rowY);
-
-    // Light separator line
-    if (i < rightRows.length - 1) {
-      doc.setDrawColor(220, 220, 220);
-      doc.setLineWidth(0.1);
-      doc.line(colX + 3, rowY + 1.5, colX + colWidth - 3, rowY + 1.5);
+    // Include all currency-type columns (they contain sensitive financial data)
+    if (col.type === "currency") {
+      masked.push(col.key);
     }
-  });
-
-  // Vertical divider between left and right columns
-  doc.setDrawColor(203, 213, 225);
-  doc.setLineWidth(0.2);
-  doc.line(margin + colWidth, currentY + 1, margin + colWidth, currentY + matrixHeight - 1);
-
-  return currentY + matrixHeight + 3;
-}
-
-/**
- * Draw a payment summary sub-table at the bottom-left of the invoice.
- * Maps Payment Type Breakdowns: Cash / Bank / MFS / Card alongside amounts.
- * Only renders if at least one payment amount > 0.
- *
- * Returns the Y position after the payment block.
- */
-export function drawPaymentSummaryBlock(
-  doc: jsPDF,
-  breakdown: PaymentBreakdown,
-  startY: number,
-  pageWidth: number,
-  margin: number,
-  company?: CompanyProfile
-): number {
-  // Only render if at least one payment amount > 0
-  if (breakdown.cash <= 0 && breakdown.bank <= 0 && breakdown.mfs <= 0 && breakdown.card <= 0) {
-    return startY;
   }
-
-  const contentWidth = pageWidth - margin * 2;
-  const tableWidth = contentWidth * 0.5; // Left half of the page
-  const rowHeight = 5.5;
-  const sectionPadding = 2;
-
-  let currentY = startY + sectionPadding;
-
-  // ── Section title ──
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(10, 22, 40);
-  doc.text("Payment Summary", margin, currentY);
-  currentY += 1;
-
-  // ── Build rows ──
-  const rows: Array<{ type: string; amount: string }> = [];
-
-  if (breakdown.cash > 0) {
-    rows.push({ type: "Cash", amount: invoiceCurrencyFmt(breakdown.cash, company) });
-  }
-  if (breakdown.bank > 0) {
-    rows.push({ type: "Bank Transfer", amount: invoiceCurrencyFmt(breakdown.bank, company) });
-  }
-  if (breakdown.mfs > 0) {
-    rows.push({ type: "MFS (bKash/Nagad)", amount: invoiceCurrencyFmt(breakdown.mfs, company) });
-  }
-  if (breakdown.card > 0) {
-    rows.push({ type: "Card Payment", amount: invoiceCurrencyFmt(breakdown.card, company) });
-  }
-
-  const total = breakdown.cash + breakdown.bank + breakdown.mfs + breakdown.card;
-
-  // ── Light background for payment block ──
-  const matrixHeight = (rows.length + 1) * rowHeight + sectionPadding * 2; // +1 for total row
-  doc.setFillColor(248, 249, 250); // #f8f9fa
-  doc.setDrawColor(203, 213, 225);
-  doc.setLineWidth(0.2);
-  doc.roundedRect(margin, currentY, tableWidth, matrixHeight, 1, 1, "FD");
-
-  const matrixStartY = currentY + sectionPadding;
-
-  doc.setFontSize(7);
-
-  // Draw data rows
-  rows.forEach((row, i) => {
-    const rowY = matrixStartY + i * rowHeight + 3.5;
-
-    // Type label
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 41, 59);
-    doc.text(row.type, margin + 4, rowY);
-
-    // Amount (right-aligned within the block)
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 41, 59);
-    const amountWidth = doc.getTextWidth(row.amount);
-    doc.text(row.amount, margin + tableWidth - 4 - amountWidth, rowY);
-
-    // Separator line
-    if (i < rows.length - 1) {
-      doc.setDrawColor(220, 220, 220);
-      doc.setLineWidth(0.1);
-      doc.line(margin + 3, rowY + 1.5, margin + tableWidth - 3, rowY + 1.5);
-    }
-  });
-
-  // ── Total row ──
-  const totalY = matrixStartY + rows.length * rowHeight + 3.5;
-
-  // Separator above total
-  doc.setDrawColor(10, 22, 40);
-  doc.setLineWidth(0.3);
-  doc.line(margin + 3, totalY - 3, margin + tableWidth - 3, totalY - 3);
-
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(10, 22, 40);
-  doc.text("Total", margin + 4, totalY);
-
-  const totalAmount = invoiceCurrencyFmt(total, company);
-  const totalAmountWidth = doc.getTextWidth(totalAmount);
-  doc.text(totalAmount, margin + tableWidth - 4 - totalAmountWidth, totalY);
-
-  return currentY + matrixHeight + 3;
-}
-
-/**
- * Append legal compliance footer text just above the navy footer bar.
- * - Italicized legal text: system-generated document disclaimer
- * - Customizable customer greeting
- *
- * Returns the Y position after the legal text.
- */
-export function drawLegalComplianceFooter(
-  doc: jsPDF,
-  config: LegalFooterConfig,
-  pageWidth: number,
-  pageHeight: number,
-  margin: number,
-  _company?: CompanyProfile
-): number {
-  const legalText =
-    config.legalText ||
-    "This is a system-generated secure document. No physical seal or manual signature is required.";
-  const greetingText =
-    config.greetingText || "Thank you for choosing our enterprise solutions.";
-
-  // Position just above the navy footer bar (which starts at pageHeight - 12)
-  // If financial footer is also present, we need to go above the signature block
-  // Default: place legal text at pageHeight - 40 (above financial footer at pageHeight - 28)
-  const legalY = pageHeight - 42;
-  const greetingY = legalY + 4;
-
-  doc.setFontSize(6);
-  doc.setFont("helvetica", "italic");
-  doc.setTextColor(140, 140, 140); // gray
-
-  // Legal text (left-aligned)
-  const maxLegalWidth = pageWidth - margin * 2;
-  const legalLines = doc.splitTextToSize(legalText, maxLegalWidth);
-  legalLines.forEach((line: string, i: number) => {
-    doc.text(line, margin, legalY + i * 3);
-  });
-
-  // Greeting text (left-aligned, after legal lines)
-  const greetingStartY = legalY + legalLines.length * 3 + 1;
-  const greetingLines = doc.splitTextToSize(greetingText, maxLegalWidth);
-  greetingLines.forEach((line: string, i: number) => {
-    doc.text(line, margin, greetingStartY + i * 3);
-  });
-
-  return greetingStartY + greetingLines.length * 3;
-}
-
-// ── Invoice Export Orchestrator ──
-
-/**
- * High-level invoice PDF export function that orchestrates all new blocks:
- * 1. Corporate header (existing drawCorporateHeader)
- * 2. Metadata matrix (NEW drawMetadataMatrix) — if metadata provided
- * 3. Main table (existing autoTable pattern)
- * 4. Payment summary block (NEW drawPaymentSummaryBlock) — if breakdown provided
- * 5. Legal compliance footer (NEW drawLegalComplianceFooter)
- * 6. Standard footer (existing drawFooter with financialFooter signatures)
- * 7. Fix Page X of Y (existing fixPageXOfY)
- * 8. Save PDF
- */
-export function exportInvoicePDF(options: InvoicePDFOptions): void {
-  const {
-    title,
-    subtitle,
-    orientation = "portrait",
-    columns,
-    data,
-    isVatAuditor = false,
-    vatMaskedColumns = [],
-    filename,
-    summaryRows,
-    customHeader,
-    company,
-    financialFooter,
-    metadata,
-    paymentBreakdown,
-    legalFooter,
-  } = options;
-
-  try {
-    const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 14;
-    const vatMaskSet = new Set(vatMaskedColumns);
-    const TOTAL_PLACEHOLDER = "{total}";
-
-    // ── 1. Corporate Header ──
-    let currentY = drawCorporateHeader(
-      doc,
-      title,
-      subtitle,
-      isVatAuditor,
-      pageWidth,
-      margin,
-      company
-    );
-
-    // ── 2. Metadata Matrix (if provided) ──
-    if (metadata) {
-      currentY = drawMetadataMatrix(doc, metadata, currentY, pageWidth, margin, company);
-    }
-
-    // ── Adjust bottom margin for financial footer + legal footer ──
-    const bottomMargin = financialFooter ? 44 : legalFooter ? 48 : 18;
-
-    // ── 3. Main Table ──
-    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
-    const headers = visibleColumns.map((c) => c.label);
-    const body = data.map((item: any) =>
-      visibleColumns.map((c) =>
-        formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key))
-      )
-    );
-
-    // autoTable Configuration
-    const headStyles: any = {
-      fillColor: [37, 99, 235],
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      fontSize: 8,
-      halign: "left",
-      cellPadding: 3,
-    };
-
-    const alternateRowStyles: any = {
-      fillColor: [240, 244, 252],
-    };
-
-    const styles: any = {
-      fontSize: 7,
-      cellPadding: 2.5,
-      textColor: [30, 41, 59],
-      lineWidth: 0.1,
-      lineColor: [203, 213, 225],
-    };
-
-    const columnStyles: Record<number, any> = {};
-    const colWidths = calculateColumnWidths(visibleColumns.length, pageWidth, margin);
-    visibleColumns.forEach((c, i) => {
-      const colConfig: any = {};
-      if (c.type === "currency" || c.type === "number") {
-        colConfig.halign = "right";
-      }
-      colConfig.minCellWidth = colWidths[i].minW;
-      colConfig.maxCellWidth = colWidths[i].maxW;
-      columnStyles[i] = colConfig;
-    });
-
-    // Track the last page number to detect page breaks for legal footer placement
-    let lastDrawnPage = 1;
-
-    autoTable(doc, {
-      head: [headers],
-      body,
-      startY: currentY,
-      margin: { left: margin, right: margin, bottom: bottomMargin },
-      styles,
-      headStyles,
-      alternateRowStyles,
-      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
-      didDrawPage: (drawData: any) => {
-        lastDrawnPage = drawData.pageNumber;
-
-        // ── 5. Legal Compliance Footer (on every page) ──
-        if (legalFooter) {
-          drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
-        }
-
-        // ── 6. Standard Footer ──
-        drawFooter(
-          doc,
-          drawData.pageNumber,
-          TOTAL_PLACEHOLDER,
-          pageWidth,
-          pageHeight,
-          margin,
-          company,
-          financialFooter
-        );
-
-        // Custom header callback
-        if (customHeader) {
-          customHeader(doc, drawData.pageNumber, pageWidth, pageHeight);
-        }
-      },
-    });
-
-    // ── 4. Payment Summary Block (after main table) ──
-    if (paymentBreakdown) {
-      const lastTable = (doc as any).lastAutoTable;
-      let paymentY = lastTable ? lastTable.finalY + 6 : currentY + 30;
-
-      // Ensure we're on the correct page
-      const currentPage = doc.getNumberOfPages();
-      if (currentPage !== lastDrawnPage) {
-        doc.setPage(lastDrawnPage);
-      }
-
-      // Check if payment block fits on the current page
-      if (paymentY > pageHeight - bottomMargin - 20) {
-        doc.addPage();
-        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
-        if (legalFooter) {
-          drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
-        }
-        drawFooter(
-          doc,
-          doc.getNumberOfPages(),
-          TOTAL_PLACEHOLDER,
-          pageWidth,
-          pageHeight,
-          margin,
-          company,
-          financialFooter
-        );
-        paymentY = 38;
-      }
-
-      paymentY = drawPaymentSummaryBlock(
-        doc,
-        paymentBreakdown,
-        paymentY,
-        pageWidth,
-        margin,
-        company
-      );
-    }
-
-    // ── Summary Rows ──
-    if (summaryRows && summaryRows.length > 0) {
-      const lastTable = (doc as any).lastAutoTable;
-      const summaryStartY = lastTable ? lastTable.finalY + 4 : currentY + 30;
-
-      let currentSummaryY: number;
-      if (summaryStartY > pageHeight - (financialFooter ? 50 : legalFooter ? 54 : 30)) {
-        doc.addPage();
-        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
-        if (legalFooter) {
-          drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
-        }
-        drawFooter(
-          doc,
-          doc.getNumberOfPages(),
-          TOTAL_PLACEHOLDER,
-          pageWidth,
-          pageHeight,
-          margin,
-          company,
-          financialFooter
-        );
-        currentSummaryY = 36;
-      } else {
-        currentSummaryY = summaryStartY;
-      }
-
-      summaryRows.forEach((summaryRow) => {
-        const rowStyle = summaryRow.style || {
-          fillColor: [10, 22, 40],
-          textColor: [255, 255, 255],
-          fontStyle: "bold" as const,
-          fontSize: 8,
-        };
-
-        if (currentSummaryY > pageHeight - (financialFooter ? 50 : legalFooter ? 54 : 25)) {
-          doc.addPage();
-          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company);
-          if (legalFooter) {
-            drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
-          }
-          drawFooter(
-            doc,
-            doc.getNumberOfPages(),
-            TOTAL_PLACEHOLDER,
-            pageWidth,
-            pageHeight,
-            margin,
-            company,
-            financialFooter
-          );
-          currentSummaryY = 36;
-        }
-
-        autoTable(doc, {
-          body: [summaryRow.cells],
-          startY: currentSummaryY,
-          margin: { left: margin, right: margin, bottom: bottomMargin },
-          styles: {
-            fontSize: rowStyle.fontSize || 8,
-            cellPadding: 3,
-            textColor: rowStyle.textColor || [255, 255, 255],
-            fontStyle: rowStyle.fontStyle || "bold",
-            lineWidth: 0.1,
-            lineColor: [203, 213, 225],
-          },
-          bodyStyles: {
-            fillColor: rowStyle.fillColor || [10, 22, 40],
-          },
-          columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
-          didDrawPage: (drawData: any) => {
-            if (legalFooter) {
-              drawLegalComplianceFooter(doc, legalFooter, pageWidth, pageHeight, margin, company);
-            }
-            drawFooter(
-              doc,
-              drawData.pageNumber,
-              TOTAL_PLACEHOLDER,
-              pageWidth,
-              pageHeight,
-              margin,
-              company,
-              financialFooter
-            );
-          },
-        });
-
-        const lastSummaryTable = (doc as any).lastAutoTable;
-        if (lastSummaryTable) {
-          currentSummaryY = lastSummaryTable.finalY + 2;
-        }
-      });
-    }
-
-    // ── 7. Fix Page X of Y ──
-    fixPageXOfY(doc, pageHeight, pageWidth, margin);
-
-    // ── 8. Save PDF ──
-    const rawFilename =
-      filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
-    doc.save(`${safeFilename}.pdf`);
-
-    // ── Telemetry: Log Invoice PDF export to server-side activity trail ──
-    logExportTelemetry("PDF_EXPORT", title, `${safeFilename}.pdf`, data.length);
-  } catch (error: any) {
-    console.error("Export Invoice PDF Error:", error);
-    throw new Error(`Invoice PDF export failed: ${error.message || "Unknown error"}`);
-  }
+  return [...new Set(masked)];
 }

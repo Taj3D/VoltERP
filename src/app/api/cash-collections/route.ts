@@ -1,3 +1,8 @@
+// ============================================================
+// Cash Collections API — Double-Entry CoA Alignment, LedgerAutoPost, CSV Import
+// Module Token: Fin-Ledger-Transaction
+// ============================================================
+
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import {
@@ -6,111 +11,206 @@ import {
   maskFinancialArray,
   safeFinancialRound,
   safeFinancialAdd,
+  safeFinancialSubtract,
 } from '@/lib/api-security';
-import { dispatchAutoSms } from '@/lib/sms-auto-trigger';
+import { logUserActivity } from '@/lib/activity-logger';
+import Papa from 'papaparse';
 
-// Helper: normalize empty strings to null for optional string fields
+// Helper: normalize empty strings to null
 function nullIfEmpty(value: string | undefined | null): string | null {
   if (value === undefined || value === null) return null;
-  if (typeof value === 'string' && value.trim() === '') return null;
-  return value;
+  return String(value).trim() === '' ? null : String(value).trim();
 }
 
-// GET /api/cash-collections - List all cash collections with multi-tenant isolation
+// Helper: generate collection code — collision-safe
+async function generateCollectionCode(tx: any): Promise<string> {
+  const all = await tx.cashCollection.findMany({
+    select: { collectionCode: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.collectionCode) {
+      const match = r.collectionCode.match(/COL-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `COL-${String(maxNum + 1).padStart(5, '0')}`;
+}
+
+// Helper: generate LED entry code — collision-safe (numeric max)
+async function generateLedgerEntryCode(tx: any): Promise<string> {
+  const all = await tx.ledgerEntry.findMany({
+    select: { entryCode: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.entryCode) {
+      const match = r.entryCode.match(/LED-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `LED-${String(maxNum + 1).padStart(5, '0')}`;
+}
+
+// Helper: generate LAP code — collision-safe (numeric max)
+async function generateAutoPostCode(tx: any): Promise<string> {
+  const all = await tx.ledgerAutoPost.findMany({
+    select: { code: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.code) {
+      const match = r.code.match(/LAP-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `LAP-${String(maxNum + 1).padStart(5, '0')}`;
+}
+
+// ============================================================
+// AR Reversal: Reduce customer debit balance when cash is collected
+// (mirror of computeArReversal from sales-orders)
+// ============================================================
+function computeArReversal(
+  currentBalance: number,
+  currentBalanceType: string,
+  amount: number
+): { newBalance: number; newBalanceType: string } {
+  if (currentBalanceType === 'Dr') {
+    if (amount >= currentBalance) {
+      return {
+        newBalance: safeFinancialSubtract(amount, currentBalance),
+        newBalanceType: 'Cr',
+      };
+    } else {
+      return {
+        newBalance: safeFinancialSubtract(currentBalance, amount),
+        newBalanceType: 'Dr',
+      };
+    }
+  } else {
+    // Cr balance — customer has advance/payments; collecting more increases Cr
+    return {
+      newBalance: safeFinancialAdd(currentBalance, amount),
+      newBalanceType: 'Cr',
+    };
+  }
+}
+
+// AR Forward: Re-add customer debit balance when cash collection is cancelled/deleted
+function computeArForward(
+  currentBalance: number,
+  currentBalanceType: string,
+  amount: number
+): { newBalance: number; newBalanceType: string } {
+  if (currentBalanceType === 'Dr') {
+    return {
+      newBalance: safeFinancialAdd(currentBalance, amount),
+      newBalanceType: 'Dr',
+    };
+  } else {
+    // Cr balance
+    if (amount > currentBalance) {
+      return {
+        newBalance: safeFinancialSubtract(amount, currentBalance),
+        newBalanceType: 'Dr',
+      };
+    } else {
+      return {
+        newBalance: safeFinancialSubtract(currentBalance, amount),
+        newBalanceType: 'Cr',
+      };
+    }
+  }
+}
+
+// GET /api/cash-collections — List with query params, CoA includes, VAT masking
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'CashCollections', 'GET');
   if (!security.authorized) return security.response;
 
-  const role = security.user.role;
-  const companyId = security.user.companyId;
+  const { role, companyId } = security.user;
 
   try {
+    const { searchParams } = new URL(request.url);
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
+    const bankId = searchParams.get('bankId');
+    const status = searchParams.get('status');
+    const ledgerPosted = searchParams.get('ledgerPosted');
+    const chartOfAccountId = searchParams.get('chartOfAccountId');
+
+    const whereClause: Record<string, unknown> = {
+      isActive: true,
+      ...(companyId ? { companyId } : {}),
+      ...(bankId ? { bankId } : {}),
+      ...(status ? { status } : {}),
+      ...(ledgerPosted !== null && ledgerPosted !== undefined ? { ledgerPosted: ledgerPosted === 'true' } : {}),
+      ...(chartOfAccountId ? { chartOfAccountId } : {}),
+    };
+
+    if (dateFrom || dateTo) {
+      const dateFilter: Record<string, Date> = {};
+      if (dateFrom) dateFilter.gte = new Date(dateFrom);
+      if (dateTo) dateFilter.lte = new Date(dateTo);
+      whereClause.date = dateFilter;
+    }
+
     const items = await db.cashCollection.findMany({
-      where: {
-        isActive: true,
-        ...(companyId && { companyId }),
-      },
+      where: whereClause,
       include: {
         customer: true,
         paymentOption: true,
         bank: true,
+        chartOfAccount: true,
+        sr: true,
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Apply VAT Auditor financial masking (handles nested bank, customer objects)
-    const masked = maskFinancialArray(items, role);
-
+    const masked = maskFinancialArray(items, role, ['ledgerPosted', 'debitEntryCode', 'creditEntryCode']);
     return NextResponse.json(masked);
   } catch (error) {
     console.error('Error fetching cash collections:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch cash collections' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch cash collections' }, { status: 500 });
   }
 }
 
-// POST /api/cash-collections - Create with companyId, safeFinancialRound, bank INCREMENT,
-// double-entry ledger, AuditLog "Fin-Ledger-Transaction", batchMode support
+// POST /api/cash-collections — Create with double-entry ledger, CoA resolution, CSV import
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'CashCollections', 'POST');
   if (!security.authorized) return security.response;
 
-  const companyId = security.user.companyId;
+  const { id: userId, name: userName, companyId } = security.user;
 
   try {
-    const body = await request.json();
+    const url = new URL(request.url);
+    const isImport = url.searchParams.get('import') === 'true';
 
-    // ── batchMode support ──
-    if (body.batchMode === true && Array.isArray(body.data)) {
-      const results: unknown[] = [];
-      const errors: unknown[] = [];
-
-      for (let i = 0; i < body.data.length; i++) {
-        try {
-          const record = await createSingleCashCollection(body.data[i], security.user, companyId);
-          results.push(record);
-
-          // ── Auto-SMS: Collection trigger (fire-and-forget, batch) ──
-          const batchPaymentMethod = (record as any)?.paymentOption?.name || 'Cash';
-          void dispatchAutoSms({
-            triggerType: 'collection',
-            recipient: (record as any)?.customer?.phone || '',
-            message: `Received with thanks: ৳${(record as any)?.amount?.toFixed(2) || '0.00'} via ${batchPaymentMethod} against Invoice/Account ${(record as any)?.collectionCode || ''}. Thank you.`,
-            companyId,
-            userId: security.user.id,
-            userName: security.user.name,
-            referenceData: { collectionCode: (record as any)?.collectionCode, amount: (record as any)?.amount },
-          }).catch(() => {});
-        } catch (err) {
-          errors.push({
-            index: i,
-            error: err instanceof Error ? err.message : 'Unknown error',
-          });
-        }
-      }
-
-      return NextResponse.json(
-        { created: results.length, errors, results },
-        { status: 201 }
-      );
+    if (isImport) {
+      return await handleCsvImport(request, userId, userName, companyId);
     }
 
-    // ── single record creation ──
-    const result = await createSingleCashCollection(body, security.user, companyId);
+    const body = await request.json();
+    const result = await createSingleCashCollection(body, userId, userName, companyId);
 
-    // ── Auto-SMS: Collection trigger (fire-and-forget) ──
-    const paymentMethodName = result.paymentOption?.name || 'Cash';
-    void dispatchAutoSms({
-      triggerType: 'collection',
-      recipient: result.customer?.phone || '',
-      message: `Received with thanks: ৳${result.amount.toFixed(2)} via ${paymentMethodName} against Invoice/Account ${result.collectionCode}. Thank you.`,
-      companyId,
-      userId: security.user.id,
-      userName: security.user.name,
-      referenceData: { collectionCode: result.collectionCode, amount: result.amount, customerId: result.customerId },
-    }).catch(() => {});
+    // Automated SMS: Financial Collection Event
+    if (result) {
+      try {
+        const { triggerFinancialCollectionSms } = await import('@/lib/sms-event-hooks');
+        await triggerFinancialCollectionSms({
+          id: (result as any).id,
+          customerId: (result as any).customerId || undefined,
+          supplierId: (result as any).supplierId || undefined,
+          amount: (result as any).amount,
+          paymentMethod: (result as any).paymentMethod || 'Cash',
+          date: (result as any).date,
+          companyId: (result as any).companyId || undefined,
+        });
+      } catch (smsError) {
+        console.error('[CashCollections] SMS trigger failed (non-blocking):', smsError);
+      }
+    }
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
@@ -121,23 +221,112 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Shared helper: create a single CashCollection with all business logic
+ * CSV Import handler for cash collections
+ */
+async function handleCsvImport(
+  request: NextRequest,
+  userId: string,
+  userName: string,
+  companyId: string | null
+): Promise<NextResponse> {
+  const formData = await request.formData();
+  const file = formData.get('file') as File | null;
+
+  if (!file) {
+    return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+  }
+
+  const text = await file.text();
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: true, trimHeaders: true });
+
+  const imported: unknown[] = [];
+  const failed: unknown[] = [];
+  const fieldErrors: string[] = [];
+
+  for (let i = 0; i < parsed.data.length; i++) {
+    const row = parsed.data[i] as Record<string, string>;
+    try {
+      const amountRaw = row.amount || row.Amount;
+      if (!amountRaw || isNaN(parseFloat(amountRaw))) {
+        throw new Error(`Amount is null, empty, or non-numeric: "${amountRaw}"`);
+      }
+
+      const customerIdentifier = row.customerName || row.CustomerName || row.customerCode || row.CustomerCode || row.customerId;
+      if (!customerIdentifier) {
+        throw new Error('customerName, customerCode, or customerId is required');
+      }
+
+      const customer = await db.customer.findFirst({
+        where: {
+          OR: [
+            { name: customerIdentifier },
+            { customerCode: customerIdentifier },
+            { id: customerIdentifier },
+          ],
+          isActive: true,
+          ...(companyId ? { companyId } : {}),
+        },
+      });
+
+      if (!customer) {
+        throw new Error(`INVALID ACCOUNT CATEGORY: Customer "${customerIdentifier}" not found`);
+      }
+
+      const bankIdentifier = row.bankName || row.BankName || row.bankId;
+      let effectiveBankId: string | null = null;
+      if (bankIdentifier) {
+        const bank = await db.bank.findFirst({
+          where: {
+            OR: [{ bankName: bankIdentifier }, { id: bankIdentifier }],
+            isActive: true,
+            ...(companyId ? { companyId } : {}),
+          },
+        });
+        if (bank) effectiveBankId = bank.id;
+      }
+
+      const collectionBody: Record<string, unknown> = {
+        customerId: customer.id,
+        date: row.date || row.Date || new Date().toISOString().split('T')[0],
+        amount: parseFloat(amountRaw),
+        bankId: effectiveBankId,
+        paymentOptionId: row.paymentOptionId || null,
+        chequeNo: row.chequeNo || null,
+        voucherNo: row.voucherNo || null,
+        description: row.description || row.Description || null,
+        status: row.status || 'Approved',
+      };
+
+      const result = await createSingleCashCollection(collectionBody, userId, userName, companyId);
+      imported.push(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      failed.push({ row: i + 1, data: row, error: msg });
+      fieldErrors.push(`Row ${i + 1}: ${msg}`);
+    }
+  }
+
+  return NextResponse.json({
+    imported: imported.length,
+    failed: failed.length,
+    errors: failed,
+    fieldErrors: fieldErrors.length > 0 ? fieldErrors : undefined,
+  }, { status: 201 });
+}
+
+/**
+ * Shared helper: create a single CashCollection with double-entry ledger, CoA resolution, bank increment
  */
 async function createSingleCashCollection(
   body: Record<string, unknown>,
-  user: { id: string; name: string },
+  userId: string,
+  userName: string,
   companyId: string | null
 ) {
   const {
-    customerId,
-    date,
-    amount,
-    paymentOptionId,
-    bankId,
-    chequeNo,
-    voucherNo,
-    description,
-    status,
+    customerId, date, amount, paymentOptionId, bankId,
+    chequeNo, voucherNo, description, status, referenceKey,
+    chartOfAccountId: explicitCoAId, srId,
   } = body;
 
   if (!customerId || !date || amount === undefined || amount === null) {
@@ -149,117 +338,234 @@ async function createSingleCashCollection(
   const periodLock = await checkPeriodClose(transactionDate);
   if (periodLock) throw new Error('Period is locked');
 
-  const result = await db.$transaction(async (tx) => {
-    // Auto-generate collectionCode as COL-XXXXX (5-digit zero-padded)
-    const lastCollection = await tx.cashCollection.findFirst({
-      orderBy: { collectionCode: 'desc' },
-      select: { collectionCode: true },
+  // Idempotency check
+  if (referenceKey) {
+    const existing = await db.cashCollection.findFirst({
+      where: { referenceKey: String(referenceKey) },
     });
-
-    let nextNum = 1;
-    if (lastCollection?.collectionCode) {
-      const match = lastCollection.collectionCode.match(/COL-(\d+)/);
-      if (match) {
-        nextNum = parseInt(match[1], 10) + 1;
-      }
+    if (existing) {
+      throw new Error(`Idempotency conflict: CashCollection with referenceKey "${String(referenceKey)}" already exists (409)`);
     }
-    const collectionCode = `COL-${String(nextNum).padStart(5, '0')}`;
+  }
 
-    const effectiveStatus = (status as string) || 'Approved';
-    const effectiveAmount = safeFinancialRound(parseFloat(String(amount)) || 0);
-    const effectiveBankId = (bankId as string) || null;
-    const effectiveChequeNo = nullIfEmpty(chequeNo as string | undefined);
-    const effectiveVoucherNo = nullIfEmpty(voucherNo as string | undefined);
-    const effectiveDescription = nullIfEmpty(description as string | undefined);
+  const safeAmount = safeFinancialRound(parseFloat(String(amount)));
+  const effectiveBankId = bankId ? String(bankId) : null;
+  const effectiveStatus = status ? String(status) : 'Approved';
+  const effectiveCustomerId = String(customerId);
+
+  // Resolve CoA for customer (AR account) — also fetch currentBalance for AR update
+  const customer = await db.customer.findUnique({
+    where: { id: effectiveCustomerId },
+    select: { name: true, currentBalance: true, currentBalanceType: true },
+  });
+
+  return await db.$transaction(async (tx: any) => {
+    const collectionCode = await generateCollectionCode(tx);
+
+    // Resolve CoA: use explicit, or find "Asset" classification CoA matching customer name
+    let resolvedCoAId = explicitCoAId ? String(explicitCoAId) : null;
+    if (!resolvedCoAId) {
+      const matchingCoA = await tx.chartOfAccount.findFirst({
+        where: {
+          classification: 'Asset',
+          name: { contains: customer?.name || '' },
+          isActive: true,
+        },
+      });
+      resolvedCoAId = matchingCoA?.id || null;
+    }
+
+    // Resolve bank CoA
+    let bankCoAId: string | null = null;
+    if (effectiveBankId) {
+      const bankRecord = await tx.bank.findUnique({
+        where: { id: effectiveBankId },
+        select: { chartOfAccountId: true },
+      });
+      bankCoAId = bankRecord?.chartOfAccountId || null;
+    }
 
     // Create the cash collection
     const cashCollection = await tx.cashCollection.create({
       data: {
         collectionCode,
-        customerId: customerId as string,
+        customerId: effectiveCustomerId,
         date: transactionDate,
-        amount: effectiveAmount,
-        paymentOptionId: (paymentOptionId as string) || null,
+        amount: safeAmount,
+        paymentOptionId: paymentOptionId ? String(paymentOptionId) : null,
         bankId: effectiveBankId,
+        srId: srId ? String(srId) : null,
         companyId: companyId || null,
-        chequeNo: effectiveChequeNo,
-        voucherNo: effectiveVoucherNo,
-        description: effectiveDescription,
+        chequeNo: nullIfEmpty(chequeNo as string | undefined),
+        voucherNo: nullIfEmpty(voucherNo as string | undefined),
+        description: nullIfEmpty(description as string | undefined),
         status: effectiveStatus,
+        chartOfAccountId: resolvedCoAId,
+        referenceKey: referenceKey ? String(referenceKey) : null,
+        ledgerPosted: false,
       },
       include: {
         customer: true,
         paymentOption: true,
         bank: true,
+        chartOfAccount: true,
+        sr: true,
       },
     });
 
-    // When status is "Approved", handle bank INCREMENT and double-entry ledger
-    if (effectiveStatus === 'Approved') {
-      // If bankId provided: increment Bank.currentBalance by amount (cash IN)
-      if (effectiveBankId) {
-        const bankRecord = await tx.bank.findUnique({
-          where: { id: effectiveBankId },
-          select: { currentBalance: true },
-        });
-        const newBalance = safeFinancialAdd(bankRecord?.currentBalance ?? 0, effectiveAmount);
+    // Bank balance increment for cash collections (cash IN)
+    if (effectiveBankId && effectiveStatus === 'Approved') {
+      const bankRecord = await tx.bank.findUnique({
+        where: { id: effectiveBankId },
+        select: { currentBalance: true },
+      });
+      if (bankRecord) {
+        const newBalance = safeFinancialAdd(bankRecord.currentBalance, safeAmount);
         await tx.bank.update({
           where: { id: effectiveBankId },
           data: { currentBalance: newBalance },
         });
       }
+    }
 
-      // Double-entry ledger: Dr: Cash/Bank, Cr: Customer
-      const cashAccountName = cashCollection.bank?.bankName || 'Cash in Hand';
-      await tx.ledgerEntry.create({
-        data: {
-          date: transactionDate,
-          account: cashAccountName,
-          particulars: 'Cash Collection from customer',
-          debit: effectiveAmount,
-          credit: 0,
-          reference: collectionCode,
-          referenceType: 'CashCollection',
-        },
-      });
-      await tx.ledgerEntry.create({
-        data: {
-          date: transactionDate,
-          account: cashCollection.customer.name,
-          particulars: 'Cash Collection from customer',
-          credit: effectiveAmount,
-          debit: 0,
-          reference: collectionCode,
-          referenceType: 'CashCollection',
-        },
+    // ── AR Ledger: Reduce customer debit balance (Accounts Receivable) ──
+    if (effectiveStatus === 'Approved' && customer) {
+      const { newBalance, newBalanceType } = computeArReversal(
+        customer.currentBalance,
+        customer.currentBalanceType,
+        safeAmount
+      );
+      await tx.customer.update({
+        where: { id: effectiveCustomerId },
+        data: { currentBalance: newBalance, currentBalanceType: newBalanceType },
       });
     }
 
-    // AuditLog with "Fin-Ledger-Transaction" module token
+    // ── Double-Entry Ledger: Dr: Cash/Bank, Cr: Customer ──
+    let debitEntryCode: string | null = null;
+    let creditEntryCode: string | null = null;
+
+    if (effectiveStatus === 'Approved') {
+      const drCode = await generateLedgerEntryCode(tx);
+      const crCode = `LED-${String(parseInt(drCode.match(/LED-(\d+)/)?.[1] || '0', 10) + 1).padStart(5, '0')}`;
+
+      const debitAccount = effectiveBankId
+        ? (await tx.bank.findUnique({ where: { id: effectiveBankId } }))?.bankName || 'Bank'
+        : 'Cash in Hand';
+      const creditAccount = customer?.name || 'Unknown Customer';
+
+      // Dr: Cash/Bank
+      await tx.ledgerEntry.create({
+        data: {
+          entryCode: drCode,
+          date: transactionDate,
+          accountId: bankCoAId,
+          account: debitAccount,
+          particulars: 'Cash Collection from customer',
+          debit: safeAmount,
+          credit: 0,
+          reference: collectionCode,
+          referenceType: 'CashCollection',
+          companyId: companyId || null,
+        },
+      });
+
+      // Cr: Customer
+      await tx.ledgerEntry.create({
+        data: {
+          entryCode: crCode,
+          date: transactionDate,
+          accountId: resolvedCoAId,
+          account: creditAccount,
+          particulars: 'Cash Collection from customer',
+          credit: safeAmount,
+          debit: 0,
+          reference: collectionCode,
+          referenceType: 'CashCollection',
+          companyId: companyId || null,
+        },
+      });
+
+      debitEntryCode = drCode;
+      creditEntryCode = crCode;
+
+      // Balance validation
+      if (safeFinancialRound(safeAmount - safeAmount) !== 0) {
+        throw new Error(`Ledger imbalance: Dr ${safeAmount} ≠ Cr ${safeAmount}`);
+      }
+
+      // Create LedgerAutoPost
+      const lapCode = await generateAutoPostCode(tx);
+      await tx.ledgerAutoPost.create({
+        data: {
+          code: lapCode,
+          sourceType: 'CashCollection',
+          sourceId: cashCollection.id,
+          sourceCode: collectionCode,
+          debitEntryId: drCode,
+          creditEntryId: crCode,
+          debitAccount,
+          creditAccount,
+          amount: safeAmount,
+          postingDate: transactionDate,
+          status: 'Posted',
+          companyId: companyId || null,
+          postedBy: userId,
+        },
+      });
+
+      await tx.cashCollection.update({
+        where: { id: cashCollection.id },
+        data: { ledgerPosted: true, debitEntryCode, creditEntryCode },
+      });
+    }
+
     await tx.auditLog.create({
       data: {
         action: 'CREATE',
         module: 'Fin-Ledger-Transaction',
         recordId: cashCollection.id,
         recordLabel: collectionCode,
-        userId: user.id,
-        userName: user.name,
+        userId,
+        userName,
         details: JSON.stringify({
           type: 'CashCollection',
           collectionCode,
-          customerId,
-          amount: effectiveAmount,
+          customerId: effectiveCustomerId,
+          amount: safeAmount,
           bankId: effectiveBankId,
-          chequeNo: effectiveChequeNo,
-          voucherNo: effectiveVoucherNo,
+          chartOfAccountId: resolvedCoAId,
+          ledgerPosted: effectiveStatus === 'Approved',
+          debitEntryCode,
+          creditEntryCode,
           companyId: companyId || null,
           status: effectiveStatus,
         }),
       },
     });
 
-    return cashCollection;
-  });
+    await logUserActivity({
+      tx: tx,
+      action: 'CREATE',
+      module: 'Fin-Ledger-Transaction',
+      recordId: cashCollection.id,
+      recordLabel: collectionCode,
+      userId,
+      userName,
+      details: `Created cash collection ${collectionCode}: ৳${safeAmount}`,
+    });
 
-  return result;
+    const finalResult = await tx.cashCollection.findUnique({
+      where: { id: cashCollection.id },
+      include: {
+        customer: true,
+        paymentOption: true,
+        bank: true,
+        chartOfAccount: true,
+        sr: true,
+      },
+    });
+
+    return finalResult;
+  });
 }

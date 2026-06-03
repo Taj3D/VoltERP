@@ -1,7 +1,7 @@
 // ============================================================
 // AUTH PROFILE API — User Profile Management
-// GET: Retrieve current user's profile (including profileImage, phone, designation)
-// PUT: Update current user's profile (name, profileImage, phone, designation)
+// GET: Retrieve current user's profile (including photo, phone, address)
+// PUT: Update current user's profile (name, photo, phone, address)
 // All actions are audited via logUserActivity with token "Sys-Profile-Core"
 // ============================================================
 
@@ -26,13 +26,15 @@ export async function GET(request: NextRequest) {
         name: true,
         role: true,
         companyId: true,
-        branchId: true,
-        profileImage: true,
+        photo: true,
         phone: true,
-        designation: true,
+        address: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        pdfExports: true,
+        csvImports: true,
+        csvExports: true,
       },
     });
 
@@ -60,7 +62,7 @@ export async function PUT(request: NextRequest) {
     if (!security.authorized) return security.response;
 
     const body = await request.json();
-    const { name, profileImage, phone, designation } = body;
+    const { name, photo, phone, address } = body;
 
     // Build update data — only allow specific fields
     const updateData: Record<string, unknown> = {};
@@ -75,25 +77,25 @@ export async function PUT(request: NextRequest) {
       updateData.name = name.trim();
     }
 
-    if (profileImage !== undefined) {
+    if (photo !== undefined) {
       // Validate base64 data URL format if provided
-      if (profileImage !== null && profileImage !== "") {
-        if (typeof profileImage !== "string") {
+      if (photo !== null && photo !== "") {
+        if (typeof photo !== "string") {
           return NextResponse.json(
-            { error: "Profile image must be a valid base64 data URL." },
+            { error: "Profile photo must be a valid base64 data URL." },
             { status: 400 }
           );
         }
-        // Check max size — limit to 2MB base64 (~2.67MB decoded)
-        const maxBase64Length = 2 * 1024 * 1024 * 1.34;
-        if (profileImage.length > maxBase64Length) {
+        // Check max size — 5MB raw file ≈ 7MB base64 string (with ~33% overhead + data URL prefix)
+        const maxBase64Length = 7 * 1024 * 1024;
+        if (photo.length > maxBase64Length) {
           return NextResponse.json(
-            { error: "Profile image must be smaller than 2MB." },
+            { error: "Profile photo must be smaller than 5MB." },
             { status: 400 }
           );
         }
       }
-      updateData.profileImage = profileImage;
+      updateData.photo = photo;
     }
 
     if (phone !== undefined) {
@@ -106,14 +108,14 @@ export async function PUT(request: NextRequest) {
       updateData.phone = phone;
     }
 
-    if (designation !== undefined) {
-      if (designation !== null && typeof designation !== "string") {
+    if (address !== undefined) {
+      if (address !== null && typeof address !== "string") {
         return NextResponse.json(
-          { error: "Designation must be a valid string." },
+          { error: "Address must be a valid string." },
           { status: 400 }
         );
       }
-      updateData.designation = designation;
+      updateData.address = address;
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -140,9 +142,12 @@ export async function PUT(request: NextRequest) {
         email: true,
         name: true,
         role: true,
-        profileImage: true,
+        photo: true,
         phone: true,
-        designation: true,
+        address: true,
+        pdfExports: true,
+        csvImports: true,
+        csvExports: true,
       },
     });
 

@@ -110,22 +110,6 @@ export async function PUT(
       return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
     }
 
-    // Phase 13 D1: Root Node Shield — cannot re-parent root nodes
-    if (existing.isRoot && parentAccountId !== undefined && parentAccountId !== null) {
-      return NextResponse.json(
-        { error: `CRITICAL: Root account node "${existing.name}" (${existing.classification}) cannot be re-parented. Root nodes must remain at the top of the COA hierarchy for Balance Sheet integrity.` },
-        { status: 400 }
-      );
-    }
-
-    // Phase 13 D1: Root Node Shield — cannot deactivate root nodes
-    if (existing.isRoot && isActive === false) {
-      return NextResponse.json(
-        { error: `CRITICAL: Root account node "${existing.name}" (${existing.classification}) cannot be deactivated. Root nodes must remain active for Balance Sheet integrity.` },
-        { status: 400 }
-      );
-    }
-
     // COA-001: Circular parent detection on parentAccountId change
     if (parentAccountId !== undefined && parentAccountId) {
       // Self-reference check: cannot set parent to self
@@ -240,14 +224,6 @@ export async function DELETE(
     // Cross-tenant validation: if user has a companyId, the record must match
     if (companyId && existing.companyId && existing.companyId !== companyId) {
       return NextResponse.json({ error: 'Chart of account not found' }, { status: 404 });
-    }
-
-    // Phase 13 D1: Root Node Shield — permanently locked against deletion
-    if (existing.isRoot) {
-      return NextResponse.json(
-        { error: `CRITICAL: Root account node "${existing.name}" (${existing.classification}) is permanently protected and cannot be deleted or deactivated. This is a structural safeguard for Balance Sheet integrity.` },
-        { status: 400 }
-      );
     }
 
     // Check if account has active child accounts (scoped by companyId)

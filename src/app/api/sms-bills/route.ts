@@ -112,10 +112,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Activity log with Comm-SMS-Marketing module token (Directive 4)
+      // Activity log with SMS-Billing-Settle module token
       await logUserActivity({
+          tx: tx,
         action: 'CREATE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Billing-Settle',
         recordId: smsBill.id,
         recordLabel: smsBill.period || smsBill.id,
         userId: security.user.id,

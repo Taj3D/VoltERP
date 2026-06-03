@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   FileDown, Shield, X, CheckCircle, ClipboardList, ShoppingCart,
   FileBarChart, Receipt, DollarSign, RotateCcw, ArrowLeftRight,
   Package, BarChart3, Truck, AlertTriangle, Ban, PackageCheck,
   Calculator, ArrowRightLeft, Eye, TrendingUp, Clock, Printer,
-  Layers, ChevronDown, ChevronRight, Timer, Hash, CalendarClock,
+  Inbox, CheckSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
-  exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
+  exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys, formatSanitizedCurrency,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
@@ -39,7 +39,7 @@ import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, t
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return Number(v).toLocaleString();
@@ -49,22 +49,8 @@ const fmt = (v: any, type?: string) => {
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-BD", { minimumFractionDigits: 2 })}`;
+  return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
 };
-
-const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-function validateNumeric(value: any, fieldName: string): { valid: boolean; error?: string } {
-  const num = Number(value);
-  if (value === "" || value === null || value === undefined) return { valid: false, error: `${fieldName} is required` };
-  if (isNaN(num)) return { valid: false, error: `${fieldName} must be a valid number` };
-  if (num <= 0) return { valid: false, error: `${fieldName} must be greater than zero` };
-  return { valid: true };
-}
-
-function sanitizeInput(input: string): string {
-  return input.replace(/<[^>]*>/g, '').trim();
-}
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -246,11 +232,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     "sales-returns": "sales-returns",
     "purchase-returns": "purchase-returns",
     "replacements": "replacements",
-    "opening-stock": "opening-stock",
-    "batch-master": "batch-master",
     "stock": "stock",
     "stock-details": "stock-details",
-    "stock-valuation": "stock-valuation",
     "stock-transfers": "transfers",
   };
   const [activeTab, setActiveTab] = useState(tabMap[currentPage] || "company-ordersheet");
@@ -287,8 +270,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [coEdit, setCoEdit] = useState<any>(null);
   const [coSaving, setCoSaving] = useState(false);
   const [coDelete, setCoDelete] = useState<any>(null);
-  const [coForm, setCoForm] = useState<Record<string, any>>({ companyId: "", date: new Date().toISOString().split("T")[0], status: "Draft", notes: "" });
-  const [coLines, setCoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, notes: "" }]);
+  const [coForm, setCoForm] = useState<Record<string, any>>({ companyId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+  const [coLines, setCoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+  const [coStockCheck, setCoStockCheck] = useState<Record<string, any>>({});
+  const [coViewDetail, setCoViewDetail] = useState<any>(null);
 
   // ─── Customer Ordersheet State ───
   const [custOData, setCustOData] = useState<any[]>([]);
@@ -298,14 +283,19 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [custOEdit, setCustOEdit] = useState<any>(null);
   const [custOSaving, setCustOSaving] = useState(false);
   const [custODelete, setCustODelete] = useState<any>(null);
-  const [custOForm, setCustOForm] = useState<Record<string, any>>({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Draft", notes: "" });
-  const [custOLines, setCustOLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, notes: "" }]);
+  const [custOForm, setCustOForm] = useState<Record<string, any>>({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+  const [custOLines, setCustOLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+  const [custOStockCheck, setCustOStockCheck] = useState<Record<string, any>>({});
+  const [custOViewDetail, setCustOViewDetail] = useState<any>(null);
 
   // ─── Ordersheet Report State ───
   const [osReportFrom, setOsReportFrom] = useState("");
   const [osReportTo, setOsReportTo] = useState("");
   const [osReportData, setOsReportData] = useState<any[]>([]);
   const [osReportLoading, setOsReportLoading] = useState(false);
+  const [osReportTypeFilter, setOsReportTypeFilter] = useState("all");
+  const [osReportStatusFilter, setOsReportStatusFilter] = useState("all");
+  const [osReportFulfillmentFilter, setOsReportFulfillmentFilter] = useState("all");
 
   // ─── Purchase Order State ───
   const [poData, setPoData] = useState<any[]>([]);
@@ -315,8 +305,15 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [poEdit, setPoEdit] = useState<any>(null);
   const [poSaving, setPoSaving] = useState(false);
   const [poDelete, setPoDelete] = useState<any>(null);
-  const [poForm, setPoForm] = useState<Record<string, any>>({ supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, notes: "" });
+  const [poForm, setPoForm] = useState<Record<string, any>>({ supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Draft", discount: 0, vatPercent: 0, notes: "", expectedDate: "" });
   const [poLines, setPoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+  const [poReceiveDialog, setPoReceiveDialog] = useState(false);
+  const [poReceiveForm, setPoReceiveForm] = useState<Record<string, any>>({ purchaseOrderId: "", receivedItems: [], receivedDate: new Date().toISOString().split("T")[0], challanRef: "", notes: "" });
+  const [poReceiveSaving, setPoReceiveSaving] = useState(false);
+  const [poViewDetail, setPoViewDetail] = useState<any>(null);
+  const [poExpandedRows, setPoExpandedRows] = useState<Set<string>>(new Set());
+  const [poStatusFilter, setPoStatusFilter] = useState("all");
+  const [poReceivingFilter, setPoReceivingFilter] = useState("all");
 
   // ─── Auto PO State ───
   const [autoPoData, setAutoPoData] = useState<any[]>([]);
@@ -324,6 +321,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [autoPoSearch, setAutoPoSearch] = useState("");
   const [autoPoSelected, setAutoPoSelected] = useState<Set<string>>(new Set());
   const [autoPoGenerating, setAutoPoGenerating] = useState(false);
+  const [autoPoSummary, setAutoPoSummary] = useState<any>({});
+  const [autoPoGroupedBySupplier, setAutoPoGroupedBySupplier] = useState<any[]>([]);
+  const [autoPoUrgencyFilter, setAutoPoUrgencyFilter] = useState("");
+  const [autoPoSupplierFilter, setAutoPoSupplierFilter] = useState("");
 
   // ─── Sales Order State ───
   const [soData, setSoData] = useState<any[]>([]);
@@ -408,38 +409,6 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [trnForm, setTrnForm] = useState<Record<string, any>>({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" });
   const [trnLines, setTrnLines] = useState<any[]>([{ productId: "", quantity: 1 }]);
 
-  // ─── Opening Stock State ───
-  const [osData, setOsData] = useState<any[]>([]);
-  const [osLoading, setOsLoading] = useState(true);
-  const [osSearch, setOsSearch] = useState("");
-  const [osDialog, setOsDialog] = useState(false);
-  const [osSaving, setOsSaving] = useState(false);
-  const [osForm, setOsForm] = useState<Record<string, any>>({ productId: "", godownId: "", quantity: "", costPrice: "", batchNumber: "", expiryDate: "", alertLevel: "", date: new Date().toISOString().split("T")[0], notes: "" });
-  const [osNumericErrors, setOsNumericErrors] = useState<Record<string, string>>({});
-
-  // ─── Batch Master State ───
-  const [bmData, setBmData] = useState<any[]>([]);
-  const [bmLoading, setBmLoading] = useState(true);
-  const [bmSearch, setBmSearch] = useState("");
-  const [bmDialog, setBmDialog] = useState(false);
-  const [bmEdit, setBmEdit] = useState<any>(null);
-  const [bmSaving, setBmSaving] = useState(false);
-  const [bmDelete, setBmDelete] = useState<any>(null);
-  const [bmForm, setBmForm] = useState<Record<string, any>>({ batchNumber: "", productId: "", godownId: "", quantity: "", costPrice: "", salePrice: "", expiryDate: "", manufacturingDate: "", supplierId: "", status: "Active" });
-
-  // ─── Stock Valuation State ───
-  const [svData, setSvData] = useState<any[]>([]);
-  const [svLoading, setSvLoading] = useState(false);
-  const [svMethod, setSvMethod] = useState<string>("FIFO");
-  const [svExpandedProduct, setSvExpandedProduct] = useState<string | null>(null);
-  const [svSearch, setSvSearch] = useState("");
-
-  // ─── Company Profile for White-Label PDFs ───
-  const [companyProfile, setCompanyProfile] = useState<any>(null);
-
-  // ─── Inventory Snapshot for Rollback ───
-  const inventorySnapshotRef = useRef<any>(null);
-
   // ============================================================
   // DATA LOADERS
   // ============================================================
@@ -447,9 +416,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const loadCompanyOrdersheets = useCallback(async () => {
     setCoLoading(true);
     try {
-      const res = await apiFetch("/api/order-sheets?companyId=any");
-      const all = Array.isArray(res) ? res : [];
-      setCoData(all.filter((o: any) => o.companyId));
+      const res = await apiFetch("/api/order-sheets?orderType=Company");
+      setCoData(Array.isArray(res) ? res : []);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setCoLoading(false); }
   }, [toast]);
@@ -457,9 +425,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const loadCustomerOrdersheets = useCallback(async () => {
     setCustOLoading(true);
     try {
-      const res = await apiFetch("/api/order-sheets?customerId=any");
-      const all = Array.isArray(res) ? res : [];
-      setCustOData(all.filter((o: any) => o.customerId));
+      const res = await apiFetch("/api/order-sheets?orderType=Customer");
+      setCustOData(Array.isArray(res) ? res : []);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setCustOLoading(false); }
   }, [toast]);
@@ -476,11 +443,24 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const loadAutoPo = useCallback(async () => {
     setAutoPoLoading(true);
     try {
-      const res = await apiFetch("/api/auto-po");
-      setAutoPoData(Array.isArray(res) ? res : []);
+      const params = new URLSearchParams();
+      if (autoPoSupplierFilter) params.set("supplierId", autoPoSupplierFilter);
+      if (autoPoUrgencyFilter) params.set("urgency", autoPoUrgencyFilter);
+      const qs = params.toString();
+      const res = await apiFetch(`/api/auto-po${qs ? `?${qs}` : ""}`);
+      if (res.items) {
+        setAutoPoData(Array.isArray(res.items) ? res.items : []);
+        setAutoPoSummary(res.summary || {});
+        setAutoPoGroupedBySupplier(Array.isArray(res.groupedBySupplier) ? res.groupedBySupplier : []);
+      } else {
+        const items = Array.isArray(res) ? res : [];
+        setAutoPoData(items);
+        setAutoPoSummary({});
+        setAutoPoGroupedBySupplier([]);
+      }
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setAutoPoLoading(false); }
-  }, [toast]);
+  }, [toast, autoPoSupplierFilter, autoPoUrgencyFilter]);
 
   const loadSalesOrders = useCallback(async () => {
     setSoLoading(true);
@@ -561,41 +541,6 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     finally { setTrnLoading(false); }
   }, [toast]);
 
-  const loadOpeningStock = useCallback(async () => {
-    setOsLoading(true);
-    try {
-      const res = await apiFetch("/api/opening-stock");
-      setOsData(Array.isArray(res) ? res : []);
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setOsLoading(false); }
-  }, [toast]);
-
-  const loadBatchMasters = useCallback(async () => {
-    setBmLoading(true);
-    try {
-      const res = await apiFetch("/api/batch-master");
-      setBmData(Array.isArray(res) ? res : []);
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setBmLoading(false); }
-  }, [toast]);
-
-  const loadStockValuation = useCallback(async (method?: string) => {
-    setSvLoading(true);
-    try {
-      const m = method || svMethod;
-      const res = await apiFetch(`/api/stock-valuation?method=${m}`);
-      setSvData(Array.isArray(res) ? res : []);
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-    finally { setSvLoading(false); }
-  }, [toast, svMethod]);
-
-  const loadCompanyProfile = useCallback(async () => {
-    try {
-      const res = await apiFetch("/api/company-branding");
-      setCompanyProfile(res);
-    } catch { /* non-blocking */ }
-  }, []);
-
   // ============================================================
   // INIT: Load data based on active tab
   // ============================================================
@@ -610,14 +555,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     if (activeTab === "sales-returns") loadSalesReturns();
     if (activeTab === "purchase-returns") loadPurchaseReturns();
     if (activeTab === "replacements") loadReplacements();
-    if (activeTab === "opening-stock") loadOpeningStock();
-    if (activeTab === "batch-master") loadBatchMasters();
     if (activeTab === "stock") loadStock();
-    if (activeTab === "stock-valuation") loadStockValuation();
     if (activeTab === "transfers") loadTransfers();
-  }, [activeTab, loadCompanyOrdersheets, loadCustomerOrdersheets, loadPurchaseOrders, loadAutoPo, loadSalesOrders, loadHireSales, loadSalesReturns, loadPurchaseReturns, loadReplacements, loadOpeningStock, loadBatchMasters, loadStock, loadStockValuation, loadTransfers]);
-
-  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
+  }, [activeTab, loadCompanyOrdersheets, loadCustomerOrdersheets, loadPurchaseOrders, loadAutoPo, loadSalesOrders, loadHireSales, loadSalesReturns, loadPurchaseReturns, loadReplacements, loadStock, loadTransfers]);
 
   // ============================================================
   // LINE ITEM HELPERS
@@ -716,7 +656,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </Button>
         </div>
         <div className="overflow-x-auto border rounded-lg">
-          <Table>
+          <Table className="min-w-[600px]">
             <TableHeader>
               <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                 <TableHead className="text-white text-xs">#</TableHead>
@@ -824,6 +764,70 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   }
 
   // ============================================================
+  // FULFILLMENT BADGE COMPONENT
+  // ============================================================
+
+  const FULFILLMENT_BADGE: Record<string, string> = {
+    Unfulfilled: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    Partial: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    Fulfilled: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  };
+
+  function FulfillmentBadge({ status }: { status: string }) {
+    const cls = FULFILLMENT_BADGE[status] || "bg-slate-100 text-slate-700";
+    return <Badge className={`${cls} border-0 text-xs font-medium`}>{status}</Badge>;
+  }
+
+  // ============================================================
+  // STOCK CHECK HELPER
+  // ============================================================
+
+  const checkProductStock = async (productId: string, godownId: string, quantity: number, setter: React.Dispatch<React.SetStateAction<Record<string, any>>>) => {
+    if (!productId) return;
+    try {
+      const params = new URLSearchParams({ productId });
+      if (godownId) params.set("godownId", godownId);
+      if (quantity) params.set("requestedQuantity", String(quantity));
+      const res = await apiFetch(`/api/order-sheets/stock-check?${params.toString()}`);
+      setter(prev => ({ ...prev, [productId]: res }));
+    } catch { /* silently ignore */ }
+  };
+
+  // ============================================================
+  // COMPUTE ORDER FINANCIALS HELPER
+  // ============================================================
+
+  const computeOrderTotals = (lines: any[], discountPercent: number, vatPercentage: number) => {
+    const subTotal = lines.reduce((s: number, l: any) => {
+      const qty = Number(l.quantity) || 0;
+      const rate = Number(l.rate) || 0;
+      const lineDisc = Number(l.discountPercent) || 0;
+      const lineTotal = qty * rate * (1 - lineDisc / 100);
+      return s + lineTotal;
+    }, 0);
+    const discountAmt = subTotal * (discountPercent / 100);
+    const afterDiscount = subTotal - discountAmt;
+    const vatAmt = afterDiscount * (vatPercentage / 100);
+    const grandTotal = afterDiscount + vatAmt;
+    return { subTotal: Math.round(subTotal * 100) / 100, discountAmt: Math.round(discountAmt * 100) / 100, vatAmt: Math.round(vatAmt * 100) / 100, grandTotal: Math.round(grandTotal * 100) / 100 };
+  };
+
+  // ============================================================
+  // CSV IMPORT FIELDS DEFINITION
+  // ============================================================
+
+  const orderSheetImportFields: ExportFieldDef[] = [
+    { key: "orderType", label: "Order Type", type: "select", required: true, options: [{ value: "Company", label: "Company" }, { value: "Customer", label: "Customer" }] },
+    { key: "companyId", label: "Company Code", type: "text" },
+    { key: "customerId", label: "Customer Code", type: "text" },
+    { key: "date", label: "Date", type: "date", required: true },
+    { key: "productId", label: "Product Code", type: "text", required: true },
+    { key: "quantity", label: "Quantity", type: "number", required: true },
+    { key: "rate", label: "Rate", type: "number", required: true },
+    { key: "discountPercent", label: "Discount %", type: "number" },
+  ];
+
+  // ============================================================
   // TAB 1: COMPANY ORDERSHEET
   // ============================================================
 
@@ -831,48 +835,91 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "sheetNo", label: "Sheet No", type: "text" },
     { key: "date", label: "Date", type: "date" },
     { key: "companyName", label: "Company", type: "text" },
+    { key: "godownName", label: "Godown", type: "text" },
     { key: "status", label: "Status", type: "text" },
-    { key: "totalItems", label: "Total Items", type: "number" },
-    { key: "totalAmount", label: "Total Amount", type: "currency" },
-    { key: "notes", label: "Notes", type: "text" },
+    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+    { key: "subTotal", label: "Sub Total", type: "currency" },
+    { key: "grandTotal", label: "Grand Total", type: "currency" },
   ];
 
   const coFiltered = useMemo(() => {
     if (!coSearch) return coData;
     const q = coSearch.toLowerCase();
-    return coData.filter((o: any) => (o.sheetNo || "").toLowerCase().includes(q) || (o.company?.name || "").toLowerCase().includes(q) || (o.status || "").toLowerCase().includes(q));
+    return coData.filter((o: any) =>
+      (o.sheetNo || "").toLowerCase().includes(q) ||
+      (o.company?.name || "").toLowerCase().includes(q) ||
+      (o.godown?.name || "").toLowerCase().includes(q) ||
+      (o.status || "").toLowerCase().includes(q) ||
+      (o.fulfillmentStatus || "").toLowerCase().includes(q)
+    );
   }, [coData, coSearch]);
 
   const coStats = useMemo(() => ({
     total: coData.length,
     draft: coData.filter((o: any) => o.status === "Draft").length,
     completed: coData.filter((o: any) => o.status === "Completed").length,
-    totalValue: coData.reduce((s: number, o: any) => s + (Number(o.totalAmount) || 0), 0),
+    totalValue: coData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0),
+    stockAlerts: coData.filter((o: any) => o.lines?.some((l: any) => l.stockStatus === "Insufficient")).length,
   }), [coData]);
 
+  const coFinancials = useMemo(() => computeOrderTotals(coLines, Number(coForm.discountPercent) || 0, Number(coForm.vatPercentage) || 0), [coLines, coForm.discountPercent, coForm.vatPercentage]);
+
   const openCoCreate = () => {
-    setCoForm({ companyId: "", date: new Date().toISOString().split("T")[0], status: "Draft", notes: "" });
-    setCoLines([{ productId: "", quantity: 1, rate: 0, notes: "" }]);
+    setCoForm({ companyId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+    setCoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+    setCoStockCheck({});
     setCoEdit(null);
     setCoDialog(true);
   };
 
   const openCoEdit = (item: any) => {
     setCoForm({
-      companyId: item.companyId || "", date: item.date ? item.date.split("T")[0] : "",
-      status: item.status || "Draft", notes: item.notes || "",
+      companyId: item.companyId || "",
+      date: item.date ? item.date.split("T")[0] : "",
+      status: item.status || "Draft",
+      godownId: item.godownId || "",
+      discountPercent: item.discountPercent || 0,
+      vatPercentage: item.vatPercentage || 0,
+      paymentOptionId: item.paymentOptionId || "",
+      notes: item.notes || "",
     });
-    setCoLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, notes: "" }]);
+    setCoLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
+      productId: l.productId || "",
+      quantity: l.quantity || 1,
+      rate: l.rate || 0,
+      discountPercent: l.discountPercent || 0,
+      notes: l.notes || "",
+    })) : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+    setCoStockCheck({});
     setCoEdit(item);
     setCoDialog(true);
   };
 
   const saveCo = async () => {
     if (!coForm.companyId || !coForm.date) { toast({ title: "Error", description: "Company and Date are required", variant: "destructive" }); return; }
+    const validLines = coLines.filter((l: any) => l.productId);
+    if (validLines.length === 0) { toast({ title: "Error", description: "At least one line item is required", variant: "destructive" }); return; }
     setCoSaving(true);
     try {
-      const linesPayload = coLines.filter((l: any) => l.productId).map((l: any) => ({ productId: l.productId, quantity: Number(l.quantity) || 1, rate: Number(l.rate) || 0, notes: l.notes || "" }));
-      const payload = { ...coForm, lines: linesPayload, type: "company", totalItems: linesPayload.length, totalAmount: linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate, 0) };
+      const linesPayload = validLines.map((l: any) => ({
+        productId: l.productId,
+        quantity: Number(l.quantity) || 1,
+        rate: Number(l.rate) || 0,
+        discountPercent: Number(l.discountPercent) || 0,
+        notes: l.notes || "",
+      }));
+      const totals = computeOrderTotals(coLines, Number(coForm.discountPercent) || 0, Number(coForm.vatPercentage) || 0);
+      const payload = {
+        ...coForm,
+        orderType: "Company",
+        lines: linesPayload,
+        subTotal: totals.subTotal,
+        discount: totals.discountAmt,
+        discountPercent: Number(coForm.discountPercent) || 0,
+        vatPercentage: Number(coForm.vatPercentage) || 0,
+        vatAmount: totals.vatAmt,
+        grandTotal: totals.grandTotal,
+      };
       if (coEdit) {
         await apiFetch(`/api/order-sheets/${coEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
         toast({ title: "Updated", description: "Company Ordersheet updated" });
@@ -882,7 +929,18 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       }
       setCoDialog(false);
       loadCompanyOrdersheets();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    } catch (e: any) {
+      // Check for stock validation errors
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed?.stockErrors) {
+          const insufficientItems = parsed.stockErrors.map((se: any) => `${se.productName}: need ${se.requested}, have ${se.available}`).join("; ");
+          toast({ title: "Insufficient Stock", description: insufficientItems, variant: "destructive" });
+          return;
+        }
+      } catch {}
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
     finally { setCoSaving(false); }
   };
 
@@ -894,49 +952,90 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
 
   const renderCompanyOrdersheet = () => (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
         <StatCard label="Total Sheets" value={coStats.total} icon={ClipboardList} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
         <StatCard label="Draft" value={coStats.draft} icon={Edit} color="text-amber-500" bg="bg-amber-500/10" />
         <StatCard label="Completed" value={coStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
-        <StatCard label="Total Value" value={fmtCurrency(coStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+        <StatCard label="Grand Total" value={fmtCurrency(coStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+        <StatCard label="Stock Alerts" value={coStats.stockAlerts} icon={AlertTriangle} color="text-red-500" bg="bg-red-500/10" />
       </div>
       <Toolbar search={coSearch} setSearch={setCoSearch} onRefresh={loadCompanyOrdersheets} loading={coLoading}
-        onExportCSV={() => doExportCSV("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—" })))}
-        onExportPDF={() => doExportPDF("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—" })))}
-        onImportCSV={() => doImportCSV("/api/order-sheets", [], loadCompanyOrdersheets)}
+        onExportCSV={() => doExportCSV("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" })))}
+        onExportPDF={() => {
+          try {
+            const reportData = coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" }));
+            const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+            exportToPDF({
+              title: "Company Ordersheet Report",
+              subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+              columns: coColumns,
+              data: reportData,
+              isVatAuditor,
+              vatMaskedColumns: getVatMaskedKeys(coColumns),
+              orientation: "landscape" as const,
+              company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
+              financialFooter: {
+                preparedBy: "",
+                checkedBy: "",
+                authorizedBy: "",
+                printedBy: auth.user?.displayName || "System",
+              },
+              summaryRows: [{
+                cells: ["", "", "", "", "", "Grand Total:", formatSanitizedCurrency(grandTotal)],
+                style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold" as const, fontSize: 9 },
+              }],
+            });
+            toast({ title: "PDF Exported", description: "Company Ordersheet Report exported" });
+          } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+        }}
+        onImportCSV={() => doImportCSV("/api/order-sheets?import=true", orderSheetImportFields, loadCompanyOrdersheets)}
         canCreate={isAdmin} onCreate={openCoCreate} createLabel="Add Ordersheet" />
       <Card className="border-slate-200 dark:border-slate-700">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
-                  {coColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
+                  <TableHead className="text-white text-xs">Sheet No</TableHead>
+                  <TableHead className="text-white text-xs">Date</TableHead>
+                  <TableHead className="text-white text-xs">Company</TableHead>
+                  <TableHead className="text-white text-xs">Godown</TableHead>
+                  <TableHead className="text-white text-xs">Status</TableHead>
+                  <TableHead className="text-white text-xs">Fulfillment</TableHead>
+                  <TableHead className="text-white text-xs">Sub Total</TableHead>
+                  <TableHead className="text-white text-xs">Grand Total</TableHead>
+                  <TableHead className="text-white text-xs w-8"></TableHead>
                   <TableHead className="text-white text-xs">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {coLoading ? (
-                  <TableRow><TableCell colSpan={coColumns.length + 1} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
                 ) : coFiltered.length === 0 ? (
-                  <TableRow><TableCell colSpan={coColumns.length + 1} className="text-center py-8 text-slate-400">No ordersheets found</TableCell></TableRow>
-                ) : coFiltered.map((item: any) => (
-                  <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <TableCell className="text-xs font-medium">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
-                    <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
-                    <TableCell className="text-xs">{item.company?.name || "—"}</TableCell>
-                    <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
-                    <TableCell className="text-xs">{item.totalItems || item.lines?.length || 0}</TableCell>
-                    <TableCell className="text-xs">{fmtCurrency(item.totalAmount || 0)}</TableCell>
-                    <TableCell className="text-xs max-w-[150px] truncate">{item.notes || "—"}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openCoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
-                        <Button variant="ghost" size="sm" onClick={() => setCoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400">No ordersheets found</TableCell></TableRow>
+                ) : coFiltered.map((item: any) => {
+                  const hasStockAlert = item.lines?.some((l: any) => l.stockStatus === "Insufficient");
+                  return (
+                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <TableCell className="text-xs font-medium">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
+                      <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
+                      <TableCell className="text-xs">{item.company?.name || "—"}</TableCell>
+                      <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+                      <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
+                      <TableCell className="text-xs"><FulfillmentBadge status={item.fulfillmentStatus || "Unfulfilled"} /></TableCell>
+                      <TableCell className="text-xs">{fmtCurrency(item.subTotal || 0)}</TableCell>
+                      <TableCell className="text-xs font-medium">{fmtCurrency(item.grandTotal || item.totalAmount || 0)}</TableCell>
+                      <TableCell className="text-xs">{hasStockAlert && <AlertTriangle className="h-4 w-4 text-red-500" />}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => setCoViewDetail(item)} className="h-7 w-7 p-0"><Eye className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="sm" onClick={() => openCoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+                          <Button variant="ghost" size="sm" onClick={() => setCoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -944,34 +1043,212 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       </Card>
       {/* Create/Edit Dialog */}
       <Dialog open={coDialog} onOpenChange={setCoDialog}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{coEdit ? "Edit" : "Create"} Company Ordersheet</DialogTitle><DialogDescription>Fill in the ordersheet details and line items.</DialogDescription></DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div><Label className="text-sm font-medium">Company <span className="text-red-500">*</span></Label>
                 <Select value={coForm.companyId || ""} onValueChange={v => setCoForm(p => ({ ...p, companyId: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select Company" /></SelectTrigger>
                   <SelectContent>{companies.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                 </Select></div>
               <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={coForm.date || ""} onChange={e => setCoForm(p => ({ ...p, date: e.target.value }))} /></div>
+              <div><Label className="text-sm font-medium">Godown / Warehouse</Label>
+                <Select value={coForm.godownId || ""} onValueChange={v => setCoForm(p => ({ ...p, godownId: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+                  <SelectContent>{godowns.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+                </Select></div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div><Label className="text-sm font-medium">Status</Label>
                 <Select value={coForm.status || "Draft"} onValueChange={v => setCoForm(p => ({ ...p, status: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Completed">Completed</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Processing">Processing</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
                 </Select></div>
-              <div><Label className="text-sm font-medium">Notes</Label><Input value={coForm.notes || ""} onChange={e => setCoForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" /></div>
+              <div><Label className="text-sm font-medium">Discount %</Label><Input type="number" min={0} max={100} step="0.01" value={coForm.discountPercent || 0} onChange={e => setCoForm(p => ({ ...p, discountPercent: Number(e.target.value) }))} /></div>
+              <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={coForm.vatPercentage || 0} onChange={e => setCoForm(p => ({ ...p, vatPercentage: Number(e.target.value) }))} /></div>
+              <div><Label className="text-sm font-medium">Payment Option</Label>
+                <Select value={coForm.paymentOptionId || ""} onValueChange={v => setCoForm(p => ({ ...p, paymentOptionId: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{paymentOptions.map(po => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}</SelectContent>
+                </Select></div>
             </div>
-            <LineItemsGrid lines={coLines} setLines={setCoLines} template={{ productId: "", quantity: 1, rate: 0, notes: "" }}
-              columns={[{ key: "productId", label: "Product" }, { key: "quantity", label: "Qty" }, { key: "rate", label: "Rate" }, { key: "total", label: "Total" }, { key: "notes", label: "Notes" }]} />
+            <div><Label className="text-sm font-medium">Notes</Label><Input value={coForm.notes || ""} onChange={e => setCoForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" /></div>
+            {/* Enhanced Line Items with Stock Indicator */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold text-slate-900 dark:text-white">Line Items</Label>
+                <Button type="button" variant="outline" size="sm" onClick={() => addLine(setCoLines, { productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" })}>
+                  <Plus className="h-3 w-3 mr-1" /> Add Line
+                </Button>
+              </div>
+              <div className="overflow-x-auto border rounded-lg">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+                      <TableHead className="text-white text-xs">#</TableHead>
+                      <TableHead className="text-white text-xs">Product</TableHead>
+                      <TableHead className="text-white text-xs">Stock</TableHead>
+                      <TableHead className="text-white text-xs">Qty</TableHead>
+                      <TableHead className="text-white text-xs">Rate</TableHead>
+                      <TableHead className="text-white text-xs">Disc %</TableHead>
+                      <TableHead className="text-white text-xs">Total</TableHead>
+                      <TableHead className="text-white text-xs w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {coLines.map((line, idx) => {
+                      const stockInfo = coStockCheck[line.productId];
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell className="text-xs">{idx + 1}</TableCell>
+                          <TableCell>
+                            <Select value={line.productId || ""} onValueChange={v => {
+                              updateLine(setCoLines, idx, "productId", v);
+                              const prod = products.find(p => p.id === v);
+                              if (prod?.salePrice) updateLine(setCoLines, idx, "rate", prod.salePrice);
+                              checkProductStock(v, coForm.godownId, Number(line.quantity) || 1, setCoStockCheck);
+                            }}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
+                              <SelectContent>
+                                {products.map(p => <SelectItem key={p.id} value={p.id}>
+                                  {p.productCode} - {p.name} <span className="text-slate-400 ml-1">(Stock: {p.currentStock ?? p.openingStock ?? "?"})</span>
+                                </SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {stockInfo ? (
+                              <Badge className={`border-0 text-xs ${
+                                stockInfo.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                                stockInfo.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                                "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                              }`}>
+                                {stockInfo.stockStatus === "Available" ? "🟢" : stockInfo.stockStatus === "Partial" ? "🟡" : "🔴"} {stockInfo.currentStock}
+                              </Badge>
+                            ) : line.productId ? <span className="text-slate-400">Checking...</span> : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" min={1} value={line.quantity || 1} onChange={e => {
+                              updateLine(setCoLines, idx, "quantity", Number(e.target.value));
+                              if (line.productId) checkProductStock(line.productId, coForm.godownId, Number(e.target.value), setCoStockCheck);
+                            }} className="h-8 w-20 text-xs" />
+                          </TableCell>
+                          <TableCell><Input type="number" min={0} step="0.01" value={line.rate || 0} onChange={e => updateLine(setCoLines, idx, "rate", Number(e.target.value))} className="h-8 w-24 text-xs" /></TableCell>
+                          <TableCell><Input type="number" min={0} max={100} step="0.01" value={line.discountPercent || 0} onChange={e => updateLine(setCoLines, idx, "discountPercent", Number(e.target.value))} className="h-8 w-20 text-xs" /></TableCell>
+                          <TableCell className="text-xs font-medium">{fmtCurrency((Number(line.quantity) || 0) * (Number(line.rate) || 0) * (1 - (Number(line.discountPercent) || 0) / 100))}</TableCell>
+                          <TableCell>
+                            {coLines.length > 1 && (
+                              <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(setCoLines, idx)} className="h-6 w-6 p-0 text-red-500 hover:text-red-700">
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+            {/* Financial Summary */}
+            <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+              <CardContent className="p-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold text-slate-900 dark:text-white">{fmtCurrency(coFinancials.subTotal)}</p></div>
+                  <div><span className="text-slate-500 dark:text-slate-400">Discount ({coForm.discountPercent || 0}%):</span><p className="font-bold text-red-600 dark:text-red-400">-{fmtCurrency(coFinancials.discountAmt)}</p></div>
+                  <div><span className="text-slate-500 dark:text-slate-400">VAT ({coForm.vatPercentage || 0}%):</span><p className="font-bold text-amber-600 dark:text-amber-400">+{fmtCurrency(coFinancials.vatAmt)}</p></div>
+                  <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 dark:text-emerald-400 text-lg">{fmtCurrency(coFinancials.grandTotal)}</p></div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setCoDialog(false)}>Cancel</Button><Button onClick={saveCo} disabled={coSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">{coSaving ? "Saving..." : "Save"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* View Detail Dialog */}
+      <Dialog open={!!coViewDetail} onOpenChange={() => setCoViewDetail(null)}>
+        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Company Ordersheet — {coViewDetail?.sheetNo || ""}</DialogTitle><DialogDescription>Full order details and fulfillment status</DialogDescription></DialogHeader>
+          {coViewDetail && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div><span className="text-xs text-slate-500">Company</span><p className="text-sm font-medium">{coViewDetail.company?.name || "—"}</p></div>
+                <div><span className="text-xs text-slate-500">Date</span><p className="text-sm font-medium">{fmt(coViewDetail.date, "date")}</p></div>
+                <div><span className="text-xs text-slate-500">Godown</span><p className="text-sm font-medium">{coViewDetail.godown?.name || "—"}</p></div>
+                <div><span className="text-xs text-slate-500">Status</span><p className="text-sm"><StatusBadge status={coViewDetail.status || "Draft"} /></p></div>
+                <div><span className="text-xs text-slate-500">Fulfillment</span><p className="text-sm"><FulfillmentBadge status={coViewDetail.fulfillmentStatus || "Unfulfilled"} /></p></div>
+                <div><span className="text-xs text-slate-500">Payment</span><p className="text-sm font-medium">{coViewDetail.paymentOption?.name || "—"}</p></div>
+              </div>
+              <Separator />
+              <div className="overflow-x-auto border rounded-lg">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+                      <TableHead className="text-white text-xs">#</TableHead>
+                      <TableHead className="text-white text-xs">Product</TableHead>
+                      <TableHead className="text-white text-xs">Stock Status</TableHead>
+                      <TableHead className="text-white text-xs">Qty</TableHead>
+                      <TableHead className="text-white text-xs">Allocated</TableHead>
+                      <TableHead className="text-white text-xs">Fulfilled</TableHead>
+                      <TableHead className="text-white text-xs">Fulfillment %</TableHead>
+                      <TableHead className="text-white text-xs">Rate</TableHead>
+                      <TableHead className="text-white text-xs">Disc %</TableHead>
+                      <TableHead className="text-white text-xs">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(coViewDetail.lines || []).map((line: any, idx: number) => {
+                      const fulfilledPct = line.quantity > 0 ? Math.round(((line.fulfilledQuantity || 0) / line.quantity) * 100) : 0;
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell className="text-xs">{idx + 1}</TableCell>
+                          <TableCell className="text-xs">{line.product?.name || "—"}</TableCell>
+                          <TableCell className="text-xs">
+                            <Badge className={`border-0 text-xs ${
+                              line.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                              line.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                              "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            }`}>{line.stockStatus || "—"}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{line.quantity}</TableCell>
+                          <TableCell className="text-xs">{line.allocatedQuantity ?? "—"}</TableCell>
+                          <TableCell className="text-xs">{line.fulfilledQuantity ?? 0}</TableCell>
+                          <TableCell className="text-xs w-28">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+                                <div className={`h-2 rounded-full ${fulfilledPct >= 100 ? "bg-emerald-500" : fulfilledPct > 0 ? "bg-amber-500" : "bg-slate-400"}`} style={{ width: `${Math.min(fulfilledPct, 100)}%` }} />
+                              </div>
+                              <span className="text-xs w-8">{fulfilledPct}%</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs">{fmtCurrency(line.rate)}</TableCell>
+                          <TableCell className="text-xs">{line.discountPercent || 0}%</TableCell>
+                          <TableCell className="text-xs font-medium">{fmtCurrency(line.total || 0)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              <Separator />
+              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                    <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold">{fmtCurrency(coViewDetail.subTotal || 0)}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Discount ({coViewDetail.discountPercent || 0}%):</span><p className="font-bold text-red-600">-{fmtCurrency(coViewDetail.discount || 0)}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">VAT ({coViewDetail.vatPercentage || 0}%):</span><p className="font-bold text-amber-600">+{fmtCurrency(coViewDetail.vatAmount || 0)}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 text-lg">{fmtCurrency(coViewDetail.grandTotal || coViewDetail.totalAmount || 0)}</p></div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       {/* Delete Dialog */}
       <Dialog open={!!coDelete} onOpenChange={() => setCoDelete(null)}>
-        <DialogContent><DialogHeader><DialogTitle>Delete Ordersheet</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+        <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Ordersheet</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
         <DialogFooter><Button variant="outline" onClick={() => setCoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteCo}>Delete</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
@@ -985,49 +1262,111 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "sheetNo", label: "Sheet No", type: "text" },
     { key: "date", label: "Date", type: "date" },
     { key: "customerName", label: "Customer", type: "text" },
+    { key: "godownName", label: "Godown", type: "text" },
     { key: "status", label: "Status", type: "text" },
-    { key: "totalItems", label: "Total Items", type: "number" },
-    { key: "totalAmount", label: "Total Amount", type: "currency" },
-    { key: "notes", label: "Notes", type: "text" },
+    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+    { key: "subTotal", label: "Sub Total", type: "currency" },
+    { key: "grandTotal", label: "Grand Total", type: "currency" },
   ];
 
   const custOFiltered = useMemo(() => {
     if (!custOSearch) return custOData;
     const q = custOSearch.toLowerCase();
-    return custOData.filter((o: any) => (o.sheetNo || "").toLowerCase().includes(q) || (o.customer?.name || "").toLowerCase().includes(q) || (o.status || "").toLowerCase().includes(q));
+    return custOData.filter((o: any) =>
+      (o.sheetNo || "").toLowerCase().includes(q) ||
+      (o.customer?.name || "").toLowerCase().includes(q) ||
+      (o.godown?.name || "").toLowerCase().includes(q) ||
+      (o.status || "").toLowerCase().includes(q) ||
+      (o.fulfillmentStatus || "").toLowerCase().includes(q)
+    );
   }, [custOData, custOSearch]);
 
   const custOStats = useMemo(() => ({
     total: custOData.length,
     draft: custOData.filter((o: any) => o.status === "Draft").length,
     completed: custOData.filter((o: any) => o.status === "Completed").length,
-    totalValue: custOData.reduce((s: number, o: any) => s + (Number(o.totalAmount) || 0), 0),
+    totalValue: custOData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0),
+    stockAlerts: custOData.filter((o: any) => o.lines?.some((l: any) => l.stockStatus === "Insufficient")).length,
   }), [custOData]);
 
+  const custOFinancials = useMemo(() => computeOrderTotals(custOLines, Number(custOForm.discountPercent) || 0, Number(custOForm.vatPercentage) || 0), [custOLines, custOForm.discountPercent, custOForm.vatPercentage]);
+
   const openCustOCreate = () => {
-    setCustOForm({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Draft", notes: "" });
-    setCustOLines([{ productId: "", quantity: 1, rate: 0, notes: "" }]);
+    setCustOForm({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+    setCustOLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+    setCustOStockCheck({});
     setCustOEdit(null);
     setCustODialog(true);
   };
 
   const openCustOEdit = (item: any) => {
-    setCustOForm({ customerId: item.customerId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Draft", notes: item.notes || "" });
-    setCustOLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, notes: "" }]);
+    setCustOForm({
+      customerId: item.customerId || "",
+      date: item.date ? item.date.split("T")[0] : "",
+      status: item.status || "Draft",
+      godownId: item.godownId || "",
+      discountPercent: item.discountPercent || 0,
+      vatPercentage: item.vatPercentage || 0,
+      paymentOptionId: item.paymentOptionId || "",
+      notes: item.notes || "",
+    });
+    setCustOLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
+      productId: l.productId || "",
+      quantity: l.quantity || 1,
+      rate: l.rate || 0,
+      discountPercent: l.discountPercent || 0,
+      notes: l.notes || "",
+    })) : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+    setCustOStockCheck({});
     setCustOEdit(item);
     setCustODialog(true);
   };
 
   const saveCustO = async () => {
     if (!custOForm.customerId || !custOForm.date) { toast({ title: "Error", description: "Customer and Date are required", variant: "destructive" }); return; }
+    const validLines = custOLines.filter((l: any) => l.productId);
+    if (validLines.length === 0) { toast({ title: "Error", description: "At least one line item is required", variant: "destructive" }); return; }
     setCustOSaving(true);
     try {
-      const linesPayload = custOLines.filter((l: any) => l.productId).map((l: any) => ({ productId: l.productId, quantity: Number(l.quantity) || 1, rate: Number(l.rate) || 0, notes: l.notes || "" }));
-      const payload = { ...custOForm, lines: linesPayload, type: "customer", totalItems: linesPayload.length, totalAmount: linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate, 0) };
-      if (custOEdit) { await apiFetch(`/api/order-sheets/${custOEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Customer Ordersheet updated" }); }
-      else { await apiFetch("/api/order-sheets", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Customer Ordersheet created" }); }
-      setCustODialog(false); loadCustomerOrdersheets();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      const linesPayload = validLines.map((l: any) => ({
+        productId: l.productId,
+        quantity: Number(l.quantity) || 1,
+        rate: Number(l.rate) || 0,
+        discountPercent: Number(l.discountPercent) || 0,
+        notes: l.notes || "",
+      }));
+      const totals = computeOrderTotals(custOLines, Number(custOForm.discountPercent) || 0, Number(custOForm.vatPercentage) || 0);
+      const payload = {
+        ...custOForm,
+        orderType: "Customer",
+        lines: linesPayload,
+        subTotal: totals.subTotal,
+        discount: totals.discountAmt,
+        discountPercent: Number(custOForm.discountPercent) || 0,
+        vatPercentage: Number(custOForm.vatPercentage) || 0,
+        vatAmount: totals.vatAmt,
+        grandTotal: totals.grandTotal,
+      };
+      if (custOEdit) {
+        await apiFetch(`/api/order-sheets/${custOEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+        toast({ title: "Updated", description: "Customer Ordersheet updated" });
+      } else {
+        await apiFetch("/api/order-sheets", { method: "POST", body: JSON.stringify(payload) });
+        toast({ title: "Created", description: "Customer Ordersheet created" });
+      }
+      setCustODialog(false);
+      loadCustomerOrdersheets();
+    } catch (e: any) {
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed?.stockErrors) {
+          const insufficientItems = parsed.stockErrors.map((se: any) => `${se.productName}: need ${se.requested}, have ${se.available}`).join("; ");
+          toast({ title: "Insufficient Stock", description: insufficientItems, variant: "destructive" });
+          return;
+        }
+      } catch {}
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
     finally { setCustOSaving(false); }
   };
 
@@ -1041,82 +1380,303 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     if (isDealer) return <AccessDenied message="Dealers cannot access Customer Ordersheets." />;
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
           <StatCard label="Total Sheets" value={custOStats.total} icon={ClipboardList} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Draft" value={custOStats.draft} icon={Edit} color="text-amber-500" bg="bg-amber-500/10" />
           <StatCard label="Completed" value={custOStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
-          <StatCard label="Total Value" value={fmtCurrency(custOStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+          <StatCard label="Grand Total" value={fmtCurrency(custOStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+          <StatCard label="Stock Alerts" value={custOStats.stockAlerts} icon={AlertTriangle} color="text-red-500" bg="bg-red-500/10" />
         </div>
         <Toolbar search={custOSearch} setSearch={setCustOSearch} onRefresh={loadCustomerOrdersheets} loading={custOLoading}
-          onExportCSV={() => doExportCSV("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })))}
-          onExportPDF={() => doExportPDF("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })))}
-          onImportCSV={() => doImportCSV("/api/order-sheets", [], loadCustomerOrdersheets)}
+          onExportCSV={() => doExportCSV("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
+          onExportPDF={() => {
+            try {
+              const reportData = custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" }));
+              const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+              exportToPDF({
+                title: "Customer Ordersheet Report",
+                subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+                columns: custOColumns,
+                data: reportData,
+                isVatAuditor,
+                vatMaskedColumns: getVatMaskedKeys(custOColumns),
+                orientation: "landscape" as const,
+                company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
+                financialFooter: {
+                  preparedBy: "",
+                  checkedBy: "",
+                  authorizedBy: "",
+                  printedBy: auth.user?.displayName || "System",
+                },
+                summaryRows: [{
+                  cells: ["", "", "", "", "", "Grand Total:", formatSanitizedCurrency(grandTotal)],
+                  style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold" as const, fontSize: 9 },
+                }],
+              });
+              toast({ title: "PDF Exported", description: "Customer Ordersheet Report exported" });
+            } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+          }}
+          onImportCSV={() => doImportCSV("/api/order-sheets?import=true", orderSheetImportFields, loadCustomerOrdersheets)}
           canCreate={isAdmin || isSR} onCreate={openCustOCreate} createLabel="Add Ordersheet" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
-                    {custOColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
+                    <TableHead className="text-white text-xs">Sheet No</TableHead>
+                    <TableHead className="text-white text-xs">Date</TableHead>
+                    <TableHead className="text-white text-xs">Customer</TableHead>
+                    <TableHead className="text-white text-xs">Godown</TableHead>
+                    <TableHead className="text-white text-xs">Status</TableHead>
+                    <TableHead className="text-white text-xs">Fulfillment</TableHead>
+                    <TableHead className="text-white text-xs">Sub Total</TableHead>
+                    <TableHead className="text-white text-xs">Grand Total</TableHead>
+                    <TableHead className="text-white text-xs w-8"></TableHead>
                     <TableHead className="text-white text-xs">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {custOLoading ? (
-                    <TableRow><TableCell colSpan={custOColumns.length + 1} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
                   ) : custOFiltered.length === 0 ? (
-                    <TableRow><TableCell colSpan={custOColumns.length + 1} className="text-center py-8 text-slate-400">No ordersheets found</TableCell></TableRow>
-                  ) : custOFiltered.map((item: any) => (
-                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <TableCell className="text-xs font-medium">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
-                      <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
-                      <TableCell className="text-xs">{item.customer?.name || "—"}</TableCell>
-                      <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
-                      <TableCell className="text-xs">{item.totalItems || item.lines?.length || 0}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.totalAmount || 0)}</TableCell>
-                      <TableCell className="text-xs max-w-[150px] truncate">{item.notes || "—"}</TableCell>
-                      <TableCell>
-                        {(isAdmin || isSR) && <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openCustOEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
-                          {isAdmin && <Button variant="ghost" size="sm" onClick={() => setCustODelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
-                        </div>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400">No ordersheets found</TableCell></TableRow>
+                  ) : custOFiltered.map((item: any) => {
+                    const hasStockAlert = item.lines?.some((l: any) => l.stockStatus === "Insufficient");
+                    return (
+                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <TableCell className="text-xs font-medium">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
+                        <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
+                        <TableCell className="text-xs">{item.customer?.name || "—"}</TableCell>
+                        <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+                        <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
+                        <TableCell className="text-xs"><FulfillmentBadge status={item.fulfillmentStatus || "Unfulfilled"} /></TableCell>
+                        <TableCell className="text-xs">{fmtCurrency(item.subTotal || 0)}</TableCell>
+                        <TableCell className="text-xs font-medium">{fmtCurrency(item.grandTotal || item.totalAmount || 0)}</TableCell>
+                        <TableCell className="text-xs">{hasStockAlert && <AlertTriangle className="h-4 w-4 text-red-500" />}</TableCell>
+                        <TableCell>
+                          {(isAdmin || isSR) && <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => setCustOViewDetail(item)} className="h-7 w-7 p-0"><Eye className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="sm" onClick={() => openCustOEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+                            {isAdmin && <Button variant="ghost" size="sm" onClick={() => setCustODelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
+                          </div>}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
           </CardContent>
         </Card>
+        {/* Create/Edit Dialog */}
         <Dialog open={custODialog} onOpenChange={setCustODialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{custOEdit ? "Edit" : "Create"} Customer Ordersheet</DialogTitle><DialogDescription>Fill in the ordersheet details and line items.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div><Label className="text-sm font-medium">Customer <span className="text-red-500">*</span></Label>
                   <Select value={custOForm.customerId || ""} onValueChange={v => setCustOForm(p => ({ ...p, customerId: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
                     <SelectContent>{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={custOForm.date || ""} onChange={e => setCustOForm(p => ({ ...p, date: e.target.value }))} /></div>
+                <div><Label className="text-sm font-medium">Godown / Warehouse</Label>
+                  <Select value={custOForm.godownId || ""} onValueChange={v => setCustOForm(p => ({ ...p, godownId: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+                    <SelectContent>{godowns.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+                  </Select></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div><Label className="text-sm font-medium">Status</Label>
                   <Select value={custOForm.status || "Draft"} onValueChange={v => setCustOForm(p => ({ ...p, status: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Completed">Completed</SelectItem></SelectContent>
+                    <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Processing">Processing</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
                   </Select></div>
-                <div><Label className="text-sm font-medium">Notes</Label><Input value={custOForm.notes || ""} onChange={e => setCustOForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" /></div>
+                <div><Label className="text-sm font-medium">Discount %</Label><Input type="number" min={0} max={100} step="0.01" value={custOForm.discountPercent || 0} onChange={e => setCustOForm(p => ({ ...p, discountPercent: Number(e.target.value) }))} /></div>
+                <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={custOForm.vatPercentage || 0} onChange={e => setCustOForm(p => ({ ...p, vatPercentage: Number(e.target.value) }))} /></div>
+                <div><Label className="text-sm font-medium">Payment Option</Label>
+                  <Select value={custOForm.paymentOptionId || ""} onValueChange={v => setCustOForm(p => ({ ...p, paymentOptionId: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>{paymentOptions.map(po => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}</SelectContent>
+                  </Select></div>
               </div>
-              <LineItemsGrid lines={custOLines} setLines={setCustOLines} template={{ productId: "", quantity: 1, rate: 0, notes: "" }}
-                columns={[{ key: "productId", label: "Product" }, { key: "quantity", label: "Qty" }, { key: "rate", label: "Rate" }, { key: "total", label: "Total" }, { key: "notes", label: "Notes" }]} />
+              <div><Label className="text-sm font-medium">Notes</Label><Input value={custOForm.notes || ""} onChange={e => setCustOForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" /></div>
+              {/* Enhanced Line Items with Stock Indicator */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold text-slate-900 dark:text-white">Line Items</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={() => addLine(setCustOLines, { productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" })}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Line
+                  </Button>
+                </div>
+                <div className="overflow-x-auto border rounded-lg">
+                  <Table className="min-w-[600px]">
+                    <TableHeader>
+                      <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+                        <TableHead className="text-white text-xs">#</TableHead>
+                        <TableHead className="text-white text-xs">Product</TableHead>
+                        <TableHead className="text-white text-xs">Stock</TableHead>
+                        <TableHead className="text-white text-xs">Qty</TableHead>
+                        <TableHead className="text-white text-xs">Rate</TableHead>
+                        <TableHead className="text-white text-xs">Disc %</TableHead>
+                        <TableHead className="text-white text-xs">Total</TableHead>
+                        <TableHead className="text-white text-xs w-10"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {custOLines.map((line, idx) => {
+                        const stockInfo = custOStockCheck[line.productId];
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs">{idx + 1}</TableCell>
+                            <TableCell>
+                              <Select value={line.productId || ""} onValueChange={v => {
+                                updateLine(setCustOLines, idx, "productId", v);
+                                const prod = products.find(p => p.id === v);
+                                if (prod?.salePrice) updateLine(setCustOLines, idx, "rate", prod.salePrice);
+                                checkProductStock(v, custOForm.godownId, Number(line.quantity) || 1, setCustOStockCheck);
+                              }}>
+                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
+                                <SelectContent>
+                                  {products.map(p => <SelectItem key={p.id} value={p.id}>
+                                    {p.productCode} - {p.name} <span className="text-slate-400 ml-1">(Stock: {p.currentStock ?? p.openingStock ?? "?"})</span>
+                                  </SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {stockInfo ? (
+                                <Badge className={`border-0 text-xs ${
+                                  stockInfo.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                                  stockInfo.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                                  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                }`}>
+                                  {stockInfo.stockStatus === "Available" ? "🟢" : stockInfo.stockStatus === "Partial" ? "🟡" : "🔴"} {stockInfo.currentStock}
+                                </Badge>
+                              ) : line.productId ? <span className="text-slate-400">Checking...</span> : "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Input type="number" min={1} value={line.quantity || 1} onChange={e => {
+                                updateLine(setCustOLines, idx, "quantity", Number(e.target.value));
+                                if (line.productId) checkProductStock(line.productId, custOForm.godownId, Number(e.target.value), setCustOStockCheck);
+                              }} className="h-8 w-20 text-xs" />
+                            </TableCell>
+                            <TableCell><Input type="number" min={0} step="0.01" value={line.rate || 0} onChange={e => updateLine(setCustOLines, idx, "rate", Number(e.target.value))} className="h-8 w-24 text-xs" /></TableCell>
+                            <TableCell><Input type="number" min={0} max={100} step="0.01" value={line.discountPercent || 0} onChange={e => updateLine(setCustOLines, idx, "discountPercent", Number(e.target.value))} className="h-8 w-20 text-xs" /></TableCell>
+                            <TableCell className="text-xs font-medium">{fmtCurrency((Number(line.quantity) || 0) * (Number(line.rate) || 0) * (1 - (Number(line.discountPercent) || 0) / 100))}</TableCell>
+                            <TableCell>
+                              {custOLines.length > 1 && (
+                                <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(setCustOLines, idx)} className="h-6 w-6 p-0 text-red-500 hover:text-red-700">
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              {/* Financial Summary */}
+              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                    <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold text-slate-900 dark:text-white">{fmtCurrency(custOFinancials.subTotal)}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Discount ({custOForm.discountPercent || 0}%):</span><p className="font-bold text-red-600 dark:text-red-400">-{fmtCurrency(custOFinancials.discountAmt)}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">VAT ({custOForm.vatPercentage || 0}%):</span><p className="font-bold text-amber-600 dark:text-amber-400">+{fmtCurrency(custOFinancials.vatAmt)}</p></div>
+                    <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 dark:text-emerald-400 text-lg">{fmtCurrency(custOFinancials.grandTotal)}</p></div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setCustODialog(false)}>Cancel</Button><Button onClick={saveCustO} disabled={custOSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">{custOSaving ? "Saving..." : "Save"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* View Detail Dialog */}
+        <Dialog open={!!custOViewDetail} onOpenChange={() => setCustOViewDetail(null)}>
+          <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Customer Ordersheet — {custOViewDetail?.sheetNo || ""}</DialogTitle><DialogDescription>Full order details and fulfillment status</DialogDescription></DialogHeader>
+            {custOViewDetail && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div><span className="text-xs text-slate-500">Customer</span><p className="text-sm font-medium">{custOViewDetail.customer?.name || "—"}</p></div>
+                  <div><span className="text-xs text-slate-500">Date</span><p className="text-sm font-medium">{fmt(custOViewDetail.date, "date")}</p></div>
+                  <div><span className="text-xs text-slate-500">Godown</span><p className="text-sm font-medium">{custOViewDetail.godown?.name || "—"}</p></div>
+                  <div><span className="text-xs text-slate-500">Status</span><p className="text-sm"><StatusBadge status={custOViewDetail.status || "Draft"} /></p></div>
+                  <div><span className="text-xs text-slate-500">Fulfillment</span><p className="text-sm"><FulfillmentBadge status={custOViewDetail.fulfillmentStatus || "Unfulfilled"} /></p></div>
+                  <div><span className="text-xs text-slate-500">Payment</span><p className="text-sm font-medium">{custOViewDetail.paymentOption?.name || "—"}</p></div>
+                </div>
+                <Separator />
+                <div className="overflow-x-auto border rounded-lg">
+                  <Table className="min-w-[600px]">
+                    <TableHeader>
+                      <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+                        <TableHead className="text-white text-xs">#</TableHead>
+                        <TableHead className="text-white text-xs">Product</TableHead>
+                        <TableHead className="text-white text-xs">Stock Status</TableHead>
+                        <TableHead className="text-white text-xs">Qty</TableHead>
+                        <TableHead className="text-white text-xs">Allocated</TableHead>
+                        <TableHead className="text-white text-xs">Fulfilled</TableHead>
+                        <TableHead className="text-white text-xs">Fulfillment %</TableHead>
+                        <TableHead className="text-white text-xs">Rate</TableHead>
+                        <TableHead className="text-white text-xs">Disc %</TableHead>
+                        <TableHead className="text-white text-xs">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(custOViewDetail.lines || []).map((line: any, idx: number) => {
+                        const fulfilledPct = line.quantity > 0 ? Math.round(((line.fulfilledQuantity || 0) / line.quantity) * 100) : 0;
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs">{idx + 1}</TableCell>
+                            <TableCell className="text-xs">{line.product?.name || "—"}</TableCell>
+                            <TableCell className="text-xs">
+                              <Badge className={`border-0 text-xs ${
+                                line.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                                line.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                                "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                              }`}>{line.stockStatus || "—"}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">{line.quantity}</TableCell>
+                            <TableCell className="text-xs">{line.allocatedQuantity ?? "—"}</TableCell>
+                            <TableCell className="text-xs">{line.fulfilledQuantity ?? 0}</TableCell>
+                            <TableCell className="text-xs w-28">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+                                  <div className={`h-2 rounded-full ${fulfilledPct >= 100 ? "bg-emerald-500" : fulfilledPct > 0 ? "bg-amber-500" : "bg-slate-400"}`} style={{ width: `${Math.min(fulfilledPct, 100)}%` }} />
+                                </div>
+                                <span className="text-xs w-8">{fulfilledPct}%</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">{fmtCurrency(line.rate)}</TableCell>
+                            <TableCell className="text-xs">{line.discountPercent || 0}%</TableCell>
+                            <TableCell className="text-xs font-medium">{fmtCurrency(line.total || 0)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                <Separator />
+                <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  <CardContent className="p-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                      <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold">{fmtCurrency(custOViewDetail.subTotal || 0)}</p></div>
+                      <div><span className="text-slate-500 dark:text-slate-400">Discount ({custOViewDetail.discountPercent || 0}%):</span><p className="font-bold text-red-600">-{fmtCurrency(custOViewDetail.discount || 0)}</p></div>
+                      <div><span className="text-slate-500 dark:text-slate-400">VAT ({custOViewDetail.vatPercentage || 0}%):</span><p className="font-bold text-amber-600">+{fmtCurrency(custOViewDetail.vatAmount || 0)}</p></div>
+                      <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 text-lg">{fmtCurrency(custOViewDetail.grandTotal || custOViewDetail.totalAmount || 0)}</p></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+        {/* Delete Dialog */}
         <Dialog open={!!custODelete} onOpenChange={() => setCustODelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Ordersheet</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Ordersheet</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setCustODelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteCustO}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -1130,10 +1690,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const osReportColumns: ExportColumnDef[] = [
     { key: "sheetNo", label: "Sheet No", type: "text" },
     { key: "date", label: "Date", type: "date" },
-    { key: "type", label: "Type", type: "text" },
+    { key: "orderType", label: "Type", type: "text" },
     { key: "entityName", label: "Company/Customer", type: "text" },
+    { key: "godownName", label: "Godown", type: "text" },
     { key: "status", label: "Status", type: "text" },
-    { key: "totalAmount", label: "Total Amount", type: "currency" },
+    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+    { key: "grandTotal", label: "Grand Total", type: "currency" },
   ];
 
   const loadOsReport = async () => {
@@ -1142,38 +1704,123 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       let url = "/api/order-sheets?";
       if (osReportFrom) url += `from=${osReportFrom}&`;
       if (osReportTo) url += `to=${osReportTo}&`;
+      if (osReportTypeFilter && osReportTypeFilter !== "all") url += `orderType=${osReportTypeFilter}&`;
+      if (osReportStatusFilter && osReportStatusFilter !== "all") url += `status=${osReportStatusFilter}&`;
+      if (osReportFulfillmentFilter && osReportFulfillmentFilter !== "all") url += `fulfillmentStatus=${osReportFulfillmentFilter}&`;
       const res = await apiFetch(url);
       setOsReportData(Array.isArray(res) ? res : []);
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setOsReportLoading(false); }
   };
 
+  const osReportFiltered = useMemo(() => {
+    let data = osReportData;
+    if (osReportTypeFilter && osReportTypeFilter !== "all") data = data.filter((o: any) => o.orderType === osReportTypeFilter);
+    if (osReportStatusFilter && osReportStatusFilter !== "all") data = data.filter((o: any) => o.status === osReportStatusFilter);
+    if (osReportFulfillmentFilter && osReportFulfillmentFilter !== "all") data = data.filter((o: any) => (o.fulfillmentStatus || "Unfulfilled") === osReportFulfillmentFilter);
+    return data;
+  }, [osReportData, osReportTypeFilter, osReportStatusFilter, osReportFulfillmentFilter]);
+
   const osReportStats = useMemo(() => {
-    const total = osReportData.length;
-    const totalValue = osReportData.reduce((s: number, o: any) => s + (Number(o.totalAmount) || 0), 0);
+    const total = osReportFiltered.length;
+    const totalValue = osReportFiltered.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
     const avgValue = total > 0 ? totalValue / total : 0;
     const byStatus: Record<string, number> = {};
-    osReportData.forEach((o: any) => { const st = o.status || "Unknown"; byStatus[st] = (byStatus[st] || 0) + 1; });
-    return { total, totalValue, avgValue, byStatus };
-  }, [osReportData]);
+    osReportFiltered.forEach((o: any) => { const st = o.status || "Unknown"; byStatus[st] = (byStatus[st] || 0) + 1; });
+    const fulfilled = osReportFiltered.filter((o: any) => o.fulfillmentStatus === "Fulfilled").length;
+    const partial = osReportFiltered.filter((o: any) => o.fulfillmentStatus === "Partial").length;
+    const unfulfilled = osReportFiltered.filter((o: any) => !o.fulfillmentStatus || o.fulfillmentStatus === "Unfulfilled").length;
+    const fulfillmentRate = total > 0 ? Math.round((fulfilled / total) * 100) : 0;
+    return { total, totalValue, avgValue, byStatus, fulfilled, partial, unfulfilled, fulfillmentRate };
+  }, [osReportFiltered]);
 
   const renderOrdersheetReport = () => (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
         <StatCard label="Total Ordersheets" value={osReportStats.total} icon={ClipboardList} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
-        <StatCard label="Total Value" value={fmtCurrency(osReportStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
+        <StatCard label="Grand Total" value={fmtCurrency(osReportStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
         <StatCard label="Avg Value" value={fmtCurrency(osReportStats.avgValue)} icon={TrendingUp} color="text-amber-500" bg="bg-amber-500/10" />
-        <StatCard label="Statuses" value={Object.keys(osReportStats.byStatus).length} icon={BarChart3} color="text-purple-500" bg="bg-purple-500/10" />
+        <StatCard label="Fulfillment Rate" value={`${osReportStats.fulfillmentRate}%`} icon={PackageCheck} color="text-emerald-500" bg="bg-emerald-500/10" />
       </div>
+      {/* Fulfillment Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+        <Card className="border-slate-200 dark:border-slate-700">
+          <CardContent className="p-3 text-center">
+            <FulfillmentBadge status="Fulfilled" />
+            <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.fulfilled}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 dark:border-slate-700">
+          <CardContent className="p-3 text-center">
+            <FulfillmentBadge status="Partial" />
+            <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.partial}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200 dark:border-slate-700">
+          <CardContent className="p-3 text-center">
+            <FulfillmentBadge status="Unfulfilled" />
+            <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.unfulfilled}</p>
+          </CardContent>
+        </Card>
+      </div>
+      {/* Filters */}
       <Card className="border-slate-200 dark:border-slate-700">
-        <CardHeader className="bg-[#132240] dark:bg-[#0a1628]"><CardTitle className="text-white text-sm">Date Range Filter</CardTitle></CardHeader>
+        <CardHeader className="bg-[#132240] dark:bg-[#0a1628]"><CardTitle className="text-white text-sm">Filters &amp; Report Generation</CardTitle></CardHeader>
         <CardContent className="p-4">
           <div className="flex flex-wrap items-end gap-4">
             <div><Label className="text-xs">From</Label><Input type="date" value={osReportFrom} onChange={e => setOsReportFrom(e.target.value)} className="h-9" /></div>
             <div><Label className="text-xs">To</Label><Input type="date" value={osReportTo} onChange={e => setOsReportTo(e.target.value)} className="h-9" /></div>
+            <div><Label className="text-xs">Order Type</Label>
+              <Select value={osReportTypeFilter} onValueChange={setOsReportTypeFilter}>
+                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Company">Company</SelectItem><SelectItem value="Customer">Customer</SelectItem></SelectContent>
+              </Select></div>
+            <div><Label className="text-xs">Status</Label>
+              <Select value={osReportStatusFilter} onValueChange={setOsReportStatusFilter}>
+                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Processing">Processing</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
+              </Select></div>
+            <div><Label className="text-xs">Fulfillment</Label>
+              <Select value={osReportFulfillmentFilter} onValueChange={setOsReportFulfillmentFilter}>
+                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Unfulfilled">Unfulfilled</SelectItem><SelectItem value="Partial">Partial</SelectItem><SelectItem value="Fulfilled">Fulfilled</SelectItem></SelectContent>
+              </Select></div>
             <Button onClick={loadOsReport} className="bg-[#2563eb] hover:bg-[#1d4ed8]" disabled={osReportLoading}>{osReportLoading ? "Loading..." : "Generate Report"}</Button>
-            <Button variant="outline" size="sm" onClick={() => doExportCSV("Ordersheet Report", osReportColumns, osReportData.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—" })))}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-            <Button variant="outline" size="sm" onClick={() => doExportPDF("Ordersheet Report", osReportColumns, osReportData.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—" })))}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Button variant="outline" size="sm" onClick={() => {
+              try {
+                const reportData = osReportFiltered.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—", godownName: o.godown?.name || "—", orderType: o.orderType || (o.companyId ? "Company" : "Customer") }));
+                doExportCSV("Ordersheet Report", osReportColumns, reportData);
+              } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+            }}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              try {
+                const reportData = osReportFiltered.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—", godownName: o.godown?.name || "—", orderType: o.orderType || (o.companyId ? "Company" : "Customer") }));
+                const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+                exportToPDF({
+                  title: "Ordersheet Report",
+                  subtitle: osReportFrom && osReportTo ? `Period: ${fmt(osReportFrom, "date")} to ${fmt(osReportTo, "date")}` : `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+                  columns: osReportColumns,
+                  data: reportData,
+                  isVatAuditor,
+                  vatMaskedColumns: getVatMaskedKeys(osReportColumns),
+                  orientation: "landscape" as const,
+                  company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
+                  financialFooter: {
+                    preparedBy: "",
+                    checkedBy: "",
+                    authorizedBy: "",
+                    printedBy: auth.user?.displayName || "System",
+                  },
+                  summaryRows: [{
+                    cells: ["", "", "", "", "", "", "Grand Total:", formatSanitizedCurrency(grandTotal)],
+                    style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold" as const, fontSize: 9 },
+                  }],
+                });
+                toast({ title: "PDF Exported", description: "Ordersheet Report exported" });
+              } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+            }}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
           </div>
         </CardContent>
       </Card>
@@ -1190,24 +1837,26 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       </div>
       <Card className="border-slate-200 dark:border-slate-700">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                   {osReportColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {osReportData.length === 0 ? (
+                {osReportFiltered.length === 0 ? (
                   <TableRow><TableCell colSpan={osReportColumns.length} className="text-center py-8 text-slate-400">Select a date range and generate report</TableCell></TableRow>
-                ) : osReportData.map((item: any) => (
+                ) : osReportFiltered.map((item: any) => (
                   <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     <TableCell className="text-xs">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
                     <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
-                    <TableCell className="text-xs">{item.companyId ? "Company" : "Customer"}</TableCell>
+                    <TableCell className="text-xs">{item.orderType || (item.companyId ? "Company" : "Customer")}</TableCell>
                     <TableCell className="text-xs">{item.company?.name || item.customer?.name || "—"}</TableCell>
+                    <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
                     <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
-                    <TableCell className="text-xs">{fmtCurrency(item.totalAmount || 0)}</TableCell>
+                    <TableCell className="text-xs"><FulfillmentBadge status={item.fulfillmentStatus || "Unfulfilled"} /></TableCell>
+                    <TableCell className="text-xs font-medium">{fmtCurrency(item.grandTotal || item.totalAmount || 0)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1222,6 +1871,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   // TAB 4: PURCHASE ORDER
   // ============================================================
 
+  const RECEIVING_BADGE: Record<string, string> = {
+    Unreceived: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    "Partially Received": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    "Fully Received": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  };
+
   const poColumns: ExportColumnDef[] = [
     { key: "poNumber", label: "PO Number", type: "text" },
     { key: "date", label: "Date", type: "date" },
@@ -1232,33 +1887,70 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     { key: "vatAmount", label: "VAT", type: "currency" },
     { key: "grandTotal", label: "Grand Total", type: "currency" },
     { key: "status", label: "Status", type: "text" },
+    { key: "receivingStatus", label: "Receiving", type: "text" },
+    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
   ];
 
   const poMaskedCols = ["subTotal", "discount", "vatAmount", "grandTotal", "costPrice", "wholesalePrice"];
 
   const poFiltered = useMemo(() => {
-    if (!poSearch) return poData;
-    const q = poSearch.toLowerCase();
-    return poData.filter((o: any) => (o.poNumber || "").toLowerCase().includes(q) || (o.supplier?.name || "").toLowerCase().includes(q) || (o.status || "").toLowerCase().includes(q));
-  }, [poData, poSearch]);
+    let result = poData;
+    if (poSearch) {
+      const q = poSearch.toLowerCase();
+      result = result.filter((o: any) => (o.poNumber || "").toLowerCase().includes(q) || (o.supplier?.name || "").toLowerCase().includes(q) || (o.status || "").toLowerCase().includes(q));
+    }
+    if (poStatusFilter && poStatusFilter !== "all") {
+      result = result.filter((o: any) => (o.status || "Pending") === poStatusFilter);
+    }
+    if (poReceivingFilter && poReceivingFilter !== "all") {
+      result = result.filter((o: any) => {
+        const rs = (o as any).receivingStatus || "Unreceived";
+        return rs === poReceivingFilter;
+      });
+    }
+    return result;
+  }, [poData, poSearch, poStatusFilter, poReceivingFilter]);
 
   const poStats = useMemo(() => ({
     total: poData.length,
-    pending: poData.filter((o: any) => o.status === "Pending").length,
+    pending: poData.filter((o: any) => o.status === "Pending" || o.status === "Draft").length,
+    confirmed: poData.filter((o: any) => o.status === "Confirmed").length,
     completed: poData.filter((o: any) => o.status === "Completed").length,
     totalValue: poData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || 0), 0),
+    fulfillmentPending: poData.filter((o: any) => (o.fulfillmentStatus || "Pending") === "Pending").length,
+    fulfillmentPartial: poData.filter((o: any) => (o.fulfillmentStatus || "") === "Partial").length,
+    fulfillmentFulfilled: poData.filter((o: any) => (o.fulfillmentStatus || "") === "Fulfilled").length,
   }), [poData]);
 
   const openPoCreate = () => {
-    setPoForm({ supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, notes: "" });
+    setPoForm({ supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Draft", discount: 0, vatPercent: 0, notes: "", expectedDate: "" });
     setPoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setPoEdit(null);
     setPoDialog(true);
   };
 
   const openPoEdit = (item: any) => {
-    setPoForm({ supplierId: item.supplierId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, notes: item.notes || "" });
-    setPoLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+    setPoForm({
+      supplierId: item.supplierId || "",
+      godownId: item.godownId || "",
+      date: item.date ? item.date.split("T")[0] : "",
+      status: item.status || "Draft",
+      discount: item.discount || 0,
+      vatPercent: item.vatPercentage || 0,
+      notes: item.notes || "",
+      expectedDate: item.expectedDate ? item.expectedDate.split("T")[0] : "",
+    });
+    const editLines = item.lines && item.lines.length > 0
+      ? item.lines.map((l: any) => ({
+          productId: l.productId,
+          quantity: l.quantity,
+          rate: l.rate,
+          discountPercent: l.discountPercent || 0,
+          receivedQuantity: l.receivedQuantity || 0,
+          pendingQuantity: l.pendingQuantity || l.quantity - (l.receivedQuantity || 0),
+        }))
+      : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0, receivedQuantity: 0, pendingQuantity: 0 }];
+    setPoLines(editLines);
     setPoEdit(item);
     setPoDialog(true);
   };
@@ -1271,12 +1963,26 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         productId: l.productId, quantity: Number(l.quantity) || 1, rate: Number(l.rate) || 0, discountPercent: Number(l.discountPercent) || 0,
       }));
       const subTotal = linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate * (1 - l.discountPercent / 100), 0);
-      const discountAmt = Number(poForm.discount) || 0;
-      const vatAmt = (subTotal - discountAmt) * (Number(poForm.vatPercent) || 0) / 100;
+      const discountPercent = Number(poForm.discount) || 0;
+      const discountAmt = subTotal * discountPercent / 100;
+      const vatPercentage = Number(poForm.vatPercent) || 0;
+      const vatAmt = (subTotal - discountAmt) * vatPercentage / 100;
       const grandTotal = subTotal - discountAmt + vatAmt;
-      const payload = { ...poForm, lines: linesPayload, subTotal, discount: discountAmt, vatAmount: vatAmt, vatPercentage: Number(poForm.vatPercent) || 0, grandTotal };
+      const payload = {
+        ...poForm,
+        lines: linesPayload,
+        subTotal,
+        discount: discountAmt,
+        discountPercent,
+        vatAmount: vatAmt,
+        vatPercentage,
+        grandTotal,
+        expectedDate: poForm.expectedDate || undefined,
+        status: poEdit ? poForm.status : "Draft",
+        referenceKey: poEdit ? undefined : `PO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
       if (poEdit) { await apiFetch(`/api/purchase-orders/${poEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Purchase Order updated" }); }
-      else { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Order created" }); }
+      else { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Order created as Draft" }); }
       setPoDialog(false); loadPurchaseOrders();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setPoSaving(false); }
@@ -1288,67 +1994,244 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
+  const openPoReceive = (item: any) => {
+    if (item.status !== "Confirmed" && item.status !== "Partially Received") {
+      toast({ title: "Error", description: "Only Confirmed or Partially Received POs can receive items", variant: "destructive" });
+      return;
+    }
+    const receivedItems = (item.lines || []).map((l: any) => ({
+      productId: l.productId,
+      productName: l.product?.name || "—",
+      orderedQty: l.quantity,
+      receivedQty: l.receivedQuantity || 0,
+      pendingQty: l.pendingQuantity || l.quantity - (l.receivedQuantity || 0),
+      receivedQuantity: 0,
+      godownId: item.godownId || "",
+    }));
+    setPoReceiveForm({
+      purchaseOrderId: item.id,
+      receivedItems,
+      receivedDate: new Date().toISOString().split("T")[0],
+      challanRef: "",
+      notes: "",
+    });
+    setPoReceiveDialog(true);
+  };
+
+  const savePoReceive = async () => {
+    setPoReceiveSaving(true);
+    try {
+      const validItems = poReceiveForm.receivedItems.filter((i: any) => Number(i.receivedQuantity) > 0);
+      if (validItems.length === 0) {
+        toast({ title: "Error", description: "Enter at least one received quantity", variant: "destructive" });
+        setPoReceiveSaving(false);
+        return;
+      }
+      await apiFetch("/api/purchase-orders/receive", {
+        method: "POST",
+        body: JSON.stringify({
+          purchaseOrderId: poReceiveForm.purchaseOrderId,
+          receivedItems: validItems.map((i: any) => ({
+            productId: i.productId,
+            receivedQuantity: Number(i.receivedQuantity),
+            godownId: i.godownId || undefined,
+          })),
+          receivedDate: poReceiveForm.receivedDate,
+          challanRef: poReceiveForm.challanRef,
+          notes: poReceiveForm.notes,
+        }),
+      });
+      toast({ title: "Received", description: "Items received into warehouse" });
+      setPoReceiveDialog(false);
+      loadPurchaseOrders();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    finally { setPoReceiveSaving(false); }
+  };
+
+  const doExportPOCorporatePDF = async () => {
+    try {
+      const companyProfile = await apiFetch("/api/company-branding");
+      const exportData = poFiltered.map((o: any) => ({
+        ...o,
+        supplierName: o.supplier?.name || "—",
+        godownName: o.godown?.name || "—",
+        receivingStatus: o.receivingStatus || "Unreceived",
+        fulfillmentStatus: o.fulfillmentStatus || "Pending",
+      }));
+      const maskedKeys = [...getVatMaskedKeys(poColumns), ...poMaskedCols];
+      exportToPDF({
+        title: "Purchase Orders",
+        columns: poColumns,
+        data: exportData,
+        isVatAuditor,
+        vatMaskedColumns: maskedKeys,
+        orientation: "landscape",
+        company: companyProfile,
+        systemNotice: "This document is system-generated from VoltERP. Verify all figures against source records.",
+        financialFooter: {
+          preparedBy: auth.user?.displayName || "",
+          checkedBy: "",
+          authorizedBy: "",
+          printedBy: auth.user?.displayName || "System",
+        },
+      });
+      toast({ title: "PDF Exported", description: "Purchase Orders exported with corporate branding" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const togglePoExpand = (id: string) => {
+    setPoExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const renderPurchaseOrder = () => {
     if (isSR) return <AccessDenied message="Sales Representatives cannot access Purchase Orders." />;
     if (isDealer) return <AccessDenied message="Dealers cannot access Purchase Orders." />;
     return (
       <div className="space-y-4">
         {isVatAuditor && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-600" /><span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Cost/wholesale/profit columns are masked</span></div>}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-4">
           <StatCard label="Total POs" value={poStats.total} icon={ShoppingCart} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
-          <StatCard label="Pending" value={poStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
+          <StatCard label="Pending/Draft" value={poStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
+          <StatCard label="Fulfilled" value={poStats.fulfillmentFulfilled} icon={PackageCheck} color="text-emerald-500" bg="bg-emerald-500/10" />
+          <StatCard label="Partial" value={poStats.fulfillmentPartial} icon={Inbox} color="text-amber-500" bg="bg-amber-500/10" />
           <StatCard label="Completed" value={poStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
           <StatCard label="Total Value" value={vatMask(fmtCurrency(poStats.totalValue), isVatAuditor)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
         </div>
-        <Toolbar search={poSearch} setSearch={setPoSearch} onRefresh={loadPurchaseOrders} loading={poLoading}
-          onExportCSV={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—" })), poMaskedCols)}
-          onExportPDF={() => doExportPDF("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—" })), poMaskedCols)}
-          onImportCSV={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)}
-          canCreate={isAdmin} onCreate={openPoCreate} createLabel="Add PO" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+            <Input value={poSearch} onChange={e => setPoSearch(e.target.value)} placeholder="Search POs..." className="pl-8" />
+          </div>
+          <Select value={poStatusFilter} onValueChange={v => setPoStatusFilter(v)}>
+            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="Draft">Draft</SelectItem>
+              <SelectItem value="Pending">Pending</SelectItem>
+              <SelectItem value="Confirmed">Confirmed</SelectItem>
+              <SelectItem value="Completed">Completed</SelectItem>
+              <SelectItem value="Cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={poReceivingFilter} onValueChange={v => setPoReceivingFilter(v)}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Receiving" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Receiving</SelectItem>
+              <SelectItem value="Unreceived">Unreceived</SelectItem>
+              <SelectItem value="Partially Received">Partially Received</SelectItem>
+              <SelectItem value="Fully Received">Fully Received</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={doExportPOCorporatePDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)} /></label>}
+          <Button variant="ghost" size="sm" onClick={loadPurchaseOrders}><RefreshCw className={`h-4 w-4 ${poLoading ? "animate-spin" : ""}`} /></Button>
+          {isAdmin && <Button onClick={openPoCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add PO</Button>}
+        </div>
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+                    <TableHead className="text-white text-xs w-8"></TableHead>
                     {poColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
                     <TableHead className="text-white text-xs">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {poLoading ? (
-                    <TableRow><TableCell colSpan={poColumns.length + 1} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={poColumns.length + 2} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
                   ) : poFiltered.length === 0 ? (
-                    <TableRow><TableCell colSpan={poColumns.length + 1} className="text-center py-8 text-slate-400">No purchase orders found</TableCell></TableRow>
-                  ) : poFiltered.map((item: any) => (
-                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <TableCell className="text-xs font-medium">{item.poNumber || `PO-${String(item.id).padStart(5, "0")}`}</TableCell>
-                      <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
-                      <TableCell className="text-xs">{item.supplier?.name || "—"}</TableCell>
-                      <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.discount)}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
-                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
-                      <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openPoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="sm" onClick={() => setPoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                    <TableRow><TableCell colSpan={poColumns.length + 2} className="text-center py-8 text-slate-400">No purchase orders found</TableCell></TableRow>
+                  ) : poFiltered.map((item: any) => {
+                    const receivingStatus = item.receivingStatus || "Unreceived";
+                    const fulfillmentStatus = item.fulfillmentStatus || "Pending";
+                    const isExpanded = poExpandedRows.has(item.id);
+                    const canReceive = item.status === "Confirmed" || item.status === "Partially Received";
+                    return (
+                      <React.Fragment key={item.id}>
+                        <TableRow className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <TableCell className="text-xs w-8">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => togglePoExpand(item.id)}>
+                              <Eye className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                            </Button>
+                          </TableCell>
+                          <TableCell className="text-xs font-medium">{item.poNumber || `PO-${String(item.id).padStart(5, "0")}`}</TableCell>
+                          <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
+                          <TableCell className="text-xs">{item.supplier?.name || "—"}</TableCell>
+                          <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+                          <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
+                          <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.discount)}</TableCell>
+                          <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
+                          <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
+                          <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
+                          <TableCell className="text-xs">
+                            <Badge className={`${RECEIVING_BADGE[receivingStatus] || RECEIVING_BADGE.Unreceived} border-0 text-xs font-medium`}>{receivingStatus}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <Badge className={`${fulfillmentStatus === "Fulfilled" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : fulfillmentStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"} border-0 text-xs font-medium`}>{fulfillmentStatus}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              {canReceive && (
+                                <Button variant="ghost" size="sm" onClick={() => openPoReceive(item)} className="h-7 w-7 p-0 text-emerald-600" title="Receive Items"><Inbox className="h-3 w-3" /></Button>
+                              )}
+                              <Button variant="ghost" size="sm" onClick={() => setPoViewDetail(item)} className="h-7 w-7 p-0" title="View Detail"><Eye className="h-3 w-3" /></Button>
+                              <Button variant="ghost" size="sm" onClick={() => openPoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+                              <Button variant="ghost" size="sm" onClick={() => setPoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow className="bg-slate-50 dark:bg-slate-800/30">
+                            <TableCell colSpan={poColumns.length + 2} className="p-3">
+                              <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">Line Items</div>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead className="text-xs h-8">Product</TableHead>
+                                    <TableHead className="text-xs h-8">Qty</TableHead>
+                                    <TableHead className="text-xs h-8">Rate</TableHead>
+                                    <TableHead className="text-xs h-8">Received</TableHead>
+                                    <TableHead className="text-xs h-8">Pending</TableHead>
+                                    <TableHead className="text-xs h-8">Total</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {(item.lines || []).map((l: any, idx: number) => (
+                                    <TableRow key={idx}>
+                                      <TableCell className="text-xs py-1">{l.product?.name || l.productId || "—"}</TableCell>
+                                      <TableCell className="text-xs py-1">{l.quantity}</TableCell>
+                                      <TableCell className="text-xs py-1">{isVatAuditor ? "N/A" : fmtCurrency(l.rate)}</TableCell>
+                                      <TableCell className="text-xs py-1"><span className={l.receivedQuantity > 0 ? "text-emerald-600 font-medium" : ""}>{l.receivedQuantity || 0}</span></TableCell>
+                                      <TableCell className="text-xs py-1"><span className={(l.pendingQuantity || (l.quantity - (l.receivedQuantity || 0))) > 0 ? "text-amber-600 font-medium" : ""}>{l.pendingQuantity || l.quantity - (l.receivedQuantity || 0)}</span></TableCell>
+                                      <TableCell className="text-xs py-1">{isVatAuditor ? "N/A" : fmtCurrency(l.quantity * l.rate * (1 - (l.discountPercent || 0) / 100))}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
           </CardContent>
         </Card>
+        {/* PO Create/Edit Dialog */}
         <Dialog open={poDialog} onOpenChange={setPoDialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{poEdit ? "Edit" : "Create"} Purchase Order</DialogTitle><DialogDescription>Fill in PO details and line items.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 <div><Label className="text-sm font-medium">Supplier <span className="text-red-500">*</span></Label>
                   <Select value={poForm.supplierId || ""} onValueChange={v => setPoForm(p => ({ ...p, supplierId: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger>
@@ -1361,24 +2244,124 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={poForm.date || ""} onChange={e => setPoForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div><Label className="text-sm font-medium">Discount (৳)</Label><Input type="number" min={0} step="0.01" value={poForm.discount || 0} onChange={e => setPoForm(p => ({ ...p, discount: Number(e.target.value) }))} /></div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div><Label className="text-sm font-medium">Discount %</Label><Input type="number" min={0} max={100} step="0.01" value={poForm.discount || 0} onChange={e => setPoForm(p => ({ ...p, discount: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={poForm.vatPercent || 0} onChange={e => setPoForm(p => ({ ...p, vatPercent: Number(e.target.value) }))} /></div>
+                <div><Label className="text-sm font-medium">Expected Date</Label><Input type="date" value={poForm.expectedDate || ""} onChange={e => setPoForm(p => ({ ...p, expectedDate: e.target.value }))} /></div>
                 <div><Label className="text-sm font-medium">Status</Label>
-                  <Select value={poForm.status || "Pending"} onValueChange={v => setPoForm(p => ({ ...p, status: v }))}>
+                  <Select value={poForm.status || "Draft"} onValueChange={v => setPoForm(p => ({ ...p, status: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
+                    <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
                   </Select></div>
               </div>
+              <div><Label className="text-sm font-medium">Notes</Label><Textarea value={poForm.notes || ""} onChange={e => setPoForm(p => ({ ...p, notes: e.target.value }))} rows={2} /></div>
               <LineItemsGrid lines={poLines} setLines={setPoLines} template={{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }}
                 columns={[{ key: "productId", label: "Product" }, { key: "quantity", label: "Qty" }, { key: "rate", label: "Rate" }, { key: "discountPercent", label: "Disc %" }, { key: "discountAmt", label: "Disc Amt" }, { key: "vatAmt", label: "VAT Amt" }, { key: "total", label: "Total" }]} showVat />
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setPoDialog(false)}>Cancel</Button><Button onClick={savePo} disabled={poSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">{poSaving ? "Saving..." : "Save"}</Button></DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* PO Delete Dialog */}
         <Dialog open={!!poDelete} onOpenChange={() => setPoDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Purchase Order</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Purchase Order</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setPoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deletePo}>Delete</Button></DialogFooter></DialogContent>
+        </Dialog>
+        {/* PO Receive Dialog */}
+        <Dialog open={poReceiveDialog} onOpenChange={setPoReceiveDialog}>
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Receive PO Items</DialogTitle><DialogDescription>Enter received quantities for each line item.</DialogDescription></DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label className="text-sm font-medium">Received Date</Label><Input type="date" value={poReceiveForm.receivedDate || ""} onChange={e => setPoReceiveForm((p: any) => ({ ...p, receivedDate: e.target.value }))} /></div>
+                <div><Label className="text-sm font-medium">Challan Ref</Label><Input value={poReceiveForm.challanRef || ""} onChange={e => setPoReceiveForm((p: any) => ({ ...p, challanRef: e.target.value }))} placeholder="Challan reference" /></div>
+              </div>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Product</TableHead>
+                      <TableHead className="text-xs">Ordered</TableHead>
+                      <TableHead className="text-xs">Already Received</TableHead>
+                      <TableHead className="text-xs">Pending</TableHead>
+                      <TableHead className="text-xs">Receiving Now</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(poReceiveForm.receivedItems || []).map((line: any, idx: number) => (
+                      <TableRow key={idx}>
+                        <TableCell className="text-xs">{line.productName || "—"}</TableCell>
+                        <TableCell className="text-xs">{line.orderedQty}</TableCell>
+                        <TableCell className="text-xs text-emerald-600 font-medium">{line.receivedQty}</TableCell>
+                        <TableCell className="text-xs text-amber-600 font-medium">{line.pendingQty}</TableCell>
+                        <TableCell className="text-xs">
+                          <Input type="number" min={0} max={line.pendingQty} step={1} value={line.receivedQuantity || 0}
+                            onChange={e => {
+                              const val = Number(e.target.value);
+                              setPoReceiveForm((p: any) => {
+                                const items = [...p.receivedItems];
+                                items[idx] = { ...items[idx], receivedQuantity: Math.min(val, line.pendingQty) };
+                                return { ...p, receivedItems: items };
+                              });
+                            }} className="w-24 h-8 text-xs" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div><Label className="text-sm font-medium">Notes</Label><Textarea value={poReceiveForm.notes || ""} onChange={e => setPoReceiveForm((p: any) => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Optional receiving notes" /></div>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setPoReceiveDialog(false)}>Cancel</Button><Button onClick={savePoReceive} disabled={poReceiveSaving} className="bg-emerald-600 hover:bg-emerald-700">{poReceiveSaving ? "Receiving..." : "Receive Items"}</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* PO Detail View Dialog */}
+        <Dialog open={!!poViewDetail} onOpenChange={() => setPoViewDetail(null)}>
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Purchase Order Detail — {poViewDetail?.poNumber || `PO-${String(poViewDetail?.id || 0).padStart(5, "0")}`}</DialogTitle><DialogDescription>Complete line item details with stock status.</DialogDescription></DialogHeader>
+            {poViewDetail && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div><span className="text-xs text-slate-500">Supplier</span><p className="text-sm font-medium">{poViewDetail.supplier?.name || "—"}</p></div>
+                  <div><span className="text-xs text-slate-500">Godown</span><p className="text-sm font-medium">{poViewDetail.godown?.name || "—"}</p></div>
+                  <div><span className="text-xs text-slate-500">Date</span><p className="text-sm font-medium">{fmt(poViewDetail.date, "date")}</p></div>
+                  <div><span className="text-xs text-slate-500">Status</span><p className="text-sm"><StatusBadge status={poViewDetail.status || "Draft"} /></p></div>
+                  <div><span className="text-xs text-slate-500">Receiving</span><p className="text-sm"><Badge className={`${RECEIVING_BADGE[poViewDetail.receivingStatus || "Unreceived"]} border-0 text-xs`}>{poViewDetail.receivingStatus || "Unreceived"}</Badge></p></div>
+                  <div><span className="text-xs text-slate-500">Grand Total</span><p className="text-sm font-medium">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(poViewDetail.grandTotal)}</p></div>
+                  <div><span className="text-xs text-slate-500">Expected Date</span><p className="text-sm font-medium">{poViewDetail.expectedDate ? fmt(poViewDetail.expectedDate, "date") : "—"}</p></div>
+                  <div><span className="text-xs text-slate-500">Notes</span><p className="text-sm">{poViewDetail.notes || "—"}</p></div>
+                </div>
+                <Separator />
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[600px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Product</TableHead>
+                        <TableHead className="text-xs">Qty</TableHead>
+                        <TableHead className="text-xs">Rate</TableHead>
+                        <TableHead className="text-xs">Disc %</TableHead>
+                        <TableHead className="text-xs">Received</TableHead>
+                        <TableHead className="text-xs">Pending</TableHead>
+                        <TableHead className="text-xs">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(poViewDetail.lines || []).map((l: any, idx: number) => (
+                        <TableRow key={idx}>
+                          <TableCell className="text-xs py-1">{l.product?.name || "—"}</TableCell>
+                          <TableCell className="text-xs py-1">{l.quantity}</TableCell>
+                          <TableCell className="text-xs py-1">{isVatAuditor ? "N/A" : fmtCurrency(l.rate)}</TableCell>
+                          <TableCell className="text-xs py-1">{l.discountPercent || 0}%</TableCell>
+                          <TableCell className="text-xs py-1"><span className="text-emerald-600 font-medium">{l.receivedQuantity || 0}</span></TableCell>
+                          <TableCell className="text-xs py-1"><span className="text-amber-600 font-medium">{l.pendingQuantity || l.quantity - (l.receivedQuantity || 0)}</span></TableCell>
+                          <TableCell className="text-xs py-1">{isVatAuditor ? "N/A" : fmtCurrency(l.quantity * l.rate * (1 - (l.discountPercent || 0) / 100))}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </DialogContent>
         </Dialog>
       </div>
     );
@@ -1389,9 +2372,19 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   // TAB 5: AUTO PO
   // ============================================================
 
+  const URGENCY_BADGE: Record<string, string> = {
+    critical: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    low: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    normal: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  };
+
   const autoPoColumns: ExportColumnDef[] = [
     { key: "productCode", label: "Product Code", type: "text" },
     { key: "productName", label: "Product Name", type: "text" },
+    { key: "urgency", label: "Urgency", type: "text" },
+    { key: "supplierName", label: "Supplier", type: "text" },
+    { key: "brand", label: "Brand", type: "text" },
+    { key: "godownName", label: "Godown", type: "text" },
     { key: "category", label: "Category", type: "text" },
     { key: "currentStock", label: "Current Stock", type: "number" },
     { key: "reorderLevel", label: "Reorder Level", type: "number" },
@@ -1401,29 +2394,79 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   ];
 
   const autoPoFiltered = useMemo(() => {
-    if (!autoPoSearch) return autoPoData;
-    const q = autoPoSearch.toLowerCase();
-    return autoPoData.filter((o: any) => (o.productCode || "").toLowerCase().includes(q) || (o.productName || o.product?.name || "").toLowerCase().includes(q));
+    let result = autoPoData;
+    if (autoPoSearch) {
+      const q = autoPoSearch.toLowerCase();
+      result = result.filter((o: any) => (o.productCode || "").toLowerCase().includes(q) || (o.productName || o.product?.name || "").toLowerCase().includes(q) || (o.supplierName || o.supplier?.name || "").toLowerCase().includes(q));
+    }
+    return result;
   }, [autoPoData, autoPoSearch]);
 
-  const autoPoStats = useMemo(() => ({
-    total: autoPoData.length,
-    suggested: autoPoData.reduce((s: number, o: any) => s + (Number(o.suggestedQuantity) || 0), 0),
-    totalCost: autoPoData.reduce((s: number, o: any) => s + (Number(o.estimatedCost) || Number(o.suggestedQuantity) * Number(o.costPrice) || 0), 0),
-    belowReorder: autoPoData.filter((o: any) => (Number(o.currentStock) || 0) <= (Number(o.reorderLevel) || 0)).length,
-  }), [autoPoData]);
+  const autoPoStats = useMemo(() => {
+    if (autoPoSummary && Object.keys(autoPoSummary).length > 0) {
+      return {
+        total: autoPoSummary.total || autoPoData.length,
+        suggested: autoPoSummary.suggested || autoPoData.reduce((s: number, o: any) => s + (Number(o.suggestedQuantity) || 0), 0),
+        totalCost: autoPoSummary.totalCost || autoPoData.reduce((s: number, o: any) => s + (Number(o.estimatedCost) || Number(o.suggestedQuantity) * Number(o.costPrice) || 0), 0),
+        belowReorder: autoPoSummary.belowReorder || autoPoData.filter((o: any) => (Number(o.currentStock) || 0) <= (Number(o.reorderLevel) || 0)).length,
+        criticalCount: autoPoSummary.criticalCount || autoPoData.filter((o: any) => o.urgency === "critical").length,
+        lowCount: autoPoSummary.lowCount || autoPoData.filter((o: any) => o.urgency === "low").length,
+        normalCount: autoPoSummary.normalCount || autoPoData.filter((o: any) => o.urgency === "normal").length,
+      };
+    }
+    return {
+      total: autoPoData.length,
+      suggested: autoPoData.reduce((s: number, o: any) => s + (Number(o.suggestedQuantity) || 0), 0),
+      totalCost: autoPoData.reduce((s: number, o: any) => s + (Number(o.estimatedCost) || Number(o.suggestedQuantity) * Number(o.costPrice) || 0), 0),
+      belowReorder: autoPoData.filter((o: any) => (Number(o.currentStock) || 0) <= (Number(o.reorderLevel) || 0)).length,
+      criticalCount: autoPoData.filter((o: any) => o.urgency === "critical").length,
+      lowCount: autoPoData.filter((o: any) => o.urgency === "low").length,
+      normalCount: autoPoData.filter((o: any) => o.urgency === "normal").length,
+    };
+  }, [autoPoData, autoPoSummary]);
 
   const generateAutoPo = async () => {
     setAutoPoGenerating(true);
     try {
       const selectedItems = autoPoData.filter((o: any) => autoPoSelected.has(o.productId || o.id));
       if (selectedItems.length === 0) { toast({ title: "Error", description: "Select at least one product", variant: "destructive" }); setAutoPoGenerating(false); return; }
-      const lines = selectedItems.map((item: any) => ({ productId: item.productId || item.id, quantity: item.suggestedQuantity || 1, rate: item.costPrice || 0, discountPercent: 0 }));
-      const subTotal = lines.reduce((s: number, l: any) => s + l.quantity * l.rate, 0);
-      const payload = { supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, notes: "Auto-generated PO", lines, subTotal, vatAmount: 0, vatPercentage: 0, grandTotal: subTotal };
-      await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) });
-      toast({ title: "PO Generated", description: `Purchase Order created with ${selectedItems.length} items` });
+
+      // Group by supplier
+      const supplierGroups: Record<string, any[]> = {};
+      for (const item of selectedItems) {
+        const supplierKey = item.supplierId || item.supplier?.id || "unassigned";
+        if (!supplierGroups[supplierKey]) supplierGroups[supplierKey] = [];
+        supplierGroups[supplierKey].push(item);
+      }
+
+      let createdCount = 0;
+      for (const [supplierId, items] of Object.entries(supplierGroups)) {
+        const lines = items.map((item: any) => ({ productId: item.productId || item.id, quantity: item.suggestedQuantity || 1, rate: item.costPrice || 0, discountPercent: 0 }));
+        const subTotal = lines.reduce((s: number, l: any) => s + l.quantity * l.rate, 0);
+        const payload = {
+          supplierId: supplierId === "unassigned" ? "" : supplierId,
+          godownId: items[0]?.godownId || items[0]?.godown?.id || "",
+          date: new Date().toISOString().split("T")[0],
+          status: "Draft",
+          discount: 0,
+          discountPercent: 0,
+          vatPercent: 0,
+          vatPercentage: 0,
+          notes: `Auto-generated PO — ${items.length} item(s)`,
+          lines,
+          subTotal,
+          vatAmount: 0,
+          grandTotal: subTotal,
+          referenceKey: `AUTO-PO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        };
+        await apiFetch("/api/auto-po", { method: "POST", body: JSON.stringify(payload) });
+        createdCount++;
+      }
+
+      toast({ title: "POs Generated", description: `${createdCount} Purchase Order(s) created for ${selectedItems.length} items across ${Object.keys(supplierGroups).length} supplier(s)` });
       setAutoPoSelected(new Set());
+      loadAutoPo();
+      loadPurchaseOrders();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setAutoPoGenerating(false); }
   };
@@ -1442,34 +2485,92 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     return (
       <div className="space-y-4">
         {isVatAuditor && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-600" /><span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Cost/estimated cost columns are masked</span></div>}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <StatCard label="Products Below Reorder" value={autoPoStats.belowReorder} icon={AlertTriangle} color="text-amber-500" bg="bg-amber-500/10" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-4">
+          <StatCard label="Critical" value={autoPoStats.criticalCount} icon={AlertTriangle} color="text-red-500" bg="bg-red-500/10" />
+          <StatCard label="Low Stock" value={autoPoStats.lowCount} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
+          <StatCard label="Normal" value={autoPoStats.normalCount} icon={Package} color="text-blue-500" bg="bg-blue-500/10" />
           <StatCard label="Total Suggestions" value={autoPoStats.total} icon={Calculator} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
-          <StatCard label="Suggested Qty" value={autoPoStats.suggested} icon={Package} color="text-purple-500" bg="bg-purple-500/10" />
-          <StatCard label="Estimated Cost" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(autoPoStats.totalCost)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
+          <StatCard label="Est. Cost" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(autoPoStats.totalCost)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input value={autoPoSearch} onChange={e => setAutoPoSearch(e.target.value)} placeholder="Search products..." className="pl-8" />
+            <Input value={autoPoSearch} onChange={e => setAutoPoSearch(e.target.value)} placeholder="Search products, suppliers..." className="pl-8" />
           </div>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered, ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered, ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Select value={autoPoUrgencyFilter} onValueChange={v => { setAutoPoUrgencyFilter(v === "all" ? "" : v); }}>
+            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Urgency" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Urgency</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="normal">Normal</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={autoPoSupplierFilter} onValueChange={v => { setAutoPoSupplierFilter(v === "all" ? "" : v); }}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Supplier" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Suppliers</SelectItem>
+              {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
           <Button variant="ghost" size="sm" onClick={loadAutoPo}><RefreshCw className={`h-4 w-4 ${autoPoLoading ? "animate-spin" : ""}`} /></Button>
-          {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO (${autoPoSelected.size})`}</Button>}
+          {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO by Supplier (${autoPoSelected.size})`}</Button>}
         </div>
+        {/* Formula Explanation Card */}
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-b-lg">
-            <p className="text-xs text-slate-500 dark:text-slate-400"><strong>Formula:</strong> Suggested PO = Avg Sales × Lead Time − Stock + Safety Stock</p>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <p className="text-xs text-slate-500 dark:text-slate-400"><strong>Formula:</strong> Suggested PO = Avg Sales × Lead Time − Stock + Safety Stock</p>
+              <Separator orientation="vertical" className="hidden sm:block h-4" />
+              <p className="text-xs text-slate-500 dark:text-slate-400"><strong>Urgency:</strong> <span className="text-red-600">Critical</span> = stock ≤ 0, <span className="text-amber-600">Low</span> = stock ≤ reorder, <span className="text-blue-600">Normal</span> = above reorder</p>
+            </div>
           </CardContent>
         </Card>
+        {/* Supplier Grouped Summary */}
+        {autoPoGroupedBySupplier.length > 0 && (
+          <Card className="border-slate-200 dark:border-slate-700">
+            <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Supplier Grouped View</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow className="bg-slate-100 dark:bg-slate-800">
+                      <TableHead className="text-xs">Supplier</TableHead>
+                      <TableHead className="text-xs">Items</TableHead>
+                      <TableHead className="text-xs">Total Qty</TableHead>
+                      <TableHead className="text-xs">Est. Cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {autoPoGroupedBySupplier.map((g: any, idx: number) => (
+                      <TableRow key={idx}>
+                        <TableCell className="text-xs font-medium">{g.supplierName || "Unassigned"}</TableCell>
+                        <TableCell className="text-xs">{g.itemCount || g.items?.length || 0}</TableCell>
+                        <TableCell className="text-xs">{g.totalQuantity || 0}</TableCell>
+                        <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(g.totalCost || 0)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
-                    <TableHead className="text-white text-xs w-10">Select</TableHead>
+                    <TableHead className="text-white text-xs w-10">
+                      <input type="checkbox" checked={autoPoFiltered.length > 0 && autoPoFiltered.every((o: any) => autoPoSelected.has(o.productId || o.id))}
+                        onChange={e => {
+                          if (e.target.checked) setAutoPoSelected(new Set(autoPoFiltered.map((o: any) => o.productId || o.id)));
+                          else setAutoPoSelected(new Set());
+                        }} className="h-4 w-4 rounded border-slate-300" />
+                    </TableHead>
                     {autoPoColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
                   </TableRow>
                 </TableHeader>
@@ -1480,15 +2581,24 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                     <TableRow><TableCell colSpan={autoPoColumns.length + 1} className="text-center py-8 text-slate-400">No auto PO suggestions found</TableCell></TableRow>
                   ) : autoPoFiltered.map((item: any) => {
                     const id = item.productId || item.id;
+                    const urgency = item.urgency || "normal";
                     return (
-                      <TableRow key={id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <TableCell><input type="checkbox" checked={autoPoSelected.has(id)} onChange={() => toggleAutoPoSelect(id)} className="h-4 w-4 rounded border-slate-300" /></TableCell>
+                      <TableRow key={id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 ${urgency === "critical" ? "bg-red-50/50 dark:bg-red-900/10" : urgency === "low" ? "bg-amber-50/50 dark:bg-amber-900/5" : ""}`}>
+                        <TableCell>
+                          <input type="checkbox" checked={autoPoSelected.has(id)} onChange={() => toggleAutoPoSelect(id)} className="h-4 w-4 rounded border-slate-300" />
+                        </TableCell>
                         <TableCell className="text-xs font-medium">{item.productCode || item.product?.productCode || "—"}</TableCell>
                         <TableCell className="text-xs">{item.productName || item.product?.name || "—"}</TableCell>
+                        <TableCell className="text-xs">
+                          <Badge className={`${URGENCY_BADGE[urgency] || URGENCY_BADGE.normal} border-0 text-xs font-medium`}>{urgency.charAt(0).toUpperCase() + urgency.slice(1)}</Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">{item.supplierName || item.supplier?.name || "—"}</TableCell>
+                        <TableCell className="text-xs">{item.brand || item.product?.brand || "—"}</TableCell>
+                        <TableCell className="text-xs">{item.godownName || item.godown?.name || "—"}</TableCell>
                         <TableCell className="text-xs">{item.category || item.product?.category?.name || "—"}</TableCell>
                         <TableCell className="text-xs">{item.currentStock ?? "—"}</TableCell>
                         <TableCell className="text-xs">{item.reorderLevel ?? "—"}</TableCell>
-                        <TableCell className="text-xs">{item.suggestedQuantity ?? "—"}</TableCell>
+                        <TableCell className="text-xs font-medium">{item.suggestedQuantity ?? "—"}</TableCell>
                         <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.costPrice)}</TableCell>
                         <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.estimatedCost || (Number(item.suggestedQuantity) || 0) * (Number(item.costPrice) || 0))}</TableCell>
                       </TableRow>
@@ -1625,7 +2735,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         paymentDetails: [{ method: paymentOption.name || "Cash", amount: Number(so.grandTotal) || 0 }],
         invoiceType: "Sales Invoice",
         barcodeData: so.invoiceNo || "",
-        printedBy: auth.user?.displayName || auth.user?.name || "Admin",
+        printedBy: auth.user?.displayName || "System",
         salesPerson: "System",
       };
       const templateConfig: InvoiceTemplateConfig = {
@@ -1660,7 +2770,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     return (
       <div className="space-y-4">
         {isVatAuditor && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-600" /><span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Cost/profit columns are masked</span></div>}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <StatCard label="Total SOs" value={soStats.total} icon={Receipt} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Pending" value={soStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
           <StatCard label="Completed" value={soStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
@@ -1673,8 +2783,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           canCreate={isAdmin || isSR} onCreate={openSoCreate} createLabel="Add SO" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                     {soColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
@@ -1713,7 +2823,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </CardContent>
         </Card>
         <Dialog open={soDialog} onOpenChange={setSoDialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{soEdit ? "Edit" : "Create"} Sales Order</DialogTitle><DialogDescription>Fill in SO details and line items.</DialogDescription></DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
@@ -1749,7 +2859,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!soDelete} onOpenChange={() => setSoDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Sales Order</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Sales Order</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setSoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteSo}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -1831,7 +2941,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     return (
       <div className="space-y-4">
         {isVatAuditor && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-600" /><span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Balance and total paid columns are masked</span></div>}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           <StatCard label="Total Hire Sales" value={hsStats.total} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Active" value={hsStats.active} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
           <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(hsStats.totalValue)} icon={TrendingUp} color="text-purple-500" bg="bg-purple-500/10" />
@@ -1844,8 +2954,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           canCreate={isAdmin || isSR} onCreate={openHsCreate} createLabel="Add Hire Sale" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                     {hsColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
@@ -1884,7 +2994,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Card>
         {/* Create/Edit Dialog */}
         <Dialog open={hsDialog} onOpenChange={setHsDialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{hsEdit ? "Edit" : "Create"} Hire Sale</DialogTitle><DialogDescription>Fill in hire sale details, line items and installment schedule.</DialogDescription></DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -1913,10 +3023,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Dialog>
         {/* Installment View Dialog */}
         <Dialog open={!!hsViewInstallments} onOpenChange={() => setHsViewInstallments(null)}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-[95vw] sm:max-w-2xl">
             <DialogHeader><DialogTitle>Installment Schedule — {hsViewInstallments?.invoiceNo || "HIR"}</DialogTitle><DialogDescription>View installment payments for this hire sale.</DialogDescription></DialogHeader>
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                     <TableHead className="text-white text-xs">#</TableHead>
@@ -1956,7 +3066,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!hsDelete} onOpenChange={() => setHsDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Hire Sale</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Hire Sale</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setHsDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteHs}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -2056,7 +3166,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     if (isDealer) return <AccessDenied message="Dealers cannot access Sales Returns." />;
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
           <StatCard label="Total Returns" value={srStats.total} icon={RotateCcw} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Pending" value={srStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
           <StatCard label="Total Value" value={fmtCurrency(srStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
@@ -2068,8 +3178,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           canCreate={isAdmin || isSR} onCreate={openSrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                     {srColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
@@ -2106,7 +3216,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </CardContent>
         </Card>
         <Dialog open={srDialog} onOpenChange={setSrDialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{srEdit ? "Edit" : "Create"} Sales Return</DialogTitle><DialogDescription>Select a sales order and enter return details.</DialogDescription></DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -2165,7 +3275,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!srDelete} onOpenChange={() => setSrDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Sales Return</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Sales Return</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setSrDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteSr}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -2268,7 +3378,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     return (
       <div className="space-y-4">
         {isVatAuditor && <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2"><Shield className="h-4 w-4 text-amber-600" /><span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — All financial columns are masked</span></div>}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
           <StatCard label="Total Returns" value={prStats.total} icon={RotateCcw} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Pending" value={prStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
           <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(prStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
@@ -2280,8 +3390,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           canCreate={isAdmin} onCreate={openPrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                     {prColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
@@ -2318,7 +3428,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </CardContent>
         </Card>
         <Dialog open={prDialog} onOpenChange={setPrDialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{prEdit ? "Edit" : "Create"} Purchase Return</DialogTitle><DialogDescription>Select a purchase order and enter return details.</DialogDescription></DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -2374,7 +3484,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!prDelete} onOpenChange={() => setPrDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Purchase Return</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Purchase Return</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setPrDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deletePr}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -2442,7 +3552,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     if (isDealer) return <AccessDenied message="Dealers cannot access Replacement Orders." />;
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
           <StatCard label="Total Replacements" value={rplStats.total} icon={PackageCheck} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Pending" value={rplStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
           <StatCard label="Completed" value={rplStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
@@ -2454,8 +3564,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           canCreate={isAdmin} onCreate={openRplCreate} createLabel="Add Replacement" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
                     {rplColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
@@ -2488,7 +3598,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </CardContent>
         </Card>
         <Dialog open={rplDialog} onOpenChange={setRplDialog}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{rplEdit ? "Edit" : "Create"} Replacement Order</DialogTitle><DialogDescription>Enter replacement details.</DialogDescription></DialogHeader>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -2521,644 +3631,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     );
   };
 
-  // ─── Phase 10: Opening Stock, Batch Master, Stock Valuation Renders ───
-
-  const selectedGodown = useMemo(() => {
-    return godowns.find((g: any) => g.id === osForm.godownId);
-  }, [godowns, osForm.godownId]);
-
-  const isGodownSuspended = selectedGodown?.status === "SUSPENDED";
-
-  const validateOsForm = useCallback(() => {
-    const errors: Record<string, string> = {};
-    if (!osForm.productId) errors.productId = "Product is required";
-    if (!osForm.godownId) errors.godownId = "Godown is required";
-    if (!osForm.batchNumber) errors.batchNumber = "Batch Number is required";
-    const qtyVal = validateNumeric(osForm.quantity, "Quantity");
-    if (!qtyVal.valid) errors.quantity = qtyVal.error!;
-    const cpVal = validateNumeric(osForm.costPrice, "Cost Price");
-    if (!cpVal.valid) errors.costPrice = cpVal.error!;
-    if (osForm.alertLevel && Number(osForm.alertLevel) < 0) errors.alertLevel = "Alert Level cannot be negative";
-    setOsNumericErrors(errors);
-    return Object.keys(errors).length === 0;
-  }, [osForm]);
-
-  const handlePostOpeningStock = async () => {
-    if (!validateOsForm()) return;
-    if (isGodownSuspended) {
-      toast({ title: "Blocked", description: "This warehouse is SUSPENDED. Stock operations are blocked.", variant: "destructive" });
-      return;
-    }
-    setOsSaving(true);
-    inventorySnapshotRef.current = { osData, bmData, stockData, svData };
-    try {
-      const payload = {
-        productId: osForm.productId,
-        godownId: osForm.godownId,
-        quantity: Number(osForm.quantity),
-        costPrice: Number(osForm.costPrice),
-        batchNumber: sanitizeInput(osForm.batchNumber),
-        expiryDate: osForm.expiryDate || null,
-        alertLevel: osForm.alertLevel ? Number(osForm.alertLevel) : 0,
-        date: osForm.date,
-        notes: sanitizeInput(osForm.notes || ""),
-      };
-      await apiFetch("/api/opening-stock", { method: "POST", body: JSON.stringify(payload) });
-      toast({ title: "Opening Stock Posted", description: "Perpetual inventory valuations updated & double-entry ledger entries created." });
-      setOsDialog(false);
-      setOsForm({ productId: "", godownId: "", quantity: "", costPrice: "", batchNumber: "", expiryDate: "", alertLevel: "", date: new Date().toISOString().split("T")[0], notes: "" });
-      setOsNumericErrors({});
-      loadOpeningStock();
-      loadStock();
-    } catch (e: any) {
-      if (inventorySnapshotRef.current) {
-        setOsData(inventorySnapshotRef.current.osData);
-        setBmData(inventorySnapshotRef.current.bmData);
-        setStockData(inventorySnapshotRef.current.stockData);
-        setSvData(inventorySnapshotRef.current.svData);
-      }
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setOsSaving(false); }
-  };
-
-  const handleSaveBatch = async () => {
-    if (!bmForm.batchNumber || !bmForm.productId || !bmForm.quantity || !bmForm.costPrice) {
-      toast({ title: "Error", description: "Batch Number, Product, Quantity, and Cost Price are required", variant: "destructive" });
-      return;
-    }
-    const qtyVal = validateNumeric(bmForm.quantity, "Quantity");
-    const cpVal = validateNumeric(bmForm.costPrice, "Cost Price");
-    if (!qtyVal.valid || !cpVal.valid) {
-      toast({ title: "Validation Error", description: `${qtyVal.error || ""} ${cpVal.error || ""}`, variant: "destructive" });
-      return;
-    }
-    setBmSaving(true);
-    inventorySnapshotRef.current = { osData, bmData, stockData, svData };
-    try {
-      const payload = {
-        batchNumber: sanitizeInput(bmForm.batchNumber),
-        productId: bmForm.productId,
-        godownId: bmForm.godownId || null,
-        quantity: Number(bmForm.quantity),
-        costPrice: Number(bmForm.costPrice),
-        salePrice: Number(bmForm.salePrice) || 0,
-        expiryDate: bmForm.expiryDate || null,
-        manufacturingDate: bmForm.manufacturingDate || null,
-        supplierId: bmForm.supplierId || null,
-        status: bmForm.status || "Active",
-      };
-      if (bmEdit) {
-        await apiFetch(`/api/batch-master/${bmEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
-        toast({ title: "Batch Updated" });
-      } else {
-        await apiFetch("/api/batch-master", { method: "POST", body: JSON.stringify(payload) });
-        toast({ title: "Batch Created" });
-      }
-      setBmDialog(false);
-      loadBatchMasters();
-    } catch (e: any) {
-      if (inventorySnapshotRef.current) {
-        setBmData(inventorySnapshotRef.current.bmData);
-        setSvData(inventorySnapshotRef.current.svData);
-      }
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally { setBmSaving(false); }
-  };
-
-  const handleDeleteBatch = async () => {
-    if (!bmDelete) return;
-    try {
-      await apiFetch(`/api/batch-master/${bmDelete.id}`, { method: "DELETE" });
-      toast({ title: "Batch Deleted" });
-      setBmDelete(null);
-      loadBatchMasters();
-    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-  };
-
-  const getBatchExpiryBadge = (expiryDate: string | null) => {
-    if (!expiryDate) return <Badge className="bg-slate-100 text-slate-600 border-0 text-xs">No Expiry</Badge>;
-    const now = new Date();
-    const expiry = new Date(expiryDate);
-    const daysUntil = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (daysUntil < 0) return <Badge className="bg-red-100 text-red-700 border-0 text-xs">Expired</Badge>;
-    if (daysUntil <= 30) return <Badge className="bg-amber-100 text-amber-700 border-0 text-xs">Expiring ({daysUntil}d)</Badge>;
-    return <Badge className="bg-emerald-100 text-emerald-700 border-0 text-xs">Valid</Badge>;
-  };
-
-  const BATCH_STATUS_BADGE: Record<string, string> = {
-    Active: "bg-emerald-100 text-emerald-700",
-    Expired: "bg-red-100 text-red-700",
-    Exhausted: "bg-slate-100 text-slate-600",
-    Recalled: "bg-red-200 text-red-800",
-  };
-
-  const renderOpeningStock = () => {
-    const osFiltered = osData.filter((s: any) => {
-      if (!osSearch) return true;
-      const q = osSearch.toLowerCase();
-      return (s.product?.name || "").toLowerCase().includes(q) || (s.product?.productCode || "").toLowerCase().includes(q) || (s.batchNumber || "").toLowerCase().includes(q);
-    });
-
-    const osStats = {
-      total: osData.length,
-      totalQty: osData.reduce((s: number, o: any) => s + (Number(o.quantity) || 0), 0),
-      totalValue: osData.reduce((s: number, o: any) => s + (Number(o.totalCost) || 0), 0),
-      batches: new Set(osData.map((o: any) => o.batchNumber).filter(Boolean)).size,
-    };
-
-    const osExportCols: ExportColumnDef[] = [
-      { key: "productCode", label: "Product Code", type: "text" },
-      { key: "productName", label: "Product", type: "text" },
-      { key: "godownName", label: "Godown", type: "text" },
-      { key: "quantity", label: "Qty", type: "number" },
-      { key: "costPrice", label: "Cost Price", type: "currency" },
-      { key: "totalCost", label: "Total Cost", type: "currency" },
-      { key: "batchNumber", label: "Batch", type: "text" },
-      { key: "expiryDate", label: "Expiry", type: "date" },
-      { key: "date", label: "Date", type: "date" },
-    ];
-    const osExportData = osFiltered.map((s: any) => ({
-      productCode: s.product?.productCode || "",
-      productName: s.product?.name || "",
-      godownName: s.godown?.name || "",
-      quantity: s.quantity || 0,
-      costPrice: s.costPrice || 0,
-      totalCost: s.totalCost || 0,
-      batchNumber: s.batchNumber || "—",
-      expiryDate: s.expiryDate || "",
-      date: s.date || "",
-    }));
-
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <StatCard label="Total Entries" value={osStats.total} icon={Package} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
-          <StatCard label="Total Quantity" value={bdCurrencyFmt.format(osStats.totalQty)} icon={Layers} color="text-emerald-600" bg="bg-emerald-50" />
-          <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(osStats.totalValue)} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
-          <StatCard label="Active Batches" value={osStats.batches} icon={Hash} color="text-purple-600" bg="bg-purple-50" />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input value={osSearch} onChange={e => setOsSearch(e.target.value)} placeholder="Search opening stock..." className="pl-8" />
-          </div>
-          <Button onClick={() => { setOsForm({ productId: "", godownId: "", quantity: "", costPrice: "", batchNumber: "", expiryDate: "", alertLevel: "", date: new Date().toISOString().split("T")[0], notes: "" }); setOsNumericErrors({}); setOsDialog(true); }} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-            <Plus className="h-4 w-4 mr-1" /> Post Opening Stock
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(osExportCols), "costPrice", "totalCost"]; exportToCSV({ title: "Opening Stock Ledger", columns: osExportCols, data: osExportData, isVatAuditor, vatMaskedColumns: mk }); }}>
-            <Download className="h-4 w-4 mr-1" /> CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(osExportCols), "costPrice", "totalCost"]; exportToPDF({ title: "Opening Stock Ledger", columns: osExportCols, data: osExportData, isVatAuditor, vatMaskedColumns: mk, orientation: "landscape", company: companyProfile, financialFooter: { preparedBy: auth.user?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: auth.user?.displayName || auth.user?.email || "" } }); }}>
-            <FileDown className="h-4 w-4 mr-1" /> PDF
-          </Button>
-          <Button variant="ghost" size="sm" onClick={loadOpeningStock}><RefreshCw className={`h-4 w-4 ${osLoading ? "animate-spin" : ""}`} /></Button>
-        </div>
-
-        <div className="border rounded-lg overflow-auto max-h-[65vh]">
-          <Table>
-            <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
-              <TableHead className="text-white text-xs">Product</TableHead>
-              <TableHead className="text-white text-xs">Godown</TableHead>
-              <TableHead className="text-white text-xs text-right">Qty</TableHead>
-              <TableHead className="text-white text-xs text-right">Cost Price</TableHead>
-              <TableHead className="text-white text-xs text-right">Total Cost</TableHead>
-              <TableHead className="text-white text-xs">Batch</TableHead>
-              <TableHead className="text-white text-xs">Expiry</TableHead>
-              <TableHead className="text-white text-xs">Date</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {osLoading ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
-              osFiltered.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-400">No opening stock entries</TableCell></TableRow> :
-              osFiltered.map((s: any, i: number) => (
-                <TableRow key={i}>
-                  <TableCell className="text-xs font-medium">{s.product?.productCode || ""} — {s.product?.name || ""}</TableCell>
-                  <TableCell className="text-xs">{s.godown?.name || "—"}</TableCell>
-                  <TableCell className="text-xs text-right font-medium">{Number(s.quantity || 0).toLocaleString()}</TableCell>
-                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.costPrice || 0)}</TableCell>
-                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.totalCost || 0)}</TableCell>
-                  <TableCell className="text-xs"><Badge className="bg-blue-50 text-blue-700 border-0 text-xs">{s.batchNumber || "—"}</Badge></TableCell>
-                  <TableCell className="text-xs">{s.expiryDate ? fmt(s.expiryDate, "date") : "—"}</TableCell>
-                  <TableCell className="text-xs">{fmt(s.date, "date")}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* Opening Stock Dialog */}
-        <Dialog open={osDialog} onOpenChange={setOsDialog}>
-          <DialogContent className="max-w-xl"><DialogHeader><DialogTitle>Post Product Opening Stock</DialogTitle><DialogDescription>Initialize stock for a product at a specific warehouse location with batch tracking and automatic CoA ledger mapping.</DialogDescription></DialogHeader>
-          <div className="space-y-4">
-            {isGodownSuspended && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-                <span className="text-sm text-red-700 dark:text-red-400 font-medium">This warehouse is SUSPENDED. Stock operations are blocked.</span>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Product <span className="text-red-500">*</span></Label>
-                <Select value={osForm.productId} onValueChange={v => setOsForm(p => ({ ...p, productId: v }))}>
-                  <SelectTrigger className={osNumericErrors.productId ? "border-red-500 ring-2 ring-red-200" : ""}><SelectValue placeholder="Select Product" /></SelectTrigger>
-                  <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.productCode} — {p.name}</SelectItem>)}</SelectContent>
-                </Select>
-                {osNumericErrors.productId && <p className="text-xs text-red-500 mt-1">{osNumericErrors.productId}</p>}
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Godown <span className="text-red-500">*</span></Label>
-                <Select value={osForm.godownId} onValueChange={v => setOsForm(p => ({ ...p, godownId: v }))}>
-                  <SelectTrigger className={osNumericErrors.godownId ? "border-red-500 ring-2 ring-red-200" : ""}><SelectValue placeholder="Select Godown" /></SelectTrigger>
-                  <SelectContent>
-                    {godowns.map((g: any) => (
-                      <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>
-                        {g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {osNumericErrors.godownId && <p className="text-xs text-red-500 mt-1">{osNumericErrors.godownId}</p>}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Quantity <span className="text-red-500">*</span></Label>
-                <Input type="number" min={0.01} step="any" value={osForm.quantity} onChange={e => { setOsForm(p => ({ ...p, quantity: e.target.value })); if (e.target.value && Number(e.target.value) <= 0) setOsNumericErrors(p => ({ ...p, quantity: "Must be greater than zero" })); else setOsNumericErrors(p => { const n = {...p}; delete n.quantity; return n; }); }} className={osNumericErrors.quantity ? "border-red-500 ring-2 ring-red-200 animate-pulse" : ""} placeholder="Enter quantity" />
-                {osNumericErrors.quantity && <p className="text-xs text-red-500 mt-1">{osNumericErrors.quantity}</p>}
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Cost Price (Per Unit) <span className="text-red-500">*</span></Label>
-                <Input type="number" min={0.01} step="0.01" value={osForm.costPrice} onChange={e => { setOsForm(p => ({ ...p, costPrice: e.target.value })); if (e.target.value && Number(e.target.value) <= 0) setOsNumericErrors(p => ({ ...p, costPrice: "Must be greater than zero" })); else setOsNumericErrors(p => { const n = {...p}; delete n.costPrice; return n; }); }} className={osNumericErrors.costPrice ? "border-red-500 ring-2 ring-red-200 animate-pulse" : ""} placeholder="Per unit cost" />
-                {osNumericErrors.costPrice && <p className="text-xs text-red-500 mt-1">{osNumericErrors.costPrice}</p>}
-              </div>
-            </div>
-            {osForm.quantity && osForm.costPrice && Number(osForm.quantity) > 0 && Number(osForm.costPrice) > 0 && (
-              <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <span className="text-sm text-blue-700 dark:text-blue-400 font-medium">Total Inventory Value: {fmtCurrency(Number(osForm.quantity) * Number(osForm.costPrice))}</span>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Batch Number <span className="text-red-500">*</span></Label>
-                <Input type="text" value={osForm.batchNumber} onChange={e => setOsForm(p => ({ ...p, batchNumber: e.target.value }))} className={osNumericErrors.batchNumber ? "border-red-500 ring-2 ring-red-200" : ""} placeholder="Required batch identifier" />
-                {osNumericErrors.batchNumber && <p className="text-xs text-red-500 mt-1">{osNumericErrors.batchNumber}</p>}
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Expiry Date</Label>
-                <Input type="date" value={osForm.expiryDate} onChange={e => setOsForm(p => ({ ...p, expiryDate: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Alert Level</Label>
-                <Input type="number" min={0} value={osForm.alertLevel} onChange={e => setOsForm(p => ({ ...p, alertLevel: e.target.value }))} placeholder="Reorder threshold" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Date</Label>
-                <Input type="date" value={osForm.date} onChange={e => setOsForm(p => ({ ...p, date: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <Label className="text-sm font-medium">Notes</Label>
-              <Textarea value={osForm.notes} onChange={e => setOsForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" rows={2} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOsDialog(false)}>Cancel</Button>
-            <Button onClick={handlePostOpeningStock} disabled={osSaving || isGodownSuspended || Object.keys(osNumericErrors).length > 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-              {osSaving ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Recalculating Perpetual Inventory Valuations & Apportioning Batches...</> : <><Package className="h-4 w-4 mr-2" />Post Product Opening Stock</>}
-            </Button>
-          </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
-  };
-
-  const renderBatchMaster = () => {
-    const bmFiltered = bmData.filter((b: any) => {
-      if (!bmSearch) return true;
-      const q = bmSearch.toLowerCase();
-      return (b.batchNumber || "").toLowerCase().includes(q) || (b.product?.name || "").toLowerCase().includes(q) || (b.status || "").toLowerCase().includes(q);
-    });
-
-    const bmStats = {
-      total: bmData.length,
-      active: bmData.filter((b: any) => b.status === "Active").length,
-      expired: bmData.filter((b: any) => b.status === "Expired").length,
-      totalValue: bmData.reduce((s: number, b: any) => s + (Number(b.totalCost) || 0), 0),
-    };
-
-    const bmExportCols: ExportColumnDef[] = [
-      { key: "batchNumber", label: "Batch No", type: "text" },
-      { key: "productName", label: "Product", type: "text" },
-      { key: "godownName", label: "Godown", type: "text" },
-      { key: "quantity", label: "Qty", type: "number" },
-      { key: "costPrice", label: "Cost Price", type: "currency" },
-      { key: "totalCost", label: "Total Cost", type: "currency" },
-      { key: "salePrice", label: "Sale Price", type: "currency" },
-      { key: "expiryDate", label: "Expiry", type: "date" },
-      { key: "status", label: "Status", type: "text" },
-    ];
-    const bmExportData = bmFiltered.map((b: any) => ({
-      batchNumber: b.batchNumber || "",
-      productName: b.product?.name || "",
-      godownName: b.godown?.name || "—",
-      quantity: b.quantity || 0,
-      costPrice: b.costPrice || 0,
-      totalCost: b.totalCost || 0,
-      salePrice: b.salePrice || 0,
-      expiryDate: b.expiryDate || "",
-      status: b.status || "Active",
-    }));
-
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <StatCard label="Total Batches" value={bmStats.total} icon={Hash} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
-          <StatCard label="Active Batches" value={bmStats.active} icon={PackageCheck} color="text-emerald-600" bg="bg-emerald-50" />
-          <StatCard label="Expired Batches" value={bmStats.expired} icon={AlertTriangle} color="text-red-600" bg="bg-red-50" />
-          <StatCard label="Batch Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(bmStats.totalValue)} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input value={bmSearch} onChange={e => setBmSearch(e.target.value)} placeholder="Search batches..." className="pl-8" />
-          </div>
-          <Button onClick={() => { setBmForm({ batchNumber: "", productId: "", godownId: "", quantity: "", costPrice: "", salePrice: "", expiryDate: "", manufacturingDate: "", supplierId: "", status: "Active" }); setBmEdit(null); setBmDialog(true); }} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-            <Plus className="h-4 w-4 mr-1" /> Initialize Batch Variant
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(bmExportCols), "costPrice", "totalCost", "salePrice"]; exportToCSV({ title: "Batch Master Ledger", columns: bmExportCols, data: bmExportData, isVatAuditor, vatMaskedColumns: mk }); }}>
-            <Download className="h-4 w-4 mr-1" /> CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(bmExportCols), "costPrice", "totalCost", "salePrice"]; exportToPDF({ title: "Batch Expiry Forecast", columns: bmExportCols, data: bmExportData, isVatAuditor, vatMaskedColumns: mk, orientation: "landscape", company: companyProfile, financialFooter: { preparedBy: auth.user?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: auth.user?.displayName || auth.user?.email || "" } }); }}>
-            <FileDown className="h-4 w-4 mr-1" /> PDF
-          </Button>
-          <Button variant="ghost" size="sm" onClick={loadBatchMasters}><RefreshCw className={`h-4 w-4 ${bmLoading ? "animate-spin" : ""}`} /></Button>
-        </div>
-
-        <div className="border rounded-lg overflow-auto max-h-[65vh]">
-          <Table>
-            <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
-              <TableHead className="text-white text-xs">Batch No</TableHead>
-              <TableHead className="text-white text-xs">Product</TableHead>
-              <TableHead className="text-white text-xs">Godown</TableHead>
-              <TableHead className="text-white text-xs text-right">Qty</TableHead>
-              <TableHead className="text-white text-xs text-right">Cost Price</TableHead>
-              <TableHead className="text-white text-xs text-right">Total Cost</TableHead>
-              <TableHead className="text-white text-xs">Expiry</TableHead>
-              <TableHead className="text-white text-xs">Status</TableHead>
-              {isAdmin && <TableHead className="text-white text-xs">Actions</TableHead>}
-            </TableRow></TableHeader>
-            <TableBody>
-              {bmLoading ? <TableRow><TableCell colSpan={9} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
-              bmFiltered.length === 0 ? <TableRow><TableCell colSpan={9} className="text-center py-8 text-slate-400">No batch records</TableCell></TableRow> :
-              bmFiltered.map((b: any) => (
-                <TableRow key={b.id}>
-                  <TableCell className="text-xs font-medium"><Badge className="bg-blue-50 text-blue-700 border-0 text-xs">{b.batchNumber}</Badge></TableCell>
-                  <TableCell className="text-xs">{b.product?.productCode || ""} — {b.product?.name || ""}</TableCell>
-                  <TableCell className="text-xs">{b.godown?.name || "—"}</TableCell>
-                  <TableCell className="text-xs text-right font-medium">{Number(b.quantity || 0).toLocaleString()}</TableCell>
-                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(b.costPrice || 0)}</TableCell>
-                  <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(b.totalCost || 0)}</TableCell>
-                  <TableCell className="text-xs">{getBatchExpiryBadge(b.expiryDate)}</TableCell>
-                  <TableCell className="text-xs"><Badge className={`${BATCH_STATUS_BADGE[b.status] || ""} border-0 text-xs`}>{b.status}</Badge></TableCell>
-                  {isAdmin && <TableCell className="text-xs">
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => { setBmEdit(b); setBmForm({ batchNumber: b.batchNumber || "", productId: b.productId || "", godownId: b.godownId || "", quantity: b.quantity || "", costPrice: b.costPrice || "", salePrice: b.salePrice || "", expiryDate: b.expiryDate ? b.expiryDate.split("T")[0] : "", manufacturingDate: b.manufacturingDate ? b.manufacturingDate.split("T")[0] : "", supplierId: b.supplierId || "", status: b.status || "Active" }); setBmDialog(true); }}><Edit className="h-3 w-3" /></Button>
-                      <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => setBmDelete(b)}><Trash2 className="h-3 w-3" /></Button>
-                    </div>
-                  </TableCell>}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* Batch Master Dialog */}
-        <Dialog open={bmDialog} onOpenChange={setBmDialog}>
-          <DialogContent className="max-w-xl"><DialogHeader><DialogTitle>{bmEdit ? "Edit Batch Variant" : "Initialize Batch Variant"}</DialogTitle><DialogDescription>Register a new product batch with cost tracking and expiry management.</DialogDescription></DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Batch Number <span className="text-red-500">*</span></Label>
-                <Input type="text" value={bmForm.batchNumber} onChange={e => setBmForm(p => ({ ...p, batchNumber: e.target.value }))} placeholder="Unique batch ID" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Product <span className="text-red-500">*</span></Label>
-                <Select value={bmForm.productId} onValueChange={v => setBmForm(p => ({ ...p, productId: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
-                  <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.productCode} — {p.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Quantity <span className="text-red-500">*</span></Label>
-                <Input type="number" min={0.01} step="any" value={bmForm.quantity} onChange={e => setBmForm(p => ({ ...p, quantity: e.target.value }))} placeholder="Qty" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Cost Price <span className="text-red-500">*</span></Label>
-                <Input type="number" min={0.01} step="0.01" value={bmForm.costPrice} onChange={e => setBmForm(p => ({ ...p, costPrice: e.target.value }))} placeholder="Per unit" />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Sale Price</Label>
-                <Input type="number" min={0} step="0.01" value={bmForm.salePrice} onChange={e => setBmForm(p => ({ ...p, salePrice: e.target.value }))} placeholder="Per unit" />
-              </div>
-            </div>
-            {bmForm.quantity && bmForm.costPrice && Number(bmForm.quantity) > 0 && Number(bmForm.costPrice) > 0 && (
-              <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <span className="text-sm text-blue-700 dark:text-blue-400 font-medium">Batch Total Cost: {fmtCurrency(Number(bmForm.quantity) * Number(bmForm.costPrice))}</span>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Godown</Label>
-                <Select value={bmForm.godownId} onValueChange={v => setBmForm(p => ({ ...p, godownId: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
-                  <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id} disabled={g.status === "SUSPENDED"}>{g.name}{g.status === "SUSPENDED" ? " (SUSPENDED)" : ""}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Status</Label>
-                <Select value={bmForm.status} onValueChange={v => setBmForm(p => ({ ...p, status: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Expired">Expired</SelectItem>
-                    <SelectItem value="Exhausted">Exhausted</SelectItem>
-                    <SelectItem value="Recalled">Recalled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Expiry Date</Label>
-                <Input type="date" value={bmForm.expiryDate} onChange={e => setBmForm(p => ({ ...p, expiryDate: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-sm font-medium">Manufacturing Date</Label>
-                <Input type="date" value={bmForm.manufacturingDate} onChange={e => setBmForm(p => ({ ...p, manufacturingDate: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <Label className="text-sm font-medium">Supplier</Label>
-              <Select value={bmForm.supplierId} onValueChange={v => setBmForm(p => ({ ...p, supplierId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select Supplier (optional)" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.supplierCode} — {s.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBmDialog(false)}>Cancel</Button>
-            <Button onClick={handleSaveBatch} disabled={bmSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
-              {bmSaving ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Mapping Batch Ledger Trees & Restructuring Accounting Ledgers...</> : <><Hash className="h-4 w-4 mr-2" />{bmEdit ? "Update Batch Variant" : "Initialize Batch Variant"}</>}
-            </Button>
-          </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Delete Confirmation */}
-        <Dialog open={!!bmDelete} onOpenChange={() => setBmDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Batch</DialogTitle><DialogDescription>Are you sure you want to delete batch &quot;{bmDelete?.batchNumber}&quot;?</DialogDescription></DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBmDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteBatch} disabled={!isAdmin}>{isAdmin ? "Delete" : "Admin Only"}</Button>
-          </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
-    );
-  };
-
-  const renderStockValuation = () => {
-    const svFiltered = svData.filter((v: any) => {
-      if (!svSearch) return true;
-      const q = svSearch.toLowerCase();
-      return (v.productName || "").toLowerCase().includes(q) || (v.productCode || "").toLowerCase().includes(q);
-    });
-
-    const svStats = {
-      products: svData.length,
-      totalValue: svData.reduce((s: number, v: any) => s + (Number(v.totalValue) || 0), 0),
-      totalQty: svData.reduce((s: number, v: any) => s + (Number(v.totalQuantity) || 0), 0),
-    };
-
-    const svExportCols: ExportColumnDef[] = [
-      { key: "productCode", label: "Code", type: "text" },
-      { key: "productName", label: "Product", type: "text" },
-      { key: "valuationMethod", label: "Method", type: "text" },
-      { key: "totalQuantity", label: "Total Qty", type: "number" },
-      { key: "totalValue", label: "Total Value", type: "currency" },
-      { key: "averageCost", label: "Avg Cost", type: "currency" },
-    ];
-    const svExportData = svFiltered.map((v: any) => ({
-      productCode: v.productCode || "",
-      productName: v.productName || "",
-      valuationMethod: v.valuationMethod || svMethod,
-      totalQuantity: v.totalQuantity || 0,
-      totalValue: v.totalValue || 0,
-      averageCost: v.averageCost || 0,
-    }));
-
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <StatCard label="Products Valued" value={svStats.products} icon={Layers} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
-          <StatCard label="Total Qty" value={bdCurrencyFmt.format(svStats.totalQty)} icon={Package} color="text-emerald-600" bg="bg-emerald-50" />
-          <StatCard label="Total Inventory Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(svStats.totalValue)} icon={TrendingUp} color="text-amber-600" bg="bg-amber-50" />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-            <Input value={svSearch} onChange={e => setSvSearch(e.target.value)} placeholder="Search valuations..." className="pl-8" />
-          </div>
-          <Select value={svMethod} onValueChange={v => { setSvMethod(v); loadStockValuation(v); }}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="FIFO">FIFO (First In, First Out)</SelectItem>
-              <SelectItem value="WeightedAverage">Weighted Average</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(svExportCols), "totalValue", "averageCost"]; exportToCSV({ title: `Stock Valuation (${svMethod})`, columns: svExportCols, data: svExportData, isVatAuditor, vatMaskedColumns: mk }); }}>
-            <Download className="h-4 w-4 mr-1" /> CSV
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => { const mk = [...getVatMaskedKeys(svExportCols), "totalValue", "averageCost"]; exportToPDF({ title: `Stock Valuation (${svMethod})`, columns: svExportCols, data: svExportData, isVatAuditor, vatMaskedColumns: mk, orientation: "landscape", company: companyProfile, financialFooter: { preparedBy: auth.user?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: auth.user?.displayName || auth.user?.email || "" } }); }}>
-            <FileDown className="h-4 w-4 mr-1" /> PDF
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => loadStockValuation()}><RefreshCw className={`h-4 w-4 ${svLoading ? "animate-spin" : ""}`} /></Button>
-        </div>
-
-        <div className="border rounded-lg overflow-auto max-h-[65vh]">
-          <Table>
-            <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
-              <TableHead className="text-white text-xs w-8"></TableHead>
-              <TableHead className="text-white text-xs">Product</TableHead>
-              <TableHead className="text-white text-xs">Method</TableHead>
-              <TableHead className="text-white text-xs text-right">Total Qty</TableHead>
-              <TableHead className="text-white text-xs text-right">Total Value</TableHead>
-              <TableHead className="text-white text-xs text-right">Avg Cost</TableHead>
-              <TableHead className="text-white text-xs">Category</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {svLoading ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-400">Loading valuations...</TableCell></TableRow> :
-              svFiltered.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-400">No valuation data. Click refresh to calculate.</TableCell></TableRow> :
-              svFiltered.map((v: any) => (
-                <React.Fragment key={v.productId}>
-                  <TableRow className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" onClick={() => setSvExpandedProduct(svExpandedProduct === v.productId ? null : v.productId)}>
-                    <TableCell className="text-xs">
-                      {v.layers && v.layers.length > 0 ? (svExpandedProduct === v.productId ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />) : null}
-                    </TableCell>
-                    <TableCell className="text-xs font-medium">{v.productCode} — {v.productName}</TableCell>
-                    <TableCell className="text-xs"><Badge className="bg-purple-50 text-purple-700 border-0 text-xs">{v.valuationMethod || svMethod}</Badge></TableCell>
-                    <TableCell className="text-xs text-right font-medium">{Number(v.totalQuantity || 0).toLocaleString()}</TableCell>
-                    <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(v.totalValue || 0)}</TableCell>
-                    <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(v.averageCost || 0)}</TableCell>
-                    <TableCell className="text-xs">{v.category || "—"}</TableCell>
-                  </TableRow>
-                  {svExpandedProduct === v.productId && v.layers && v.layers.length > 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="p-0">
-                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3">
-                          <p className="text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2">FIFO Inventory Layers</p>
-                          <Table>
-                            <TableHeader><TableRow>
-                              <TableHead className="text-xs h-8">Date</TableHead>
-                              <TableHead className="text-xs text-right">Qty</TableHead>
-                              <TableHead className="text-xs text-right">Cost Price</TableHead>
-                              <TableHead className="text-xs text-right">Layer Cost</TableHead>
-                              <TableHead className="text-xs">Batch</TableHead>
-                            </TableRow></TableHeader>
-                            <TableBody>
-                              {v.layers.map((l: any, li: number) => (
-                                <TableRow key={li}>
-                                  <TableCell className="text-xs py-1">{l.date ? fmt(l.date, "date") : "—"}</TableCell>
-                                  <TableCell className="text-xs py-1 text-right">{Number(l.quantity || 0).toLocaleString()}</TableCell>
-                                  <TableCell className="text-xs py-1 text-right">{isVatAuditor ? "N/A" : fmtCurrency(l.costPrice || 0)}</TableCell>
-                                  <TableCell className="text-xs py-1 text-right">{isVatAuditor ? "N/A" : fmtCurrency(l.totalCost || 0)}</TableCell>
-                                  <TableCell className="text-xs py-1">{l.batchNumber || "—"}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </React.Fragment>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    );
-  };
+  // ─── Stock & Transfer Renders ───
 
   const renderStock = () => (
     <div className="space-y-4">
@@ -3331,7 +3804,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Table>
       </div>
       <Dialog open={trnDialog} onOpenChange={setTrnDialog}>
-        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>{trnEdit ? "Edit Transfer" : "New Stock Transfer"}</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl"><DialogHeader><DialogTitle>{trnEdit ? "Edit Transfer" : "New Stock Transfer"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div><Label className="text-sm font-medium">From Godown</Label><Select value={trnForm.fromGodownId} onValueChange={v => setTrnForm(p => ({ ...p, fromGodownId: v }))}><SelectTrigger><SelectValue placeholder="From" /></SelectTrigger><SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent></Select></div>
@@ -3359,7 +3832,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </div>
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex flex-wrap h-auto gap-1 bg-slate-100 dark:bg-slate-800 p-1">
+        <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-800 p-1 pb-1 scrollbar-none">
           <TabsTrigger value="company-ordersheet" className="text-xs">Company OS</TabsTrigger>
           <TabsTrigger value="customer-ordersheet" className="text-xs">Customer OS</TabsTrigger>
           <TabsTrigger value="ordersheet-report" className="text-xs">OS Report</TabsTrigger>
@@ -3370,11 +3843,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <TabsTrigger value="sales-returns" className="text-xs">Sales Returns</TabsTrigger>
           <TabsTrigger value="purchase-returns" className="text-xs">Purchase Returns</TabsTrigger>
           <TabsTrigger value="replacements" className="text-xs">Replacements</TabsTrigger>
-          <TabsTrigger value="opening-stock" className="text-xs">Opening Stock</TabsTrigger>
-          <TabsTrigger value="batch-master" className="text-xs">Batch Master</TabsTrigger>
           <TabsTrigger value="stock" className="text-xs">Stock</TabsTrigger>
           <TabsTrigger value="stock-details" className="text-xs">Stock Details</TabsTrigger>
-          <TabsTrigger value="stock-valuation" className="text-xs">Valuation</TabsTrigger>
           <TabsTrigger value="transfers" className="text-xs">Transfers</TabsTrigger>
         </TabsList>
         <TabsContent value="company-ordersheet">{renderCompanyOrdersheet()}</TabsContent>
@@ -3387,11 +3857,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <TabsContent value="sales-returns">{renderSalesReturn()}</TabsContent>
         <TabsContent value="purchase-returns">{renderPurchaseReturn()}</TabsContent>
         <TabsContent value="replacements">{renderReplacements()}</TabsContent>
-        <TabsContent value="opening-stock">{renderOpeningStock()}</TabsContent>
-        <TabsContent value="batch-master">{renderBatchMaster()}</TabsContent>
         <TabsContent value="stock">{renderStock()}</TabsContent>
         <TabsContent value="stock-details">{renderStockDetails()}</TabsContent>
-        <TabsContent value="stock-valuation">{renderStockValuation()}</TabsContent>
         <TabsContent value="transfers">{renderTransfers()}</TabsContent>
       </Tabs>
     </div>

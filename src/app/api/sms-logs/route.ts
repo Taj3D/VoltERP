@@ -1,9 +1,8 @@
 // ============================================================
-// SMS LOGS API ROUTE — Block 12 (Domain 19) Audit Rewrite
+// SMS LOGS API ROUTE — Stage 11 Rebuild
 // Multi-tenant companyId isolation, RBAC, VAT Auditor masking,
-// SMS character computation (computeSmsSegments),
-// Campaign Balance Shield (Directive 2),
-// Activity logging with Comm-SMS-Marketing module token (Directive 4)
+// SMS character computation (computeSmsSegments), Activity logging
+// with SMS-Gateway-Dispatch (single) / SMS-Campaign-Marketing (bulk)
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -20,11 +19,10 @@ import { logUserActivity } from '@/lib/activity-logger';
 // Helper: convert empty string to null
 function nullIfEmpty(val: string | undefined | null): string | null {
   if (val === undefined || val === null || val.trim() === '') return null;
-  return val.trim().replace(/[\r\n]+$/g, '');
+  return val;
 }
 
 // GET /api/sms-logs — List all active SMS logs for current tenant
-// Directive 1: Absolute multi-tenant isolation
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'SmsLogs', 'GET');
   if (!security.authorized) return security.response;
@@ -62,8 +60,8 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/sms-logs — Create SMS log (single or bulk)
-// Directive 2: Campaign Balance Shield — block dispatch if insufficient credits
-// Directive 4: Activity logging with Comm-SMS-Marketing module token
+// SR can dispatch individual SMS (not blocked by WRITE_DENY for SmsLogs)
+// Bulk mode uses SMS-Campaign-Marketing module token
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'SmsLogs', 'POST');
   if (!security.authorized) return security.response;
@@ -72,9 +70,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const companyId = security.user.companyId;
 
-    // ─────────────────────────────────────────────────────
-    // BULK MODE: array of recipients with same message
-    // ─────────────────────────────────────────────────────
+    // Bulk mode: array of recipients with same message
     if (body.batchMode && Array.isArray(body.recipients)) {
       const message: string = body.message || '';
       const campaignName = nullIfEmpty(body.campaignName);
@@ -86,56 +82,28 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Compute SMS segments (Directive 1 Re-Audit — UDH-aware GSM 03.38)
+      // Get tenant's active SmsSetting for rate calculation
+      let ratePerSms = 0;
+      let unicodeRate = 0;
+      const activeSetting = await db.smsSetting.findFirst({
+        where: {
+          isActive: true,
+          ...(companyId ? { companyId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (activeSetting) {
+        ratePerSms = activeSetting.ratePerSms;
+        unicodeRate = activeSetting.unicodeRate;
+      }
+
+      // Compute SMS segments
       const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
+      const applicableRate = isUnicode ? unicodeRate : ratePerSms;
+      const costPerRecipient = safeFinancialRound(segmentCount * applicableRate);
 
-      // DIRECTIVE 2 RE-AUDIT: Move ALL credit logic inside $transaction
-      // to prevent concurrent requests from reading stale balance
       const createdRecords = await db.$transaction(async (tx) => {
-        // Re-read active SmsSetting INSIDE the transaction for latest balance
-        const activeSetting = await tx.smsSetting.findFirst({
-          where: {
-            isActive: true,
-            ...(companyId ? { companyId } : {}),
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        const ratePerSms = activeSetting?.ratePerSms || 0;
-        const unicodeRate = activeSetting?.unicodeRate || 0;
-        const availableCredits = activeSetting?.lastKnownCreditBalance || 0;
-        const applicableRate = isUnicode ? unicodeRate : ratePerSms;
-        const costPerRecipient = safeFinancialRound(segmentCount * applicableRate);
-        const totalRequiredCredits = safeFinancialRound(body.recipients.length * costPerRecipient);
-
-        // ─── Directive 2: Campaign Balance Shield (atomic inside tx) ───
-        if (availableCredits > 0 && totalRequiredCredits > availableCredits) {
-          throw new Error(`INSUFFICIENT_SMS_CREDITS:${totalRequiredCredits}:${availableCredits}`);
-        }
-
-        // Check creditBalanceLimit alert threshold
-        if (activeSetting && activeSetting.creditBalanceLimit > 0) {
-          const remainingAfter = availableCredits - totalRequiredCredits;
-          if (remainingAfter < activeSetting.creditBalanceLimit) {
-            // Allow dispatch but log warning (not blocking, just alert threshold)
-            await logUserActivity({
-              action: 'CREATE',
-              module: 'Comm-SMS-Marketing',
-              recordId: 'CREDIT-ALERT',
-              recordLabel: `Credit Balance Alert: ${remainingAfter.toFixed(2)} BDT remaining after campaign`,
-              userId: security.user.id,
-              userName: security.user.name,
-              details: JSON.stringify({
-                alertType: 'CREDIT_BALANCE_LOW',
-                remainingAfter,
-                creditBalanceLimit: activeSetting.creditBalanceLimit,
-                campaignName,
-              }),
-            });
-          }
-        }
-
-        const records: any[] = [];
+        const records = [];
 
         for (const recipient of body.recipients) {
           if (!recipient || typeof recipient !== 'string') continue;
@@ -159,19 +127,11 @@ export async function POST(request: NextRequest) {
           records.push(record);
         }
 
-        // Update lastKnownCreditBalance on the active setting atomically
-        if (activeSetting && availableCredits > 0) {
-          const newBalance = Math.max(0, availableCredits - totalRequiredCredits);
-          await tx.smsSetting.update({
-            where: { id: activeSetting.id },
-            data: { lastKnownCreditBalance: safeFinancialRound(newBalance) },
-          });
-        }
-
-        // Activity log with Comm-SMS-Marketing module token for bulk (Directive 4)
+        // Activity log with SMS-Campaign-Marketing module token for bulk
         await logUserActivity({
+          tx: tx,
           action: 'CREATE',
-          module: 'Comm-SMS-Marketing',
+          module: 'SMS-Campaign-Marketing',
           recordId: 'BATCH',
           recordLabel: campaignName || `Bulk: ${records.length} recipients`,
           userId: security.user.id,
@@ -185,30 +145,15 @@ export async function POST(request: NextRequest) {
             segmentCount,
             costPerRecipient,
             totalCost: safeFinancialRound(records.length * costPerRecipient),
-            creditsBefore: availableCredits,
-            creditsAfter: Math.max(0, availableCredits - totalRequiredCredits),
           }),
         });
 
         return records;
-      }).catch((error: Error) => {
-        // Handle INSUFFICIENT_SMS_CREDITS thrown from inside transaction
-        if (error.message.startsWith('INSUFFICIENT_SMS_CREDITS:')) {
-          const parts = error.message.split(':');
-          const required = parseFloat(parts[1]);
-          const available = parseFloat(parts[2]);
-          const err: any = new Error(`Action Blocked: Insufficient SMS API credits to dispatch this campaign. Required: ${required.toFixed(2)}, Available: ${available.toFixed(2)}`);
-          err.code = 'INSUFFICIENT_SMS_CREDITS';
-          err.required = required;
-          err.available = available;
-          throw err;
-        }
-        throw error;
       });
 
       // Apply VAT Auditor masking
       const masked = maskSmsArray(
-        createdRecords.map((item: any) => ({
+        createdRecords.map((item) => ({
           ...item,
           gatewayResponse: formatFinancialField(item.gatewayResponse),
           campaignName: formatFinancialField(item.campaignName),
@@ -219,9 +164,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(masked, { status: 201 });
     }
 
-    // ─────────────────────────────────────────────────────
-    // SINGLE SMS DISPATCH MODE
-    // ─────────────────────────────────────────────────────
+    // Single SMS dispatch mode
     const { recipient, message } = body;
     if (!recipient || !message) {
       return NextResponse.json(
@@ -230,34 +173,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Compute SMS segments (Directive 1 Re-Audit — UDH-aware GSM 03.38)
+    // Get tenant's active SmsSetting for rate calculation
+    let ratePerSms = 0;
+    let unicodeRate = 0;
+    const activeSetting = await db.smsSetting.findFirst({
+      where: {
+        isActive: true,
+        ...(companyId ? { companyId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (activeSetting) {
+      ratePerSms = activeSetting.ratePerSms;
+      unicodeRate = activeSetting.unicodeRate;
+    }
+
+    // Compute SMS segments
     const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
+    const applicableRate = isUnicode ? unicodeRate : ratePerSms;
+    const cost = safeFinancialRound(segmentCount * applicableRate);
 
-    // DIRECTIVE 2 RE-AUDIT: Move ALL credit logic inside $transaction
     const item = await db.$transaction(async (tx) => {
-      // Re-read active SmsSetting INSIDE the transaction for latest balance
-      const activeSetting = await tx.smsSetting.findFirst({
-        where: {
-          isActive: true,
-          ...(companyId ? { companyId } : {}),
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const ratePerSms = activeSetting?.ratePerSms || 0;
-      const unicodeRate = activeSetting?.unicodeRate || 0;
-      const availableCredits = activeSetting?.lastKnownCreditBalance || 0;
-      const applicableRate = isUnicode ? unicodeRate : ratePerSms;
-      const cost = safeFinancialRound(segmentCount * applicableRate);
-
-      // ─── Directive 2: Campaign Balance Shield (single — atomic inside tx) ───
-      if (availableCredits > 0 && cost > availableCredits) {
-        throw new Error(`INSUFFICIENT_SMS_CREDITS:${cost}:${availableCredits}`);
-      }
-
       const record = await tx.smsLog.create({
         data: {
-          recipient: recipient.trim(),
+          recipient,
           message,
           charCount,
           smsSegmentCount: segmentCount,
@@ -272,19 +211,11 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Update lastKnownCreditBalance on the active setting atomically
-      if (activeSetting && availableCredits > 0) {
-        const newBalance = Math.max(0, availableCredits - cost);
-        await tx.smsSetting.update({
-          where: { id: activeSetting.id },
-          data: { lastKnownCreditBalance: safeFinancialRound(newBalance) },
-        });
-      }
-
-      // Activity log with Comm-SMS-Marketing module token for single dispatch (Directive 4)
+      // Activity log with SMS-Gateway-Dispatch module token for single dispatch
       await logUserActivity({
+          tx: tx,
         action: 'CREATE',
-        module: 'Comm-SMS-Marketing',
+        module: 'SMS-Gateway-Dispatch',
         recordId: record.id,
         recordLabel: record.recipient || record.id,
         userId: security.user.id,
@@ -296,52 +227,26 @@ export async function POST(request: NextRequest) {
           segmentCount,
           cost: record.cost,
           status: record.status,
-          creditsBefore: availableCredits,
-          creditsAfter: Math.max(0, availableCredits - cost),
         }),
       });
 
       return record;
-    }).catch((error: Error) => {
-      if (error.message.startsWith('INSUFFICIENT_SMS_CREDITS:')) {
-        const parts = error.message.split(':');
-        const required = parseFloat(parts[1]);
-        const available = parseFloat(parts[2]);
-        const err: any = new Error(`Action Blocked: Insufficient SMS API credits to dispatch this message. Required: ${required.toFixed(2)}, Available: ${available.toFixed(2)}`);
-        err.code = 'INSUFFICIENT_SMS_CREDITS';
-        err.required = required;
-        err.available = available;
-        throw err;
-      }
-      throw error;
     });
 
     // Apply VAT Auditor masking on response
     const masked = maskSmsArray(
       [
         {
-          ...(item as any),
-          gatewayResponse: formatFinancialField((item as any).gatewayResponse),
-          campaignName: formatFinancialField((item as any).campaignName),
+          ...item,
+          gatewayResponse: formatFinancialField(item.gatewayResponse),
+          campaignName: formatFinancialField(item.campaignName),
         },
       ],
       security.user.role
     );
 
     return NextResponse.json(masked[0], { status: 201 });
-  } catch (error: any) {
-    // Handle INSUFFICIENT_SMS_CREDITS from transaction
-    if (error.code === 'INSUFFICIENT_SMS_CREDITS') {
-      return NextResponse.json(
-        {
-          error: error.message,
-          code: 'INSUFFICIENT_SMS_CREDITS',
-          required: error.required,
-          available: error.available,
-        },
-        { status: 400 }
-      );
-    }
+  } catch (error) {
     console.error('[SmsLogs] POST error:', error);
     return NextResponse.json(
       { error: 'Failed to create SMS log' },

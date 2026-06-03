@@ -1,383 +1,215 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, checkPeriodClose, maskForVatAuditor, safeFinancialRound } from '@/lib/api-security';
+import {
+  withApiSecurity,
+  checkPeriodClose,
+  maskForVatAuditorFinancial,
+  safeFinancialRound,
+  safeFinancialAdd,
+  safeFinancialSubtract,
+} from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
-import { dispatchAutoSms, buildStockReceiveSms } from '@/lib/sms-auto-trigger';
 
-// ─────────────────────────────────────────────────────────────
-// Helper: Strict numeric validation for PO line items
-// Returns error message string or null if valid
-// ─────────────────────────────────────────────────────────────
-function validateLineItemNumeric(line: Record<string, unknown>, index: number): string | null {
-  // quantity must be a positive number (> 0)
-  const qty = line.quantity;
-  if (qty === undefined || qty === null || Number.isNaN(Number(qty)) || Number(qty) <= 0) {
-    return `Invalid line item ${index + 1}: quantity must be a positive number (received: ${qty})`;
-  }
-  // rate (Unit Cost Price) must be a positive number (> 0)
-  const rate = line.rate;
-  if (rate === undefined || rate === null || Number.isNaN(Number(rate)) || Number(rate) <= 0) {
-    return `Invalid line item ${index + 1}: rate must be a positive number (received: ${rate})`;
-  }
-  // taxRate must be >= 0
-  const taxRate = line.taxRate;
-  if (taxRate !== undefined && taxRate !== null) {
-    if (Number.isNaN(Number(taxRate)) || Number(taxRate) < 0) {
-      return `Invalid line item ${index + 1}: taxRate must be zero or a positive number (received: ${taxRate})`;
-    }
-  }
-  return null;
+// ============================================================
+// SHARED: Compute current stock for a product
+// currentStock = product.openingStock + sum(IN entries) - sum(OUT entries)
+// ============================================================
+
+async function computeCurrentStock(
+  tx: any,
+  productId: string,
+  godownId?: string
+): Promise<number> {
+  const product = await tx.product.findUnique({
+    where: { id: productId },
+    select: { openingStock: true },
+  });
+  if (!product) return 0;
+
+  const stockEntries = await tx.stockEntry.findMany({
+    where: {
+      productId,
+      ...(godownId ? { godownId } : {}),
+    },
+    select: { type: true, quantity: true },
+  });
+
+  const stockDelta = stockEntries.reduce(
+    (sum: number, e: { type: string; quantity: number }) =>
+      sum + (e.type === 'IN' ? e.quantity : -e.quantity),
+    0
+  );
+
+  return safeFinancialRound(product.openingStock + stockDelta);
 }
 
-// ─────────────────────────────────────────────────────────────
-// Helper: Find or create CoA account under a classification
-// ─────────────────────────────────────────────────────────────
-async function findOrCreateCoaAccount(
-  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
-  classification: string,
-  accountName: string,
-  companyId: string | null
-): Promise<string> {
-  // Try to find existing account
-  const existing = await tx.chartOfAccount.findFirst({
-    where: {
-      name: accountName,
-      classification,
-      ...(companyId ? { companyId } : {}),
-      isActive: true,
-    },
-  });
-  if (existing) return existing.id;
+// ============================================================
+// SHARED: Line-level Financial Computation
+// ============================================================
 
-  // Find parent under classification
-  let parentId: string | undefined;
-  const parent = await tx.chartOfAccount.findFirst({
-    where: {
-      classification,
-      ...(companyId ? { companyId } : {}),
-      isActive: true,
-      parentAccountId: null,
-    },
-  });
-  if (parent) {
-    parentId = parent.id;
-  }
-
-  // Auto-generate COA code
-  const lastCoa = await tx.chartOfAccount.findFirst({
-    orderBy: { createdAt: 'desc' },
-    select: { code: true },
-  });
-  let nextCoaNum = 1;
-  if (lastCoa?.code) {
-    const match = lastCoa.code.match(/COA-(\d+)/);
-    if (match) nextCoaNum = parseInt(match[1], 10) + 1;
-  }
-  const coaCode = `COA-${String(nextCoaNum).padStart(5, '0')}`;
-
-  const newAccount = await tx.chartOfAccount.create({
-    data: {
-      code: coaCode,
-      name: accountName,
-      classification,
-      parentAccountId: parentId || null,
-      openingBalance: 0,
-      openingBalanceType: classification === 'Asset' ? 'Dr' : 'Cr',
-      ...(companyId ? { companyId } : {}),
-    },
-  });
-  return newAccount.id;
-}
-
-// ─────────────────────────────────────────────────────────────
-// Helper: Process PO receipt — stock, batch, stock-entry, ledger
-// Called inside $transaction for both POST (status=Received) and PUT (status→Received)
-// Returns SMS dispatch params for fire-and-forget after commit
-// ─────────────────────────────────────────────────────────────
-interface ProcessedLine {
+interface POLineInput {
   productId: string;
   quantity: number;
   rate: number;
-  taxRate: number;
+  discountPercent?: number;
+  vatPercentage?: number;
+  notes?: string;
+}
+
+interface ComputedPOLine {
+  productId: string;
+  quantity: number;
+  rate: number;
   discountPercent: number;
   discountAmount: number;
   vatAmount: number;
   total: number;
-  batchNumber: string | null;
-  expiryDate: string | null;
+  receivedQuantity: number;
+  pendingQuantity: number;
+  availableStock: number;
+  stockStatus: string;
+  notes: string | null;
 }
 
-interface SmsDispatchParams {
-  itemSummary: string;
-  godownName: string;
-  poNumber: string;
-  supplierPhone: string;
-  companyId: string | null;
-  userId: string;
-  userName: string;
-  supplierId: string;
-}
+function computeLineFinancials(
+  line: POLineInput,
+  availableStock: number
+): ComputedPOLine {
+  const lineGross = safeFinancialRound(line.quantity * line.rate);
+  const discountPercent = line.discountPercent ?? 0;
+  const discountAmount = safeFinancialRound(lineGross * (discountPercent / 100));
+  const afterDiscount = safeFinancialSubtract(lineGross, discountAmount);
+  const vatPercentage = line.vatPercentage ?? 0;
+  const vatAmount = safeFinancialRound(afterDiscount * (vatPercentage / 100));
+  const total = safeFinancialAdd(afterDiscount, vatAmount);
 
-async function processPoReceiptWithinTransaction(
-  tx: Parameters<Parameters<typeof db.$transaction>[0]>[0],
-  params: {
-    purchaseOrderId: string;
-    poNumber: string;
-    godownId: string | null;
-    supplierId: string;
-    date: string;
-    grandTotal: number;
-    processedLines: ProcessedLine[];
-    companyId: string | null;
-    userId: string;
-    userName: string;
-  }
-): Promise<SmsDispatchParams> {
-  const { purchaseOrderId, poNumber, godownId, supplierId, date, grandTotal, processedLines, companyId, userId, userName } = params;
-
-  // Fetch supplier info for ledger and SMS
-  const supplier = await tx.supplier.findUnique({
-    where: { id: supplierId },
-    select: { id: true, name: true, phone: true, coaAccountId: true },
-  });
-  const supplierName = supplier?.name || 'Unknown Supplier';
-  const supplierPhone = supplier?.phone || '';
-  const supplierCoaId = supplier?.coaAccountId || null;
-
-  // Fetch godown name for SMS
-  let godownName = 'Main Warehouse';
-  if (godownId) {
-    const godown = await tx.godown.findUnique({
-      where: { id: godownId },
-      select: { name: true },
-    });
-    godownName = godown?.name || 'Main Warehouse';
-  }
-
-  // (b) For each line, update/create ProductStock record
-  for (const line of processedLines) {
-    if (!godownId) continue; // Cannot update stock without a godown
-    await tx.productStock.upsert({
-      where: { productId_godownId: { productId: line.productId, godownId } },
-      create: {
-        productId: line.productId,
-        godownId,
-        quantity: line.quantity,
-        costPrice: line.rate,
-        totalValue: safeFinancialRound(line.quantity * line.rate),
-        alertLevel: 0,
-        ...(companyId ? { companyId } : {}),
-      },
-      update: {
-        quantity: { increment: line.quantity },
-        totalValue: { increment: safeFinancialRound(line.quantity * line.rate) },
-      },
-    });
-  }
-
-  // (c) For each line with batchNumber, create BatchMaster record
-  const batchIds: Record<string, string> = {};
-  for (const line of processedLines) {
-    if (line.batchNumber && godownId) {
-      const batch = await tx.batchMaster.create({
-        data: {
-          batchNumber: line.batchNumber,
-          productId: line.productId,
-          godownId,
-          quantity: line.quantity,
-          costPrice: line.rate,
-          totalCost: safeFinancialRound(line.quantity * line.rate),
-          salePrice: 0,
-          expiryDate: line.expiryDate ? new Date(line.expiryDate) : null,
-          supplierId,
-          purchaseOrderId,
-          status: 'Active',
-          ...(companyId ? { companyId } : {}),
-        },
-      });
-      batchIds[line.productId] = batch.id;
-    }
-  }
-
-  // (d) Create StockEntry for each line (type="IN", with costPrice and totalCost)
-  for (const line of processedLines) {
-    const batchId = batchIds[line.productId] || null;
-    await tx.stockEntry.create({
-      data: {
-        productId: line.productId,
-        godownId: godownId || null,
-        batchId,
-        type: 'IN',
-        quantity: line.quantity,
-        costPrice: line.rate,
-        totalCost: safeFinancialRound(line.quantity * line.rate),
-        reference: poNumber,
-        referenceType: 'PurchaseOrder',
-        ...(companyId ? { companyId } : {}),
-        date: new Date(date),
-      },
-    });
-  }
-
-  // (e) Double-Entry Ledger Auto-Post
-  const inventoryAssetCoaId = await findOrCreateCoaAccount(tx, 'Asset', 'Inventory Asset', companyId);
-
-  let accountsPayableCoaId: string;
-  if (supplierCoaId) {
-    accountsPayableCoaId = supplierCoaId;
+  // Determine stock status based on available quantity
+  let stockStatus: string;
+  if (availableStock <= 0) {
+    stockStatus = 'Out of Stock';
+  } else if (availableStock < line.quantity) {
+    stockStatus = 'Low';
   } else {
-    accountsPayableCoaId = await findOrCreateCoaAccount(tx, 'Liability', 'Accounts Payable', companyId);
+    stockStatus = 'Available';
   }
 
-  // Auto-generate ledger entry codes
-  const lastLedgerEntry = await tx.ledgerEntry.findFirst({
-    orderBy: { createdAt: 'desc' },
-    select: { entryCode: true },
-  });
-  let nextLedgerNum = 1;
-  if (lastLedgerEntry?.entryCode) {
-    const match = lastLedgerEntry.entryCode.match(/LED-(\d+)/);
-    if (match) nextLedgerNum = parseInt(match[1], 10) + 1;
-  }
-  const ledgerCode1 = `LED-${String(nextLedgerNum).padStart(5, '0')}`;
-  const ledgerCode2 = `LED-${String(nextLedgerNum + 1).padStart(5, '0')}`;
-
-  // Debit: Inventory Asset
-  const debitEntry = await tx.ledgerEntry.create({
-    data: {
-      entryCode: ledgerCode1,
-      date: new Date(date),
-      accountId: inventoryAssetCoaId,
-      account: 'Inventory Asset',
-      particulars: `PO ${poNumber} - Stock Receipt`,
-      debit: grandTotal,
-      credit: 0,
-      reference: poNumber,
-      referenceType: 'PurchaseOrder',
-      ...(companyId ? { companyId } : {}),
-    },
-  });
-
-  // Credit: Accounts Payable
-  const creditEntry = await tx.ledgerEntry.create({
-    data: {
-      entryCode: ledgerCode2,
-      date: new Date(date),
-      accountId: accountsPayableCoaId,
-      account: 'Accounts Payable',
-      particulars: `PO ${poNumber} - Supplier ${supplierName}`,
-      debit: 0,
-      credit: grandTotal,
-      reference: poNumber,
-      referenceType: 'PurchaseOrder',
-      ...(companyId ? { companyId } : {}),
-    },
-  });
-
-  // Create LedgerAutoPost record
-  const lastLap = await tx.ledgerAutoPost.findFirst({
-    orderBy: { createdAt: 'desc' },
-    select: { code: true },
-  });
-  let nextLapNum = 1;
-  if (lastLap?.code) {
-    const match = lastLap.code.match(/LAP-(\d+)/);
-    if (match) nextLapNum = parseInt(match[1], 10) + 1;
-  }
-  const lapCode = `LAP-${String(nextLapNum).padStart(5, '0')}`;
-
-  await tx.ledgerAutoPost.create({
-    data: {
-      code: lapCode,
-      sourceType: 'PurchaseOrder',
-      sourceId: purchaseOrderId,
-      sourceCode: poNumber,
-      debitEntryId: debitEntry.id,
-      creditEntryId: creditEntry.id,
-      debitAccount: 'Inventory Asset',
-      creditAccount: 'Accounts Payable',
-      amount: grandTotal,
-      postingDate: new Date(date),
-      status: 'Posted',
-      ...(companyId ? { companyId } : {}),
-    },
-  });
-
-  // (f) Update Product.lastSupplierId to the current supplierId
-  for (const line of processedLines) {
-    await tx.product.update({
-      where: { id: line.productId },
-      data: { lastSupplierId: supplierId },
-    });
-  }
-
-  // (4) Activity Logger with "Inv-Orders-Core" token
-  await logUserActivity({
-    action: 'CREATE',
-    module: 'Inv-Orders-Core',
-    recordId: purchaseOrderId,
-    recordLabel: poNumber,
-    userId,
-    userName,
-    details: JSON.stringify({
-      type: 'PurchaseOrder',
-      supplierId,
-      grandTotal,
-      lineCount: processedLines.length,
-      status: 'Received',
-    }),
-  });
-
-  // Return SMS params for dispatch after transaction commits
-  const itemSummary = processedLines
-    .map(() => '')
-    .join(', '); // placeholder — will be replaced with product names from result
   return {
-    itemSummary,
-    godownName,
-    poNumber,
-    supplierPhone,
-    companyId,
-    userId,
-    userName,
-    supplierId,
+    productId: line.productId,
+    quantity: line.quantity,
+    rate: line.rate,
+    discountPercent,
+    discountAmount,
+    vatAmount,
+    total,
+    receivedQuantity: 0,
+    pendingQuantity: line.quantity,
+    availableStock,
+    stockStatus,
+    notes: line.notes || null,
   };
 }
 
-// GET /api/purchase-orders - List all purchase orders with relations
+// ============================================================
+// SHARED: Order-level Financial Computation
+// ============================================================
+
+function computeOrderFinancials(
+  computedLines: ComputedPOLine[],
+  discountPercent: number,
+  vatPercentage: number
+) {
+  const subTotal = computedLines.reduce(
+    (sum, l) => safeFinancialAdd(sum, l.total),
+    0
+  );
+  const discount = safeFinancialRound(subTotal * (discountPercent / 100));
+  const afterDiscount = safeFinancialSubtract(subTotal, discount);
+  const vatAmount = safeFinancialRound(afterDiscount * (vatPercentage / 100));
+  const grandTotal = safeFinancialAdd(afterDiscount, vatAmount);
+
+  return { subTotal, discount, vatAmount, grandTotal };
+}
+
+// ============================================================
+// SHARED: Auto-generate poNumber: PUR-XXXXX
+// ============================================================
+
+async function generatePoNumber(tx: any): Promise<string> {
+  const allPOs = await tx.purchaseOrder.findMany({
+    select: { poNumber: true },
+  });
+
+  let maxNum = 0;
+  for (const po of allPOs) {
+    if (po.poNumber) {
+      const match = po.poNumber.match(/PUR-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `PUR-${String(maxNum + 1).padStart(5, '0')}`;
+}
+
+// ============================================================
+// GET /api/purchase-orders — List all purchase orders with relations
+// ============================================================
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'PurchaseOrders', 'GET');
   if (!security.authorized) return security.response;
 
   // Dealer: completely blocked from purchase order records
-  if (security.user?.role === 'dealer') {
-    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase order records.' }, { status: 403 });
+  if (security.user.role === 'dealer') {
+    return NextResponse.json(
+      { error: 'Access denied. Dealers cannot access purchase order records.' },
+      { status: 403 }
+    );
+  }
+
+  // SR: blocked from purchase order records
+  if (security.user.role === 'sr') {
+    return NextResponse.json(
+      { error: 'Access denied. SRs cannot access purchase order records.' },
+      { status: 403 }
+    );
   }
 
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
     const supplierId = searchParams.get('supplierId');
-    const isAutoGenerated = searchParams.get('isAutoGenerated');
-    const companyId = security.user.companyId;
+    const godownId = searchParams.get('godownId');
+    const fulfillmentStatus = searchParams.get('fulfillmentStatus');
+    const receivingStatus = searchParams.get('receivingStatus');
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { isActive: true };
+
     if (status) where.status = status;
     if (supplierId) where.supplierId = supplierId;
-    if (isAutoGenerated !== null && isAutoGenerated !== undefined && isAutoGenerated !== '') {
-      where.isAutoGenerated = isAutoGenerated === 'true';
+    if (godownId) where.godownId = godownId;
+    if (fulfillmentStatus) where.fulfillmentStatus = fulfillmentStatus;
+    if (receivingStatus) where.receivingStatus = receivingStatus;
+
+    // Date range filter
+    if (dateFrom || dateTo) {
+      const dateFilter: Record<string, Date> = {};
+      if (dateFrom) dateFilter.gte = new Date(dateFrom);
+      if (dateTo) dateFilter.lte = new Date(dateTo);
+      where.date = dateFilter;
     }
-    // Multi-tenant isolation
-    if (companyId) {
-      where.companyId = companyId;
+
+    // Company isolation for non-admin users
+    if (security.user.companyId && security.user.role !== 'admin') {
+      where.companyId = security.user.companyId;
     }
-    where.isActive = true;
 
     const purchaseOrders = await db.purchaseOrder.findMany({
       where,
       include: {
         supplier: true,
         godown: true,
+        company: true,
         lines: {
           include: {
             product: true,
@@ -387,26 +219,14 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Add supplierName and godownName fields in response (join names)
-    const enrichedOrders = purchaseOrders.map((order: Record<string, unknown>) => ({
-      ...order,
-      supplierName: (order.supplier as Record<string, unknown>)?.name || null,
-      godownName: (order.godown as Record<string, unknown>)?.name || null,
-    }));
-
-    // VAT Auditor masking
-    const maskedOrders = security.user.role === 'vat_auditor'
-      ? enrichedOrders.map((order: Record<string, unknown>) => ({
-          ...maskForVatAuditor(order, security.user.role as any, ['subTotal', 'discount', 'vatAmount', 'grandTotal']),
-          lines: (order.lines as Record<string, unknown>[])?.map((line: Record<string, unknown>) =>
-            maskForVatAuditor(line, security.user.role as any, ['rate', 'discountPercent', 'discountAmount', 'vatAmount', 'total'])
-          ),
-        }))
-      : enrichedOrders;
+    // Apply VAT Auditor masking for financial fields
+    const maskedOrders = purchaseOrders.map((order) =>
+      maskForVatAuditorFinancial(order as Record<string, unknown>, security.user.role)
+    );
 
     return NextResponse.json(maskedOrders);
   } catch (error) {
-    console.error('Error fetching purchase orders:', error);
+    console.error('[PurchaseOrders] GET error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch purchase orders' },
       { status: 500 }
@@ -414,211 +234,826 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/purchase-orders - Create purchase order with lines
+// ============================================================
+// POST /api/purchase-orders — Create purchase order with full validation
+// POST /api/purchase-orders?import=true — CSV Import
+// ============================================================
+
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'PurchaseOrders', 'POST');
   if (!security.authorized) return security.response;
 
   // Dealer: completely blocked from purchase order records
-  if (security.user?.role === 'dealer') {
-    return NextResponse.json({ error: 'Access denied. Dealers cannot access purchase order records.' }, { status: 403 });
+  if (security.user.role === 'dealer') {
+    return NextResponse.json(
+      { error: 'Access denied. Dealers cannot access purchase order records.' },
+      { status: 403 }
+    );
   }
 
   // SR: cannot create purchase orders
-  if (security.user?.role === 'sr') {
-    return NextResponse.json({ error: 'Access denied. SRs cannot create purchase orders.' }, { status: 403 });
+  if (security.user.role === 'sr') {
+    return NextResponse.json(
+      { error: 'Access denied. SRs cannot create purchase orders.' },
+      { status: 403 }
+    );
   }
 
   try {
-    const body = await request.json();
-    const { supplierId, date, godownId, notes, discount, vatPercentage, lines } = body;
-    const companyId = security.user.companyId;
+    const { searchParams } = new URL(request.url);
+    const isImport = searchParams.get('import') === 'true';
 
-    if (!supplierId || !date || !lines || lines.length === 0) {
+    if (isImport) {
+      return handleCsvImport(request, security);
+    }
+
+    return handleCreate(request, security);
+  } catch (error) {
+    console.error('[PurchaseOrders] POST error:', error);
+    return NextResponse.json(
+      { error: 'Failed to process purchase order request' },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================================
+// Create Handler — Single purchase order with full validation
+// ============================================================
+
+async function handleCreate(
+  request: NextRequest,
+  security: { user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+): Promise<NextResponse> {
+  const body = await request.json();
+  const {
+    supplierId,
+    date,
+    godownId,
+    discountPercent = 0,
+    vatPercentage = 0,
+    notes,
+    referenceKey,
+    status = 'Draft',
+    expectedDate,
+    lines,
+  } = body;
+
+  // ── Validation ──
+  if (!supplierId) {
+    return NextResponse.json(
+      { error: 'supplierId is required' },
+      { status: 400 }
+    );
+  }
+  if (!date) {
+    return NextResponse.json(
+      { error: 'date is required' },
+      { status: 400 }
+    );
+  }
+  if (!lines || !Array.isArray(lines) || lines.length === 0) {
+    return NextResponse.json(
+      { error: 'At least one line item is required' },
+      { status: 400 }
+    );
+  }
+
+  // Validate status is one of the allowed values
+  const validStatuses = ['Draft', 'Confirmed', 'Received', 'Cancelled'];
+  if (!validStatuses.includes(status)) {
+    return NextResponse.json(
+      { error: `Invalid status "${status}". Must be one of: ${validStatuses.join(', ')}` },
+      { status: 400 }
+    );
+  }
+
+  // Period close guard
+  const periodLock = await checkPeriodClose(new Date(date));
+  if (periodLock) return periodLock;
+
+  // Idempotency check via referenceKey
+  if (referenceKey) {
+    const existing = await db.purchaseOrder.findFirst({
+      where: { referenceKey },
+    });
+    if (existing) {
       return NextResponse.json(
-        { error: 'supplierId, date, and lines are required' },
+        {
+          error: 'Duplicate submission detected. This purchase order has already been created.',
+          referenceKey,
+          existingId: existing.id,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
+  // Validate supplier exists
+  const supplier = await db.supplier.findUnique({
+    where: { id: supplierId },
+  });
+  if (!supplier) {
+    return NextResponse.json(
+      { error: 'Supplier not found' },
+      { status: 400 }
+    );
+  }
+
+  // Supplier credit limit protection — Frozen account blocks all orders
+  if (supplier.creditStatus === 'Frozen') {
+    const fmtBD = (v: number) =>
+      new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+    return NextResponse.json(
+      {
+        error: `CREDIT FREEZE: Transaction blocked. Supplier account is frozen. Outstanding ৳${fmtBD(Math.abs(supplier.currentBalance))}. Review supplier payment terms or contact management to unfreeze account.`,
+      },
+      { status: 403 }
+    );
+  }
+
+  // Godown SUSPENDED status check
+  if (godownId) {
+    const targetGodown = await db.godown.findUnique({
+      where: { id: godownId },
+      select: { id: true, name: true, status: true, isActive: true },
+    });
+    if (!targetGodown || !targetGodown.isActive) {
+      return NextResponse.json(
+        { error: 'Destination warehouse not found or is inactive' },
         { status: 400 }
       );
     }
+    if (targetGodown.status === 'SUSPENDED') {
+      return NextResponse.json(
+        {
+          error: `EMERGENCY CLOSURE: Warehouse "${targetGodown.name}" is SUSPENDED. All receipt orders to this location are blocked until reactivated.`,
+        },
+        { status: 403 }
+      );
+    }
+  }
 
-    // ── Godown Status Validation (SUSPENDED = 403 Forbidden) ──
-    if (godownId) {
-      const godown = await db.godown.findUnique({
-        where: { id: godownId },
-        select: { name: true, status: true },
+  // ── Transaction: create with full validation ──
+  const result = await db.$transaction(async (tx) => {
+    // Validate each line's productId exists and compute stock snapshots
+    const computedLines: ComputedPOLine[] = [];
+    for (const line of lines) {
+      if (!line.productId) {
+        throw Object.assign(new Error('VALIDATION_ERROR'), {
+          validationError: 'Each line must have a productId',
+        });
+      }
+
+      const product = await tx.product.findUnique({
+        where: { id: line.productId },
+        select: { id: true, openingStock: true },
       });
-      if (godown && godown.status === 'SUSPENDED') {
-        return NextResponse.json(
-          { error: `Purchase Order blocked: Target godown '${godown.name}' is SUSPENDED. All stock operations are prohibited for this location.` },
-          { status: 403 }
-        );
+
+      if (!product) {
+        throw Object.assign(new Error('VALIDATION_ERROR'), {
+          validationError: `Product with ID "${line.productId}" not found`,
+        });
+      }
+
+      // Compute current stock for this product
+      const currentStock = await computeCurrentStock(
+        tx,
+        line.productId,
+        godownId || undefined
+      );
+
+      const computed = computeLineFinancials(
+        {
+          productId: line.productId,
+          quantity: Number(line.quantity) || 0,
+          rate: Number(line.rate) || 0,
+          discountPercent: Number(line.discountPercent) || 0,
+          vatPercentage: Number(line.vatPercentage) || 0,
+          notes: line.notes,
+        },
+        currentStock
+      );
+
+      computedLines.push(computed);
+    }
+
+    // Compute order-level financials
+    const orderDiscountPercent = Number(discountPercent) || 0;
+    const orderVatPercentage = Number(vatPercentage) || 0;
+    const { subTotal, discount, vatAmount, grandTotal } = computeOrderFinancials(
+      computedLines,
+      orderDiscountPercent,
+      orderVatPercentage
+    );
+
+    // Supplier credit limit protection — check if projected exceeds credit ceiling
+    if (supplier.creditLimit > 0) {
+      const outstandingBalance = Math.abs(supplier.currentBalance);
+      const projectedBalance = safeFinancialAdd(outstandingBalance, grandTotal);
+
+      if (projectedBalance > supplier.creditLimit) {
+        // Auto-toggle creditStatus to OverLimit
+        if (supplier.creditStatus !== 'OverLimit') {
+          await tx.supplier.update({
+            where: { id: supplierId },
+            data: { creditStatus: 'OverLimit' },
+          });
+        }
+
+        const fmtBD = (v: number) =>
+          new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+        throw Object.assign(new Error('CREDIT_LIMIT_EXCEEDED'), {
+          creditError: `CREDIT FREEZE: Transaction blocked. Supplier outstanding ৳${fmtBD(outstandingBalance)} + proposed ৳${fmtBD(grandTotal)} = ৳${fmtBD(projectedBalance)} exceeds credit ceiling ৳${fmtBD(supplier.creditLimit)}. Review supplier payment terms or increase credit limit.`,
+        });
       }
     }
 
-    // ── Strict Numeric Validation (400 Bad Request) ──
-    for (let i = 0; i < lines.length; i++) {
-      const validationError = validateLineItemNumeric(lines[i], i);
-      if (validationError) {
-        return NextResponse.json({ error: validationError }, { status: 400 });
-      }
-    }
+    // Determine fulfillment and receiving status
+    const fulfillmentStatus = status === 'Draft' ? 'Pending' : 'Pending';
+    const receivingStatus = 'Unreceived';
 
-    // Period-close lock check
-    const periodLock = await checkPeriodClose(new Date(date));
-    if (periodLock) return periodLock;
+    // Auto-generate poNumber
+    const poNumber = await generatePoNumber(tx);
 
-    // Calculate line-level totals server-side to prevent floating-point drift
-    const processedLines: ProcessedLine[] = lines.map((line: Record<string, unknown>) => {
-      const lineQty = Number(line.quantity);
-      const lineRate = Number(line.rate);
-      const lineTaxRate = line.taxRate !== undefined && line.taxRate !== null ? Number(line.taxRate) : 0;
-      const lineDiscPct = Number(line.discountPercent) || 0;
-      const lineDiscAmt = Number(line.discountAmount) || safeFinancialRound(lineQty * lineRate * (lineDiscPct / 100));
-      const lineGross = safeFinancialRound(lineQty * lineRate);
-      const afterLineDisc = safeFinancialRound(lineGross - lineDiscAmt);
-      const lineTaxAmt = safeFinancialRound(afterLineDisc * (lineTaxRate / 100));
-      const lineVatAmt = Number(line.vatAmount) || lineTaxAmt;
-      const lineTotal = safeFinancialRound(afterLineDisc + lineVatAmt);
-      return {
-        productId: line.productId as string,
-        quantity: lineQty,
-        rate: lineRate,
-        taxRate: lineTaxRate,
-        discountPercent: lineDiscPct,
-        discountAmount: lineDiscAmt,
-        vatAmount: lineVatAmt,
-        total: lineTotal,
-        batchNumber: (line.batchNumber as string) || null,
-        expiryDate: (line.expiryDate as string) || null,
-      };
+    // Determine company ID
+    const companyId = security.user.companyId || supplier.companyId || null;
+
+    const purchaseOrder = await tx.purchaseOrder.create({
+      data: {
+        poNumber,
+        supplierId,
+        date: new Date(date),
+        godownId: godownId || null,
+        subTotal,
+        discount,
+        discountPercent: orderDiscountPercent,
+        vatPercentage: orderVatPercentage,
+        vatAmount,
+        grandTotal,
+        status,
+        fulfillmentStatus,
+        receivingStatus,
+        expectedDate: expectedDate ? new Date(expectedDate) : null,
+        receivedDate: null,
+        referenceKey: referenceKey || null,
+        notes: notes || null,
+        companyId,
+        lines: {
+          create: computedLines.map((cl) => ({
+            productId: cl.productId,
+            quantity: cl.quantity,
+            receivedQuantity: cl.receivedQuantity,
+            pendingQuantity: cl.pendingQuantity,
+            rate: cl.rate,
+            discountPercent: cl.discountPercent,
+            discountAmount: cl.discountAmount,
+            vatAmount: cl.vatAmount,
+            total: cl.total,
+            availableStock: cl.availableStock,
+            stockStatus: cl.stockStatus,
+            notes: cl.notes,
+          })),
+        },
+      },
+      include: {
+        supplier: true,
+        godown: true,
+        company: true,
+        lines: { include: { product: true } },
+      },
     });
 
-    const subTotal = safeFinancialRound(processedLines.reduce((sum, l) => sum + l.total, 0));
-    const totalDiscount = discount || 0;
-    const vatPct = vatPercentage || 0;
-    const afterDiscount = safeFinancialRound(subTotal - totalDiscount);
-    const vatAmount = safeFinancialRound(afterDiscount * (vatPct / 100));
-    const grandTotal = safeFinancialRound(afterDiscount + vatAmount);
-
-    // Auto-generate poNumber with 5-digit padding: PUR-XXXXX
-    const lastPO = await db.purchaseOrder.findFirst({
-      orderBy: { createdAt: 'desc' },
-      select: { poNumber: true },
-    });
-
-    let nextNum = 1;
-    if (lastPO?.poNumber) {
-      const match = lastPO.poNumber.match(/PUR-(\d+)/);
-      if (match) {
-        nextNum = parseInt(match[1], 10) + 1;
+    // Create StockEntry (type=IN, referenceType='PurchaseOrder') ONLY when
+    // status is "Confirmed" or "Received", NOT for "Draft"
+    if (status === 'Confirmed' || status === 'Received') {
+      for (const line of computedLines) {
+        await tx.stockEntry.create({
+          data: {
+            productId: line.productId,
+            godownId: godownId || null,
+            type: 'IN',
+            quantity: line.quantity,
+            reference: poNumber,
+            referenceType: 'PurchaseOrder',
+            date: new Date(date),
+          },
+        });
       }
     }
-    const poNumber = `PUR-${String(nextNum).padStart(5, '0')}`;
-    const poStatus = body.status || 'Draft';
 
-    const result = await db.$transaction(async (tx) => {
-      // (a) Create the PurchaseOrder with lines
-      const purchaseOrder = await tx.purchaseOrder.create({
-        data: {
+    // Audit log
+    await tx.auditLog.create({
+      data: {
+        action: 'CREATE',
+        module: 'PurchaseOrders',
+        recordId: purchaseOrder.id,
+        recordLabel: poNumber,
+        userId: security.user.id,
+        userName: security.user.name,
+        details: JSON.stringify({
           poNumber,
           supplierId,
-          date: new Date(date),
-          godownId: godownId || null,
+          status,
           subTotal,
-          discount: totalDiscount,
-          vatPercentage: vatPct,
+          discount,
           vatAmount,
           grandTotal,
-          notes: notes || null,
-          status: poStatus,
-          isAutoGenerated: body.isAutoGenerated || false,
-          ...(companyId ? { companyId } : {}),
-          lines: {
-            create: processedLines.map((line) => ({
-              productId: line.productId,
-              quantity: line.quantity,
-              rate: line.rate,
-              taxRate: line.taxRate,
-              discountPercent: line.discountPercent,
-              discountAmount: line.discountAmount,
-              vatAmount: line.vatAmount,
-              total: line.total,
-              batchNumber: line.batchNumber,
-              expiryDate: line.expiryDate ? new Date(line.expiryDate) : null,
-            })),
-          },
-        },
-        include: {
-          supplier: true,
-          godown: true,
-          lines: { include: { product: true } },
-        },
-      });
+          lineCount: computedLines.length,
+          fulfillmentStatus,
+          receivingStatus,
+          stockEntriesCreated: status === 'Confirmed' || status === 'Received',
+        }),
+      },
+    });
 
-      // When status is "Received", execute the full double-entry bookkeeping
-      let smsParams: SmsDispatchParams | null = null;
-      if (poStatus === 'Received') {
-        smsParams = await processPoReceiptWithinTransaction(tx, {
-          purchaseOrderId: purchaseOrder.id,
-          poNumber,
-          godownId: godownId || null,
-          supplierId,
-          date,
-          grandTotal,
-          processedLines,
-          companyId,
-          userId: security.user.id,
-          userName: security.user.name,
+    // Activity log
+    await logUserActivity({
+          tx: tx,
+      action: 'CREATE',
+      module: 'Inv-PurchaseOrder-Pipeline',
+      recordId: purchaseOrder.id,
+      recordLabel: poNumber,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: `Created purchase order ${poNumber} for supplier ${supplier.name} with ${computedLines.length} lines, grandTotal=${grandTotal}, status=${status}`,
+    });
+
+    return purchaseOrder;
+  }).catch((error: any) => {
+    // Re-throw validation errors
+    if (error?.message === 'VALIDATION_ERROR') {
+      return { _validationError: true, message: error.validationError };
+    }
+    if (error?.message === 'CREDIT_LIMIT_EXCEEDED') {
+      return { _creditError: true, message: error.creditError };
+    }
+    throw error;
+  });
+
+  // Handle validation failure
+  if (result && typeof result === 'object' && '_validationError' in result) {
+    return NextResponse.json(
+      { error: result.message },
+      { status: 400 }
+    );
+  }
+
+  // Handle credit limit failure
+  if (result && typeof result === 'object' && '_creditError' in result) {
+    return NextResponse.json(
+      { error: result.message },
+      { status: 403 }
+    );
+  }
+
+  // Automated SMS: Inventory Ingestion Event (when PO is Confirmed or Received)
+  if (result && typeof result === 'object' && 'status' in result && ((result as any).status === 'Confirmed' || (result as any).status === 'Received')) {
+    try {
+      const { triggerInventoryIngestionSms } = await import('@/lib/sms-event-hooks');
+      for (const line of (result as any).lines || []) {
+        await triggerInventoryIngestionSms({
+          id: (result as any).id,
+          supplierId: (result as any).supplierId,
+          productId: line.productId,
+          quantity: line.quantity,
+          godownId: (result as any).godownId,
+          date: (result as any).date,
+          companyId: (result as any).companyId || undefined,
         });
-      } else {
-        // Activity logging for non-Received POs
+      }
+    } catch (smsError) {
+      console.error('[PurchaseOrders] SMS trigger failed (non-blocking):', smsError);
+    }
+  }
+
+  return NextResponse.json(result, { status: 201 });
+}
+
+// ============================================================
+// CSV Import Handler
+// Headers: poNumber, supplierCode, date, productCode, quantity, rate,
+//          discountPercent, vatPercentage, godownCode, notes
+// ============================================================
+
+async function handleCsvImport(
+  request: NextRequest,
+  security: { user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+): Promise<NextResponse> {
+  const contentType = request.headers.get('content-type') || '';
+  let csvText: string;
+
+  if (contentType.includes('text/csv')) {
+    csvText = await request.text();
+  } else {
+    // Also accept JSON with a csvData field
+    const body = await request.json();
+    csvText = body.csvData || body.csv || '';
+  }
+
+  if (!csvText.trim()) {
+    return NextResponse.json(
+      { error: 'No CSV data provided' },
+      { status: 400 }
+    );
+  }
+
+  // Parse CSV
+  const csvLines = csvText.trim().split('\n');
+  if (csvLines.length < 2) {
+    return NextResponse.json(
+      { error: 'CSV must have a header row and at least one data row' },
+      { status: 400 }
+    );
+  }
+
+  const headers = csvLines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
+  const requiredHeaders = ['supplierCode', 'date', 'productCode', 'quantity', 'rate'];
+  const missingHeaders = requiredHeaders.filter((h) => !headers.includes(h));
+  if (missingHeaders.length > 0) {
+    return NextResponse.json(
+      { error: `Missing required CSV headers: ${missingHeaders.join(', ')}` },
+      { status: 400 }
+    );
+  }
+
+  const headerIndex: Record<string, number> = {};
+  headers.forEach((h, i) => {
+    headerIndex[h] = i;
+  });
+
+  interface CsvRow {
+    supplierCode: string;
+    productCode: string;
+    date: string;
+    quantity: number;
+    rate: number;
+    discountPercent: number;
+    vatPercentage: number;
+    godownCode: string;
+    notes: string;
+  }
+
+  const parsedRows: CsvRow[] = [];
+  const errors: Array<{ row: number; message: string }> = [];
+
+  for (let i = 1; i < csvLines.length; i++) {
+    const row = csvLines[i].split(',').map((c) => c.trim().replace(/"/g, ''));
+    const rowNum = i + 1; // 1-based row number for user readability
+
+    const supplierCode = row[headerIndex['supplierCode']] || '';
+    const date = row[headerIndex['date']] || '';
+    const productCode = row[headerIndex['productCode']] || '';
+    const quantityStr = row[headerIndex['quantity']] || '';
+    const rateStr = row[headerIndex['rate']] || '';
+    const discountPercentStr =
+      headerIndex['discountPercent'] !== undefined
+        ? row[headerIndex['discountPercent']]
+        : '';
+    const vatPercentageStr =
+      headerIndex['vatPercentage'] !== undefined
+        ? row[headerIndex['vatPercentage']]
+        : '';
+    const godownCode =
+      headerIndex['godownCode'] !== undefined
+        ? row[headerIndex['godownCode']]
+        : '';
+    const notes =
+      headerIndex['notes'] !== undefined ? row[headerIndex['notes']] : '';
+
+    // Validate supplierCode
+    if (!supplierCode) {
+      errors.push({ row: rowNum, message: 'supplierCode is required' });
+      continue;
+    }
+
+    // Validate date
+    if (!date || isNaN(Date.parse(date))) {
+      errors.push({ row: rowNum, message: `Invalid date "${date}"` });
+      continue;
+    }
+
+    // Validate productCode
+    if (!productCode) {
+      errors.push({ row: rowNum, message: 'productCode is required' });
+      continue;
+    }
+
+    // Validate quantity
+    const quantity = parseFloat(quantityStr);
+    if (isNaN(quantity) || quantity <= 0) {
+      errors.push({
+        row: rowNum,
+        message: `Invalid quantity "${quantityStr}". Must be a positive number.`,
+      });
+      continue;
+    }
+
+    // Validate rate
+    const rate = parseFloat(rateStr);
+    if (isNaN(rate) || rate < 0) {
+      errors.push({
+        row: rowNum,
+        message: `Invalid rate "${rateStr}". Must be a non-negative number.`,
+      });
+      continue;
+    }
+
+    const discountPercent = discountPercentStr ? parseFloat(discountPercentStr) : 0;
+    if (discountPercentStr && (isNaN(discountPercent) || discountPercent < 0 || discountPercent > 100)) {
+      errors.push({
+        row: rowNum,
+        message: `Invalid discountPercent "${discountPercentStr}". Must be between 0 and 100.`,
+      });
+      continue;
+    }
+
+    const vatPercentage = vatPercentageStr ? parseFloat(vatPercentageStr) : 0;
+    if (vatPercentageStr && (isNaN(vatPercentage) || vatPercentage < 0 || vatPercentage > 100)) {
+      errors.push({
+        row: rowNum,
+        message: `Invalid vatPercentage "${vatPercentageStr}". Must be between 0 and 100.`,
+      });
+      continue;
+    }
+
+    parsedRows.push({
+      supplierCode,
+      productCode,
+      date,
+      quantity,
+      rate,
+      discountPercent,
+      vatPercentage,
+      godownCode,
+      notes,
+    });
+  }
+
+  // ── CRITICAL: Cross-reference supplierCode against Supplier.supplierCode ──
+  const supplierCodes = [...new Set(parsedRows.map((r) => r.supplierCode))];
+  const existingSuppliers = await db.supplier.findMany({
+    where: { supplierCode: { in: supplierCodes } },
+    select: { id: true, supplierCode: true, name: true, creditStatus: true, creditLimit: true, currentBalance: true, companyId: true },
+  });
+  const supplierMap = new Map(existingSuppliers.map((s) => [s.supplierCode, s]));
+
+  // ── CRITICAL: Cross-reference productCode against Product.productCode ──
+  const productCodes = [...new Set(parsedRows.map((r) => r.productCode))];
+  const existingProducts = await db.product.findMany({
+    where: { productCode: { in: productCodes } },
+    select: { id: true, productCode: true, name: true, openingStock: true },
+  });
+  const productMap = new Map(existingProducts.map((p) => [p.productCode, p]));
+
+  // ── Cross-reference godownCode against Godown.code ──
+  const godownCodes = [...new Set(parsedRows.map((r) => r.godownCode).filter(Boolean))];
+  let godownMap = new Map<string, { id: string; code: string; name: string; status: string }>();
+  if (godownCodes.length > 0) {
+    const existingGodowns = await db.godown.findMany({
+      where: { code: { in: godownCodes } },
+      select: { id: true, code: true, name: true, status: true },
+    });
+    godownMap = new Map(existingGodowns.map((g) => [g.code, g]));
+  }
+
+  // Filter rows with invalid supplier codes or product codes
+  const validRows: Array<CsvRow & { rowNum: number; supplierId: string; productId: string; godownId: string | null }> = [];
+  for (let i = 0; i < parsedRows.length; i++) {
+    const row = parsedRows[i];
+    const rowNum = i + 2; // +2 because: +1 for 0-index, +1 for header row
+
+    const supplier = supplierMap.get(row.supplierCode);
+    if (!supplier) {
+      errors.push({
+        row: rowNum,
+        message: `Supplier code "${row.supplierCode}" does not exist. Row rejected.`,
+      });
+      continue;
+    }
+
+    const product = productMap.get(row.productCode);
+    if (!product) {
+      errors.push({
+        row: rowNum,
+        message: `Product code "${row.productCode}" does not exist. Row rejected.`,
+      });
+      continue;
+    }
+
+    // Resolve godown
+    let godownId: string | null = null;
+    if (row.godownCode) {
+      const godown = godownMap.get(row.godownCode);
+      if (!godown) {
+        errors.push({
+          row: rowNum,
+          message: `Godown code "${row.godownCode}" does not exist. Row rejected.`,
+        });
+        continue;
+      }
+      if (godown.status === 'SUSPENDED') {
+        errors.push({
+          row: rowNum,
+          message: `Godown "${godown.name}" (${row.godownCode}) is SUSPENDED. Row rejected.`,
+        });
+        continue;
+      }
+      godownId = godown.id;
+    }
+
+    validRows.push({
+      ...row,
+      rowNum,
+      supplierId: supplier.id,
+      productId: product.id,
+      godownId,
+    });
+  }
+
+  if (validRows.length === 0) {
+    return NextResponse.json(
+      {
+        imported: 0,
+        failed: errors.length,
+        errors,
+        message: 'No valid rows to import. All rows had errors.',
+      },
+      { status: 400 }
+    );
+  }
+
+  // ── Group valid rows by supplierCode to create separate POs per supplier ──
+  const poGroups = new Map<string, typeof validRows>();
+  for (const row of validRows) {
+    // Group by supplierCode + date + godownCode for logical separation
+    const groupKey = `${row.supplierCode}|${row.date}|${row.godownCode || ''}`;
+    if (!poGroups.has(groupKey)) {
+      poGroups.set(groupKey, []);
+    }
+    poGroups.get(groupKey)!.push(row);
+  }
+
+  let imported = 0;
+  const importErrors: Array<{ row: number; message: string }> = [];
+
+  for (const [groupKey, groupRows] of poGroups) {
+    const [supplierCode, date, godownCodeStr] = groupKey.split('|');
+    const supplier = supplierMap.get(supplierCode);
+    if (!supplier) continue; // Already validated above, but safety check
+
+    try {
+      await db.$transaction(async (tx) => {
+        // Period close check
+        const periodLock = await checkPeriodClose(new Date(date));
+        if (periodLock) {
+          throw new Error(`Period locked for date ${date}`);
+        }
+
+        // Supplier credit freeze check
+        if (supplier.creditStatus === 'Frozen') {
+          throw new Error(`Supplier "${supplier.name}" (${supplierCode}) account is FROZEN. Cannot create PO.`);
+        }
+
+        // Resolve godown
+        const godownId = groupRows[0].godownId;
+
+        // Compute line financials with stock snapshots
+        const computedLines: ComputedPOLine[] = [];
+        for (const row of groupRows) {
+          const currentStock = await computeCurrentStock(
+            tx,
+            row.productId,
+            godownId || undefined
+          );
+
+          const computed = computeLineFinancials(
+            {
+              productId: row.productId,
+              quantity: row.quantity,
+              rate: row.rate,
+              discountPercent: row.discountPercent,
+              vatPercentage: row.vatPercentage,
+              notes: row.notes,
+            },
+            currentStock
+          );
+          computedLines.push(computed);
+        }
+
+        // Compute order-level financials (no order-level discount for CSV import by default)
+        const { subTotal, discount, vatAmount, grandTotal } =
+          computeOrderFinancials(computedLines, 0, 0);
+
+        // Supplier credit limit check
+        if (supplier.creditLimit > 0) {
+          const outstandingBalance = Math.abs(supplier.currentBalance);
+          const projectedBalance = safeFinancialAdd(outstandingBalance, grandTotal);
+          if (projectedBalance > supplier.creditLimit) {
+            // Auto-toggle OverLimit
+            if (supplier.creditStatus !== 'OverLimit') {
+              await tx.supplier.update({
+                where: { id: supplier.id },
+                data: { creditStatus: 'OverLimit' },
+              });
+            }
+            throw new Error(
+              `Credit limit exceeded for supplier "${supplier.name}". Outstanding + proposed exceeds ceiling.`
+            );
+          }
+        }
+
+        // Auto-generate poNumber
+        const poNumber = await generatePoNumber(tx);
+
+        // Company ID from supplier or user
+        const companyId = security.user.companyId || supplier.companyId || null;
+
+        const purchaseOrder = await tx.purchaseOrder.create({
+          data: {
+            poNumber,
+            supplierId: supplier.id,
+            date: new Date(date),
+            godownId: godownId || null,
+            subTotal,
+            discount,
+            discountPercent: 0,
+            vatPercentage: 0,
+            vatAmount,
+            grandTotal,
+            status: 'Draft', // CSV import creates Draft POs by default
+            fulfillmentStatus: 'Pending',
+            receivingStatus: 'Unreceived',
+            referenceKey: null,
+            notes: `Imported from CSV. Supplier: ${supplierCode}`,
+            companyId,
+            lines: {
+              create: computedLines.map((cl) => ({
+                productId: cl.productId,
+                quantity: cl.quantity,
+                receivedQuantity: cl.receivedQuantity,
+                pendingQuantity: cl.pendingQuantity,
+                rate: cl.rate,
+                discountPercent: cl.discountPercent,
+                discountAmount: cl.discountAmount,
+                vatAmount: cl.vatAmount,
+                total: cl.total,
+                availableStock: cl.availableStock,
+                stockStatus: cl.stockStatus,
+                notes: cl.notes,
+              })),
+            },
+          },
+        });
+
+        // NO stock entries for Draft POs
+
+        // Audit log
+        await tx.auditLog.create({
+          data: {
+            action: 'IMPORT',
+            module: 'PurchaseOrders',
+            recordId: purchaseOrder.id,
+            recordLabel: poNumber,
+            userId: security.user.id,
+            userName: security.user.name,
+            details: JSON.stringify({
+              poNumber,
+              supplierCode,
+              importedFrom: 'CSV',
+              lineCount: groupRows.length,
+              grandTotal,
+            }),
+          },
+        });
+
+        // Activity log
         await logUserActivity({
-          action: 'CREATE',
-          module: 'Inv-Orders-Core',
+          tx: tx,
+          action: 'IMPORT',
+          module: 'Inv-PurchaseOrder-Pipeline',
           recordId: purchaseOrder.id,
           recordLabel: poNumber,
           userId: security.user.id,
           userName: security.user.name,
-          details: JSON.stringify({
-            type: 'PurchaseOrder',
-            supplierId,
-            grandTotal,
-            lineCount: processedLines.length,
-            isAutoGenerated: body.isAutoGenerated || false,
-          }),
+          details: `CSV import created purchase order ${poNumber} for supplier ${supplier.name} with ${groupRows.length} lines`,
         });
-      }
 
-      return { purchaseOrder, smsParams };
-    });
-
-    // ── Auto-SMS: Stock Receive trigger (fire-and-forget, only on Received status) ──
-    if (poStatus === 'Received' && result.smsParams) {
-      const smsParams = result.smsParams;
-      // Build item summary from result with product names
-      const productNames = result.purchaseOrder.lines?.map((l: Record<string, unknown>) => (l.product as Record<string, unknown>)?.name).filter(Boolean).join(', ').substring(0, 50) || '';
-      const smsMessage = buildStockReceiveSms({
-        itemSummary: productNames,
-        godownName: smsParams.godownName,
-        poNo: smsParams.poNumber,
+        imported += groupRows.length;
       });
-      void dispatchAutoSms({
-        triggerType: 'stock_receive',
-        recipient: smsParams.supplierPhone,
-        message: smsMessage,
-        companyId: smsParams.companyId,
-        userId: smsParams.userId,
-        userName: smsParams.userName,
-        referenceData: { poNumber: smsParams.poNumber, godownName: smsParams.godownName, supplierId: smsParams.supplierId },
-      }).catch(() => {});
+    } catch (txError: any) {
+      importErrors.push({
+        row: 0,
+        message: `Failed to import PO group for supplier ${supplierCode}: ${txError.message}`,
+      });
     }
-
-    return NextResponse.json(result.purchaseOrder, { status: 201 });
-  } catch (error) {
-    console.error('Error creating purchase order:', error);
-    return NextResponse.json(
-      { error: 'Failed to create purchase order' },
-      { status: 500 }
-    );
   }
+
+  const allErrors = [...errors, ...importErrors];
+
+  return NextResponse.json({
+    imported,
+    failed: allErrors.length,
+    errors: allErrors,
+  });
 }

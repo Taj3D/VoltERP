@@ -98,8 +98,14 @@ export async function POST(request: NextRequest) {
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
-      const count = await tx.investmentHead.count();
-      const code = `INV-${String(count + 1).padStart(5, '0')}`;
+      // Auto-generate code (collision-safe: findMany + Math.max)
+      const allRecords = await tx.investmentHead.findMany({ select: { code: true } });
+      let maxNum = 0;
+      for (const r of allRecords) {
+        const match = r.code?.match(/INV-(\d+)/);
+        if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+      }
+      const code = `INV-${String(maxNum + 1).padStart(5, '0')}`;
 
       return tx.investmentHead.create({
         data: {

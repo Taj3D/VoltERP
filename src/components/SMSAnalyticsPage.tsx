@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Send, DollarSign, Coins, CheckCircle, Clock, XCircle,
   AlertTriangle, Banknote, Search, RefreshCw, Download,
   Upload, FileDown, Plus, MessageSquare, Settings,
   Phone, FileText, CreditCard, Activity, BarChart3,
-  Pencil, Trash2, Shield, Lock, Users, Filter, Zap, Info,
-  ShoppingCart, Package, UserCheck
+  Pencil, Trash2, Shield, Lock, Mail, Eye, Flag, Archive,
+  Zap, ShoppingCart, Package, Users, Megaphone, RotateCcw
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@
 // UTILITY FUNCTIONS
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmtCurrency = (v: any) => {
   const num = Number(v);
@@ -64,40 +64,14 @@ const fmtEmpty = (v: any) => {
 
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-// SMS Character Bounds Computation (Client-side mirror — GSM 03.38)
-// Directive 1 Re-Audit: Proper UDH multi-part boundary calculation
-// GSM 7-bit (English): Part 1 = 160, Part 2+ = 153 (UDH takes 7 bytes)
-// Unicode (Bangla): Part 1 = 70, Part 2+ = 67 (UDH takes 3 chars)
+// SMS Character Bounds Computation (Client-side mirror)
 const computeClientSmsSegments = (message: string) => {
   const charCount = message.length;
-  // Explicit regex check — if even a single Bangla character or symbol outside
-  // standard GSM 7-bit charset is present, entire baseline switches to 70 chars/unit
   const isUnicode = /[^\x00-\x7F]/.test(message);
-
-  const GSM_FIRST = 160;
-  const GSM_SUBSEQUENT = 153;
-  const UNICODE_FIRST = 70;
-  const UNICODE_SUBSEQUENT = 67;
-
-  const charsPerFirstSegment = isUnicode ? UNICODE_FIRST : GSM_FIRST;
-  const charsPerSubsequentSegment = isUnicode ? UNICODE_SUBSEQUENT : GSM_SUBSEQUENT;
-  const charsPerSegment = charsPerFirstSegment;  // backward compat
-
-  let segmentCount: number;
-  if (charCount === 0) {
-    segmentCount = 1;
-  } else if (charCount <= charsPerFirstSegment) {
-    segmentCount = 1;
-  } else {
-    const remainingChars = charCount - charsPerFirstSegment;
-    segmentCount = 1 + Math.ceil(remainingChars / charsPerSubsequentSegment);
-  }
-
-  return { charCount, isUnicode, segmentCount, charsPerSegment, charsPerFirstSegment, charsPerSubsequentSegment };
+  const charsPerSegment = isUnicode ? 70 : 160;
+  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
+  return { charCount, isUnicode, segmentCount, charsPerSegment };
 };
-
-// Directive 1 — Strip trailing spaces/line breaks before sending to API
-const sanitizeTextField = (v: string) => v.trim().replace(/[\r\n]+$/g, '');
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -120,35 +94,6 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-// Enhancement 3 — Server-side activity logger for CSV/PDF exports (Directive 4)
-async function logActivityToServer(moduleToken: string, action: string, details: string, userName?: string) {
-  try {
-    await fetch("/api/audit-logs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        module: moduleToken,
-        recordLabel: details,
-        details: JSON.stringify({ exportAction: action, user: userName || 'Unknown' }),
-      }),
-    });
-  } catch {}
-}
-
-// ============================================================
-// AUDIENCE FILTER OPTIONS (Directive 3)
-// ============================================================
-
-const ZONE_OPTIONS = [
-  "Dhaka North", "Dhaka South", "Chattogram", "Sylhet",
-  "Rajshahi", "Khulna", "Barishal", "Rangpur", "Mymensingh"
-];
-
-const CUSTOMER_TYPE_OPTIONS = ["Retail", "Wholesale", "Corporate", "Dealer", "All"];
-
-const DUE_BALANCE_RANGE_OPTIONS = ["No Due", "1-1000", "1001-5000", "5001-10000", "10000+", "All"];
-
 // ============================================================
 // AUTH TYPES
 // ============================================================
@@ -160,17 +105,6 @@ interface AuthUser {
   email: string;
   role: UserRole;
   displayName: string;
-}
-
-// ============================================================
-// SMS SNAPSHOT TYPE (Directive 3)
-// ============================================================
-
-interface SmsSnapshot {
-  recipient: string;
-  bulkRecipients: string;
-  message: string;
-  campaignName: string;
 }
 
 // ============================================================
@@ -186,7 +120,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const isVatAuditor = authUser?.role === "vat_auditor";
   const isAdmin = authUser?.role === "admin";
-  const isManager = authUser?.role === "manager";
   const isSR = authUser?.role === "sr";
   const isDealer = authUser?.role === "dealer";
 
@@ -211,6 +144,36 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [smsReport, setSmsReport] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Inbox state
+  const [smsInbox, setSmsInbox] = useState<any[]>([]);
+  const [inboxSearch, setInboxSearch] = useState("");
+  const [inboxStatusFilter, setInboxStatusFilter] = useState("all");
+  const [inboxPriorityFilter, setInboxPriorityFilter] = useState("all");
+  const [inboxDialog, setInboxDialog] = useState(false);
+  const [inboxForm, setInboxForm] = useState({ sender: "", message: "", category: "", priority: "Normal", relatedModule: "", relatedCode: "" });
+  const [inboxSaving, setInboxSaving] = useState(false);
+  const [inboxDetailDialog, setInboxDetailDialog] = useState(false);
+  const [inboxDetail, setInboxDetail] = useState<any>(null);
+
+  // Campaign state
+  const [smsCampaigns, setSmsCampaigns] = useState<any[]>([]);
+  const [campaignDialog, setCampaignDialog] = useState(false);
+  const [campaignForm, setCampaignForm] = useState({ name: "", description: "", message: "", targetGroup: "All", scheduledAt: "" });
+  const [campaignSaving, setCampaignSaving] = useState(false);
+  const [campaignDetailDialog, setCampaignDetailDialog] = useState(false);
+  const [campaignDetail, setCampaignDetail] = useState<any>(null);
+  const [campaignStatusFilter, setCampaignStatusFilter] = useState("all");
+
+  // Notification Triggers state
+  const [smsTriggers, setSmsTriggers] = useState<any[]>([]);
+  const [triggerDialog, setTriggerDialog] = useState(false);
+  const [triggerEdit, setTriggerEdit] = useState<any>(null);
+  const [triggerForm, setTriggerForm] = useState({ eventType: "SalesConfirmation", label: "", description: "", isEnabled: true, recipientType: "Customer", templateBody: "" });
+  const [triggerSaving, setTriggerSaving] = useState(false);
+
+  // Log trigger type filter
+  const [logTriggerTypeFilter, setLogTriggerTypeFilter] = useState("all");
+
   // Search & filter state
   const [logSearch, setLogSearch] = useState("");
   const [logStatusFilter, setLogStatusFilter] = useState("all");
@@ -232,57 +195,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [campaignName, setCampaignName] = useState("");
   const [smsSending, setSmsSending] = useState(false);
 
-  // Directive 2 — Gateway Credit Balance
-  const [gatewayCreditBalance, setGatewayCreditBalance] = useState<number | null>(null);
-  const [balanceLoading, setBalanceLoading] = useState(false);
-
-  // Directive 3 — Audience filters for bulk SMS
-  const [audienceZone, setAudienceZone] = useState<string>("all");
-  const [audienceCustomerType, setAudienceCustomerType] = useState<string>("All");
-  const [audienceDueBalance, setAudienceDueBalance] = useState<string>("All");
-  const [filteredRecipientCount, setFilteredRecipientCount] = useState<number>(0);
-
-  // Bug Fix 2 — Real customer data for audience filtering
-  const [customers, setCustomers] = useState<any[]>([]);
-
-  // Directive 3 — Snapshot for form restore on failure
-  const smsSnapshotRef = useRef<SmsSnapshot | null>(null);
-
-  // Directive 3 — Spin-locks for exports
-  const [pdfExporting, setPdfExporting] = useState(false);
-  const [csvExporting, setCsvExporting] = useState(false);
-  const [billPdfExporting, setBillPdfExporting] = useState(false);
-  const [billCsvExporting, setBillCsvExporting] = useState(false);
-  const [reportPdfExporting, setReportPdfExporting] = useState(false);
-  const [settingsPdfExporting, setSettingsPdfExporting] = useState(false);
-
-  // Directive 2 — Campaign Balance Shield
-  const [balanceShieldBlocked, setBalanceShieldBlocked] = useState(false);
-  const [shieldRequiredCredits, setShieldRequiredCredits] = useState(0);
-  const [shieldAvailableCredits, setShieldAvailableCredits] = useState(0);
-
-  // SMS Character Bounds Computation (computed early for balance shield — Directive 2)
-  const { charCount, isUnicode, segmentCount, charsPerSegment, charsPerFirstSegment, charsPerSubsequentSegment } = computeClientSmsSegments(smsMessage);
-
-  // SMS Settings form state (Directive 1 — added creditBalanceLimit)
+  // SMS Settings form state
   const [settingsDialog, setSettingsDialog] = useState(false);
   const [settingsEdit, setSettingsEdit] = useState<any>(null);
   const [settingsForm, setSettingsForm] = useState({
     apiUrl: "", apiKey: "", senderId: "", maskingName: "", maskingRegId: "",
-    gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true,
-    creditBalanceLimit: 0
+    gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true
   });
   const [settingsSaving, setSettingsSaving] = useState(false);
-
-  // Directive 3 — Transactional Auto-SMS Automation Config
-  const [automationConfig, setAutomationConfig] = useState({
-    smsAlertOnPurchase: false,
-    smsAlertOnCollection: false,
-    smsAlertOnStockReceive: false,
-    smsAlertOnHrLifecycle: false,
-  });
-  const [automationSaving, setAutomationSaving] = useState(false);
-  const [automationLoading, setAutomationLoading] = useState(false);
 
   // Bill Payment dialog state
   const [paymentDialog, setPaymentDialog] = useState(false);
@@ -304,27 +224,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const activeSetting = smsSettings.find((s: any) => s.isActive);
   const costPerSegment = activeSetting?.ratePerSms || 0.5;
   const unicodeCostPerSegment = activeSetting?.unicodeRate || 0.8;
-  const estimatedCostPerSegment = isUnicode ? unicodeCostPerSegment : costPerSegment;
-
-  // ============================================================
-  // DIRECTIVE 2 — FETCH GATEWAY BALANCE
-  // ============================================================
-
-  const fetchGatewayBalance = useCallback(async () => {
-    setBalanceLoading(true);
-    try {
-      const res = await apiFetch("/api/sms-gateway/balance").catch(() => null);
-      if (res && res.creditBalance !== undefined) {
-        setGatewayCreditBalance(Number(res.creditBalance));
-      } else if (res && res.data?.creditBalance !== undefined) {
-        setGatewayCreditBalance(Number(res.data.creditBalance));
-      }
-    } catch {
-      // Silently fail — balance may not be available from all gateways
-    } finally {
-      setBalanceLoading(false);
-    }
-  }, []);
 
   // ============================================================
   // DATA LOADING
@@ -333,16 +232,22 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [logsRes, billsRes, settingsRes, paymentsRes] = await Promise.all([
+      const [logsRes, billsRes, settingsRes, paymentsRes, inboxRes, campaignsRes, triggersRes] = await Promise.all([
         apiFetch("/api/sms-logs").catch(() => []),
         apiFetch("/api/sms-bills").catch(() => []),
         apiFetch("/api/sms-settings").catch(() => []),
         apiFetch("/api/sms-bill-payments").catch(() => []),
+        apiFetch("/api/sms-inbox").catch(() => []),
+        apiFetch("/api/sms-campaigns").catch(() => []),
+        apiFetch("/api/sms-notification-triggers").catch(() => []),
       ]);
       setSmsLogs(Array.isArray(logsRes) ? logsRes : logsRes?.data || []);
       setSmsBills(Array.isArray(billsRes) ? billsRes : billsRes?.data || []);
       setSmsSettings(Array.isArray(settingsRes) ? settingsRes : settingsRes?.data || []);
       setSmsBillPayments(Array.isArray(paymentsRes) ? paymentsRes : paymentsRes?.data || []);
+      setSmsInbox(Array.isArray(inboxRes) ? inboxRes : inboxRes?.data || []);
+      setSmsCampaigns(Array.isArray(campaignsRes) ? campaignsRes : campaignsRes?.data || []);
+      setSmsTriggers(Array.isArray(triggersRes) ? triggersRes : triggersRes?.data || []);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
@@ -362,125 +267,17 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadReport(); }, [loadReport]);
 
-  // Directive 2 — Fetch gateway balance on mount
-  useEffect(() => { fetchGatewayBalance(); }, [fetchGatewayBalance]);
-
-  // ============================================================
-  // DIRECTIVE 3 — TRANSACTIONAL AUTO-SMS AUTOMATION CONFIG
-  // (Defined BEFORE the useEffect that references it)
-  // ============================================================
-
-  const loadAutomationConfig = useCallback(async () => {
-    setAutomationLoading(true);
-    try {
-      const res = await apiFetch("/api/sms-automation").catch(() => null);
-      if (res && res.id) {
-        setAutomationConfig({
-          smsAlertOnPurchase: res.smsAlertOnPurchase || false,
-          smsAlertOnCollection: res.smsAlertOnCollection || false,
-          smsAlertOnStockReceive: res.smsAlertOnStockReceive || false,
-          smsAlertOnHrLifecycle: res.smsAlertOnHrLifecycle || false,
-        });
-      }
-    } catch {} finally {
-      setAutomationLoading(false);
-    }
-  }, []);
-
-  // Directive 3 — Load automation config when settings tab is active
-  useEffect(() => {
-    if (activeTab === "settings" && !isSR && !isDealer) {
-      loadAutomationConfig();
-    }
-  }, [activeTab, loadAutomationConfig, isSR, isDealer]);
-
-  // ============================================================
-  // DIRECTIVE 3 — COMPUTE FILTERED RECIPIENT COUNT
-  // ============================================================
-
-  // Bug Fix 2 — Load customers when send tab is active with bulk mode
-  useEffect(() => {
-    if (activeTab === "send" && sendMode === "bulk") {
-      apiFetch("/api/customers").then(res => {
-        setCustomers(Array.isArray(res) ? res : res?.data || []);
-      }).catch(() => {});
-    }
-  }, [activeTab, sendMode]);
-
-  // Bug Fix 2 — Compute filtered recipient count using real customer data
-  useEffect(() => {
-    if (sendMode !== "bulk") {
-      setFilteredRecipientCount(0);
-      return;
-    }
-    const baseCount = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean).length;
-
-    // If we have customer data and audience filters are applied, use real filtering
-    if (customers.length > 0 && (audienceZone !== "all" || audienceCustomerType !== "All" || audienceDueBalance !== "All")) {
-      let filtered = [...customers];
-      if (audienceZone !== "all") {
-        filtered = filtered.filter(c =>
-          (c.zone === audienceZone) ||
-          (c.address && c.address.includes(audienceZone)) ||
-          (c.area === audienceZone)
-        );
-      }
-      if (audienceCustomerType !== "All") {
-        filtered = filtered.filter(c =>
-          (c.type === audienceCustomerType) ||
-          (c.customerType === audienceCustomerType)
-        );
-      }
-      if (audienceDueBalance !== "All") {
-        filtered = filtered.filter(c => {
-          const due = Number(c.dueBalance) || Number(c.outstandingBalance) || Number(c.balance) || 0;
-          switch (audienceDueBalance) {
-            case "No Due": return due <= 0;
-            case "1-1000": return due >= 1 && due <= 1000;
-            case "1001-5000": return due >= 1001 && due <= 5000;
-            case "5001-10000": return due >= 5001 && due <= 10000;
-            case "10000+": return due > 10000;
-            default: return true;
-          }
-        });
-      }
-      // Count customers with phone numbers
-      const withPhones = filtered.filter(c => c.phone || c.mobile || c.contactNumber);
-      setFilteredRecipientCount(withPhones.length || baseCount);
-    } else {
-      setFilteredRecipientCount(baseCount);
-    }
-  }, [sendMode, smsBulkRecipients, audienceZone, audienceCustomerType, audienceDueBalance, customers]);
-
-  // ============================================================
-  // DIRECTIVE 2 — CAMPAIGN BALANCE SHIELD CHECK
-  // ============================================================
-
-  useEffect(() => {
-    if (gatewayCreditBalance === null || gatewayCreditBalance <= 0) {
-      setBalanceShieldBlocked(false);
-      return;
-    }
-    const recipients = sendMode === "single" ? 1 : filteredRecipientCount || smsBulkRecipients.split(",").filter(r => r.trim()).length;
-    const rate = isUnicode ? unicodeCostPerSegment : costPerSegment;
-    const totalRequired = recipients * segmentCount * rate;
-    setShieldRequiredCredits(totalRequired);
-    setShieldAvailableCredits(gatewayCreditBalance);
-    setBalanceShieldBlocked(totalRequired > gatewayCreditBalance);
-  }, [sendMode, smsBulkRecipients, filteredRecipientCount, segmentCount, isUnicode, costPerSegment, unicodeCostPerSegment, gatewayCreditBalance]);
-
   // SMS Settings: open create dialog
   const openSettingsCreate = () => {
     setSettingsEdit(null);
     setSettingsForm({
       apiUrl: "", apiKey: "", senderId: "", maskingName: "", maskingRegId: "",
-      gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true,
-      creditBalanceLimit: 0
+      gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true
     });
     setSettingsDialog(true);
   };
 
-  // SMS Settings: open edit dialog (Directive 1 — include creditBalanceLimit)
+  // SMS Settings: open edit dialog
   const openSettingsEdit = (s: any) => {
     setSettingsEdit(s);
     setSettingsForm({
@@ -494,28 +291,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       unicodeRate: s.unicodeRate ?? 0.8,
       setupCost: s.setupCost ?? 0,
       isActive: s.isActive ?? true,
-      creditBalanceLimit: s.creditBalanceLimit ?? 0,
     });
     setSettingsDialog(true);
   };
 
-  // ============================================================
-  // DIRECTIVE 1 — SMS SETTINGS SAVE WITH STRIP + creditBalanceLimit
-  // ============================================================
-
+  // SMS Settings: save handler
   const saveSettings = async () => {
-    // Strip trailing spaces/line breaks on all text fields
-    const sanitized = {
-      ...settingsForm,
-      apiUrl: sanitizeTextField(settingsForm.apiUrl),
-      apiKey: sanitizeTextField(settingsForm.apiKey),
-      senderId: sanitizeTextField(settingsForm.senderId),
-      maskingName: sanitizeTextField(settingsForm.maskingName),
-      maskingRegId: sanitizeTextField(settingsForm.maskingRegId),
-      gatewayName: sanitizeTextField(settingsForm.gatewayName),
-    };
-
-    if (!sanitized.apiUrl || !sanitized.apiKey || !sanitized.senderId) {
+    if (!settingsForm.apiUrl || !settingsForm.apiKey || !settingsForm.senderId) {
       toast({ title: "Validation Error", description: "API URL, API Key, and Sender ID are required", variant: "destructive" });
       return;
     }
@@ -528,13 +310,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       if (settingsEdit) {
         await apiFetch(`/api/sms-settings/${settingsEdit.id}`, {
           method: "PUT",
-          body: JSON.stringify(sanitized),
+          body: JSON.stringify(settingsForm),
         });
         toast({ title: "Settings Updated", description: "SMS configuration updated successfully" });
       } else {
         await apiFetch("/api/sms-settings", {
           method: "POST",
-          body: JSON.stringify(sanitized),
+          body: JSON.stringify(settingsForm),
         });
         toast({ title: "Settings Created", description: "SMS configuration created successfully" });
       }
@@ -559,42 +341,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       loadData();
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
-  };
-
-  // ============================================================
-  // DIRECTIVE 3 — TRANSACTIONAL AUTO-SMS AUTOMATION CONFIG
-  // (loadAutomationConfig is defined above near the useEffect)
-  // ============================================================
-
-  const saveAutomationConfig = async () => {
-    if (!isAdmin) {
-      toast({ title: "Access Denied", description: "Only administrators can modify SMS automation settings", variant: "destructive" });
-      return;
-    }
-
-    // DIRECTIVE 4: Capture pre-save snapshot for rollback on failure
-    const preSaveSnapshot = { ...automationConfig };
-
-    setAutomationSaving(true);
-    try {
-      await apiFetch("/api/sms-automation", {
-        method: "PUT",
-        body: JSON.stringify(automationConfig),
-      });
-      toast({ title: "Automation Settings Saved", description: "Transactional SMS trigger settings updated successfully" });
-      logActivityToServer("Comm-SMS-Marketing", "UPDATE_AUTOMATION", "SMS Automation Config Updated", authUser?.displayName);
-    } catch (e: any) {
-      // DIRECTIVE 4: Roll back to database snapshot immediately on failure
-      setAutomationConfig(preSaveSnapshot);
-      toast({
-        title: "Network Error: Automation Settings Update Failed",
-        description: "Toggle state has been rolled back to the last saved configuration. " + (e.message || "Unknown error"),
-        variant: "destructive",
-        duration: 8000,
-      });
-    } finally {
-      setAutomationSaving(false);
     }
   };
 
@@ -749,8 +495,11 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
     if (logStatusFilter !== "all") {
       result = result.filter((log: any) => log.status?.toLowerCase() === logStatusFilter.toLowerCase());
     }
+    if (logTriggerTypeFilter !== "all") {
+      result = result.filter((log: any) => (log.triggerType || "Manual")?.toLowerCase() === logTriggerTypeFilter.toLowerCase());
+    }
     return result;
-  }, [smsLogs, logSearch, logStatusFilter]);
+  }, [smsLogs, logSearch, logStatusFilter, logTriggerTypeFilter]);
 
   const filteredBills = useMemo(() => {
     if (billStatusFilter === "all") return smsBills;
@@ -785,10 +534,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   const PIE_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#6366f1", "#8b5cf6", "#ec4899"];
 
-  // CHARACTER COUNTER — computed early at state initialization (see line ~229)
-
   // ============================================================
-  // SEND SMS HANDLER (Directive 2 & 3 — Balance Shield + Snapshot + Double-Hit Guard)
+  // SEND SMS HANDLER
   // ============================================================
 
   const handleSendSms = async () => {
@@ -808,26 +555,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       return;
     }
 
-    // Directive 2 — Campaign Balance Shield
-    if (balanceShieldBlocked && gatewayCreditBalance !== null && gatewayCreditBalance > 0) {
-      toast({
-        title: "Action Blocked: Insufficient SMS API Credits",
-        description: `Insufficient SMS API credits to dispatch this campaign. Required: ${fmtCurrency(shieldRequiredCredits)}, Available: ${fmtCurrency(shieldAvailableCredits)}`,
-        variant: "destructive",
-        duration: 8000,
-      });
-      return;
-    }
-
-    // Directive 3 — Save snapshot before dispatch
-    smsSnapshotRef.current = {
-      recipient: smsRecipient,
-      bulkRecipients: smsBulkRecipients,
-      message: smsMessage,
-      campaignName: campaignName,
-    };
-
-    // Directive 3 — Double-Hit Guard (button already disabled via smsSending)
     setSmsSending(true);
     try {
       if (sendMode === "single") {
@@ -841,6 +568,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         });
         toast({ title: "SMS Sent", description: `Message queued for ${smsRecipient}` });
       } else {
+        // Bulk SMS with batchMode API
         const recipientsList = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
         await apiFetch("/api/sms-logs", {
           method: "POST",
@@ -857,39 +585,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           description: `Campaign queued for ${recipientsList.length} recipient(s)`,
         });
       }
-      // Clear form on success
       setSmsRecipient("");
       setSmsBulkRecipients("");
       setSmsMessage("");
       setCampaignName("");
-      smsSnapshotRef.current = null;
       loadData();
-      // Directive 2 — Fetch balance after successful send
-      fetchGatewayBalance();
     } catch (e: any) {
-      // Directive 3 — Restore form from snapshot on gateway failure
-      if (smsSnapshotRef.current) {
-        setSmsRecipient(smsSnapshotRef.current.recipient);
-        setSmsBulkRecipients(smsSnapshotRef.current.bulkRecipients);
-        setSmsMessage(smsSnapshotRef.current.message);
-        setCampaignName(smsSnapshotRef.current.campaignName);
-        smsSnapshotRef.current = null;
-        toast({
-          title: "Gateway Dispatch Failed",
-          description: "Form Restored from Snapshot — " + (e.message || "Unknown error"),
-          variant: "destructive",
-          duration: 8000,
-        });
-      } else {
-        toast({ title: "Error", description: e.message, variant: "destructive" });
-      }
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setSmsSending(false);
     }
   };
 
   // ============================================================
-  // EXPORT HANDLERS (Directive 3 — Spin-Locks + Directive 4 — CSV Activity Logging)
+  // EXPORT HANDLERS
   // ============================================================
 
   const smsLogColumns: ExportColumnDef[] = [
@@ -914,8 +623,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
     { key: "status", label: "Status", type: "text" },
   ];
 
-  const handleExportLogCSV = async () => {
-    setCsvExporting(true);
+  const handleExportLogCSV = () => {
     try {
       exportToCSV({
         title: "SMS Logs",
@@ -925,18 +633,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         vatMaskedColumns: ["cost"],
         filename: "sms-logs",
       });
-      // Enhancement 3 — Server-side activity logging for CSV exports
-      logActivityToServer("Comm-SMS-Marketing", "CSV_EXPORT", "SMS Logs CSV", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Logs exported to CSV" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setCsvExporting(false);
     }
   };
 
-  const handleExportLogPDF = async () => {
-    setPdfExporting(true);
+  const handleExportLogPDF = () => {
     try {
       exportToPDF({
         title: "SMS Logs Report",
@@ -954,17 +657,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
-      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Logs PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Logs exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setPdfExporting(false);
     }
   };
 
-  const handleExportBillCSV = async () => {
-    setBillCsvExporting(true);
+  const handleExportBillCSV = () => {
     try {
       exportToCSV({
         title: "SMS Bills",
@@ -974,18 +673,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
         filename: "sms-bills",
       });
-      // Enhancement 3 — Server-side activity logging for CSV exports
-      logActivityToServer("Comm-SMS-Marketing", "CSV_EXPORT", "SMS Bills CSV", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Bills exported to CSV" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setBillCsvExporting(false);
     }
   };
 
-  const handleExportBillPDF = async () => {
-    setBillPdfExporting(true);
+  const handleExportBillPDF = () => {
     try {
       exportToPDF({
         title: "SMS Bills Report",
@@ -1003,18 +697,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
-      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Bills PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Bills exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setBillPdfExporting(false);
     }
   };
 
   // SMS Report PDF export
-  const handleExportReportPDF = async () => {
-    setReportPdfExporting(true);
+  const handleExportReportPDF = () => {
     try {
       const reportColumns: ExportColumnDef[] = [
         { key: "date", label: "Date", type: "date" },
@@ -1039,18 +729,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
-      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Report PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Report exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setReportPdfExporting(false);
     }
   };
 
   // SMS Settings PDF export
-  const handleExportSettingsPDF = async () => {
-    setSettingsPdfExporting(true);
+  const handleExportSettingsPDF = () => {
     try {
       const settingsColumns: ExportColumnDef[] = [
         { key: "apiUrl", label: "API URL", type: "text" },
@@ -1077,12 +763,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           printedBy: authUser?.displayName || authUser?.email || "",
         },
       });
-      logActivityToServer("Comm-SMS-Marketing", "PDF_EXPORT", "SMS Settings PDF", authUser?.displayName);
       toast({ title: "Exported", description: "SMS Settings exported to PDF" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setSettingsPdfExporting(false);
     }
   };
 
@@ -1215,6 +898,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   ];
 
   // ============================================================
+  // CHARACTER COUNTER (SMS Segments Computation)
+  // ============================================================
+
+  const { charCount, isUnicode, segmentCount, charsPerSegment } = computeClientSmsSegments(smsMessage);
+  const estimatedCostPerSegment = isUnicode ? unicodeCostPerSegment : costPerSegment;
+
+  // ============================================================
   // RENDER
   // ============================================================
 
@@ -1268,10 +958,17 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex-wrap">
+        <TabsList className="flex overflow-x-auto flex-wrap gap-1 pb-1 scrollbar-none">
           <TabsTrigger value="dashboard" className="flex items-center gap-1">
             <Activity className="w-4 h-4" />
             Dashboard
+          </TabsTrigger>
+          <TabsTrigger value="inbox" className="flex items-center gap-1">
+            <Mail className="w-4 h-4" />
+            Inbox
+            {smsInbox.filter((m: any) => m.status === "Unread").length > 0 && (
+              <Badge className="bg-red-500 text-white text-xs ml-1 px-1.5 py-0 min-w-[18px] text-center">{smsInbox.filter((m: any) => m.status === "Unread").length}</Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="logs" className="flex items-center gap-1">
             <MessageSquare className="w-4 h-4" />
@@ -1288,6 +985,12 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             <Send className="w-4 h-4" />
             Send SMS
           </TabsTrigger>
+          {!isSR && (
+            <TabsTrigger value="campaigns" className="flex items-center gap-1">
+              <Megaphone className="w-4 h-4" />
+              Campaigns
+            </TabsTrigger>
+          )}
           {/* Hide Settings tab for SR */}
           {!isSR && (
             <TabsTrigger value="settings" className="flex items-center gap-1">
@@ -1302,7 +1005,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             ============================================================ */}
         <TabsContent value="dashboard" className="space-y-4">
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
             {kpiCards.map((kpi, i) => (
               <Card key={i} className="stat-mini-card">
                 <CardContent className="p-4 flex items-center gap-3">
@@ -1434,15 +1137,15 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <RefreshCw className="w-4 h-4 mr-1" />
                   Generate
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleExportReportPDF} disabled={reportPdfExporting}>
-                  {reportPdfExporting ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <FileDown className="w-4 h-4 mr-1" />}
-                  {reportPdfExporting ? "Exporting..." : "Export PDF"}
+                <Button variant="outline" size="sm" onClick={handleExportReportPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
                 </Button>
               </div>
 
               {smsReport.length > 0 ? (
-                <div className="table-container overflow-auto max-h-96 rounded-md border">
-                  <Table>
+                <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-md border -mx-2 sm:mx-0">
+                  <Table className="min-w-[600px]">
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead>Date</TableHead>
@@ -1479,6 +1182,227 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         </TabsContent>
 
         {/* ============================================================
+            SMS INBOX TAB
+            ============================================================ */}
+        <TabsContent value="inbox" className="space-y-4">
+          {/* Inbox KPIs */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+            {[
+              { label: "Total Messages", value: smsInbox.length, icon: Mail, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-900/30" },
+              { label: "Unread", value: smsInbox.filter((m: any) => m.status === "Unread").length, icon: Eye, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+              { label: "Flagged", value: smsInbox.filter((m: any) => m.status === "Flagged").length, icon: Flag, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+              { label: "High Priority", value: smsInbox.filter((m: any) => m.priority === "High" || m.priority === "Urgent").length, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-900/30" },
+            ].map((kpi, i) => (
+              <Card key={i} className="stat-mini-card">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon className="w-5 h-5" /></div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{fmt(kpi.value, "number")}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Inbox Toolbar */}
+          <Card>
+            <CardContent className="p-4 flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Search inbox..." value={inboxSearch} onChange={e => setInboxSearch(e.target.value)} className="pl-9" />
+              </div>
+              <Select value={inboxStatusFilter} onValueChange={setInboxStatusFilter}>
+                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="Unread">Unread</SelectItem>
+                  <SelectItem value="Read">Read</SelectItem>
+                  <SelectItem value="Archived">Archived</SelectItem>
+                  <SelectItem value="Flagged">Flagged</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={inboxPriorityFilter} onValueChange={setInboxPriorityFilter}>
+                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Priority" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Priority</SelectItem>
+                  <SelectItem value="Low">Low</SelectItem>
+                  <SelectItem value="Normal">Normal</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button size="sm" onClick={() => { setInboxForm({ sender: "", message: "", category: "", priority: "Normal", relatedModule: "", relatedCode: "" }); setInboxDialog(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Add Entry
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                try {
+                  const inboxColumns: ExportColumnDef[] = [
+                    { key: "sender", label: "Sender", type: "text" },
+                    { key: "message", label: "Message", type: "text" },
+                    { key: "category", label: "Category", type: "text" },
+                    { key: "priority", label: "Priority", type: "text" },
+                    { key: "status", label: "Status", type: "text" },
+                    { key: "receivedAt", label: "Received", type: "date" },
+                  ];
+                  exportToPDF({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+                  toast({ title: "Exported", description: "SMS Inbox exported to PDF" });
+                } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+              }}>
+                <FileDown className="w-4 h-4 mr-1" /> Export PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                try {
+                  const inboxColumns: ExportColumnDef[] = [
+                    { key: "sender", label: "Sender", type: "text" },
+                    { key: "message", label: "Message", type: "text" },
+                    { key: "category", label: "Category", type: "text" },
+                    { key: "priority", label: "Priority", type: "text" },
+                    { key: "status", label: "Status", type: "text" },
+                    { key: "receivedAt", label: "Received", type: "date" },
+                  ];
+                  exportToCSV({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox" });
+                  toast({ title: "Exported", description: "SMS Inbox exported to CSV" });
+                } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+              }}>
+                <Download className="w-4 h-4 mr-1" /> Export CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                importFromCSV({ apiPath: "/api/sms-inbox", formFields: [
+                  { key: "sender", label: "Sender", type: "text", required: true },
+                  { key: "message", label: "Message", type: "textarea", required: true },
+                  { key: "category", label: "Category", type: "text" },
+                  { key: "priority", label: "Priority", type: "text" },
+                ] }).then(result => {
+                  toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+                  loadData();
+                });
+              }}>
+                <Upload className="w-4 h-4 mr-1" /> Import CSV
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Inbox Table */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="max-h-[500px] overflow-x-auto overflow-y-auto -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Sender</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Received</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {smsInbox
+                      .filter((m: any) => {
+                        if (inboxStatusFilter !== "all" && m.status !== inboxStatusFilter) return false;
+                        if (inboxPriorityFilter !== "all" && m.priority !== inboxPriorityFilter) return false;
+                        if (inboxSearch) {
+                          const s = inboxSearch.toLowerCase();
+                          return m.sender?.toLowerCase().includes(s) || m.message?.toLowerCase().includes(s);
+                        }
+                        return true;
+                      })
+                      .map((msg: any) => (
+                      <TableRow key={msg.id} className={msg.status === "Unread" ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""}>
+                        <TableCell className="font-medium text-sm">{msg.sender || "—"}</TableCell>
+                        <TableCell className="max-w-[200px] truncate text-sm">{msg.message || "—"}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{msg.category || "—"}</Badge></TableCell>
+                        <TableCell>
+                          <Badge className={`text-xs ${msg.priority === "Urgent" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : msg.priority === "High" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : msg.priority === "Low" ? "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"}`}>{msg.priority}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`text-xs ${msg.status === "Unread" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : msg.status === "Flagged" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : msg.status === "Archived" ? "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"}`}>{msg.status}</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">{fmtDate(msg.receivedAt)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {msg.status === "Unread" && (
+                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={async () => { await apiFetch(`/api/sms-inbox/${msg.id}`, { method: "PUT", body: JSON.stringify({ status: "Read" }) }); loadData(); }}><Eye className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>Mark Read</TooltipContent></Tooltip>
+                            )}
+                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={() => { setInboxDetail(msg); setInboxDetailDialog(true); }}><FileText className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>View</TooltipContent></Tooltip>
+                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={async () => { await apiFetch(`/api/sms-inbox/${msg.id}`, { method: "PUT", body: JSON.stringify({ status: msg.status === "Flagged" ? "Read" : "Flagged" }) }); loadData(); }}><Flag className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>{msg.status === "Flagged" ? "Unflag" : "Flag"}</TooltipContent></Tooltip>
+                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={async () => { await apiFetch(`/api/sms-inbox/${msg.id}`, { method: "PUT", body: JSON.stringify({ status: "Archived" }) }); loadData(); }}><Archive className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>Archive</TooltipContent></Tooltip>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {smsInbox.filter((m: any) => {
+                      if (inboxStatusFilter !== "all" && m.status !== inboxStatusFilter) return false;
+                      if (inboxPriorityFilter !== "all" && m.priority !== inboxPriorityFilter) return false;
+                      if (inboxSearch) { const s = inboxSearch.toLowerCase(); return m.sender?.toLowerCase().includes(s) || m.message?.toLowerCase().includes(s); }
+                      return true;
+                    }).length === 0 && (
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground"><Mail className="w-8 h-8 mx-auto mb-2 opacity-40" />No inbox messages found</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Inbox Create Dialog */}
+          <Dialog open={inboxDialog} onOpenChange={setInboxDialog}>
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+              <DialogHeader><DialogTitle>Add Inbox Message</DialogTitle><DialogDescription>Record an incoming SMS message</DialogDescription></DialogHeader>
+              <div className="space-y-3">
+                <div><Label>Sender Phone *</Label><Input value={inboxForm.sender} onChange={e => setInboxForm({ ...inboxForm, sender: e.target.value })} placeholder="+880XXXXXXXXXX" /></div>
+                <div><Label>Message *</Label><Textarea value={inboxForm.message} onChange={e => setInboxForm({ ...inboxForm, message: e.target.value })} rows={3} /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Category</Label><Select value={inboxForm.category} onValueChange={v => setInboxForm({ ...inboxForm, category: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="CustomerReply">Customer Reply</SelectItem><SelectItem value="SupplierNotice">Supplier Notice</SelectItem><SelectItem value="SystemAlert">System Alert</SelectItem><SelectItem value="Spam">Spam</SelectItem><SelectItem value="OptOut">Opt-Out</SelectItem></SelectContent></Select></div>
+                  <div><Label>Priority</Label><Select value={inboxForm.priority} onValueChange={v => setInboxForm({ ...inboxForm, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Low">Low</SelectItem><SelectItem value="Normal">Normal</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem></SelectContent></Select></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Related Module</Label><Input value={inboxForm.relatedModule} onChange={e => setInboxForm({ ...inboxForm, relatedModule: e.target.value })} placeholder="e.g. SalesOrder" /></div>
+                  <div><Label>Related Code</Label><Input value={inboxForm.relatedCode} onChange={e => setInboxForm({ ...inboxForm, relatedCode: e.target.value })} placeholder="e.g. SO-00001" /></div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setInboxDialog(false)}>Cancel</Button>
+                <Button disabled={inboxSaving} onClick={async () => {
+                  if (!inboxForm.sender || !inboxForm.message) { toast({ title: "Error", description: "Sender and message are required", variant: "destructive" }); return; }
+                  setInboxSaving(true);
+                  try {
+                    await apiFetch("/api/sms-inbox", { method: "POST", body: JSON.stringify(inboxForm) });
+                    toast({ title: "Created", description: "Inbox message recorded" });
+                    setInboxDialog(false); loadData();
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setInboxSaving(false); }
+                }}>{inboxSaving ? "Saving..." : "Save"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Inbox Detail Dialog */}
+          <Dialog open={inboxDetailDialog} onOpenChange={setInboxDetailDialog}>
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+              <DialogHeader><DialogTitle>Inbox Message Detail</DialogTitle></DialogHeader>
+              {inboxDetail && (
+                <div className="space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Sender:</span> <span className="font-medium">{inboxDetail.sender}</span></div>
+                    <div><span className="text-muted-foreground">Status:</span> <Badge className={`text-xs ${inboxDetail.status === "Unread" ? "bg-yellow-100 text-yellow-700" : inboxDetail.status === "Flagged" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{inboxDetail.status}</Badge></div>
+                    <div><span className="text-muted-foreground">Priority:</span> <Badge variant="outline" className="text-xs">{inboxDetail.priority}</Badge></div>
+                    <div><span className="text-muted-foreground">Category:</span> {inboxDetail.category || "—"}</div>
+                    <div><span className="text-muted-foreground">Received:</span> {fmtDate(inboxDetail.receivedAt)}</div>
+                    {inboxDetail.relatedCode && <div><span className="text-muted-foreground">Reference:</span> {inboxDetail.relatedCode}</div>}
+                  </div>
+                  <Separator />
+                  <div><span className="text-muted-foreground">Message:</span><p className="mt-1 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg whitespace-pre-wrap">{inboxDetail.message}</p></div>
+                  {inboxDetail.notes && <div><span className="text-muted-foreground">Notes:</span> {inboxDetail.notes}</div>}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+
+        {/* ============================================================
             SMS LOG TAB
             ============================================================ */}
         <TabsContent value="logs" className="space-y-4">
@@ -1507,18 +1431,32 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     <SelectItem value="sent">Sent</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={logTriggerTypeFilter} onValueChange={setLogTriggerTypeFilter}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Trigger Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="Manual">Manual</SelectItem>
+                    <SelectItem value="SalesConfirmation">Sales Confirm</SelectItem>
+                    <SelectItem value="FinancialCollection">Collection</SelectItem>
+                    <SelectItem value="InventoryIngestion">Ingestion</SelectItem>
+                    <SelectItem value="HRLifecycle">HR Lifecycle</SelectItem>
+                    <SelectItem value="Campaign">Campaign</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Separator orientation="vertical" className="h-8" />
                 <Button variant="outline" size="sm" onClick={handleImportLogCSV}>
                   <Upload className="w-4 h-4 mr-1" />
                   Import CSV
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleExportLogCSV} disabled={csvExporting}>
-                  {csvExporting ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
-                  {csvExporting ? "Exporting..." : "Export CSV"}
+                <Button variant="outline" size="sm" onClick={handleExportLogCSV}>
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleExportLogPDF} disabled={pdfExporting}>
-                  {pdfExporting ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <FileDown className="w-4 h-4 mr-1" />}
-                  {pdfExporting ? "Exporting..." : "Export PDF"}
+                <Button variant="outline" size="sm" onClick={handleExportLogPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
                 </Button>
                 <Button variant="outline" size="sm" onClick={loadData}>
                   <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
@@ -1537,7 +1475,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="table-container overflow-auto max-h-[60vh] rounded-b-md">
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-b-md">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -1628,7 +1566,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         {!isSR && (
         <TabsContent value="billing" className="space-y-4">
           {/* Billing Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
             <Card className="stat-mini-card">
               <CardContent className="p-3 flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600">
@@ -1701,13 +1639,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <Plus className="w-4 h-4 mr-1" />
                   New Bill
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleExportBillCSV} disabled={billCsvExporting}>
-                  {billCsvExporting ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
-                  {billCsvExporting ? "Exporting..." : "Export CSV"}
+                <Button variant="outline" size="sm" onClick={handleExportBillCSV}>
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleExportBillPDF} disabled={billPdfExporting}>
-                  {billPdfExporting ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <FileDown className="w-4 h-4 mr-1" />}
-                  {billPdfExporting ? "Exporting..." : "Export PDF"}
+                <Button variant="outline" size="sm" onClick={handleExportBillPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleImportBillCSV}>
                   <Upload className="w-4 h-4 mr-1" />
@@ -1727,7 +1665,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="table-container overflow-auto max-h-[60vh] rounded-b-md">
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-b-md">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -1831,8 +1769,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="table-container overflow-auto max-h-96 rounded-b-md">
-                <Table>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-b-md">
+                <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="w-12">#</TableHead>
@@ -1884,7 +1822,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
           {/* Bill Create/Edit Dialog */}
           <Dialog open={billDialog} onOpenChange={setBillDialog}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>{billEdit ? "Edit SMS Bill" : "New SMS Bill"}</DialogTitle>
                 <DialogDescription>
@@ -1941,7 +1879,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
           {/* Payment Dialog */}
           <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>Record Payment</DialogTitle>
                 <DialogDescription>
@@ -1992,24 +1930,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         )}
 
         {/* ============================================================
-            SEND SMS TAB (Directive 1, 2, 3 — Enhanced)
+            SEND SMS TAB
             ============================================================ */}
         <TabsContent value="send" className="space-y-4">
-          {/* Directive 2 — Campaign Balance Shield Warning */}
-          {balanceShieldBlocked && gatewayCreditBalance !== null && gatewayCreditBalance > 0 && (
-            <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-400 dark:border-red-600 rounded-lg">
-              <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/40 shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-red-700 dark:text-red-300">Action Blocked: Insufficient SMS API Credits</h3>
-                <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                  Insufficient SMS API credits to dispatch this campaign. Required: <strong>{fmtCurrency(shieldRequiredCredits)}</strong>, Available: <strong>{fmtCurrency(shieldAvailableCredits)}</strong>
-                </p>
-              </div>
-            </div>
-          )}
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Send Form */}
             <Card>
@@ -2073,62 +1996,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   </div>
                 )}
 
-                {/* Directive 3 — Dynamic Audience Filtering (Bulk only) */}
-                {sendMode === "bulk" && (
-                  <div className="space-y-3 p-3 rounded-lg border bg-muted/20">
-                    <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-white">
-                      <Filter className="w-4 h-4 text-[#2563eb]" />
-                      Audience Filters
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Zone</Label>
-                        <Select value={audienceZone} onValueChange={setAudienceZone}>
-                          <SelectTrigger className="h-9 text-sm">
-                            <SelectValue placeholder="Select zone" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Zones</SelectItem>
-                            {ZONE_OPTIONS.map((zone) => (
-                              <SelectItem key={zone} value={zone}>{zone}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Customer Type</Label>
-                        <Select value={audienceCustomerType} onValueChange={setAudienceCustomerType}>
-                          <SelectTrigger className="h-9 text-sm">
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CUSTOMER_TYPE_OPTIONS.map((ct) => (
-                              <SelectItem key={ct} value={ct}>{ct}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Due Balance Range</Label>
-                        <Select value={audienceDueBalance} onValueChange={setAudienceDueBalance}>
-                          <SelectTrigger className="h-9 text-sm">
-                            <SelectValue placeholder="Select range" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DUE_BALANCE_RANGE_OPTIONS.map((db) => (
-                              <SelectItem key={db} value={db}>{db}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Users className="w-3.5 h-3.5" />
-                      <span>Filtered recipients: <strong className="text-slate-900 dark:text-white">{filteredRecipientCount}</strong></span>
-                    </div>
-                  </div>
-                )}
-
                 {/* Campaign Name (Bulk only) */}
                 {sendMode === "bulk" && (
                   <div className="space-y-1.5">
@@ -2180,62 +2047,12 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   </div>
                 </div>
 
-                {/* Enhancement 4 — SMS Message Counter Info Card (Directive 1 Re-Audit: UDH-aware) */}
-                <Card className="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-2 mb-2">
-                      <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">SMS Message Counter (GSM 03.38)</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs">
-                      <div className="space-y-0.5">
-                        <span className="text-muted-foreground">Total Characters</span>
-                        <p className="font-bold text-slate-900 dark:text-white">{charCount}</p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-muted-foreground">Encoding Type</span>
-                        <p>
-                          <Badge className={isUnicode
-                            ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[10px] px-1.5 py-0"
-                            : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 text-[10px] px-1.5 py-0"
-                          }>
-                            {isUnicode ? "Unicode" : "GSM"}
-                          </Badge>
-                        </p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-muted-foreground">Part 1 Limit</span>
-                        <p className="font-bold text-slate-900 dark:text-white">{charsPerFirstSegment}</p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-muted-foreground">Part 2+ Limit (UDH)</span>
-                        <p className="font-bold text-slate-900 dark:text-white">{charsPerSubsequentSegment}</p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-muted-foreground">SMS Units / Recipient</span>
-                        <p className="font-bold text-slate-900 dark:text-white">{segmentCount}</p>
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-muted-foreground">Est. Cost / Recipient</span>
-                        <p className="font-bold text-slate-900 dark:text-white">
-                          {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(segmentCount * estimatedCostPerSegment)}
-                        </p>
-                      </div>
-                    </div>
-                    {segmentCount > 1 && (
-                      <p className="text-[10px] text-muted-foreground mt-2">
-                        Multi-part SMS: UDH header reduces Part 2+ capacity to {charsPerSubsequentSegment} chars/segment
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Directive 3 — Double-Hit Guard Send Button */}
+                {/* Send Button */}
                 <Button
                   className="w-full bg-[#2563eb] hover:bg-[#1d4ed8]"
                   size="lg"
                   onClick={handleSendSms}
-                  disabled={smsSending || balanceShieldBlocked}
+                  disabled={smsSending}
                 >
                   {smsSending ? (
                     <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -2243,18 +2060,17 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     <Send className="w-4 h-4 mr-2" />
                   )}
                   {smsSending
-                    ? "Dispatching SMS Queue via Gateway..."
+                    ? "Sending..."
                     : sendMode === "single"
                       ? "Send SMS"
-                      : `Send Bulk SMS (${filteredRecipientCount || smsBulkRecipients.split(",").filter(r => r.trim()).length} recipients)`
+                      : `Send Bulk SMS (${smsBulkRecipients.split(",").filter(r => r.trim()).length} recipients)`
                   }
                 </Button>
               </CardContent>
             </Card>
 
-            {/* Quick Stats & Credit Info */}
+            {/* Quick Stats */}
             <div className="space-y-4">
-              {/* Directive 1 — Credit Balance Card in Send SMS Quick Stats */}
               <Card>
                 <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
                   <CardTitle className="text-white text-sm flex items-center gap-2">
@@ -2281,79 +2097,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     <span className="text-sm text-muted-foreground">Pending</span>
                     <span className="font-bold text-orange-600 dark:text-orange-400">{pendingCount}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border">
+                  <div className="flex justify-between items-center py-2">
                     <span className="text-sm text-muted-foreground">Failed</span>
                     <span className="font-bold text-red-600 dark:text-red-400">{failedCount}</span>
                   </div>
-                  {/* Directive 1 — Credit Balance */}
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-muted-foreground flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5" />
-                      Credit Balance
-                    </span>
-                    <span className="font-bold text-slate-900 dark:text-white">
-                      {isVatAuditor ? "N/A (Audit Mode)" : (
-                        gatewayCreditBalance !== null ? fmtCurrency(gatewayCreditBalance) : (
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            {balanceLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : "—"}
-                          </span>
-                        )
-                      )}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Directive 2 — SMS Credit Info Card */}
-              <Card>
-                <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
-                  <CardTitle className="text-white text-sm flex items-center gap-2">
-                    <Info className="w-4 h-4" />
-                    SMS Credit Info
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-border">
-                    <span className="text-sm text-muted-foreground">Total Characters</span>
-                    <span className="font-bold text-slate-900 dark:text-white">{charCount}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border">
-                    <span className="text-sm text-muted-foreground">Detected Encoding</span>
-                    <Badge className={isUnicode
-                      ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
-                      : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
-                    }>
-                      {isUnicode ? "Unicode" : "GSM"}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border">
-                    <span className="text-sm text-muted-foreground">SMS Units / Recipient</span>
-                    <span className="font-bold text-slate-900 dark:text-white">{segmentCount}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-muted-foreground flex items-center gap-1">
-                      <Zap className="w-3.5 h-3.5" />
-                      Gateway Credit Balance
-                    </span>
-                    <span className="font-bold text-slate-900 dark:text-white">
-                      {isVatAuditor ? "N/A (Audit Mode)" : (
-                        gatewayCreditBalance !== null ? fmtCurrency(gatewayCreditBalance) : (
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            {balanceLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : "—"}
-                          </span>
-                        )
-                      )}
-                    </span>
-                  </div>
-                  {/* Credit balance limit alert */}
-                  {activeSetting?.creditBalanceLimit > 0 && gatewayCreditBalance !== null && gatewayCreditBalance <= activeSetting.creditBalanceLimit && (
-                    <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-700 dark:text-amber-400">
-                        Credit balance ({fmtCurrency(gatewayCreditBalance)}) is at or below the alert limit ({fmtCurrency(activeSetting.creditBalanceLimit)}).
-                      </p>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
 
@@ -2441,7 +2188,222 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         </TabsContent>
 
         {/* ============================================================
-            SETTINGS TAB (Hidden for SR) — Directive 1 enhanced
+            CAMPAIGNS TAB (Hidden for SR)
+            ============================================================ */}
+        {!isSR && (
+        <TabsContent value="campaigns" className="space-y-4">
+          {/* Campaigns KPIs */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+            {[
+              { label: "Total Campaigns", value: smsCampaigns.length, icon: Megaphone, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-900/30" },
+              { label: "Active", value: smsCampaigns.filter((c: any) => c.status === "Draft" || c.status === "Scheduled" || c.status === "Sending").length, icon: Zap, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+              { label: "Completed", value: smsCampaigns.filter((c: any) => c.status === "Completed").length, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+              { label: "Total Recipients", value: smsCampaigns.reduce((s: number, c: any) => s + (c.recipientCount || 0), 0), icon: Users, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
+            ].map((kpi, i) => (
+              <Card key={i} className="stat-mini-card">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon className="w-5 h-5" /></div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
+                    <p className="text-lg font-bold text-slate-900 dark:text-white">{fmt(kpi.value, "number")}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Campaigns Toolbar */}
+          <Card>
+            <CardContent className="p-4 flex flex-wrap items-center gap-3">
+              <Select value={campaignStatusFilter} onValueChange={setCampaignStatusFilter}>
+                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="Draft">Draft</SelectItem>
+                  <SelectItem value="Scheduled">Scheduled</SelectItem>
+                  <SelectItem value="Sending">Sending</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="Failed">Failed</SelectItem>
+                  <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button size="sm" onClick={() => { setCampaignForm({ name: "", description: "", message: "", targetGroup: "All", scheduledAt: "" }); setCampaignDialog(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> New Campaign
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                try {
+                  const campaignColumns: ExportColumnDef[] = [
+                    { key: "code", label: "Code", type: "text" },
+                    { key: "name", label: "Name", type: "text" },
+                    { key: "targetGroup", label: "Target", type: "text" },
+                    { key: "recipientCount", label: "Recipients", type: "number" },
+                    { key: "sentCount", label: "Sent", type: "number" },
+                    { key: "deliveredCount", label: "Delivered", type: "number" },
+                    { key: "failedCount", label: "Failed", type: "number" },
+                    { key: "totalCost", label: "Cost", type: "currency" },
+                    { key: "status", label: "Status", type: "text" },
+                  ];
+                  exportToPDF({ title: "SMS Campaigns", columns: campaignColumns, data: smsCampaigns, isVatAuditor, vatMaskedColumns: ["totalCost"], filename: "sms-campaigns", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+                  toast({ title: "Exported", description: "Campaigns exported to PDF" });
+                } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+              }}>
+                <FileDown className="w-4 h-4 mr-1" /> Export PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                try {
+                  const campaignColumns: ExportColumnDef[] = [
+                    { key: "code", label: "Code", type: "text" },
+                    { key: "name", label: "Name", type: "text" },
+                    { key: "targetGroup", label: "Target", type: "text" },
+                    { key: "recipientCount", label: "Recipients", type: "number" },
+                    { key: "totalCost", label: "Cost", type: "currency" },
+                    { key: "status", label: "Status", type: "text" },
+                  ];
+                  exportToCSV({ title: "SMS Campaigns", columns: campaignColumns, data: smsCampaigns, isVatAuditor, vatMaskedColumns: ["totalCost"], filename: "sms-campaigns" });
+                  toast({ title: "Exported", description: "Campaigns exported to CSV" });
+                } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+              }}>
+                <Download className="w-4 h-4 mr-1" /> Export CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                importFromCSV({ apiPath: "/api/sms-campaigns", formFields: [
+                  { key: "name", label: "Name", type: "text", required: true },
+                  { key: "message", label: "Message", type: "textarea", required: true },
+                  { key: "targetGroup", label: "Target Group", type: "text" },
+                ] }).then(result => {
+                  toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+                  loadData();
+                });
+              }}>
+                <Upload className="w-4 h-4 mr-1" /> Import CSV
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Campaigns Table */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="max-h-[500px] overflow-x-auto overflow-y-auto -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Target</TableHead>
+                      <TableHead className="text-right">Recipients</TableHead>
+                      <TableHead className="text-right">Sent</TableHead>
+                      <TableHead className="text-right">Delivered</TableHead>
+                      <TableHead className="text-right">Failed</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {smsCampaigns
+                      .filter((c: any) => campaignStatusFilter === "all" || c.status === campaignStatusFilter)
+                      .map((camp: any) => (
+                      <TableRow key={camp.id}>
+                        <TableCell className="font-mono text-xs">{camp.code || "—"}</TableCell>
+                        <TableCell className="font-medium text-sm">{camp.name}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{camp.targetGroup}</Badge></TableCell>
+                        <TableCell className="text-right text-sm">{camp.recipientCount || 0}</TableCell>
+                        <TableCell className="text-right text-sm">{camp.sentCount || 0}</TableCell>
+                        <TableCell className="text-right text-sm text-emerald-600">{camp.deliveredCount || 0}</TableCell>
+                        <TableCell className="text-right text-sm text-red-600">{camp.failedCount || 0}</TableCell>
+                        <TableCell className="text-right text-sm">{isVatAuditor ? "N/A" : fmt(camp.totalCost, "currency")}</TableCell>
+                        <TableCell>
+                          <Badge className={`text-xs ${camp.status === "Completed" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : camp.status === "Draft" ? "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" : camp.status === "Sending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : camp.status === "Failed" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : camp.status === "Scheduled" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-gray-100 text-gray-700"}`}>{camp.status}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {camp.status === "Draft" && (
+                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="text-emerald-600" onClick={async () => { try { await apiFetch(`/api/sms-campaigns/${camp.id}`, { method: "PUT", body: JSON.stringify({ action: "launch" }) }); toast({ title: "Launched", description: "Campaign is now sending" }); loadData(); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } }}><Zap className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>Launch Campaign</TooltipContent></Tooltip>
+                            )}
+                            {(camp.status === "Draft" || camp.status === "Scheduled") && (
+                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" className="text-red-600" onClick={async () => { try { await apiFetch(`/api/sms-campaigns/${camp.id}`, { method: "PUT", body: JSON.stringify({ action: "cancel" }) }); toast({ title: "Cancelled", description: "Campaign cancelled" }); loadData(); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } }}><XCircle className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>Cancel</TooltipContent></Tooltip>
+                            )}
+                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={() => { setCampaignDetail(camp); setCampaignDetailDialog(true); }}><Eye className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>View Detail</TooltipContent></Tooltip>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {smsCampaigns.filter((c: any) => campaignStatusFilter === "all" || c.status === campaignStatusFilter).length === 0 && (
+                      <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground"><Megaphone className="w-8 h-8 mx-auto mb-2 opacity-40" />No campaigns found</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Campaign Create Dialog */}
+          <Dialog open={campaignDialog} onOpenChange={setCampaignDialog}>
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+              <DialogHeader><DialogTitle>Create Campaign</DialogTitle><DialogDescription>Set up a new SMS campaign</DialogDescription></DialogHeader>
+              <div className="space-y-3">
+                <div><Label>Campaign Name *</Label><Input value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} placeholder="e.g. Weekend Sale Promo" /></div>
+                <div><Label>Description</Label><Textarea value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} rows={2} /></div>
+                <div>
+                  <Label>Message *</Label>
+                  <Textarea value={campaignForm.message} onChange={e => setCampaignForm({ ...campaignForm, message: e.target.value })} rows={3} placeholder="Campaign message body..." />
+                  {campaignForm.message && (
+                    <p className="text-xs text-muted-foreground mt-1">{campaignForm.message.length} chars | {computeClientSmsSegments(campaignForm.message).segmentCount} segments | {computeClientSmsSegments(campaignForm.message).isUnicode ? "Unicode" : "Standard"}</p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Target Group</Label><Select value={campaignForm.targetGroup} onValueChange={v => setCampaignForm({ ...campaignForm, targetGroup: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="All">All</SelectItem><SelectItem value="Customers">Customers</SelectItem><SelectItem value="Dealers">Dealers</SelectItem><SelectItem value="Suppliers">Suppliers</SelectItem><SelectItem value="Employees">Employees</SelectItem></SelectContent></Select></div>
+                  <div><Label>Scheduled Date</Label><Input type="datetime-local" value={campaignForm.scheduledAt} onChange={e => setCampaignForm({ ...campaignForm, scheduledAt: e.target.value })} /></div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCampaignDialog(false)}>Cancel</Button>
+                <Button disabled={campaignSaving} onClick={async () => {
+                  if (!campaignForm.name || !campaignForm.message) { toast({ title: "Error", description: "Name and message are required", variant: "destructive" }); return; }
+                  setCampaignSaving(true);
+                  try {
+                    await apiFetch("/api/sms-campaigns", { method: "POST", body: JSON.stringify(campaignForm) });
+                    toast({ title: "Created", description: "Campaign created as Draft" });
+                    setCampaignDialog(false); loadData();
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setCampaignSaving(false); }
+                }}>{campaignSaving ? "Saving..." : "Create Campaign"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Campaign Detail Dialog */}
+          <Dialog open={campaignDetailDialog} onOpenChange={setCampaignDetailDialog}>
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+              <DialogHeader><DialogTitle>Campaign Detail</DialogTitle></DialogHeader>
+              {campaignDetail && (
+                <div className="space-y-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Code:</span> <span className="font-mono">{campaignDetail.code}</span></div>
+                    <div><span className="text-muted-foreground">Name:</span> <span className="font-medium">{campaignDetail.name}</span></div>
+                    <div><span className="text-muted-foreground">Target:</span> {campaignDetail.targetGroup}</div>
+                    <div><span className="text-muted-foreground">Status:</span> <Badge className="text-xs">{campaignDetail.status}</Badge></div>
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><span className="text-muted-foreground">Recipients:</span> {campaignDetail.recipientCount}</div>
+                    <div><span className="text-muted-foreground">Sent:</span> {campaignDetail.sentCount}</div>
+                    <div><span className="text-muted-foreground">Delivered:</span> <span className="text-emerald-600">{campaignDetail.deliveredCount}</span></div>
+                    <div><span className="text-muted-foreground">Failed:</span> <span className="text-red-600">{campaignDetail.failedCount}</span></div>
+                    <div><span className="text-muted-foreground">Cost/SMS:</span> {isVatAuditor ? "N/A" : fmt(campaignDetail.costPerSms, "currency")}</div>
+                    <div><span className="text-muted-foreground">Total Cost:</span> {isVatAuditor ? "N/A" : fmt(campaignDetail.totalCost, "currency")}</div>
+                  </div>
+                  <Separator />
+                  <div><span className="text-muted-foreground">Message:</span><p className="mt-1 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg whitespace-pre-wrap text-xs">{campaignDetail.message}</p></div>
+                  {campaignDetail.description && <div><span className="text-muted-foreground">Description:</span> {campaignDetail.description}</div>}
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+        )}
+
+        {/* ============================================================
+            SETTINGS TAB (Hidden for SR)
             ============================================================ */}
         {!isSR && (
         <TabsContent value="settings" className="space-y-4">
@@ -2472,34 +2434,29 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     </TooltipContent>
                   </Tooltip>
                 )}
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={fetchGatewayBalance} disabled={balanceLoading}>
-                    {balanceLoading ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Zap className="w-4 h-4 mr-1" />}
-                    Check Balance
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleExportSettingsPDF} disabled={settingsPdfExporting}>
-                    {settingsPdfExporting ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <FileDown className="w-4 h-4 mr-1" />}
-                    {settingsPdfExporting ? "Exporting..." : "Export PDF"}
-                  </Button>
-                </div>
+                <Button variant="outline" size="sm" onClick={handleExportSettingsPDF}>
+                  <FileDown className="w-4 h-4 mr-1" />
+                  Export PDF
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  try {
+                    const settingsColumns: ExportColumnDef[] = [
+                      { key: "apiUrl", label: "API URL", type: "text" },
+                      { key: "senderId", label: "Sender ID", type: "text" },
+                      { key: "gatewayName", label: "Gateway", type: "text" },
+                      { key: "ratePerSms", label: "Rate/SMS", type: "currency" },
+                      { key: "unicodeRate", label: "Unicode Rate", type: "currency" },
+                      { key: "setupCost", label: "Setup Cost", type: "currency" },
+                      { key: "isActive", label: "Status", type: "boolean" },
+                    ];
+                    exportToCSV({ title: "SMS Settings", columns: settingsColumns, data: smsSettings, isVatAuditor, vatMaskedColumns: ["ratePerSms", "unicodeRate", "setupCost"], filename: "sms-settings" });
+                    toast({ title: "Exported", description: "SMS Settings exported to CSV" });
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+                }}>
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
+                </Button>
               </div>
-
-              {/* Directive 1 — Last Known Credit Balance Display */}
-              {gatewayCreditBalance !== null && (
-                <div className="mb-4 flex items-center gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-                  <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-blue-900 dark:text-blue-300">Current Gateway Credit Balance</p>
-                    <p className="text-lg font-bold text-blue-700 dark:text-blue-400">
-                      {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(gatewayCreditBalance)}
-                    </p>
-                  </div>
-                  {activeSetting?.creditBalanceLimit > 0 && gatewayCreditBalance <= activeSetting.creditBalanceLimit && (
-                    <Badge className="bg-amber-500 text-white ml-auto">Low Balance</Badge>
-                  )}
-                </div>
-              )}
-
               {smsSettings.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <Settings className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -2633,24 +2590,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                             </span>
                           </div>
                         </div>
-                        {/* Directive 1 — Credit Balance Limit Display */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Credit Balance Limit Alert</Label>
-                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
-                            <span className="text-sm font-mono text-slate-900 dark:text-white">
-                              {isVatAuditor ? "N/A (Audit Mode)" : (setting.creditBalanceLimit ? fmtCurrency(setting.creditBalanceLimit) : "—")}
-                            </span>
-                          </div>
-                        </div>
-                        {/* Directive 1 — Last Known Credit Balance */}
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Last Known Credit Balance</Label>
-                          <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
-                            <span className="text-sm font-mono text-slate-900 dark:text-white">
-                              {isVatAuditor ? "N/A (Audit Mode)" : (gatewayCreditBalance !== null ? fmtCurrency(gatewayCreditBalance) : "—")}
-                            </span>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   ))}
@@ -2659,219 +2598,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             </CardContent>
           </Card>
 
-          {/* Directive 3 — Transactional Automation Trigger Settings */}
-          {!isSR && !isDealer && (
-          <Card>
-            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
-              <CardTitle className="text-white text-sm flex items-center gap-2">
-                <Zap className="w-4 h-4" />
-                Transactional Automation Trigger Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-              <p className="text-sm text-muted-foreground mb-6">
-                Configure automatic SMS alerts triggered by business events. Each toggle independently controls whether an auto-SMS is dispatched upon successful database commit.
-              </p>
-
-              {automationLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-muted-foreground">Loading automation settings...</span>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* TRIGGER A: Product Purchase Alert */}
-                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-start gap-3 flex-1">
-                        <div className={`p-2 rounded-md ${isDark ? "bg-emerald-900/30" : "bg-emerald-50"}`}>
-                          <ShoppingCart className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER A: Product Purchase Alert</Label>
-                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnPurchase ? "ON" : "OFF"}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            Fires when a Customer or Dealer purchases products via Core Sales/Invoicing.
-                          </p>
-                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Info className="w-3 h-3 text-blue-500" />
-                              <span className="text-xs font-medium text-muted-foreground">SMS Template</span>
-                            </div>
-                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
-                              Dear [Name], Invoice [InvNo] raised for [ItemSummary]. Total: ৳[GrandTotal]. Thank you.
-                            </code>
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        checked={automationConfig.smsAlertOnPurchase}
-                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnPurchase: checked })}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* TRIGGER B: Cash/Bank/MFS Collection Alert */}
-                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-start gap-3 flex-1">
-                        <div className={`p-2 rounded-md ${isDark ? "bg-amber-900/30" : "bg-amber-50"}`}>
-                          <Banknote className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER B: Cash/Bank/MFS Collection Alert</Label>
-                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnCollection ? "ON" : "OFF"}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            Fires when Cash, Bank, Bkash, or Nagad collections are recorded from a Customer or Dealer.
-                          </p>
-                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Info className="w-3 h-3 text-blue-500" />
-                              <span className="text-xs font-medium text-muted-foreground">SMS Template</span>
-                            </div>
-                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
-                              Received with thanks: ৳[Amount] via [PaymentMethod] against Invoice/Account [RefNo]. Available balance: ৳[Balance].
-                            </code>
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        checked={automationConfig.smsAlertOnCollection}
-                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnCollection: checked })}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* TRIGGER C: Warehouse Stock Receipt Notification */}
-                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-start gap-3 flex-1">
-                        <div className={`p-2 rounded-md ${isDark ? "bg-blue-900/30" : "bg-blue-50"}`}>
-                          <Package className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER C: Warehouse Stock Receipt Notification</Label>
-                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnStockReceive ? "ON" : "OFF"}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            Fires when Goods/Products are received into a Godown or Showroom from a Supplier/Vendor.
-                          </p>
-                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Info className="w-3 h-3 text-blue-500" />
-                              <span className="text-xs font-medium text-muted-foreground">SMS Template</span>
-                            </div>
-                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
-                              Stock Received Alert: [ItemSummary] safely delivered to Warehouse [GodownName] against PO [PoNo].
-                            </code>
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        checked={automationConfig.smsAlertOnStockReceive}
-                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnStockReceive: checked })}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  {/* TRIGGER D: HR Recruitment & Joining Lifecycle Alerts */}
-                  <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-start gap-3 flex-1">
-                        <div className={`p-2 rounded-md ${isDark ? "bg-purple-900/30" : "bg-purple-50"}`}>
-                          <UserCheck className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Label className="text-sm font-semibold text-slate-900 dark:text-white">TRIGGER D: HR Recruitment &amp; Joining Lifecycle Alerts</Label>
-                            <Badge variant="outline" className="text-xs">{automationConfig.smsAlertOnHrLifecycle ? "ON" : "OFF"}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mb-2">
-                            Fires when an Employee/Candidate profile state changes in the Personnel Matrix.
-                          </p>
-                          <div className={`p-2 rounded-md ${isDark ? "bg-slate-900/60 border border-slate-700" : "bg-white border border-slate-200"}`}>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Info className="w-3 h-3 text-blue-500" />
-                              <span className="text-xs font-medium text-muted-foreground">SMS Template 1 (Exam)</span>
-                            </div>
-                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300 block mb-2">
-                              Dear [Candidate], your selection exam is scheduled on [ExamDate] at [Time]. Venue: VoltERP HQ.
-                            </code>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Info className="w-3 h-3 text-blue-500" />
-                              <span className="text-xs font-medium text-muted-foreground">SMS Template 2 (Joining)</span>
-                            </div>
-                            <code className="font-mono text-xs text-slate-700 dark:text-slate-300">
-                              Welcome [EmployeeName] to the team! Your official joining date is confirmed on [JoiningDate]. Check your email for login credentials.
-                            </code>
-                          </div>
-                        </div>
-                      </div>
-                      <Switch
-                        checked={automationConfig.smsAlertOnHrLifecycle}
-                        onCheckedChange={(checked) => setAutomationConfig({ ...automationConfig, smsAlertOnHrLifecycle: checked })}
-                        disabled={!isAdmin}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Save Button */}
-                  <div className="flex justify-end pt-2">
-                    {isAdmin ? (
-                      <Button
-                        onClick={saveAutomationConfig}
-                        disabled={automationSaving}
-                        className="bg-[#2563eb] hover:bg-[#1d4ed8]"
-                      >
-                        {automationSaving ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                            Saving Automation Settings...
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-4 h-4 mr-2" />
-                            Save Automation Settings
-                          </>
-                        )}
-                      </Button>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] opacity-50 cursor-not-allowed" disabled>
-                              <Zap className="w-4 h-4 mr-2" />
-                              Save Automation Settings
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Only administrators can modify SMS automation settings</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          )}
-
-          {/* Settings Form Dialog (Directive 1 — creditBalanceLimit field + text field sanitization) */}
+          {/* Settings Form Dialog */}
           <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
             <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
@@ -2881,30 +2608,27 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="settings-api-url">API URL <span className="text-red-500">*</span></Label>
                     <Input id="settings-api-url" placeholder="https://api.sms-provider.com/send" value={settingsForm.apiUrl} onChange={e => setSettingsForm({ ...settingsForm, apiUrl: e.target.value })} />
-                    <p className="text-xs text-muted-foreground">Trailing spaces and line breaks are stripped on save.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="settings-api-key">API Key <span className="text-red-500">*</span></Label>
                     <Input id="settings-api-key" placeholder="Enter API key" type="password" value={settingsForm.apiKey} onChange={e => setSettingsForm({ ...settingsForm, apiKey: e.target.value })} />
-                    <p className="text-xs text-muted-foreground">Trailing spaces and line breaks are stripped on save.</p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="settings-sender-id">Sender ID <span className="text-red-500">*</span></Label>
                     <Input id="settings-sender-id" placeholder="e.g. EMART" value={settingsForm.senderId} onChange={e => setSettingsForm({ ...settingsForm, senderId: e.target.value })} />
-                    <p className="text-xs text-muted-foreground">Trailing spaces and line breaks are stripped on save.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="settings-gateway-name">Gateway Name</Label>
                     <Input id="settings-gateway-name" placeholder="e.g., BulkSMSBD, Infobip" value={settingsForm.gatewayName} onChange={e => setSettingsForm({ ...settingsForm, gatewayName: e.target.value })} />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="settings-masking-name">Masking Name</Label>
                     <Input id="settings-masking-name" placeholder="Registered masking name" value={settingsForm.maskingName} onChange={e => setSettingsForm({ ...settingsForm, maskingName: e.target.value })} />
@@ -2914,7 +2638,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     <Input id="settings-masking-reg-id" placeholder="Masking registration ID" value={settingsForm.maskingRegId} onChange={e => setSettingsForm({ ...settingsForm, maskingRegId: e.target.value })} />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="settings-rate-per-sms">Rate/SMS (৳) <span className="text-red-500">*</span></Label>
                     <Input id="settings-rate-per-sms" type="number" step="0.01" min="0" value={settingsForm.ratePerSms} onChange={e => setSettingsForm({ ...settingsForm, ratePerSms: Number(e.target.value) || 0 })} />
@@ -2926,30 +2650,6 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                   <div className="space-y-2">
                     <Label htmlFor="settings-setup-cost">Setup Cost (৳)</Label>
                     <Input id="settings-setup-cost" type="number" step="0.01" min="0" value={settingsForm.setupCost} onChange={e => setSettingsForm({ ...settingsForm, setupCost: Number(e.target.value) || 0 })} />
-                  </div>
-                </div>
-                {/* Directive 1 — Credit Balance Limit Alert Field */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="settings-credit-balance-limit">SMS Credit Balance Limit Alert (৳)</Label>
-                    <Input
-                      id="settings-credit-balance-limit"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="e.g. 500"
-                      value={settingsForm.creditBalanceLimit || ""}
-                      onChange={e => setSettingsForm({ ...settingsForm, creditBalanceLimit: Number(e.target.value) || 0 })}
-                    />
-                    <p className="text-xs text-muted-foreground">Alert when gateway credit balance drops to or below this amount.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Current Gateway Balance</Label>
-                    <div className="flex items-center h-10 px-3 rounded-md border bg-muted/50">
-                      <span className="text-sm font-mono text-slate-900 dark:text-white">
-                        {isVatAuditor ? "N/A (Audit Mode)" : (gatewayCreditBalance !== null ? fmtCurrency(gatewayCreditBalance) : "Not available")}
-                      </span>
-                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2998,19 +2698,171 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </div>
                 <div className="flex items-start gap-2">
                   <CheckCircle className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
-                  <p>Unicode messages (Bangla, emoji, etc.) have a 70-character limit for Part 1 and 67 characters for Part 2+ per segment (UDH overhead), while standard messages have 160/153 characters per segment.</p>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Shield className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                  <p>All text fields (API URL, API Key, Sender ID, Masking) automatically strip trailing spaces and line breaks on save.</p>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Zap className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-                  <p>Credit Balance Limit Alert triggers a notification when the gateway credit balance drops to or below the configured threshold.</p>
+                  <p>Unicode messages (Bangla, emoji, etc.) have a 70-character limit per segment, while standard messages have 160 characters per segment.</p>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* ── Notification Triggers ── */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Zap className="w-5 h-5 text-[#2563eb]" />
+                Automated Notification Triggers / স্বয়ংক্রিয় এসএমএস ট্রিগার
+              </h3>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => {
+                  try {
+                    const triggerColumns: ExportColumnDef[] = [
+                      { key: "eventType", label: "Event Type", type: "text" },
+                      { key: "label", label: "Label", type: "text" },
+                      { key: "recipientType", label: "Recipient", type: "text" },
+                      { key: "isEnabled", label: "Enabled", type: "boolean" },
+                      { key: "templateBody", label: "Template", type: "text" },
+                    ];
+                    exportToPDF({ title: "SMS Notification Triggers", columns: triggerColumns, data: smsTriggers, isVatAuditor, filename: "sms-triggers", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+                    toast({ title: "Exported", description: "Triggers exported to PDF" });
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+                }}>
+                  <FileDown className="w-4 h-4 mr-1" /> Export PDF
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  try {
+                    const triggerColumns: ExportColumnDef[] = [
+                      { key: "eventType", label: "Event Type", type: "text" },
+                      { key: "label", label: "Label", type: "text" },
+                      { key: "recipientType", label: "Recipient", type: "text" },
+                      { key: "isEnabled", label: "Enabled", type: "boolean" },
+                    ];
+                    exportToCSV({ title: "SMS Notification Triggers", columns: triggerColumns, data: smsTriggers, isVatAuditor, filename: "sms-triggers" });
+                    toast({ title: "Exported", description: "Triggers exported to CSV" });
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+                }}>
+                  <Download className="w-4 h-4 mr-1" /> Export CSV
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                { eventType: "SalesConfirmation", label: "Sales Confirmation / বিক্রয় নিশ্চিতি", description: "Auto-SMS on confirmed sales with product summary — ক্রেতা/ডিলার পণ্য ক্রয় করলে স্বয়ংক্রিয়ভাবে SMS প্রেরণ", icon: ShoppingCart, color: "blue", variables: "{{customerName}}, {{invoiceNo}}, {{amount}}, {{date}}, {{productSummary}}" },
+                { eventType: "FinancialCollection", label: "Payment Receipt / পেমেন্ট রশিদ", description: "Receipt SMS after processing inflow — ক্যাশ/ব্যাংক/bKash/নগদ পেমেন্ট প্রাপ্তির স্বয়ংক্রিয় SMS", icon: DollarSign, color: "green", variables: "{{clientName}}, {{amount}}, {{paymentMethod}}, {{date}}, {{receiptRef}}" },
+                { eventType: "InventoryIngestion", label: "Inventory Received / ইনভেন্টরি গ্রহণ", description: "Notify suppliers when inventory items are checked in — গুডাম/শোরুমে পণ্য এলে সাপ্লায়ারকে স্বয়ংক্রিয় SMS", icon: Package, color: "orange", variables: "{{supplierName}}, {{productName}}, {{quantity}}, {{godownName}}, {{date}}, {{referenceNo}}" },
+                { eventType: "HRLifecycle", label: "Employee Lifecycle / কর্মী জীবনচক্র", description: "Joining & exam date alerts — নতুন কর্মী যোগদান বা পরীক্ষার তারিখে স্বয়ংক্রিয় SMS", icon: Users, color: "purple", variables: "{{employeeName}}, {{eventType}}, {{details}}, {{companyName}}" },
+              ].map((evt) => {
+                const trigger = smsTriggers.find((t: any) => t.eventType === evt.eventType);
+                return (
+                  <Card key={evt.eventType} className={`border-l-4 ${evt.color === "blue" ? "border-l-blue-500" : evt.color === "green" ? "border-l-emerald-500" : evt.color === "orange" ? "border-l-orange-500" : "border-l-purple-500"}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div className={`p-2 rounded-lg ${evt.color === "blue" ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600" : evt.color === "green" ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : evt.color === "orange" ? "bg-orange-50 dark:bg-orange-900/30 text-orange-600" : "bg-purple-50 dark:bg-purple-900/30 text-purple-600"}`}>
+                            <evt.icon className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold text-sm">{evt.label}</h4>
+                              {trigger && (
+                                <>
+                                  <Badge variant="outline" className="text-xs">{trigger.recipientType}</Badge>
+                                  <Badge className={`text-xs ${trigger.isEnabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                                    {trigger.isEnabled ? "● Active / সক্রিয়" : "○ Inactive / নিষ্ক্রিয়"}
+                                  </Badge>
+                                </>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">{evt.description}</p>
+                            {trigger ? (
+                              <div className="mt-2">
+                                <p className="text-xs bg-slate-50 dark:bg-slate-900 p-2 rounded font-mono whitespace-pre-wrap line-clamp-3">
+                                  {trigger.templateBody?.replace(/\{\{/g, '<strong>{{').replace(/\}\}/g, '}}</strong>')}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">Variables: <span className="font-mono">{evt.variables}</span></p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-amber-600 mt-1">Not configured</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          {trigger && (
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-medium ${trigger.isEnabled ? "text-emerald-600" : "text-slate-400"}`}>
+                                {trigger.isEnabled ? "ON / চালু" : "OFF / বন্ধ"}
+                              </span>
+                              <Switch checked={trigger.isEnabled} onCheckedChange={async (checked: boolean) => {
+                                try { await apiFetch(`/api/sms-notification-triggers/${trigger.id}`, { method: "PUT", body: JSON.stringify({ isEnabled: checked }) }); toast({ title: checked ? "Enabled / চালু" : "Disabled / বন্ধ", description: `${evt.label} trigger ${checked ? "enabled" : "disabled"}` }); loadData(); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+                              }} />
+                            </div>
+                          )}
+                          <Button variant="outline" size="sm" onClick={() => {
+                            if (trigger) {
+                              setTriggerEdit(trigger);
+                              setTriggerForm({ eventType: trigger.eventType, label: trigger.label || "", description: trigger.description || "", isEnabled: trigger.isEnabled, recipientType: trigger.recipientType || "Customer", templateBody: trigger.templateBody || "" });
+                            } else {
+                              setTriggerEdit(null);
+                              setTriggerForm({ eventType: evt.eventType, label: evt.label, description: evt.description, isEnabled: true, recipientType: evt.eventType === "SalesConfirmation" || evt.eventType === "FinancialCollection" ? "Customer" : evt.eventType === "InventoryIngestion" ? "Supplier" : "Employee", templateBody: "" });
+                            }
+                            setTriggerDialog(true);
+                          }}>
+                            <Pencil className="w-3 h-3 mr-1" /> {trigger ? "Edit" : "Create"}
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Trigger Create/Edit Dialog */}
+          <Dialog open={triggerDialog} onOpenChange={setTriggerDialog}>
+            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+              <DialogHeader><DialogTitle>{triggerEdit ? "Edit" : "Create"} Notification Trigger</DialogTitle><DialogDescription>Configure automated SMS trigger for business events</DialogDescription></DialogHeader>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Event Type</Label><Select value={triggerForm.eventType} onValueChange={v => setTriggerForm({ ...triggerForm, eventType: v })} disabled={!!triggerEdit}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="SalesConfirmation">Sales Confirmation</SelectItem><SelectItem value="FinancialCollection">Financial Collection</SelectItem><SelectItem value="InventoryIngestion">Inventory Ingestion</SelectItem><SelectItem value="HRLifecycle">HR Lifecycle</SelectItem></SelectContent></Select></div>
+                  <div><Label>Recipient Type</Label><Select value={triggerForm.recipientType} onValueChange={v => setTriggerForm({ ...triggerForm, recipientType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Customer">Customer</SelectItem><SelectItem value="Dealer">Dealer</SelectItem><SelectItem value="Supplier">Supplier</SelectItem><SelectItem value="Employee">Employee</SelectItem><SelectItem value="Custom">Custom</SelectItem></SelectContent></Select></div>
+                </div>
+                <div><Label>Label</Label><Input value={triggerForm.label} onChange={e => setTriggerForm({ ...triggerForm, label: e.target.value })} placeholder="e.g. Sale Confirmation SMS" /></div>
+                <div><Label>Description</Label><Input value={triggerForm.description} onChange={e => setTriggerForm({ ...triggerForm, description: e.target.value })} placeholder="Optional description" /></div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label>Template Body *</Label>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Enabled</Label>
+                      <Switch checked={triggerForm.isEnabled} onCheckedChange={checked => setTriggerForm({ ...triggerForm, isEnabled: checked })} />
+                    </div>
+                  </div>
+                  <Textarea value={triggerForm.templateBody} onChange={e => setTriggerForm({ ...triggerForm, templateBody: e.target.value })} rows={4} placeholder="Dear {{customerName}}, your order {{invoiceNo}} of {{amount}} has been confirmed." />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {triggerForm.eventType === "SalesConfirmation" && "Available: {{customerName}}, {{invoiceNo}}, {{amount}}, {{date}}, {{productSummary}}"}
+                    {triggerForm.eventType === "FinancialCollection" && "Available: {{clientName}}, {{amount}}, {{paymentMethod}}, {{date}}, {{receiptRef}}"}
+                    {triggerForm.eventType === "InventoryIngestion" && "Available: {{supplierName}}, {{productName}}, {{quantity}}, {{godownName}}, {{date}}, {{referenceNo}}"}
+                    {triggerForm.eventType === "HRLifecycle" && "Available: {{employeeName}}, {{eventType}}, {{details}}, {{companyName}}"}
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setTriggerDialog(false)}>Cancel</Button>
+                <Button disabled={triggerSaving} onClick={async () => {
+                  if (!triggerForm.templateBody) { toast({ title: "Error", description: "Template body is required", variant: "destructive" }); return; }
+                  setTriggerSaving(true);
+                  try {
+                    if (triggerEdit) {
+                      await apiFetch(`/api/sms-notification-triggers/${triggerEdit.id}`, { method: "PUT", body: JSON.stringify(triggerForm) });
+                      toast({ title: "Updated", description: "Notification trigger updated" });
+                    } else {
+                      await apiFetch("/api/sms-notification-triggers", { method: "POST", body: JSON.stringify(triggerForm) });
+                      toast({ title: "Created", description: "Notification trigger created" });
+                    }
+                    setTriggerDialog(false); loadData();
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setTriggerSaving(false); }
+                }}>{triggerSaving ? "Saving..." : "Save Trigger"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
         )}
       </Tabs>

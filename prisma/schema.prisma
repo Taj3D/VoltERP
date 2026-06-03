@@ -12,25 +12,26 @@ datasource db {
 // ============================================================
 
 model User {
-  id              String   @id @default(cuid())
-  email           String   @unique
-  name            String   // Clean display name (never raw username)
-  password        String
-  role            String   @default("admin")  // "admin" | "manager" | "sr" | "dealer" | "vat_auditor"
-  companyId       String?  // Multi-tenant isolation: links user to a company
-  branchId        String?  // Branch assignment for multi-branch infrastructure
-  profileImage    String?  // Profile photo / avatar (base64 data URL for multi-tenant persistence)
-  phone           String?  // Contact number
-  designation     String?  // Job title / designation
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  company         Company? @relation(fields: [companyId], references: [id])
-  branch          Branch?  @relation(fields: [branchId], references: [id])
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("admin")
+  companyId String?  // Multi-tenant isolation: links user to a company
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  // Profile fields
+  phone        String?   // User phone number
+  address      String?   // User address
+  photo        String?   // Profile photo (base64 or URL)
+  pdfExports   Int       @default(0)  // Count of PDF exports performed
+  csvImports   Int       @default(0)  // Count of CSV imports performed
+  csvExports   Int       @default(0)  // Count of CSV exports performed
 
   @@index([companyId])
-  @@index([branchId])
-  @@index([role])
 }
 
 // ============================================================
@@ -42,72 +43,32 @@ model InvestmentHead {
   code            String       @unique
   name            String
   description     String?
-  type            String       @default("Liability") // "Liability", "Asset", "Investment"
+  type            String       @default("Liability")
   openingBalance  Float        @default(0)
   openingType     String       @default("")
-  sharePercentage Float?       // Share ownership percentage for equity heads
-  capitalValue    Float?       // Capital value of the investment head
-  companyId       String?      // Multi-tenant isolation
   profileImage    String?      // Profile photo (base64 or URL)
   nidFrontImage   String?      // National ID front card image
   nidBackImage    String?      // National ID back card image
   isActive        Boolean      @default(true)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
-  company         Company?     @relation(fields: [companyId], references: [id])
   assets          Asset[]
   liabilities     Liability[]
-
-  @@index([companyId])
 }
 
 model Asset {
-  id                String            @id @default(cuid())
-  investmentHeadId  String
-  date              DateTime
-  amount            Float             // Purchase value / capital injection amount
-  assetCategory     String            @default("Fixed") // "Fixed" or "Current"
-  assetSubCategory  String?           // Sub-classification: "Machinery", "Vehicle", "Furniture", "IT Equipment", "Inventory", "Cash", "Receivable", etc.
-  purchaseValue     Float             @default(0) // Original purchase/acquisition value (Fixed assets)
-  salvageValue      Float             @default(0) // Estimated salvage/residual value at end of useful life
-  usefulLifeMonths  Int               @default(0) // Useful life in months for depreciation calculation
-  depreciationRate  Float             @default(0) // Annual depreciation rate (%)
-  accumulatedDepreciation Float       @default(0) // Running accumulated depreciation
-  netBookValue      Float             @default(0) // Current net book value (purchaseValue - accumulatedDepreciation)
-  locationTag       String?           // Physical location / branch / department tag for asset tracking
-  idempotencyKey    String?           @unique // Idempotent reference key to prevent duplicate asset allocation
-  description       String?
-  companyId         String?           // Multi-tenant isolation
-  isActive          Boolean           @default(true)
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  investmentHead    InvestmentHead    @relation(fields: [investmentHeadId], references: [id])
-  company           Company?          @relation(fields: [companyId], references: [id])
-  depreciationSchedules AssetDepreciation[]
+  id              String         @id @default(cuid())
+  investmentHeadId String
+  date            DateTime
+  amount          Float
+  assetCategory   String         @default("Fixed") // "Fixed" or "Current"
+  description     String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  investmentHead  InvestmentHead @relation(fields: [investmentHeadId], references: [id])
 
   @@index([investmentHeadId])
-  @@index([companyId])
-  @@index([assetCategory])
-  @@index([locationTag])
-  @@index([assetSubCategory])
-}
-
-model AssetDepreciation {
-  id              String     @id @default(cuid())
-  assetId         String
-  periodDate      DateTime   // The accounting period date (typically month-end)
-  depreciationAmount Float   @default(0) // Depreciation amount for this period
-  accumulatedDepreciation Float @default(0) // Running total accumulated depreciation after this entry
-  netBookValue    Float      @default(0) // Net book value after this period's depreciation
-  method          String     @default("StraightLine") // "StraightLine" or "DecliningBalance"
-  notes           String?
-  isActive        Boolean    @default(true)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  asset           Asset      @relation(fields: [assetId], references: [id])
-
-  @@index([assetId])
-  @@index([periodDate])
 }
 
 model Liability {
@@ -116,27 +77,27 @@ model Liability {
   date              DateTime
   amount            Float
   type              String         @default("received") // "received" or "pay"
+  liabilityType     String         @default("SHORT_TERM") // "SHORT_TERM" or "LONG_TERM"
+  principalAmount   Float          @default(0)  // Original principal for the loan/liability
+  interestRate      Float          @default(0)  // Interest rate (%)
+  loanDurationMonths Int           @default(0)  // Loan term in months
+  outstandingBalance Float         @default(0)  // Running outstanding balance after payments
   paymentMethod     String?        // "Cash", "Bank Transfer", "Cheque", etc.
+  bankId            String?        // Linked bank account for double-entry
+  voucherNo         String?        // Payment voucher number
+  chequeNo          String?        // Cheque number reference
+  referenceKey      String?        // Idempotent key for double-click guard
   description       String?
   companyId         String?        // Multi-tenant isolation
   isActive          Boolean        @default(true)
-
-  // ── Accounts Payable Sync Fields ──
-  agingBucket       String         @default("Current") // "Current", "1-30", "31-60", "61-90", "90+"
-  apSyncStatus      String         @default("Synced")  // "Pending", "Synced", "Failed"
-  apLedgerReference String?        // Reference to the AP LedgerEntry (LED-XXXXX)
-  dueDate           DateTime?      // Computed due date for aging calculation
-  overdueDays       Int            @default(0)         // Days past due date
-
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   investmentHead    InvestmentHead @relation(fields: [investmentHeadId], references: [id])
-  company           Company?       @relation(fields: [companyId], references: [id])
 
   @@index([investmentHeadId])
   @@index([companyId])
-  @@index([agingBucket])
-  @@index([apSyncStatus])
+  @@index([type])
+  @@index([liabilityType])
 }
 
 // ============================================================
@@ -150,22 +111,19 @@ model Company {
   address     String?
   phone       String?
   email       String?
-  logo        String?       // Company logo - base64 data URL for multi-tenant persistence
-  brandLogo   String?       // Brand logo image (high-res base64)
-  logoData    String?       // High-density base64 binary storage for company logo (multi-tenant safe, no filesystem dependency)
-  mobile      String?       // Primary mobile number for invoices
-  website     String?       // Company website
-  vatNumber   String?       // VAT/Tax registration number (BIN/TIN)
-  tradeLicense String?      // Trade license number
-  binNumber   String?       // Business Identification Number
-  currencySymbol String?    @default("৳")  // Currency symbol for invoices and financial documents
-  invoicePrefix String?     // Prefix for invoice numbers (e.g., "EM")
-  thankYouMsg  String?      @default("Thank You Come Again.") // Customizable footer message
-  systemNote   String?      @default("This is a system generated invoice no need to seal & signature.") // System generation note
-  showBarcode  Boolean      @default(true)  // Whether to show barcode on invoices
-  showPayInWord Boolean     @default(true)  // Whether to show amount in words
-  logoWidth    Float        @default(30)    // Logo width in mm for PDF rendering
-  logoHeight   Float        @default(20)    // Logo height in mm for PDF rendering
+  logo        String?
+  brandLogo     String?       // Brand logo image (high-res)
+  mobile        String?       // Primary mobile number for invoices
+  website       String?       // Company website
+  vatNumber     String?       // VAT/Tax registration number
+  tradeLicense  String?       // Trade license number
+  invoicePrefix String?       // Prefix for invoice numbers (e.g., "EM")
+  thankYouMsg   String?       @default("Thank You Come Again.") // Customizable footer message
+  systemNote    String?       @default("This is a system generated invoice no need to seal & signature.") // System generation note
+  showBarcode   Boolean       @default(true)  // Whether to show barcode on invoices
+  showPayInWord Boolean       @default(true)  // Whether to show amount in words
+  logoWidth     Float         @default(30)    // Logo width in mm for PDF rendering
+  logoHeight    Float         @default(20)    // Logo height in mm for PDF rendering
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -182,7 +140,9 @@ model Company {
   smsSettings        SmsSetting[]
   smsLogs            SmsLog[]
   smsBills           SmsBill[]
-  smsAutomationConfigs SmsAutomationConfig[]
+  smsNotificationTriggers SmsNotificationTrigger[]
+  smsInbox           SmsInbox[]
+  smsCampaigns       SmsCampaign[]
   chartOfAccounts    ChartOfAccount[]
   ledgerEntries      LedgerEntry[]
   periodCloses       PeriodClose[]
@@ -197,29 +157,24 @@ model Company {
   hireSales          HireSales[]
   salesReturns       SalesReturn[]
   purchaseReturns    PurchaseReturn[]
+  replacements       ReplacementOrder[]
   srTargetSetups     SRTargetSetup[]
   paymentOptions     PaymentOption[]
-  investmentHeads    InvestmentHead[]
-  assetEntries       Asset[]
-  liabilityEntries   Liability[]
-  godowns            Godown[]
-  productStocks      ProductStock[]
-  batchMasters      BatchMaster[]
-  damageLogs        DamageLog[]
-  stockTransfers    StockTransfer[]
-  journalVouchers   JournalVoucher[]
-  voucherLines      VoucherLine[]
-  fiscalYears       FiscalYear[]
-  posSales          PosSale[]
-  posSaleLines      PosSaleLine[]
-  branches               Branch[]
-  interBranchTransfers   InterBranchTransfer[]
-  consolidationLogs      ConsolidationLog[]
-  securityAuditTrails   SecurityAuditTrail[]
-  ledgerHashChains      LedgerHashChain[]
-  securityThreatLogs    SecurityThreatLog[]
-  stagingTestLogs       StagingTestLog[]
-  goldenHandoverLogs    GoldenHandoverLog[]
+  categories         Category[]       // Phase 5: Multi-tenant config boundary
+  colors             Color[]          // Phase 5: Multi-tenant config boundary
+  brands             Brand[]          // Phase 5: Multi-tenant config boundary
+  units              Unit[]           // Phase 5: Multi-tenant config boundary
+  departments        Department[]     // Phase 6: Multi-tenant structural containment
+  godowns            Godown[]         // Phase 6: Multi-tenant spatial matrix containment
+  segments           Segment[]        // Phase 6: Multi-tenant structural containment
+  capacities         Capacity[]       // Phase 6: Multi-tenant structural containment
+  interestPercentages InterestPercentage[] // Multi-tenant interest rate engine isolation
+  cardTypes          CardType[]       // Phase 7: Multi-tenant card type isolation
+  cardTypeSetups     CardTypeSetup[]  // Phase 7: Multi-tenant card commission isolation
+  employees          Employee[]       // Phase 8: Multi-tenant personnel isolation
+  designations       Designation[]    // Phase 8: Multi-tenant HR hierarchy isolation
+  employeeLeaves     EmployeeLeave[]  // Phase 8: Multi-tenant leave matrix isolation
+  leaveAllocations   LeaveAllocation[] // Phase 8: Multi-tenant leave accrual isolation
 }
 
 model Category {
@@ -228,114 +183,157 @@ model Category {
   name             String
   description      String?
   parentCategoryId String?
+  companyId        String?   // Phase 5: Multi-tenant boundary shield
   isActive         Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   parent           Category? @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
   children         Category[] @relation("CategoryHierarchy")
   products         Product[]
+  company          Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model Color {
   id         String   @id @default(cuid())
   name       String
   colorCode  String
+  companyId  String?  // Phase 5: Multi-tenant boundary shield
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   products   Product[]
-}
-
-model Bank {
-  id             String            @id @default(cuid())
-  bankName       String
-  branch         String?
-  accountNo      String
-  accountHolder  String
-  openingBalance Float             @default(0)
-  currentBalance Float             @default(0)
-  companyId      String?            // Multi-tenant isolation
-  isActive       Boolean           @default(true)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  company        Company?          @relation(fields: [companyId], references: [id])
-  bankTransactions BankTransaction[]
-  transferToTransactions BankTransaction[] @relation("TransferToBank")
-  expenses      Expense[]
-  incomes       Income[]
-  cashCollections CashCollection[]
-  cashDeliveries CashDelivery[]
-  journalVouchers JournalVoucher[]
+  company    Company? @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
 }
 
+model Bank {
+  id                String            @id @default(cuid())
+  bankName          String
+  bankType          String            @default("Bank")  // Phase 5: "Bank", "MFS", "CashDrawer"
+  branch            String?
+  accountNo         String
+  accountHolder     String
+  openingBalance    Float             @default(0)
+  currentBalance    Float             @default(0)
+  companyId         String?            // Multi-tenant isolation
+  chartOfAccountId  String?           // Phase 5: Auto-mapped CoA node under Assets -> Liquid/Cash Equivalents
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  company           Company?          @relation(fields: [companyId], references: [id])
+  chartOfAccount    ChartOfAccount?   @relation(fields: [chartOfAccountId], references: [id])
+  bankTransactions  BankTransaction[]
+  transferToTransactions BankTransaction[] @relation("TransferToBank")
+  expenses          Expense[]
+  incomes           Income[]
+  cashCollections   CashCollection[]
+  cashDeliveries    CashDelivery[]
+
+  @@index([companyId])
+  @@index([chartOfAccountId])
+  @@index([bankType])
+}
+
 model Department {
   id          String       @id @default(cuid())
+  code        String?      @unique  // Phase 6: DEPT-XXXXX auto-generated
   name        String
   description String?
+  companyId   String?      // Phase 6: Multi-tenant containment
   isActive    Boolean      @default(true)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   designations Designation[]
   employees   Employee[]
+  company     Company?     @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model Godown {
-  id        String   @id @default(cuid())
-  name      String
-  address   String?
-  inCharge String?
-  status    String   @default("ACTIVE")  // "ACTIVE" or "SUSPENDED" — SUSPENDED blocks all stock operations
-  companyId String?  // Multi-tenant isolation
-  branchId  String?  // Branch assignment for multi-branch infrastructure
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  company         Company?        @relation(fields: [companyId], references: [id])
-  branch          Branch?         @relation(fields: [branchId], references: [id])
-  products        Product[]
-  purchaseOrders  PurchaseOrder[]
-  salesOrders     SalesOrder[]
-  hireSales       HireSales[]
-  salesReturns    SalesReturn[]
-  transferFrom    StockTransfer[] @relation("TransferFrom")
-  transferTo      StockTransfer[] @relation("TransferTo")
-  productStocks   ProductStock[]
-  batchMasters   BatchMaster[]
-  damageLogs     DamageLog[]
-  posSales       PosSale[]
-
-  @@index([companyId])
-  @@index([branchId])
-}
-
-model InterestPercentage {
   id            String   @id @default(cuid())
-  percentage    Float
-  effectiveDate DateTime
+  code          String?   @unique  // Phase 6: WH-XXXXX auto-generated, unique per company
+  name          String
+  address       String?
+  phone         String?              // Phase 6: Required phone for warehouse
+  inCharge      String?
+  status        String   @default("ACTIVE")  // Phase 6: "ACTIVE" or "SUSPENDED" — Emergency Closure Toggle
+  capacityValue Float    @default(0)   // Phase 6: Volumetric capacity (cubic meters, max items, etc.)
+  capacityUnit  String?              // Phase 6: e.g. "m³", "units", "sqft"
+  companyId     String?              // Phase 6: Multi-tenant containment
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  company       Company? @relation(fields: [companyId], references: [id])
+  products       Product[]
+  purchaseOrders PurchaseOrder[]
+  salesOrders    SalesOrder[]
+  hireSales      HireSales[]
+  salesReturns   SalesReturn[]
+  purchaseReturns PurchaseReturn[]
+  orderSheets    OrderSheet[]
+  transferFrom   StockTransfer[] @relation("TransferFrom")
+  transferTo     StockTransfer[] @relation("TransferTo")
+
+  @@index([companyId])
+  @@index([status])
+}
+
+model InterestPercentage {
+  id               String    @id @default(cuid())
+  code             String?   @unique  // IP-XXXXX auto-generated
+  percentage       Float
+  type             String    @default("HIRE_PURCHASE")  // "HIRE_PURCHASE", "TERM_LOAN", "OVERDRAFT", "CUSTOM"
+  effectiveDate    DateTime
+  expiryDate       DateTime? // Optional: when this rate expires
+  minimumAmount    Float     @default(0)   // Minimum principal for this rate tier
+  maximumAmount    Float     @default(0)   // Maximum principal for this rate tier (0 = unlimited)
+  durationMonthsMin Int      @default(0)   // Minimum loan/hire duration in months
+  durationMonthsMax Int      @default(0)   // Maximum loan/hire duration in months (0 = unlimited)
+  description      String?
+  companyId        String?   // Multi-tenant isolation
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  company          Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([type])
+  @@index([isActive])
 }
 
 model Segment {
   id          String   @id @default(cuid())
+  code        String?  @unique  // Phase 6: SEG-XXXXX auto-generated
   name        String
   description String?
+  companyId   String?  // Phase 6: Multi-tenant containment
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  company     Company? @relation(fields: [companyId], references: [id])
   products    Product[]
+
+  @@index([companyId])
 }
 
 model Capacity {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(cuid())
+  code          String?  @unique  // Phase 6: CAP-XXXXX auto-generated
+  name          String
+  description   String?
+  capacityValue Float    @default(0)   // Phase 6: Numeric capacity value (must be > 0)
+  capacityUnit  String?              // Phase 6: e.g. "m³", "units", "sqft", "kg"
+  companyId     String?  // Phase 6: Multi-tenant containment
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  company       Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model Brand {
@@ -343,10 +341,14 @@ model Brand {
   code        String   @unique
   name        String
   description String?
+  companyId   String?  // Phase 5: Multi-tenant boundary shield
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   products    Product[]
+  company     Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model Unit {
@@ -355,31 +357,40 @@ model Unit {
   name        String
   symbol      String?  // e.g., "pcs", "kg", "m", "l"
   description String?
+  companyId   String?  // Phase 5: Multi-tenant boundary shield
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  company     Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model SRTargetSetup {
-  id          String   @id @default(cuid())
-  employeeId  String
-  month       Int
-  year        Int
-  targetAmount Float
-  companyId   String?  // Multi-tenant isolation
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  employee    Employee @relation(fields: [employeeId], references: [id])
-  company     Company? @relation(fields: [companyId], references: [id])
+  id                   String   @id @default(cuid())
+  employeeId           String
+  month                Int
+  year                 Int
+  targetAmount         Float    // Phase 7: Must be > 0 (financial benchmark shield)
+  minimumSalesQuota    Float    @default(0)   // Phase 7: Minimum sales quota (must be > 0)
+  commissionPercentage Float    @default(0)   // Phase 7: Commission % (must be >= 0)
+  status               String   @default("ACTIVE")  // Phase 7: ACTIVE / INACTIVE
+  companyId            String?  // Multi-tenant isolation
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  employee             Employee @relation(fields: [employeeId], references: [id])
+  company              Company? @relation(fields: [companyId], references: [id])
 
   @@index([employeeId])
   @@index([companyId])
+  @@index([companyId, employeeId, month, year])  // Phase 7: Monthly overlap interlock
 }
 
 model PaymentOption {
   id            String          @id @default(cuid())
   name          String
+  status        String          @default("ACTIVE")  // Phase 7: ACTIVE / INACTIVE — Deactivated channels filtered from Invoice/Collection dropdowns
   companyId     String?         // Multi-tenant isolation
   isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
@@ -387,36 +398,48 @@ model PaymentOption {
   company       Company?        @relation(fields: [companyId], references: [id])
   cardTypeSetups CardTypeSetup[]
   expenses      Expense[]
+  orderSheets    OrderSheet[]
   incomes       Income[]
   salesOrders   SalesOrder[]
   cashCollections CashCollection[]
   cashDeliveries CashDelivery[]
 
   @@index([companyId])
+  @@index([status])  // Phase 7: Fast lookup for ACTIVE/INACTIVE filtering
+  @@index([companyId, name])  // Phase 7: Multi-tenant unique name constraint
 }
 
 model CardType {
   id            String          @id @default(cuid())
   name          String
+  companyId     String?         // Phase 7: Multi-tenant isolation
   isActive      Boolean         @default(true)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  company       Company?        @relation(fields: [companyId], references: [id])
   cardTypeSetups CardTypeSetup[]
+
+  @@index([companyId])
 }
 
 model CardTypeSetup {
-  id              String        @id @default(cuid())
-  paymentOptionId String
-  cardTypeId      String
-  chargePercentage Float        @default(0)
-  isActive        Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  paymentOption   PaymentOption @relation(fields: [paymentOptionId], references: [id])
-  cardType        CardType      @relation(fields: [cardTypeId], references: [id])
+  id                 String        @id @default(cuid())
+  paymentOptionId    String
+  cardTypeId         String
+  chargePercentage   Float         @default(0)  // Legacy field (retained for backward compat)
+  bankServiceCharge  Float         @default(0)  // Phase 7: Bank Service Charge BSC % (0 <= rate <= 10.00, safeFinancial)
+  customerConvFee    Float         @default(0)  // Phase 7: Customer Convenience Fee % (0 <= rate <= 10.00, safeFinancial)
+  companyId          String?       // Phase 7: Multi-tenant isolation
+  isActive           Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  paymentOption      PaymentOption @relation(fields: [paymentOptionId], references: [id])
+  cardType           CardType      @relation(fields: [cardTypeId], references: [id])
+  company            Company?      @relation(fields: [companyId], references: [id])
 
   @@index([paymentOptionId])
   @@index([cardTypeId])
+  @@index([companyId])
 }
 
 // ============================================================
@@ -426,6 +449,8 @@ model CardTypeSetup {
 model Product {
   id            String   @id @default(cuid())
   productCode   String   @unique
+  sku           String?  @unique  // Phase 5: Stock Keeping Unit — unique per tenant
+  barcode       String?  @unique  // Phase 5: Barcode — unique per tenant
   name          String
   categoryId    String
   colorId       String?
@@ -438,14 +463,11 @@ model Product {
   dealerPrice   Float    @default(0)
   openingStock  Float    @default(0)
   reorderLevel  Float    @default(0)
-  valuationMethod String @default("FIFO")  // "FIFO" or "WeightedAverage" — Perpetual stock valuation engine
-  coaAccountId  String?  // Auto-mapped Chart of Accounts sub-node under Assets -> Inventory Asset
   godownId      String?
   segmentId     String?
   companyId     String?
   imeiNumber    String?
   image         String?
-  lastSupplierId String? // Last registered supplier for Auto-PO engine — maps reorder suggestions to source
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -455,28 +477,26 @@ model Product {
   godown        Godown?  @relation(fields: [godownId], references: [id])
   segment       Segment? @relation(fields: [segmentId], references: [id])
   company       Company? @relation(fields: [companyId], references: [id])
-  coaAccount    ChartOfAccount? @relation(fields: [coaAccountId], references: [id])
   stockEntries       StockEntry[]
-  productStocks      ProductStock[]
-  batchMasters      BatchMaster[]
+  batches            BatchMaster[]
+  openingStocks      OpeningStock[]
   poLines            PurchaseOrderLine[]
   salesLines         SalesOrderLine[]
   orderSheetLines    OrderSheetLine[]
   transferLines      StockTransferLine[]
   hireSalesLines     HireSalesLine[]
   replacementLines   ReplacementOrderLine[]
+  replacementProductLines ReplacementOrderLine[] @relation("ReplacementProduct")
   salesReturnLines   SalesReturnLine[]
   purchaseReturnLines PurchaseReturnLine[]
-  damageLogs         DamageLog[]
-  posSaleLines       PosSaleLine[]
 
   @@index([categoryId])
   @@index([brandId])
   @@index([godownId])
   @@index([companyId])
-  @@index([coaAccountId])
   @@index([isActive])
-  @@index([companyId, isActive])
+  @@index([sku])
+  @@index([barcode])
 }
 
 // ============================================================
@@ -492,13 +512,16 @@ model Designation {
   salaryBandMin Float      @default(0)
   salaryBandMax Float      @default(0)
   description   String?
+  companyId     String?    // Phase 8: Multi-tenant isolation
   isActive      Boolean    @default(true)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   department    Department @relation(fields: [departmentId], references: [id])
+  company       Company?   @relation(fields: [companyId], references: [id])
   employees     Employee[]
 
   @@index([departmentId])
+  @@index([companyId])
 }
 
 model Employee {
@@ -508,23 +531,25 @@ model Employee {
   designationId      String
   departmentId       String
   joiningDate        DateTime
+  resignationDate    DateTime?       // Phase 8: Resignation/Termination Date — must be > Joining Date
   baseSalary         Float           @default(0)
   employeeType       String          @default("Permanent")  // "Permanent", "Contract", "Probation", "Part-time"
   status             String          @default("Active")  // "Active", "On Leave", "Resigned", "Terminated"
+  companyId          String?         // Phase 8: Multi-tenant isolation
   // Personal Info
   gender             String?         // "Male", "Female", "Other"
   bloodGroup         String?         // "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"
   religion           String?
-  dateOfBirth        DateTime?
+  dateOfBirth        DateTime?       // Phase 8: Joining Date must be >= DOB + 18 years
   fatherName         String?
   motherName         String?
   spouseName         String?
   maritalStatus      String?         // "Single", "Married", "Divorced", "Widowed"
-  nidNumber          String?         // National ID
+  nidNumber          String?         // Phase 8: Unique per tenant (companyId_nid compound)
   tinNumber          String?         // Tax Identification Number
-  // Contact
-  phone              String?
-  email              String?
+  // Contact — Phase 8: Unique per tenant
+  phone              String?         // Phase 8: Unique per tenant (companyId_phone compound)
+  email              String?         // Phase 8: Unique per tenant (companyId_email compound)
   presentAddress     String?
   permanentAddress   String?
   emergencyContact   String?
@@ -543,12 +568,20 @@ model Employee {
   updatedAt          DateTime        @updatedAt
   designation        Designation     @relation(fields: [designationId], references: [id])
   department         Department      @relation(fields: [departmentId], references: [id])
+  company            Company?        @relation(fields: [companyId], references: [id])
   leaves             EmployeeLeave[]
+  leaveAllocations   LeaveAllocation[]
   srTargets          SRTargetSetup[]
+  salesOrders        SalesOrder[]      // Sales orders created by this SR (via srId)
+  cashCollections    CashCollection[]  // Cash collected by this SR (via srId)
 
   @@index([designationId])
   @@index([departmentId])
   @@index([isActive])
+  @@index([companyId])
+  @@index([companyId, nidNumber])  // Phase 8: Fast lookup for unique NID per tenant
+  @@index([companyId, phone])      // Phase 8: Fast lookup for unique phone per tenant
+  @@index([companyId, email])      // Phase 8: Fast lookup for unique email per tenant
 }
 
 model EmployeeLeave {
@@ -558,17 +591,46 @@ model EmployeeLeave {
   leaveType   String    // "Casual", "Sick", "Annual", "Maternity"
   fromDate    DateTime
   toDate      DateTime
-  totalDays   Float     @default(0)
+  totalDays   Float     @default(0)  // Phase 8: Must be positive
   reason      String?
   status      String    @default("Pending")  // "Pending", "Approved", "Rejected"
   approvedBy  String?
   approvedAt  DateTime?
+  companyId   String?   // Phase 8: Multi-tenant isolation
+  isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   employee    Employee  @relation(fields: [employeeId], references: [id])
+  company     Company?  @relation(fields: [companyId], references: [id])
 
   @@index([employeeId])
   @@index([status])
+  @@index([companyId])
+  @@index([employeeId, leaveType, status])  // Phase 8: Fast balance computation
+}
+
+// ============================================================
+// LEAVE ALLOCATION — Phase 8: Structural leave accrual matrix
+// ============================================================
+
+model LeaveAllocation {
+  id              String    @id @default(cuid())
+  employeeId      String
+  leaveType       String    // "Casual", "Sick", "Annual", "Maternity"
+  allocatedDays   Float     @default(0)   // Total days allocated for the year
+  usedDays        Float     @default(0)   // Days already consumed (approved leaves)
+  remainingDays   Float     @default(0)   // allocatedDays - usedDays
+  year            Int       // e.g. 2025
+  companyId       String?   // Phase 8: Multi-tenant isolation
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+  company         Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([employeeId])
+  @@index([companyId])
+  @@index([employeeId, leaveType, year])  // Phase 8: Fast lookup for balance check
 }
 
 // ============================================================
@@ -579,37 +641,35 @@ model Customer {
   id                String          @id @default(cuid())
   customerCode      String          @unique  // CUS-XXXXX
   name              String
-  phone             String?         // Primary mobile — collision-shielded per tenant
-  alternativePhone  String?         // Alternative phone — collision-shielded per tenant
-  email             String?         // Email — collision-shielded per tenant
+  phone             String?
+  email             String?
   address           String?
   area              String?
   reference         String?
-  nidNumber         String?         // National ID / Tax ID — collision-shielded per tenant
   openingBalance    Float           @default(0)
-  openingBalanceType String         @default("Dr")  // "Dr" (Due) or "Cr" (Advance)
+  openingBalanceType String         @default("Dr")  // "Dr" or "Cr"
+  currentBalance    Float           @default(0)  // Cached AR balance — recomputed from transaction engine
+  currentBalanceType String         @default("Dr")  // "Dr" or "Cr" — reflects live AR position
   creditLimit       Float           @default(0)
+  creditStatus      String          @default("Active")  // "Active", "Frozen", "OverLimit" — auto-toggled by credit engine
   customerType      String          @default("Regular")  // "Regular" or "Dealer"
   profileImage      String?         // Profile photo (base64 or URL)
   nidFrontImage     String?         // National ID front card image
   nidBackImage      String?         // National ID back card image
-  coaAccountId      String?         // Auto-mapped Chart of Accounts sub-node under Assets -> Accounts Receivable
   companyId         String?         // Multi-tenant isolation
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   company           Company?        @relation(fields: [companyId], references: [id])
-  coaAccount        ChartOfAccount? @relation(fields: [coaAccountId], references: [id])
   salesOrders       SalesOrder[]
   hireSales         HireSales[]
   salesReturns      SalesReturn[]
+  replacements     ReplacementOrder[]
   cashCollections   CashCollection[]
   orderSheets       OrderSheet[]
-  posSales          PosSale[]
 
   @@index([companyId])
-  @@index([coaAccountId])
-  @@index([companyId, isActive])
+  @@index([creditStatus])  // Fast lookup for credit-frozen accounts
 }
 
 model Supplier {
@@ -617,33 +677,32 @@ model Supplier {
   supplierCode       String           @unique  // SUP-XXXXX
   name               String
   contactPerson      String?
-  phone              String?          // Primary phone — collision-shielded per tenant
-  alternativePhone   String?         // Alternative phone — collision-shielded per tenant
-  email              String?          // Email — collision-shielded per tenant
+  phone              String?
+  email              String?
   address            String?
   area               String?
   terms              String?          // Payment terms
-  nidNumber          String?         // National ID / Tax ID — collision-shielded per tenant
   openingBalance     Float            @default(0)
-  openingBalanceType String           @default("Cr")  // "Cr" (Due) or "Dr" (Advance)
+  openingBalanceType String           @default("Cr")  // "Dr" or "Cr"
+  currentBalance     Float            @default(0)  // Cached AP balance — recomputed from transaction engine
+  currentBalanceType String           @default("Cr")  // "Dr" or "Cr" — reflects live AP position
   creditLimit        Float            @default(0)
+  creditStatus       String           @default("Active")  // "Active", "Frozen", "OverLimit" — auto-toggled by credit engine
   profileImage       String?          // Profile photo (base64 or URL)
   nidFrontImage      String?          // National ID front card image
   nidBackImage       String?          // National ID back card image
-  coaAccountId       String?          // Auto-mapped Chart of Accounts sub-node under Liabilities -> Accounts Payable
   companyId          String?          // Multi-tenant isolation
   isActive           Boolean          @default(true)
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   company            Company?         @relation(fields: [companyId], references: [id])
-  coaAccount         ChartOfAccount?  @relation(fields: [coaAccountId], references: [id])
   purchaseOrders     PurchaseOrder[]
   purchaseReturns    PurchaseReturn[]
+  replacements      ReplacementOrder[]
   cashDeliveries     CashDelivery[]
 
   @@index([companyId])
-  @@index([coaAccountId])
-  @@index([companyId, isActive])
+  @@index([creditStatus])  // Fast lookup for credit-frozen accounts
 }
 
 // ============================================================
@@ -651,87 +710,116 @@ model Supplier {
 // ============================================================
 
 model OrderSheet {
-  id          String           @id @default(cuid())
-  sheetNo     String           @unique
-  companyId   String?
-  customerId  String?
-  date        DateTime
-  status      String           @default("Draft")
-  notes       String?
-  isActive    Boolean          @default(true)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  company     Company?         @relation(fields: [companyId], references: [id])
-  customer    Customer?        @relation(fields: [customerId], references: [id])
-  lines       OrderSheetLine[]
+  id                 String           @id @default(cuid())
+  sheetNo            String           @unique
+  orderType          String           @default("Company")  // "Company" or "Customer" — distinguishes order pipeline
+  companyId          String?
+  customerId         String?
+  godownId           String?          // Fulfillment warehouse assignment
+  date               DateTime
+  subTotal           Float            @default(0)  // Sum of all line totals before discount/VAT
+  discount           Float            @default(0)  // Order-level discount amount
+  discountPercent    Float            @default(0)  // Order-level discount percentage
+  vatPercentage      Float            @default(0)  // VAT percentage applied
+  vatAmount          Float            @default(0)  // Calculated VAT amount
+  grandTotal         Float            @default(0)  // Final order total after discount + VAT
+  status             String           @default("Draft")  // Draft, Confirmed, Processing, Completed, Cancelled
+  fulfillmentStatus  String           @default("Unfulfilled")  // Unfulfilled, Partial, Fulfilled — tracks warehouse pipeline
+  paymentOptionId    String?          // Payment method reference
+  notes              String?
+  referenceKey       String?          // Idempotent key for duplicate submission guard
+  isActive           Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  company            Company?         @relation(fields: [companyId], references: [id])
+  customer           Customer?        @relation(fields: [customerId], references: [id])
+  godown             Godown?          @relation(fields: [godownId], references: [id])
+  paymentOption      PaymentOption?   @relation(fields: [paymentOptionId], references: [id])
+  lines              OrderSheetLine[]
 
   @@index([companyId])
   @@index([customerId])
+  @@index([godownId])
   @@index([date])
   @@index([status])
+  @@index([fulfillmentStatus])
+  @@index([orderType])
 }
 
 model OrderSheetLine {
-  id           String     @id @default(cuid())
-  orderSheetId String
-  productId    String
-  quantity     Float
-  rate         Float
-  total        Float
-  notes        String?
-  orderSheet   OrderSheet @relation(fields: [orderSheetId], references: [id], onDelete: Cascade)
-  product      Product    @relation(fields: [productId], references: [id])
+  id                String     @id @default(cuid())
+  orderSheetId      String
+  productId         String
+  quantity          Float      // Ordered quantity
+  allocatedQuantity Float      @default(0)  // Quantity allocated from warehouse stock
+  fulfilledQuantity Float      @default(0)  // Quantity actually dispatched/delivered
+  rate              Float      // Unit price at time of order
+  discountPercent   Float      @default(0)  // Line-level discount percentage
+  discountAmount    Float      @default(0)  // Line-level discount amount
+  vatAmount         Float      @default(0)  // Line-level VAT amount
+  total             Float      // Line total after discount
+  availableStock    Float      @default(0)  // Snapshot of available stock at time of order (for audit trail)
+  stockStatus       String     @default("Available")  // "Available", "Partial", "Insufficient" — stock check result
+  notes             String?
+  orderSheet        OrderSheet @relation(fields: [orderSheetId], references: [id], onDelete: Cascade)
+  product           Product    @relation(fields: [productId], references: [id])
 }
 
 model PurchaseOrder {
-  id              String              @id @default(cuid())
-  poNumber        String              @unique
-  supplierId      String
-  date            DateTime
-  dueDate         DateTime?           // Expected delivery date for PO fulfillment
-  godownId        String?
-  subTotal        Float               @default(0)
-  discount        Float               @default(0)
-  vatPercentage   Float               @default(0)
-  vatAmount       Float               @default(0)
-  grandTotal      Float               @default(0)
-  status          String              @default("Draft")  // "Draft", "Confirmed", "Received", "Cancelled"
-  isAutoGenerated Boolean             @default(false)  // True if auto-generated by Auto-PO engine
-  notes           String?
-  companyId       String?             // Multi-tenant isolation
-  isActive        Boolean             @default(true)
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  supplier        Supplier            @relation(fields: [supplierId], references: [id])
-  godown          Godown?             @relation(fields: [godownId], references: [id])
-  company         Company?            @relation(fields: [companyId], references: [id])
-  lines           PurchaseOrderLine[]
-  purchaseReturn  PurchaseReturn[]
+  id               String              @id @default(cuid())
+  poNumber         String              @unique
+  supplierId       String
+  date             DateTime
+  godownId         String?
+  subTotal         Float               @default(0)
+  discount         Float               @default(0)
+  discountPercent  Float               @default(0)  // Order-level discount percentage
+  vatPercentage    Float               @default(0)
+  vatAmount        Float               @default(0)
+  grandTotal       Float               @default(0)
+  status           String              @default("Draft")  // Draft, Confirmed, Partially Received, Received, Cancelled
+  fulfillmentStatus String             @default("Pending")  // Pending, Partial, Fulfilled — tracks warehouse receiving pipeline
+  receivingStatus  String              @default("Unreceived")  // Unreceived, Partially Received, Fully Received
+  expectedDate     DateTime?           // Expected delivery date
+  receivedDate     DateTime?           // Actual received date
+  referenceKey     String?             // Idempotent key for duplicate submission guard
+  notes            String?
+  companyId        String?             // Multi-tenant isolation
+  isActive         Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  supplier         Supplier            @relation(fields: [supplierId], references: [id])
+  godown           Godown?             @relation(fields: [godownId], references: [id])
+  company          Company?            @relation(fields: [companyId], references: [id])
+  lines            PurchaseOrderLine[]
+  purchaseReturn   PurchaseReturn[]
 
   @@index([supplierId])
   @@index([godownId])
   @@index([date])
   @@index([status])
   @@index([companyId])
-  @@index([isAutoGenerated])
-  @@index([companyId, date])
+  @@index([fulfillmentStatus])
+  @@index([receivingStatus])
 }
 
 model PurchaseOrderLine {
-  id              String        @id @default(cuid())
-  purchaseOrderId String
-  productId       String
-  quantity        Float
-  rate            Float         // Unit cost price — must be > 0
-  taxRate         Float         @default(0)  // Tax Rate (%) per line item — must be >= 0
-  discountPercent Float         @default(0)
-  discountAmount  Float         @default(0)
-  vatAmount       Float         @default(0)
-  total           Float
-  batchNumber     String?       // Batch reference for line-level batch tracking
-  expiryDate      DateTime?    // Batch expiry date for line-level batch tracking
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  product         Product       @relation(fields: [productId], references: [id])
+  id                String        @id @default(cuid())
+  purchaseOrderId   String
+  productId         String
+  quantity          Float         // Ordered quantity
+  receivedQuantity  Float         @default(0)  // Quantity actually received into warehouse
+  pendingQuantity   Float         @default(0)  // quantity - receivedQuantity (computed)
+  rate              Float
+  discountPercent   Float         @default(0)
+  discountAmount    Float         @default(0)
+  vatAmount         Float         @default(0)
+  total             Float
+  availableStock    Float         @default(0)  // Snapshot of available stock at time of order (for audit trail)
+  stockStatus       String        @default("Available")  // "Available", "Low", "Out of Stock" — stock check result
+  notes             String?
+  purchaseOrder     PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product           Product       @relation(fields: [productId], references: [id])
 }
 
 // ============================================================
@@ -743,26 +831,25 @@ model SalesOrder {
   invoiceNo       String           @unique
   customerId      String
   date            DateTime
-  dueDate         DateTime?        // Payment due date for credit terms
   godownId        String?
   subTotal        Float            @default(0)
   discount        Float            @default(0)
-  deliveryCost    Float            @default(0)  // Delivery/Shipping cost added to invoice
+  discountPercent Float            @default(0)  // Order-level discount percentage
   vatPercentage   Float            @default(0)
   vatAmount       Float            @default(0)
   grandTotal      Float            @default(0)
   paymentOptionId String?
-  // Payment Type Breakdown — tracks how the invoice was paid across multiple methods
-  cashAmount      Float            @default(0)  // Cash portion of payment
-  bankAmount      Float            @default(0)  // Bank transfer portion
-  mfsAmount       Float            @default(0)  // Mobile Financial Services (bKash/Nagad) portion
-  cardAmount      Float            @default(0)  // Card payment portion
-  // Credit Shield fields
-  creditOverride  Boolean          @default(false)  // True if Admin overrode the credit limit lock
-  overrideBy      String?          // Admin user ID who authorized credit override
-  status          String           @default("Draft")  // "Draft", "Confirmed", "Delivered", "Cancelled"
+  status          String           @default("Draft")  // Draft, Confirmed, Delivered, Completed, Cancelled
   notes           String?
+  srId            String?          // Sales Representative ID (links to Employee)
   companyId       String?          // Multi-tenant isolation
+  // ── COGS & Fiscal Tracking ──
+  cogsTotal       Float            @default(0)  // Cost of Goods Sold — sum of (line.qty * product.costPrice)
+  grossProfit     Float            @default(0)  // grandTotal - cogsTotal
+  profitMargin    Float            @default(0)  // (grossProfit / grandTotal) * 100
+  arPosted        Boolean          @default(false)  // Whether AR ledger entry has been posted
+  // ── Idempotency ──
+  referenceKey    String?          // Idempotent key for duplicate submission guard
   isActive        Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -770,31 +857,34 @@ model SalesOrder {
   godown          Godown?          @relation(fields: [godownId], references: [id])
   paymentOption   PaymentOption?   @relation(fields: [paymentOptionId], references: [id])
   company         Company?         @relation(fields: [companyId], references: [id])
+  sr              Employee?        @relation(fields: [srId], references: [id])
   lines           SalesOrderLine[]
   salesReturns    SalesReturn[]
   replacements    ReplacementOrder[]
-  posSales        PosSale[]
 
   @@index([customerId])
   @@index([godownId])
   @@index([date])
   @@index([status])
   @@index([companyId])
-  @@index([creditOverride])
-  @@index([companyId, date])
-  @@index([companyId, status])
+  @@index([srId])
+  @@index([arPosted])
 }
 
 model SalesOrderLine {
   id              String      @id @default(cuid())
   salesOrderId    String
   productId       String
-  quantity        Float       // Must be > 0 — negative or zero blocked at API gate
-  rate            Float       // MRP / selling price — must be > 0
+  quantity        Float
+  rate            Float
   discountPercent Float       @default(0)
   discountAmount  Float       @default(0)
   vatAmount       Float       @default(0)
   total           Float
+  // ── COGS Fields ──
+  costPrice       Float       @default(0)  // Unit cost price at time of sale (snapshot from Product.costPrice)
+  cogsAmount      Float       @default(0)  // quantity * costPrice — line-level COGS
+  grossProfit     Float       @default(0)  // total - cogsAmount — line-level gross profit
   salesOrder      SalesOrder  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   product         Product     @relation(fields: [productId], references: [id])
 }
@@ -811,20 +901,31 @@ model HireSales {
   godownId          String?
   subTotal          Float           @default(0)
   downPayment       Float           @default(0)
-  hireRate          Float           @default(0)
-  duration          Int             @default(0)
-  installmentAmount Float           @default(0)
-  balanceAmount     Float           @default(0)
-  totalPaid         Float           @default(0)
-  currentStatus     String          @default("Active")
+  hireRate          Float           @default(0)    // Annual interest rate (%)
+  duration          Int             @default(0)    // Number of installments (months)
+  installmentAmount Float           @default(0)    // Monthly installment amount
+  balanceAmount     Float           @default(0)    // Principal balance after down-payment
+  totalPaid         Float           @default(0)    // Cumulative amount paid (down-payment + installments)
+  currentStatus     String          @default("Active")  // Active, Completed, Defaulted, Cancelled
   nextPaymentDate   DateTime?
   returnDate        DateTime?
-  grandTotal        Float           @default(0)
+  grandTotal        Float           @default(0)    // Total hire payable (principal + interest)
   vatPercentage     Float           @default(0)
   vatAmount         Float           @default(0)
   status            String          @default("Active")
   notes             String?
   companyId         String?         // Multi-tenant isolation
+  // ── Hire Interest & Fiscal Tracking ──
+  totalInterestAmount Float         @default(0)  // Total interest over the hire period
+  totalHirePayable   Float         @default(0)  // balanceAmount + totalInterestAmount = total obligation
+  outstandingBalance  Float        @default(0)  // Current outstanding balance (real-time, decreases as installments paid)
+  penaltyRate        Float         @default(0)  // Late payment penalty rate (% per day overdue)
+  totalPenaltyAmount Float         @default(0)  // Cumulative penalty amount accrued
+  downPaymentPosted  Boolean       @default(false)  // Whether down payment was posted to AR
+  // ── COGS ──
+  cogsTotal          Float         @default(0)  // Cost of Goods Sold for this hire sale
+  // ── Idempotency ──
+  referenceKey       String?       // Idempotent key for duplicate submission guard
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -838,6 +939,7 @@ model HireSales {
   @@index([date])
   @@index([status])
   @@index([companyId])
+  @@index([currentStatus])
 }
 
 model HireSalesLine {
@@ -849,6 +951,9 @@ model HireSalesLine {
   discountPercent Float      @default(0)
   discountAmount  Float      @default(0)
   total           Float
+  // ── COGS Field ──
+  costPrice       Float      @default(0)  // Unit cost price at time of sale (snapshot from Product.costPrice)
+  cogsAmount      Float      @default(0)  // quantity * costPrice — line-level COGS
   hireSales       HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
   product         Product    @relation(fields: [productId], references: [id])
 }
@@ -862,49 +967,59 @@ model HireSalesLine {
 // ============================================================
 
 model HireInstallment {
-  id              String     @id @default(cuid())
-  hireSalesId     String
-  installmentNo   Int
-  dueDate         DateTime
-  amount          Float      @default(0)
-  paidAmount      Float      @default(0)
-  paidDate        DateTime?
-  status          String     @default("Pending") // "Pending", "Paid", "Overdue", "Partial"
-  notes           String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  hireSales       HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
+  id                String     @id @default(cuid())
+  hireSalesId       String
+  installmentNo     Int
+  dueDate           DateTime
+  amount            Float      @default(0)   // Total installment amount (principal + interest)
+  principalAmount   Float      @default(0)   // Principal portion of this installment
+  interestAmount    Float      @default(0)   // Interest portion of this installment
+  paidAmount        Float      @default(0)
+  paidDate          DateTime?
+  overdueDays       Int        @default(0)   // Days past due date (computed)
+  penaltyAmount     Float      @default(0)   // Late payment penalty accrued
+  status            String     @default("Pending") // "Pending", "Paid", "Overdue", "Partial", "WrittenOff"
+  paymentRef        String?    // Payment reference / receipt number
+  notes             String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  hireSales         HireSales  @relation(fields: [hireSalesId], references: [id], onDelete: Cascade)
 }
 
 model SalesReturn {
-  id              String           @id @default(cuid())
-  returnNo        String           @unique
-  salesOrderId    String
-  customerId      String
-  godownId        String?
-  date            DateTime
-  subTotal        Float            @default(0)
-  discount        Float            @default(0)
-  vatPercentage   Float            @default(0)
-  vatAmount       Float            @default(0)
-  reason          String?
-  grandTotal      Float            @default(0)
-  creditMemoCode  String?
-  status          String           @default("Pending")
-  companyId       String?          // Multi-tenant isolation
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  salesOrder      SalesOrder       @relation(fields: [salesOrderId], references: [id])
-  customer        Customer         @relation(fields: [customerId], references: [id])
-  godown          Godown?          @relation(fields: [godownId], references: [id])
-  company         Company?         @relation(fields: [companyId], references: [id])
-  lines           SalesReturnLine[]
+  id                String           @id @default(cuid())
+  returnNo          String           @unique
+  salesOrderId      String
+  customerId        String
+  godownId          String?
+  date              DateTime
+  subTotal          Float            @default(0)
+  discount          Float            @default(0)
+  vatPercentage     Float            @default(0)
+  vatAmount         Float            @default(0)
+  reason            String?
+  grandTotal        Float            @default(0)
+  creditMemoCode    String?
+  status            String           @default("Pending")  // Pending, Approved, Rejected, Completed
+  companyId         String?          // Multi-tenant isolation
+  // ── AR & COGS Reversal ──
+  arAdjustmentPosted Boolean         @default(false)  // Whether AR adjustment has been posted
+  cogsReversal      Float            @default(0)  // COGS reversal amount (sum of returned items' cost)
+  referenceKey      String?          // Idempotent key for duplicate submission guard
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  salesOrder        SalesOrder       @relation(fields: [salesOrderId], references: [id])
+  customer          Customer         @relation(fields: [customerId], references: [id])
+  godown            Godown?          @relation(fields: [godownId], references: [id])
+  company           Company?         @relation(fields: [companyId], references: [id])
+  lines             SalesReturnLine[]
 
   @@index([salesOrderId])
   @@index([customerId])
   @@index([date])
   @@index([companyId])
+  @@index([status])
 }
 
 model SalesReturnLine {
@@ -917,6 +1032,9 @@ model SalesReturnLine {
   discountAmount   Float       @default(0)
   vatAmount        Float       @default(0)
   total            Float
+  // ── COGS Reversal Fields ──
+  costPrice        Float       @default(0)  // Unit cost price at time of return
+  cogsReversal     Float       @default(0)  // quantity * costPrice — line-level COGS reversal
   salesReturn      SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
   product          Product     @relation(fields: [productId], references: [id])
 }
@@ -926,43 +1044,58 @@ model PurchaseReturn {
   returnNo        String             @unique
   purchaseOrderId String
   supplierId      String
+  godownId        String?
   date            DateTime
   subTotal        Float              @default(0)
   discount        Float              @default(0)
+  discountPercent Float              @default(0)
   vatPercentage   Float              @default(0)
   vatAmount       Float              @default(0)
   reason          String?
   grandTotal      Float              @default(0)
   debitNoteCode   String?
   challanRef      String?
-  status          String             @default("Pending")
-  companyId       String?             // Multi-tenant isolation
+  status          String             @default("Pending")  // Pending, Approved, Rejected, Completed
+  companyId       String?            // Multi-tenant isolation
+  // ── AP & Inventory Realignment ──
+  apAdjustmentPosted Boolean         @default(false)  // Whether AP adjustment has been posted
+  cogsReversal      Float            @default(0)      // COGS reversal amount (returned items' cost)
+  stockRealignPosted Boolean         @default(false)  // Whether stock realignment entries have been posted
+  referenceKey      String?          // Idempotent key for duplicate submission guard
   isActive        Boolean            @default(true)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
   supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  godown          Godown?            @relation(fields: [godownId], references: [id])
   company         Company?           @relation(fields: [companyId], references: [id])
   lines           PurchaseReturnLine[]
 
   @@index([purchaseOrderId])
   @@index([supplierId])
+  @@index([godownId])
   @@index([date])
   @@index([companyId])
+  @@index([status])
+  @@index([apAdjustmentPosted])
 }
 
 model PurchaseReturnLine {
   id               String        @id @default(cuid())
   purchaseReturnId String
-  productId         String
-  quantity          Float
-  rate              Float
-  discountPercent   Float         @default(0)
-  discountAmount    Float         @default(0)
-  vatAmount         Float         @default(0)
-  total             Float
-  purchaseReturn    PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
-  product           Product        @relation(fields: [productId], references: [id])
+  productId        String
+  quantity         Float
+  rate             Float
+  discountPercent  Float         @default(0)
+  discountAmount   Float         @default(0)
+  vatAmount        Float         @default(0)
+  total            Float
+  // ── COGS & Inventory Realignment Fields ──
+  costPrice        Float         @default(0)  // Unit cost price at time of return (snapshot from Product.costPrice)
+  cogsReversal     Float         @default(0)  // quantity * costPrice — line-level COGS reversal
+  availableStock   Float         @default(0)  // Snapshot of available stock at time of return (for audit trail)
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  product          Product       @relation(fields: [productId], references: [id])
 }
 
 // ============================================================
@@ -973,29 +1106,55 @@ model ReplacementOrder {
   id            String                @id @default(cuid())
   replacementNo String                @unique
   salesOrderId  String?
+  supplierId    String?
+  customerId    String?
   date          DateTime
   reason        String?
-  status        String                @default("Pending")
-  isActive      Boolean               @default(true)
+  status        String                @default("Pending")  // Pending, Approved, Processing, Completed, Cancelled
+  companyId     String?               // Multi-tenant isolation
+  // ── Financial Adjustment Engine ──
+  financialAdjustmentPosted Boolean   @default(false)  // Whether ledger adjustment has been posted
+  stockAdjustmentPosted Boolean      @default(false)  // Whether stock adjustment entries have been posted
+  adjustmentAmount Float             @default(0)  // Net financial adjustment amount (replacement - original cost)
+  originalCostTotal Float            @default(0)  // Total cost of original items being replaced
+  replacementCostTotal Float         @default(0)  // Total cost of replacement items
+  notes         String?
+  referenceKey  String?              // Idempotent key for duplicate submission guard
+  isActive      Boolean              @default(true)
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
   salesOrder    SalesOrder?           @relation(fields: [salesOrderId], references: [id])
+  supplier      Supplier?             @relation(fields: [supplierId], references: [id])
+  customer      Customer?             @relation(fields: [customerId], references: [id])
+  company       Company?              @relation(fields: [companyId], references: [id])
   lines         ReplacementOrderLine[]
 
   @@index([salesOrderId])
+  @@index([supplierId])
+  @@index([customerId])
   @@index([date])
   @@index([status])
+  @@index([companyId])
+  @@index([financialAdjustmentPosted])
 }
 
 model ReplacementOrderLine {
   id                String           @id @default(cuid())
   replacementOrderId String
-  productId         String
+  productId         String           // Original product being replaced
+  replacementProductId String?        // New product sent as replacement
   quantity          Float
-  rate              Float
-  total             Float
+  rate              Float            // Original product rate
+  replacementRate   Float            @default(0)  // Replacement product rate
+  total             Float            // Line total (original product value)
+  replacementTotal  Float            @default(0)  // Replacement product total value
+  // ── Financial Adjustment Fields ──
+  costPrice         Float            @default(0)  // Unit cost of original product
+  replacementCostPrice Float         @default(0)  // Unit cost of replacement product
+  lineAdjustment    Float            @default(0)  // replacementCostPrice - costPrice per unit
   replacementOrder  ReplacementOrder @relation(fields: [replacementOrderId], references: [id], onDelete: Cascade)
   product           Product          @relation(fields: [productId], references: [id])
+  replacementProduct Product?        @relation("ReplacementProduct", fields: [replacementProductId], references: [id])
 }
 
 // ============================================================
@@ -1003,96 +1162,87 @@ model ReplacementOrderLine {
 // ============================================================
 
 model StockEntry {
-  id          String   @id @default(cuid())
-  productId   String
-  godownId    String?
-  batchId     String?  // Link to BatchMaster for batch-tracked entries
-  type        String   // "IN" or "OUT"
-  quantity    Float
-  costPrice   Float    @default(0)  // Per-unit cost at time of entry for FIFO/WA valuation
-  totalCost   Float    @default(0)  // quantity * costPrice — perpetual inventory value
-  reference   String?  // PO number, Invoice number, etc.
-  referenceType String? // "PurchaseOrder", "SalesOrder", "Transfer", "Return", "Adjustment", "OpeningStock"
-  companyId   String?  // Multi-tenant isolation
-  date        DateTime
-  notes       String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  product     Product     @relation(fields: [productId], references: [id])
-  batch       BatchMaster? @relation(fields: [batchId], references: [id])
+  id            String   @id @default(cuid())
+  productId     String
+  godownId      String?
+  type          String   // "IN" or "OUT"
+  quantity      Float
+  reference     String?  // PO number, Invoice number, etc.
+  referenceType String?  // "PurchaseOrder", "SalesOrder", "Transfer", "Return", "Adjustment", "OpeningStock", "BatchEntry"
+  date          DateTime
+  batchId       String?  // Links to BatchMaster for batch-tracked inventory
+  costPrice     Float    @default(0)  // Unit cost at time of entry (snapshot for valuation)
+  notes         String?
+  companyId     String?  // Multi-tenant isolation
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  product       Product  @relation(fields: [productId], references: [id])
+  batch         BatchMaster? @relation(fields: [batchId], references: [id])
 
   @@index([productId])
+  @@index([godownId])
   @@index([date])
   @@index([type])
-  @@index([companyId])
   @@index([batchId])
+  @@index([companyId])
   @@index([referenceType])
-  @@index([productId, companyId])
 }
 
-// ============================================================
-// PRODUCT STOCK — Location-Wise Stock Ledger
-// Tracks real-time stock quantities per product per godown
-// with perpetual valuation (FIFO / Weighted Average)
-// ============================================================
-
-model ProductStock {
-  id              String   @id @default(cuid())
+model BatchMaster {
+  id              String       @id @default(cuid())
+  batchCode       String       @unique  // BCH-XXXXX auto-generated
   productId       String
-  godownId        String
-  quantity        Float    @default(0)  // Current stock quantity at this location
-  costPrice       Float    @default(0)  // Current unit cost (WA average or FIFO latest)
-  totalValue      Float    @default(0)  // quantity * costPrice — perpetual inventory value
-  alertLevel      Float    @default(0)  // Reorder alert level for this product at this location
+  godownId        String?
+  manufacturingDate DateTime?
+  expiryDate      DateTime?
+  supplierLotNo   String?      // Supplier's lot/batch reference
+  quantityReceived Float       @default(0)  // Total quantity received in this batch
+  quantitySold    Float        @default(0)  // Cumulative quantity sold/moved out
+  quantityOnHand  Float        @default(0)  // Remaining quantity in this batch
+  costPricePerUnit Float      @default(0)  // Cost price per unit for this batch
+  salePricePerUnit Float      @default(0)  // Sale price per unit for this batch
+  status          String       @default("Active")  // "Active", "Expired", "Depleted", "Recalled"
+  notes           String?
+  companyId       String?      // Multi-tenant isolation
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  product         Product      @relation(fields: [productId], references: [id])
+  stockEntries    StockEntry[]
+
+  @@index([productId])
+  @@index([godownId])
+  @@index([status])
+  @@index([companyId])
+  @@index([expiryDate])
+}
+
+model OpeningStock {
+  id              String   @id @default(cuid())
+  productCode     String   // Product code reference
+  productId       String
+  godownId        String?
+  batchId         String?  // Optional batch reference
+  quantity        Float    @default(0)  // Opening quantity
+  costPrice       Float    @default(0)  // Cost price at opening
+  totalValue      Float    @default(0)  // quantity * costPrice
+  effectiveDate   DateTime // Date from which this opening stock is effective
+  fiscalYear      String?  // e.g. "2025-2026"
+  status          String   @default("Posted")  // "Draft", "Posted", "Reversed"
+  referenceKey    String?  // Idempotent key
+  notes           String?
   companyId       String?  // Multi-tenant isolation
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   product         Product  @relation(fields: [productId], references: [id])
-  godown          Godown   @relation(fields: [godownId], references: [id])
-  company         Company? @relation(fields: [companyId], references: [id])
-
-  @@unique([productId, godownId])  // One stock record per product per location
-  @@index([productId])
-  @@index([godownId])
-  @@index([companyId])
-}
-
-// ============================================================
-// BATCH MASTER — Batch Tracking with Expiry & Valuation
-// Every product opening adjustment must mandate a Batch Number
-// and an explicit Expiry Date (if applicable)
-// ============================================================
-
-model BatchMaster {
-  id              String   @id @default(cuid())
-  batchNumber     String   // Unique batch identifier
-  productId       String
-  godownId        String?  // Location where batch is stored
-  quantity        Float    @default(0)  // Current quantity in this batch
-  costPrice       Float    @default(0)  // Per-unit cost for this batch
-  totalCost       Float    @default(0)  // quantity * costPrice — batch inventory value
-  salePrice       Float    @default(0)  // Selling price for this batch
-  expiryDate      DateTime?  // Expiry date (null if not applicable)
-  manufacturingDate DateTime?  // Manufacturing date
-  supplierId      String?  // Source supplier for this batch
-  purchaseOrderId String?  // Source PO for this batch
-  status          String   @default("Active")  // "Active", "Expired", "Exhausted", "Recalled"
-  companyId       String?  // Multi-tenant isolation
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  product         Product     @relation(fields: [productId], references: [id])
-  godown          Godown?     @relation(fields: [godownId], references: [id])
-  company         Company?    @relation(fields: [companyId], references: [id])
-  stockEntries    StockEntry[]
 
   @@index([productId])
   @@index([godownId])
+  @@index([effectiveDate])
   @@index([companyId])
   @@index([status])
-  @@index([expiryDate])
 }
 
 model StockTransfer {
@@ -1101,19 +1251,16 @@ model StockTransfer {
   fromGodownId    String
   toGodownId      String
   date            DateTime
-  // Intransit Valuation State Machine: IN_TRANSIT → RECEIVED / REJECTED
-  // "PENDING" = draft, "IN_TRANSIT" = shipped (stock deducted from source, asset value in In-Transit CoA)
-  // "RECEIVED" = confirmed at destination (stock added to destination, CoA moved to Inventory Asset)
-  // "REJECTED" = refused at destination (stock must be returned to source)
-  shippingStatus  String              @default("PENDING")  // "PENDING", "IN_TRANSIT", "RECEIVED", "REJECTED"
+  shippingStatus  String              @default("Pending")  // "Pending", "In-Transit", "Delivered"
   shippedAt       DateTime?
   deliveredAt     DateTime?
-  rejectedAt      DateTime?
-  rejectionReason String?
   totalItems      Int                 @default(0)
   totalQuantity   Float               @default(0)
-  totalValue      Float               @default(0)  // Total cost value of transferred stock (for In-Transit CoA)
-  status          String              @default("Pending")
+  totalCostValue  Float               @default(0)  // Sum of line cost values for valuation consistency
+  status          String              @default("Pending")  // "Pending", "Approved", "In-Transit", "Delivered", "Cancelled"
+  approvedBy      String?             // User who approved
+  approvedAt      DateTime?           // When approved
+  referenceKey    String?             // Idempotent key for duplicate guard
   notes           String?
   companyId       String?             // Multi-tenant isolation
   isActive        Boolean             @default(true)
@@ -1121,13 +1268,13 @@ model StockTransfer {
   updatedAt       DateTime            @updatedAt
   fromGodown      Godown              @relation("TransferFrom", fields: [fromGodownId], references: [id])
   toGodown        Godown              @relation("TransferTo", fields: [toGodownId], references: [id])
-  company         Company?            @relation(fields: [companyId], references: [id])
   lines           StockTransferLine[]
 
   @@index([fromGodownId])
   @@index([toGodownId])
   @@index([date])
   @@index([shippingStatus])
+  @@index([status])
   @@index([companyId])
 }
 
@@ -1136,53 +1283,15 @@ model StockTransferLine {
   stockTransferId String
   productId       String
   quantity        Float
-  batchNumber     String?       // Batch preservation — same Batch Number transfers seamlessly
-  costPrice       Float         @default(0)  // Unit cost at time of transfer for In-Transit valuation
-  totalCost       Float         @default(0)  // quantity * costPrice — line-level intransit asset value
+  batchId         String?       // Batch reference for batch-tracked transfers
+  costPrice       Float         @default(0)  // Unit cost at time of transfer (snapshot)
+  lineTotal       Float         @default(0)  // quantity * costPrice
+  availableStock  Float         @default(0)  // Snapshot of available stock at source godown
+  stockStatus     String        @default("Available")  // "Available", "Insufficient"
   stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
   product         Product       @relation(fields: [productId], references: [id])
 
-  @@index([stockTransferId])
-  @@index([productId])
-}
-
-// ============================================================
-// DAMAGE LOG — Stock Shrinkage & Wastage Tracker
-// Mandates: Damage Qty, Loss Cost Price, Reporting Godown,
-// Reason Classification: BROKEN / EXPIRED / THEFT / MOISTURE
-// Atomic Double-Entry: Debit Expenses->Inventory Loss,
-//                      Credit Assets->Inventory Asset
-// ============================================================
-
-model DamageLog {
-  id                String   @id @default(cuid())
-  damageCode        String   @unique  // DMG-XXXXX
-  productId         String
-  godownId          String
-  batchNumber       String?  // Optional batch reference for the damaged items
-  quantity          Float    // Damage Quantity — must be > 0, must not exceed available stock
-  lossCostPrice     Float    // Per-unit loss cost price
-  totalLossValue    Float    // quantity * lossCostPrice — total asset write-off value
-  reason            String   // "BROKEN" | "EXPIRED" | "THEFT" | "MOISTURE"
-  description       String?  // Optional detailed description
-  reportDate        DateTime // Date the damage was reported
-  approvedBy        String?  // Admin/Manager who approved the write-off
-  approvedAt        DateTime?
-  status            String   @default("Pending")  // "Pending", "Approved", "Rejected"
-  companyId         String?  // Multi-tenant isolation
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  product           Product  @relation(fields: [productId], references: [id])
-  godown            Godown   @relation(fields: [godownId], references: [id])
-  company           Company? @relation(fields: [companyId], references: [id])
-
-  @@index([productId])
-  @@index([godownId])
-  @@index([reason])
-  @@index([reportDate])
-  @@index([status])
-  @@index([companyId])
+  @@index([batchId])
 }
 
 // ============================================================
@@ -1190,18 +1299,23 @@ model DamageLog {
 // ============================================================
 
 model ExpenseIncomeHead {
-  id        String   @id @default(cuid())
-  name      String
-  type      String   // "Expense" or "Income"
-  companyId String?  // Multi-tenant isolation
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  company   Company? @relation(fields: [companyId], references: [id])
-  expenses  Expense[]
-  incomes   Income[]
+  id               String        @id @default(cuid())
+  code             String?       @unique  // EIH-XXXXX auto-generated
+  name             String
+  type             String        // "Expense" or "Income"
+  chartOfAccountId String?       // Direct link to Chart of Account — eliminates placeholder string mapping
+  companyId        String?       // Multi-tenant isolation
+  isActive         Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  company          Company?      @relation(fields: [companyId], references: [id])
+  chartOfAccount   ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id])
+  expenses         Expense[]
+  incomes          Income[]
 
   @@index([companyId])
+  @@index([chartOfAccountId])
+  @@index([type])
 }
 
 model Expense {
@@ -1217,6 +1331,12 @@ model Expense {
   voucherNo        String?           // Payment voucher number
   description      String?
   status           String            @default("Approved")
+  // ── Double-Entry Alignment Fields ──
+  chartOfAccountId String?           // Direct link to CoA — expense head mapped to ledger account
+  referenceKey     String?           // Idempotent key for duplicate submission guard
+  ledgerPosted     Boolean           @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
+  debitEntryCode   String?           // LED-XXXXX of the debit entry (expense head)
+  creditEntryCode  String?           // LED-XXXXX of the credit entry (cash/bank)
   isActive         Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -1224,11 +1344,15 @@ model Expense {
   paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
   bank             Bank?             @relation(fields: [bankId], references: [id])
   company          Company?          @relation(fields: [companyId], references: [id])
+  chartOfAccount   ChartOfAccount?   @relation(fields: [chartOfAccountId], references: [id])
 
   @@index([headId])
   @@index([bankId])
   @@index([companyId])
   @@index([date])
+  @@index([chartOfAccountId])
+  @@index([ledgerPosted])
+  @@index([referenceKey])
 }
 
 model Income {
@@ -1244,6 +1368,12 @@ model Income {
   voucherNo        String?           // Payment voucher number
   description      String?
   status           String            @default("Approved")
+  // ── Double-Entry Alignment Fields ──
+  chartOfAccountId String?           // Direct link to CoA — income head mapped to ledger account
+  referenceKey     String?           // Idempotent key for duplicate submission guard
+  ledgerPosted     Boolean           @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
+  debitEntryCode   String?           // LED-XXXXX of the debit entry (cash/bank)
+  creditEntryCode  String?           // LED-XXXXX of the credit entry (income head)
   isActive         Boolean           @default(true)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
@@ -1251,11 +1381,15 @@ model Income {
   paymentOption    PaymentOption?    @relation(fields: [paymentOptionId], references: [id])
   bank             Bank?             @relation(fields: [bankId], references: [id])
   company          Company?          @relation(fields: [companyId], references: [id])
+  chartOfAccount   ChartOfAccount?   @relation(fields: [chartOfAccountId], references: [id])
 
   @@index([headId])
   @@index([bankId])
   @@index([companyId])
   @@index([date])
+  @@index([chartOfAccountId])
+  @@index([ledgerPosted])
+  @@index([referenceKey])
 }
 
 model CashCollection {
@@ -1266,11 +1400,18 @@ model CashCollection {
   amount          Float
   paymentOptionId String?
   bankId          String?
+  srId            String?        // Sales Representative who collected (links to Employee)
   companyId       String?        // Multi-tenant isolation
   chequeNo        String?        // Cheque number reference
   voucherNo       String?        // Payment voucher number
   description     String?
   status          String         @default("Approved")
+  // ── Double-Entry Alignment Fields ──
+  chartOfAccountId String?       // Direct link to CoA — customer AR account
+  referenceKey     String?       // Idempotent key for duplicate submission guard
+  ledgerPosted     Boolean       @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
+  debitEntryCode   String?       // LED-XXXXX of the debit entry (cash/bank)
+  creditEntryCode  String?       // LED-XXXXX of the credit entry (customer)
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -1278,11 +1419,17 @@ model CashCollection {
   paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
   bank            Bank?          @relation(fields: [bankId], references: [id])
   company         Company?       @relation(fields: [companyId], references: [id])
+  sr              Employee?      @relation(fields: [srId], references: [id])
+  chartOfAccount  ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id])
 
   @@index([customerId])
   @@index([bankId])
   @@index([companyId])
   @@index([date])
+  @@index([srId])
+  @@index([chartOfAccountId])
+  @@index([ledgerPosted])
+  @@index([referenceKey])
 }
 
 model CashDelivery {
@@ -1298,6 +1445,12 @@ model CashDelivery {
   voucherNo       String?        // Payment voucher number
   description     String?
   status          String         @default("Approved")
+  // ── Double-Entry Alignment Fields ──
+  chartOfAccountId String?       // Direct link to CoA — supplier AP account
+  referenceKey     String?       // Idempotent key for duplicate submission guard
+  ledgerPosted     Boolean       @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
+  debitEntryCode   String?       // LED-XXXXX of the debit entry (supplier)
+  creditEntryCode  String?       // LED-XXXXX of the credit entry (cash/bank)
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -1305,11 +1458,15 @@ model CashDelivery {
   paymentOption   PaymentOption? @relation(fields: [paymentOptionId], references: [id])
   bank            Bank?          @relation(fields: [bankId], references: [id])
   company         Company?       @relation(fields: [companyId], references: [id])
+  chartOfAccount  ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id])
 
   @@index([supplierId])
   @@index([bankId])
   @@index([companyId])
   @@index([date])
+  @@index([chartOfAccountId])
+  @@index([ledgerPosted])
+  @@index([referenceKey])
 }
 
 model BankTransaction {
@@ -1327,6 +1484,11 @@ model BankTransaction {
   referenceNo     String?  // Reference/comment for the transaction
   description     String?
   status          String   @default("Approved")
+  // ── Double-Entry Alignment Fields ──
+  referenceKey    String?  // Idempotent key for duplicate submission guard
+  ledgerPosted    Boolean  @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
+  debitEntryCode  String?  // LED-XXXXX of the debit entry
+  creditEntryCode String?  // LED-XXXXX of the credit entry
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1338,7 +1500,8 @@ model BankTransaction {
   @@index([companyId])
   @@index([date])
   @@index([type])
-  @@index([bankId, date])
+  @@index([ledgerPosted])
+  @@index([referenceKey])
 }
 
 // ============================================================
@@ -1355,10 +1518,8 @@ model SmsSetting {
   gatewayName     String?  // Carrier/gateway provider name (e.g., "BulkSMSBD", "Infobip")
   ratePerSms      Float    @default(0)  // Per-SMS cost in BDT
   unicodeRate     Float    @default(0)  // Per-Unicode-SMS cost in BDT
-  setupCost             Float    @default(0)  // Gateway one-time setup cost
-  creditBalanceLimit    Float    @default(0)  // SMS API credit balance alert threshold (BDT)
-  lastKnownCreditBalance Float   @default(0)  // Last fetched gateway credit balance
-  companyId             String?  // Multi-tenant isolation
+  setupCost       Float    @default(0)  // Gateway one-time setup cost
+  companyId       String?  // Multi-tenant isolation
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1379,6 +1540,9 @@ model SmsLog {
   sentAt           DateTime @default(now())
   cost             Float    @default(0)
   campaignName     String?  // Name of the bulk campaign (if part of one)
+  triggerType      String?  // "Manual", "SalesConfirmation", "FinancialCollection", "InventoryIngestion", "HRLifecycle", "Campaign"
+  campaignId       String?  // Links to SmsCampaign if part of a campaign
+  inboxId          String?  // Links to SmsInbox if this is a reply
   companyId        String?  // Multi-tenant isolation
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
@@ -1426,23 +1590,100 @@ model SmsBillPayment {
 }
 
 // ============================================================
-// SMS AUTOMATION CONFIG — Block 12, Directive 3
-// Transactional Auto-SMS Engine global Boolean toggle flags
+// SMS NOTIFICATION TRIGGERS — Automated Event Hooks
+// Toggle switches for business events that auto-dispatch SMS
 // ============================================================
 
-model SmsAutomationConfig {
-  id                     String   @id @default(cuid())
-  smsAlertOnPurchase     Boolean  @default(false)  // TRIGGER A: Product Purchase Alert
-  smsAlertOnCollection   Boolean  @default(false)  // TRIGGER B: Cash/Bank/MFS Collection Alert
-  smsAlertOnStockReceive Boolean  @default(false)  // TRIGGER C: Warehouse Stock Receipt Notification
-  smsAlertOnHrLifecycle  Boolean  @default(false)  // TRIGGER D: HR Recruitment & Joining Lifecycle Alerts
-  companyId              String?  // Multi-tenant isolation
-  isActive               Boolean  @default(true)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  company                Company? @relation(fields: [companyId], references: [id])
+model SmsNotificationTrigger {
+  id              String   @id @default(cuid())
+  code            String   @unique  // SNT-XXXXX
+  eventType       String   // "SalesConfirmation", "FinancialCollection", "InventoryIngestion", "HRLifecycle"
+  label           String   // Human-readable name for the event
+  description     String?
+  isEnabled       Boolean  @default(true)  // Master toggle for this event type
+  recipientType   String   @default("Customer")  // "Customer", "Dealer", "Supplier", "Employee", "Custom"
+  templateBody    String   // SMS template body with {{variable}} placeholders
+  companyId       String?  // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
+  @@index([eventType])
+  @@index([isEnabled])
+}
+
+// ============================================================
+// SMS INBOX — Incoming Message Tracking
+// ============================================================
+
+model SmsInbox {
+  id              String   @id @default(cuid())
+  code            String   @unique  // INB-XXXXX
+  sender          String   // Sender phone number
+  message         String
+  charCount       Int      @default(0)
+  isUnicode       Boolean  @default(false)
+  status          String   @default("Unread")  // "Unread", "Read", "Archived", "Flagged"
+  priority        String   @default("Normal")  // "Low", "Normal", "High", "Urgent"
+  category        String?  // "CustomerReply", "SupplierNotice", "SystemAlert", "Spam", "OptOut"
+  relatedModule   String?  // "SalesOrder", "PurchaseOrder", "Customer", "Supplier", etc.
+  relatedId       String?  // ID of the related record
+  relatedCode     String?  // Human-readable code of the related record
+  receivedAt      DateTime @default(now())
+  readAt          DateTime?
+  readBy          String?  // User ID who read it
+  tags            String?  // Comma-separated tags
+  notes           String?  // Internal notes
+  companyId       String?  // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@index([receivedAt])
+  @@index([category])
+  @@index([priority])
+}
+
+// ============================================================
+// SMS CAMPAIGN — Bulk Campaign Management
+// ============================================================
+
+model SmsCampaign {
+  id              String   @id @default(cuid())
+  code            String   @unique  // CMP-XXXXX
+  name            String   // Campaign name
+  description     String?
+  message         String   // Campaign message body
+  charCount       Int      @default(0)
+  isUnicode       Boolean  @default(false)
+  segmentCount    Int      @default(1)
+  targetGroup     String   @default("All")  // "All", "Customers", "Dealers", "Suppliers", "Employees", "Custom"
+  targetFilter    String?  // JSON string with filter criteria
+  recipientCount  Int      @default(0)  // Total recipients targeted
+  sentCount       Int      @default(0)  // Successfully sent
+  deliveredCount  Int      @default(0)  // Confirmed delivered
+  failedCount     Int      @default(0)  // Failed to send
+  costPerSms      Float    @default(0)  // Snapshot of rate at campaign time
+  totalCost       Float    @default(0)  // Total campaign cost
+  status          String   @default("Draft")  // "Draft", "Scheduled", "Sending", "Completed", "Failed", "Cancelled"
+  scheduledAt     DateTime?  // Scheduled send time
+  startedAt       DateTime?  // Actual start time
+  completedAt     DateTime?  // Completion time
+  companyId       String?  // Multi-tenant isolation
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  company         Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([targetGroup])
 }
 
 // ============================================================
@@ -1451,14 +1692,12 @@ model SmsAutomationConfig {
 
 model ChartOfAccount {
   id                  String           @id @default(cuid())
-  code                String           @unique  // COA-XXXXX — case-insensitive unique enforced at API gate
+  code                String           @unique  // COA-XXXXX
   name                String
   classification      String           @default("Asset")  // "Asset", "Liability", "Income", "Expense", "Equity"
   parentAccountId     String?
   openingBalance      Float            @default(0)
   openingBalanceType  String           @default("Dr")  // "Dr" or "Cr"
-  currentBalance      Float            @default(0)  // Real-time running balance — dynamically incremented/decremented on ledger posting
-  isRoot              Boolean          @default(false)  // Root node shield: Assets, Liabilities, Equity, Revenue, Expenses — permanently locked against deletion/remapping
   companyId           String?          // Multi-tenant isolation
   isActive            Boolean          @default(true)
   createdAt           DateTime         @default(now())
@@ -1467,15 +1706,14 @@ model ChartOfAccount {
   childAccounts       ChartOfAccount[] @relation("COAHierarchy")
   ledgerEntries       LedgerEntry[]
   company             Company?         @relation(fields: [companyId], references: [id])
-  customers           Customer[]       // Customer sub-nodes under AR
-  suppliers           Supplier[]       // Supplier sub-nodes under AP
-  products            Product[]        // Product sub-nodes under Inventory Asset
-  voucherLines        VoucherLine[]    // Voucher lines referencing this account
-  fiscalYearRetainedEarnings FiscalYear[] @relation("FiscalYearRetainedEarnings")  // Phase 14: Retained Earnings target
+  banks               Bank[]           // Phase 5: Banks auto-mapped to this CoA node
+  expenseIncomeHeads  ExpenseIncomeHead[]  // Direct CoA link for expense/income heads
+  expenses            Expense[]       // Expenses linked to this CoA node
+  incomes             Income[]        // Incomes linked to this CoA node
+  cashCollections     CashCollection[]  // Cash collections linked to this CoA node
+  cashDeliveries      CashDelivery[]  // Cash deliveries linked to this CoA node
 
   @@index([companyId])
-  @@index([isRoot])
-  @@index([companyId, classification])
 }
 
 model LedgerEntry {
@@ -1499,67 +1737,6 @@ model LedgerEntry {
   @@index([accountId])
   @@index([date])
   @@index([referenceType])
-  @@index([companyId])
-  @@index([companyId, date])
-  @@index([accountId, companyId])
-}
-
-// ============================================================
-// JOURNAL VOUCHERS & CASH/BANK VOUCHERS — Phase 13
-// Unified voucher header with multi-line debit/credit entries.
-// VoucherType: JOURNAL, CASH_RECEIPT, CASH_PAYMENT, BANK_RECEIPT, BANK_PAYMENT
-// Atomic double-entry: every voucher posts LedgerEntry pairs + increments COA currentBalance
-// ============================================================
-
-model JournalVoucher {
-  id              String        @id @default(cuid())
-  voucherNo       String        @unique  // JV-XXXXX / CR-XXXXX / CP-XXXXX / BR-XXXXX / BP-XXXXX
-  date            DateTime
-  type            String        @default("JOURNAL")  // "JOURNAL" | "CASH_RECEIPT" | "CASH_PAYMENT" | "BANK_RECEIPT" | "BANK_PAYMENT"
-  narration       String?       // Voucher-level narration/description
-  totalDebit      Float         @default(0)  // Sum of all debit lines — must equal totalCredit
-  totalCredit     Float         @default(0)  // Sum of all credit lines — must equal totalDebit
-  status          String        @default("Draft")  // "Draft" | "Posted" — Posted means ledger entries committed
-  postedAt        DateTime?     // Timestamp when voucher was posted to the general ledger
-  postedBy        String?       // User ID who posted the voucher
-  bankId          String?       // For bank vouchers — references the bank account
-  chequeNo        String?       // Cheque reference for bank payments/receipts
-  chequeDate      DateTime?     // Cheque date
-  referenceNo     String?       // External reference number
-  companyId       String?       // Multi-tenant isolation
-  isActive        Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  bank            Bank?         @relation(fields: [bankId], references: [id])
-  company         Company?      @relation(fields: [companyId], references: [id])
-  lines           VoucherLine[]
-  fiscalYearCloses FiscalYear[]  // Phase 14: Closing voucher references
-
-  @@index([date])
-  @@index([type])
-  @@index([status])
-  @@index([companyId])
-  @@index([bankId])
-  @@index([companyId, date])
-}
-
-model VoucherLine {
-  id              String        @id @default(cuid())
-  voucherId       String        // FK to JournalVoucher
-  accountId       String?       // FK to ChartOfAccount
-  accountName     String        // Denormalized account name for quick display
-  debit           Float         @default(0)  // Debit amount — must be >= 0, mutually exclusive with credit > 0
-  credit          Float         @default(0)  // Credit amount — must be >= 0, mutually exclusive with debit > 0
-  particulars     String?       // Line-level narration
-  companyId       String?       // Multi-tenant isolation
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  voucher         JournalVoucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-  chartOfAccount  ChartOfAccount? @relation(fields: [accountId], references: [id])
-  company         Company?      @relation(fields: [companyId], references: [id])
-
-  @@index([voucherId])
-  @@index([accountId])
   @@index([companyId])
 }
 
@@ -1587,43 +1764,6 @@ model PeriodClose {
 }
 
 // ============================================================
-// FISCAL YEAR — Phase 14
-// Manages full financial year lifecycle: OPEN → CLOSED
-// Immutable Period Interlock: once CLOSED, all API mutations targeting
-// dates within the closed fiscal year are rejected with 400.
-// Year-End Close: generates closing journal voucher that zeroes
-// nominal accounts (Revenue/Expense) and transfers net variance
-// into Equity → Retained Earnings.
-// ============================================================
-
-model FiscalYear {
-  id              String    @id @default(cuid())
-  code            String    @unique  // FY-XXXXX
-  name            String              // e.g., "FY 2024-2025"
-  startDate       DateTime            // Fiscal year start date (inclusive)
-  endDate         DateTime            // Fiscal year end date (inclusive)
-  status          String    @default("OPEN")  // "OPEN" | "CLOSED" — CLOSED triggers immutable period interlock
-  closedAt        DateTime?           // Timestamp when the year was officially closed
-  closedBy        String?             // User ID who closed the fiscal year
-  closingVoucherId String?            // FK to the auto-generated JournalVoucher that zeroed nominal accounts
-  netProfitClosed Float     @default(0)  // Net profit/loss amount transferred to Retained Earnings at close
-  retainedEarningsAccountId String?   // FK to the Equity → Retained Earnings COA node
-  companyId       String?             // Multi-tenant isolation
-  isActive        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  company         Company?  @relation(fields: [companyId], references: [id])
-  closingVoucher  JournalVoucher? @relation(fields: [closingVoucherId], references: [id])
-  retainedEarningsAccount ChartOfAccount? @relation("FiscalYearRetainedEarnings", fields: [retainedEarningsAccountId], references: [id])
-
-  @@index([companyId])
-  @@index([status])
-  @@index([startDate])
-  @@index([endDate])
-}
-
-// ============================================================
 // AUDIT LOG
 // ============================================================
 
@@ -1637,83 +1777,12 @@ model AuditLog {
   userName    String?  // Display name of the user
   details     String?  // JSON string with before/after data
   ip          String?
-  companyId   String?  // Multi-tenant isolation for audit trail
-  userAgent   String?  // Browser/client user-agent string
   createdAt   DateTime @default(now())
 
   @@index([module])
   @@index([action])
   @@index([createdAt])
   @@index([userId])
-  @@index([companyId])
-  @@index([companyId, createdAt])
-}
-
-// ============================================================
-// DOMAIN 20: SYSTEM AUDIT LOGS, BACKUPS & SECURITY OVERHAUL
-// ============================================================
-
-// SystemAuditLog — Immutable, append-only deep-diff audit trail
-// Captures complete before/after state for every mutation across all 20 domains
-model SystemAuditLog {
-  id              String   @id @default(cuid())
-  actorUserId     String?  // User who performed the action
-  companyId       String?  // Multi-tenant isolation
-  ipAddress       String?  // Client IP address
-  userAgent       String?  // Browser/client user-agent
-  actionType      String   // "CREATE", "UPDATE", "DELETE"
-  targetModel     String   // Prisma model name (e.g., "Product", "SalesOrder", "Bank")
-  targetRecordId  String?  // ID of the affected record
-  previousState   String?  // JSON string — deep-diff of record BEFORE mutation (masked)
-  newState        String?  // JSON string — deep-diff of record AFTER mutation (masked)
-  metadata        String?  // Additional context (module token, request path, etc.)
-  createdAt       DateTime @default(now())
-
-  @@index([actorUserId])
-  @@index([companyId])
-  @@index([actionType])
-  @@index([targetModel])
-  @@index([createdAt])
-  @@index([companyId, createdAt])
-}
-
-// SystemBackup — Multi-tenant backup tracking and S3-compatible vault
-model SystemBackup {
-  id              String   @id @default(cuid())
-  backupCode      String   @unique  // BKP-XXXXX
-  companyId       String?  // Multi-tenant isolation
-  triggeredBy     String?  // User ID who initiated the backup
-  triggeredByName String?  // Display name
-  status          String   @default("PENDING")  // "PENDING", "ENCRYPTING", "UPLOADING", "COMPLETED", "FAILED"
-  backupType      String   @default("FULL")  // "FULL", "INCREMENTAL"
-  recordCount     Int      @default(0)  // Number of records exported
-  fileSizeBytes   Int      @default(0)  // Size of the encrypted dump
-  storageKey      String?  // S3-compatible object storage key
-  checksumSha256  String?  // SHA-256 checksum for integrity verification
-  errorMessage    String?  // Error details if status = "FAILED"
-  startedAt       DateTime?
-  completedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([companyId])
-  @@index([status])
-  @@index([createdAt])
-  @@index([backupType])
-}
-
-// RateLimitAttempt — In-memory sliding window rate limiter tracking
-model RateLimitAttempt {
-  id          String   @id @default(cuid())
-  ipAddress   String   // Client IP address
-  endpoint    String   // Target endpoint (e.g., "/api/auth/login")
-  success     Boolean  @default(false)  // Whether the attempt succeeded
-  userAgent   String?  // Browser/client user-agent
-  createdAt   DateTime @default(now())
-
-  @@index([ipAddress])
-  @@index([endpoint])
-  @@index([createdAt])
 }
 
 // ============================================================
@@ -1917,373 +1986,4 @@ model NumberFormat {
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-}
-
-// ============================================================
-// POS — POINT OF SALE TERMINAL
-// Phase 15: Ultra-High-Speed Touchscreen Billing Engine
-// ============================================================
-
-model PosSale {
-  id              String   @id @default(cuid())
-  receiptNo       String   @unique  // POS-XXXXX — auto-generated receipt number
-  customerId      String?           // Walk-in customer can be null
-  godownId        String?           // Retail godown where sale occurred
-  date            DateTime          // Sale timestamp
-  subTotal        Float    @default(0)  // Sum of line totals before discount
-  discountPercent Float    @default(0)  // Global discount percentage
-  discountAmount  Float    @default(0)  // Calculated discount amount
-  vatPercentage   Float    @default(0)  // VAT rate
-  vatAmount       Float    @default(0)  // VAT amount
-  grandTotal      Float    @default(0)  // Final amount due
-  // Split Payment Breakdown
-  cashAmount      Float    @default(0)  // Cash portion
-  cardAmount      Float    @default(0)  // Bank/Card portion
-  mfsAmount       Float    @default(0)  // Mobile Financial Services (bKash/Nagad)
-  cashChange      Float    @default(0)  // Cash change returned
-  // Metadata
-  salesOrderId    String?           // FK to SalesOrder if auto-created
-  status          String   @default("Completed")  // "Completed", "Voided"
-  voidReason      String?           // Reason for voiding
-  voidedBy        String?           // User who voided
-  voidedAt        DateTime?         // When voided
-  cashierName     String?           // Name of the cashier
-  companyId       String?           // Multi-tenant isolation
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  customer        Customer? @relation(fields: [customerId], references: [id])
-  godown          Godown?   @relation(fields: [godownId], references: [id])
-  company         Company?  @relation(fields: [companyId], references: [id])
-  salesOrder      SalesOrder? @relation(fields: [salesOrderId], references: [id])
-  lines           PosSaleLine[]
-
-  @@index([customerId])
-  @@index([godownId])
-  @@index([date])
-  @@index([companyId])
-  @@index([status])
-}
-
-model PosSaleLine {
-  id              String   @id @default(cuid())
-  posSaleId       String
-  productId       String
-  productName     String              // Snapshot of product name at sale time
-  productCode     String              // Snapshot of product code / barcode
-  quantity        Float               // Quantity sold
-  rate            Float               // Unit selling price at sale time
-  discountPercent Float    @default(0)  // Line-level discount %
-  discountAmount  Float    @default(0)  // Line-level discount amount
-  total           Float               // Line total after discount
-  costPrice       Float    @default(0)  // Unit cost price at sale time (for COGS)
-  companyId       String?             // Multi-tenant isolation
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  posSale         PosSale  @relation(fields: [posSaleId], references: [id], onDelete: Cascade)
-  product         Product  @relation(fields: [productId], references: [id])
-  company         Company? @relation(fields: [companyId], references: [id])
-
-  @@index([posSaleId])
-  @@index([productId])
-  @@index([companyId])
-}
-
-// ============================================================
-// PHASE 18: IMMUTABLE FORENSIC SECURITY AUDIT TRAIL
-// Anti-Tamper: No UPDATE or DELETE allowed — append-only
-// Captures: userId, companyId, branchId, IP, User-Agent,
-//   HTTP Method, Endpoint Target, Before/After Payload Diff
-// ============================================================
-
-model SecurityAuditTrail {
-  id              String   @id @default(cuid())
-  // Actor identification
-  userId          String?  // User who performed the action
-  userName        String?  // Display name
-  companyId       String?  // Multi-tenant isolation
-  branchId        String?  // Branch-level isolation
-  // Request context
-  ipAddress       String?  // Client IP address
-  userAgent       String?  // Browser/client user-agent
-  httpMethod      String?  // "GET", "POST", "PUT", "DELETE"
-  endpoint        String?  // Target API endpoint path
-  // Action details
-  actionType      String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "SECURITY_OVERRIDE", "LEDGER_VERIFY", "RATE_LIMIT_TRIGGERED"
-  targetModel     String?  // Prisma model name
-  targetRecordId  String?  // ID of the affected record
-  // Forensic Diff Matrix — Before/After Payload Snapshots
-  previousState   String?  // JSON string — full record state BEFORE mutation
-  newState        String?  // JSON string — full record state AFTER mutation
-  diffSummary     String?  // JSON string — computed diff (changed fields only)
-  // Metadata
-  moduleToken     String?  // Compliance tracking token (e.g., "Sys-Ops-Security-Vault")
-  severity        String   @default("INFO")  // "INFO", "WARNING", "CRITICAL"
-  metadata        String?  // Additional context (JSON)
-  // Timestamp — immutable
-  createdAt       DateTime @default(now())
-
-  company         Company? @relation(fields: [companyId], references: [id])
-
-  @@index([userId])
-  @@index([companyId])
-  @@index([branchId])
-  @@index([actionType])
-  @@index([targetModel])
-  @@index([severity])
-  @@index([createdAt])
-  @@index([moduleToken])
-}
-
-// LedgerHashChain — SHA-256 cryptographic chain verification for high-value ledger entries
-model LedgerHashChain {
-  id              String   @id @default(cuid())
-  ledgerEntryId   String   @unique  // FK to LedgerEntry
-  previousHash    String?  // SHA-256 hash of the previous chain entry
-  currentHash     String   // SHA-256 hash of this entry (computed from: previousHash + entryCode + debit + credit + date)
-  hashAlgorithm   String   @default("SHA-256")
-  verifiedAt      DateTime @default(now())
-  isTampered      Boolean  @default(false)  // True if chain verification detects manipulation
-  verifiedBy      String?  // User ID who ran verification
-  companyId       String?  // Multi-tenant isolation
-  createdAt       DateTime @default(now())
-
-  company         Company? @relation(fields: [companyId], references: [id])
-
-  @@index([ledgerEntryId])
-  @@index([isTampered])
-  @@index([companyId])
-  @@index([verifiedAt])
-}
-
-// SecurityThreatLog — Records all detected XSS, SQL injection, and payload tampering attempts
-model SecurityThreatLog {
-  id              String   @id @default(cuid())
-  threatType      String   // "XSS_SCRIPT_TAG", "SQL_INJECTION", "PAYLOAD_TAMPERING", "RATE_LIMIT_BREACH", "UNAUTHORIZED_ACCESS"
-  ipAddress       String?  // Client IP
-  userAgent       String?  // Browser/client user-agent
-  endpoint        String?  // Target API endpoint
-  httpMethod      String?  // HTTP method
-  payload         String?  // Sanitized payload that triggered the threat
-  blockedAction   String?  // Description of what was blocked
-  severity        String   @default("HIGH")  // "LOW", "MEDIUM", "HIGH", "CRITICAL"
-  companyId       String?  // Multi-tenant isolation
-  userId          String?  // User (if authenticated)
-  resolved        Boolean  @default(false)  // Whether the threat was investigated
-  createdAt       DateTime @default(now())
-
-  company         Company? @relation(fields: [companyId], references: [id])
-
-  @@index([threatType])
-  @@index([ipAddress])
-  @@index([severity])
-  @@index([resolved])
-  @@index([createdAt])
-}
-
-// ============================================================
-// PHASE 17: MULTI-BRANCH & CONSOLIDATED REPORTING
-// ============================================================
-
-model Branch {
-  id            String   @id @default(cuid())
-  code          String   @unique
-  name          String
-  address       String?
-  phone         String?
-  email         String?
-  managerName   String?   // Branch manager name
-  companyId     String    // Parent holding company — required
-  status        String    @default("ACTIVE")  // "ACTIVE" or "SUSPENDED" — SUSPENDED freezes all inter-branch transfers
-  isHeadOffice  Boolean   @default(false)  // True if this is the holding/head office branch
-  gstNumber     String?   // Branch-level GST/VAT registration
-  openingDate   DateTime? // Branch inauguration date
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  company       Company   @relation(fields: [companyId], references: [id])
-  users         User[]
-  godowns       Godown[]
-  interBranchTransfersFrom InterBranchTransfer[] @relation("TransferFromBranch")
-  interBranchTransfersTo   InterBranchTransfer[] @relation("TransferToBranch")
-  consolidationLogs ConsolidationLog[]
-
-  @@index([companyId])
-  @@index([status])
-  @@index([isActive])
-}
-
-model InterBranchTransfer {
-  id                String   @id @default(cuid())
-  transferNo        String   @unique  // IBT-XXXXX auto-generated
-  fromBranchId      String   // Source branch
-  toBranchId        String   // Destination branch
-  transferType      String   // "STOCK" or "FUND"
-  status            String   @default("Pending")  // "Pending", "Approved", "Completed", "Rejected", "Cancelled"
-  // Stock transfer details
-  productId         String?  // For STOCK transfers
-  quantity          Float    @default(0)
-  unitCost          Float    @default(0)
-  totalValue        Float    @default(0)
-  // Fund transfer details
-  fundAmount        Float    @default(0)  // For FUND transfers
-  fromBankId        String?  // Source bank account for fund transfers
-  toBankId          String?  // Destination bank account for fund transfers
-  // Authorization
-  authorizedBy      String?  // User ID who approved
-  authorizedAt      DateTime?
-  // Audit
-  companyId         String   // Holding company scope
-  notes             String?
-  reason            String?
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  fromBranch        Branch   @relation("TransferFromBranch", fields: [fromBranchId], references: [id])
-  toBranch          Branch   @relation("TransferToBranch", fields: [toBranchId], references: [id])
-  company           Company  @relation(fields: [companyId], references: [id])
-
-  @@index([fromBranchId])
-  @@index([toBranchId])
-  @@index([companyId])
-  @@index([status])
-  @@index([transferType])
-}
-
-model ConsolidationLog {
-  id                  String   @id @default(cuid())
-  consolidationNo     String   @unique  // CON-XXXXX auto-generated
-  companyId           String   // Holding company
-  branchIds           String   // Comma-separated branch IDs included in consolidation
-  periodStart         DateTime // Fiscal period start
-  periodEnd           DateTime // Fiscal period end
-  statementType       String   // "TrialBalance", "ProfitAndLoss", "BalanceSheet"
-  status              String   @default("Generated")  // "Generated", "Reviewed", "Approved"
-  // Consolidated totals
-  totalRevenue        Float    @default(0)
-  totalCOGS           Float    @default(0)
-  totalExpenses       Float    @default(0)
-  totalAssets         Float    @default(0)
-  totalLiabilities    Float    @default(0)
-  // Elimination entries
-  eliminationAmount   Float    @default(0)  // Total intra-holding amounts eliminated
-  eliminationCount    Int      @default(0)  // Number of elimination entries applied
-  eliminationDetails  String?  // JSON string of elimination line items
-  // Audit
-  generatedBy         String?  // User ID
-  generatedByName     String?
-  reviewedBy          String?
-  approvedBy          String?
-  isActive            Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  company             Company  @relation(fields: [companyId], references: [id])
-  branch              Branch?  @relation(fields: [companyId], references: [id])  // we use companyId FK
-
-  @@index([companyId])
-  @@index([statementType])
-  @@index([status])
-  @@index([periodStart])
-  @@index([periodEnd])
-}
-
-// ============================================================
-// PHASE 19: STAGING TEST BED & AUTOMATED DATA SEEDER ENGINE
-// ============================================================
-
-// StagingTestLog — Immutable audit record for test bed executions & seeder runs
-model StagingTestLog {
-  id              String   @id @default(cuid())
-  testCode        String   @unique  // STG-XXXXX auto-generated
-  testType        String   // "SEED_ENGINE", "TEST_BED", "SEED_WIPE", "ASSERTION_CHECK"
-  status          String   @default("Running")  // "Running", "Passed", "Failed", "Error", "Warning"
-  moduleUnderTest String?  // Which ERP module was being tested
-  assertionsTotal Int      @default(0)
-  assertionsPassed Int     @default(0)
-  assertionsFailed Int     @default(0)
-  executionTimeMs Int      @default(0)  // Total execution time in milliseconds
-  recordsCreated  Int      @default(0)  // Number of records created (for seeder runs)
-  recordsDeleted  Int      @default(0)  // Number of records deleted (for wipe operations)
-  // Accounting equation validation
-  totalAssets     Float    @default(0)
-  totalLiabilities Float   @default(0)
-  totalEquity     Float    @default(0)
-  balanceDiscrepancy Float @default(0)  // |Assets - (Liabilities + Equity)| — must be <= 0.01
-  // Inventory cross-reference
-  inventoryAssetBalance Float @default(0)  // COA Inventory Asset head balance
-  inventoryStockValue   Float @default(0)  // Sum of all stock layer values
-  inventoryDiscrepancy  Float @default(0)  // |inventoryAssetBalance - inventoryStockValue|
-  // Shield interlock test results
-  underageEmployeeBlocked  Boolean @default(false)  // DOB+15 insertion blocked with 400?
-  creditLimitBlocked       Boolean @default(false)  // Over-credit checkout blocked with 422?
-  suspendedWarehouseBlocked Boolean @default(false)  // SUSPENDED godown transfer blocked with 403?
-  // Metadata
-  triggeredBy     String?  // User ID who triggered the test
-  triggeredByName String?  // Display name
-  companyId       String?  // Multi-tenant isolation
-  moduleToken     String?  // Compliance tracking token — "Sys-Staging-QA-Vault"
-  details         String?  // JSON string with detailed test results, assertion log
-  errorMessage    String?  // Error message if status = "Error"
-  startedAt       DateTime @default(now())
-  completedAt     DateTime?
-  createdAt       DateTime @default(now())
-
-  company         Company? @relation(fields: [companyId], references: [id])
-
-  @@index([testType])
-  @@index([status])
-  @@index([companyId])
-  @@index([moduleToken])
-  @@index([startedAt])
-}
-
-
-// ============================================================
-// PHASE 20: GOLDEN HANDOVER DEPLOYMENT & SYSTEM OPTIMIZATION
-// ============================================================
-
-// GoldenHandoverLog — Immutable record for global optimization pipeline & deployment handover certification
-model GoldenHandoverLog {
-  id                String   @id @default(cuid())
-  handoverCode      String   @unique  // GHO-XXXXX auto-generated
-  operationType     String   // "GLOBAL_OPTIMIZATION", "GOLDEN_HANDOVER", "BUILD_VALIDATION", "INDEX_AUDIT", "MEMORY_AUDIT", "CERTIFICATION_EXPORT"
-  status            String   @default("Running")  // "Running", "Completed", "Failed", "Warning"
-  // Optimization metrics
-  indexesCreated    Int      @default(0)  // Number of composite indexes verified/created
-  indexesExisting   Int      @default(0)  // Number of indexes already present
-  memoryLeaksFixed  Int      @default(0)  // Number of useEffect cleanup handlers verified
-  unusedImportsRemoved Int   @default(0)  // Number of unused imports cleaned
-  transactionPathsAudited Int @default(0) // Number of $transaction blocks audited for deadlock prevention
-  // Build validation
-  buildStatus       String   @default("Pending")  // "Pending", "Compiling", "Success", "Failed"
-  buildTimeMs       Int      @default(0)  // Build compilation time in milliseconds
-  bundleSizeKb      Int      @default(0)  // Total production bundle size in KB
-  lintErrors        Int      @default(0)  // Number of lint errors detected
-  lintWarnings      Int      @default(0)  // Number of lint warnings detected
-  // System metrics snapshot
-  totalModels       Int      @default(0)  // Total Prisma models at handover
-  totalApiRoutes    Int      @default(0)  // Total API routes at handover
-  totalProducts     Int      @default(0)  // Total products in database
-  totalTransactions Int      @default(0)  // Total transactions in database
-  totalLedgerEntries Int     @default(0)  // Total ledger entries
-  accountingEquationBalance Float @default(0)  // |Assets - (Liabilities + Equity)| — must be <= 0.01
-  // Metadata
-  triggeredBy       String?  // User ID who triggered the operation
-  triggeredByName   String?  // Display name
-  companyId         String?  // Multi-tenant isolation
-  moduleToken       String?  // Compliance token — "Sys-Golden-Handover-Vault"
-  details           String?  // JSON string with detailed optimization/handover results
-  errorMessage      String?  // Error message if status = "Failed"
-  startedAt         DateTime @default(now())
-  completedAt       DateTime?
-  createdAt         DateTime @default(now())
-
-  company           Company? @relation(fields: [companyId], references: [id])
-
-  @@index([operationType])
-  @@index([status])
-  @@index([companyId])
-  @@index([moduleToken])
-  @@index([startedAt])
 }

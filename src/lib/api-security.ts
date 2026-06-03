@@ -49,7 +49,6 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   Stock: 'inventory',
   StockEntries: 'inventory',
   StockTransfers: 'inventory',
-  DamageLogs: 'inventory',
   // Account Management
   ExpenseIncomeHeads: 'account',
   Expenses: 'account',
@@ -62,19 +61,15 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   SmsLogs: 'sms',
   SmsBills: 'sms',
   SmsBillPayments: 'sms',
-  SmsAutomation: 'sms',
   // Accounting Reports
   ChartOfAccounts: 'accounting-report',
   LedgerEntries: 'accounting-report',
   LedgerReports: 'accounting-report',
   PeriodClose: 'accounting-report',
-  FiscalYears: 'accounting-report',
   TrialBalance: 'accounting-report',
   ProfitLoss: 'accounting-report',
   BalanceSheet: 'accounting-report',
   CashInHand: 'accounting-report',
-  JournalVouchers: 'accounting-report',
-  COAAccountsSeed: 'accounting-report',
   // MIS Reports
   MISReports: 'mis-report',
   // Dashboard
@@ -92,14 +87,6 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   InvoiceTemplates: 'system-config',
   NumberFormats: 'system-config',
   // Auth
-  SystemAuditLogs: 'audit',
-  SystemBackup: 'audit',
-  RateLimit: 'audit',
-  SecurityAuditTrail: 'audit',
-  LedgerVerify: 'audit',
-  ThrottleRate: 'audit',
-  SecurityThreats: 'audit',
-  SecurityAuditReport: 'audit',
   Auth: 'auth',
   AuditLogs: 'audit',
   AuditTrail: 'audit',
@@ -120,8 +107,8 @@ const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'FiscalYears', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'FiscalYears', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -129,9 +116,9 @@ const MODULE_DENY: Record<UserRole, string[]> = {
 const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'FiscalYears', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SystemAuditLogs', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'FiscalYears', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'SystemAuditLogs', 'SystemBackup', 'RateLimit', 'SecurityAuditTrail', 'LedgerVerify', 'ThrottleRate', 'SecurityThreats', 'SecurityAuditReport'],
-  vat_auditor: ['SystemBackup'], // VAT Auditor is read-only; cannot trigger backups (admin only)
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
+  vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
 };
 
 // Modules exempt from auth (public endpoints)
@@ -139,7 +126,7 @@ const AUTH_EXEMPT_MODULES = ['Auth', 'Seed'];
 
 export interface ApiSecurityResult {
   authorized: true;
-  user: { id: string; email: string; name: string; role: UserRole; companyId: string | null };
+  user: { id: string; email: string; name: string; role: UserRole; companyId: string | null; displayName: string };
 }
 
 export interface ApiSecurityError {
@@ -257,7 +244,7 @@ export async function withApiSecurity(
   // All checks passed
   return {
     authorized: true,
-    user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId },
+    user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId, displayName: user.name },
   };
 }
 
@@ -357,9 +344,9 @@ export function validateVatMode(
 /**
  * validateImageFields - Server-side validation for base64 image data
  * Prevents oversized base64 payloads that could cause 500 errors or bloat the database.
- * Matches the client-side 2MB limit per file, with ~33% base64 overhead = 3MB string limit.
+ * Matches the client-side 5MB limit per file, with ~33% base64 overhead = 7MB string limit.
  */
-const MAX_BASE64_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB base64 string (≈2MB original file)
+const MAX_BASE64_IMAGE_SIZE = 7 * 1024 * 1024; // 7MB base64 string (≈5MB original file)
 
 export function validateImageFields(
   body: Record<string, unknown>,
@@ -368,7 +355,7 @@ export function validateImageFields(
   for (const field of imageFields) {
     const value = body[field];
     if (typeof value === 'string' && value.length > MAX_BASE64_IMAGE_SIZE) {
-      return `Image "${field}" exceeds maximum allowed size (2MB). Please compress the image and try again.`;
+      return `Image "${field}" exceeds maximum allowed size (5MB). Please compress the image and try again.`;
     }
     // Also validate it looks like a data URL if present
     if (typeof value === 'string' && !value.startsWith('data:') && value.length > 0) {
@@ -785,54 +772,23 @@ export function checkSmsSettingsWritePermission(role: UserRole): NextResponse | 
 
 /**
  * computeSmsSegments - Safely computes the number of SMS segments based on
- * character count and Unicode detection, respecting GSM 03.38 UDH multi-part
- * boundary truncation rules.
- *
- * GSM 7-bit (English-only):  Part 1 = 160 chars, Part 2+ = 153 chars (UDH takes 7 bytes)
- * Unicode (Bangla/emoji):    Part 1 = 70 chars,  Part 2+ = 67 chars  (UDH takes 3 chars)
- *
- * If even a single character outside the standard GSM 7-bit charset is present
- * (detected via /[^\x00-\x7F]/), the entire message baseline switches to 70 chars/unit.
+ * character count and Unicode detection.
+ * Standard SMS: 160 characters per segment
+ * Unicode SMS: 70 characters per segment (for Bangla/emoji text)
  */
 export function computeSmsSegments(message: string): {
   charCount: number;
   isUnicode: boolean;
   segmentCount: number;
   charsPerSegment: number;
-  charsPerFirstSegment: number;
-  charsPerSubsequentSegment: number;
 } {
   const charCount = message.length;
-  // Explicit regex check for Unicode characters — if even a single Bangla character
-  // or symbol outside the standard GSM 7-bit charset is present, entire message
-  // baseline instantly switches to 70 characters per unit.
-  const isUnicode = /[^\x00-\x7F]/.test(message);
-
-  // UDH (User Data Header) multi-part boundary constants
-  const GSM_FIRST_SEGMENT = 160;
-  const GSM_SUBSEQUENT_SEGMENT = 153;  // 160 - 7 bytes UDH overhead
-  const UNICODE_FIRST_SEGMENT = 70;
-  const UNICODE_SUBSEQUENT_SEGMENT = 67;  // 70 - 3 chars UDH overhead
-
-  const charsPerFirstSegment = isUnicode ? UNICODE_FIRST_SEGMENT : GSM_FIRST_SEGMENT;
-  const charsPerSubsequentSegment = isUnicode ? UNICODE_SUBSEQUENT_SEGMENT : GSM_SUBSEQUENT_SEGMENT;
-  const charsPerSegment = charsPerFirstSegment;  // For backward compat (first segment limit)
-
-  // Correct multi-part calculation: Part 1 uses first-segment limit,
-  // Part 2+ uses subsequent-segment limit (UDH truncation)
-  let segmentCount: number;
-  if (charCount === 0) {
-    segmentCount = 1;
-  } else if (charCount <= charsPerFirstSegment) {
-    segmentCount = 1;
-  } else {
-    // First segment takes charsPerFirstSegment chars,
-    // remaining chars split across charsPerSubsequentSegment per segment
-    const remainingChars = charCount - charsPerFirstSegment;
-    segmentCount = 1 + Math.ceil(remainingChars / charsPerSubsequentSegment);
-  }
-
-  return { charCount, isUnicode, segmentCount, charsPerSegment, charsPerFirstSegment, charsPerSubsequentSegment };
+  // Detect Unicode: Bangla Unicode range (U+0980–U+09FF), CJK, emoji, etc.
+  const unicodeRegex = /[^\x00-\x7F]/;
+  const isUnicode = unicodeRegex.test(message);
+  const charsPerSegment = isUnicode ? 70 : 160;
+  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
+  return { charCount, isUnicode, segmentCount, charsPerSegment };
 }
 
 // ============================================================

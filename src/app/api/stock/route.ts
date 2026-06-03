@@ -1,103 +1,151 @@
-// ============================================================
-// STOCK API ROUTE — Enhanced with location-wise stock matrices,
-// batch summaries, SUSPENDED godown flagging, multi-tenant
-// companyId isolation, safe financial arithmetic, and
-// VAT Auditor masking. Module token: Inv-Stock-Core
-// ============================================================
-
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import {
   withApiSecurity,
+  checkPeriodClose,
+  maskForVatAuditor,
+  maskFinancialArray,
   safeFinancialRound,
   safeFinancialAdd,
   safeFinancialSubtract,
-  maskForVatAuditor,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
-// XSS sanitization helper
-function sanitizeString(input: string): string {
-  return input.replace(/<[^>]*>/g, '').trim();
-}
+// ============================================================
+// SHARED: Compute current stock for a product at a specific godown
+// currentStock = product.openingStock + sum(IN entries) - sum(OUT entries)
+// ============================================================
 
-// Godown SUSPENDED check helper
-async function validateGodownActive(
+async function computeCurrentStock(
   tx: any,
-  godownId: string,
-  companyId?: string | null
-): Promise<{ valid: boolean; error?: string }> {
-  const where: any = { id: godownId, isActive: true };
-  if (companyId) where.companyId = companyId;
-  const godown = await tx.godown.findFirst({ where });
-  if (!godown) return { valid: false, error: 'Godown not found or inactive' };
-  if (godown.status === 'SUSPENDED')
-    return {
-      valid: false,
-      error: 'Godown is SUSPENDED. Stock operations are blocked for this warehouse.',
-    };
-  return { valid: true };
+  productId: string,
+  godownId?: string
+): Promise<number> {
+  const product = await tx.product.findUnique({
+    where: { id: productId },
+    select: { openingStock: true },
+  });
+  if (!product) return 0;
+
+  const stockEntries = await tx.stockEntry.findMany({
+    where: {
+      productId,
+      ...(godownId ? { godownId } : {}),
+    },
+    select: { type: true, quantity: true },
+  });
+
+  const stockDelta = stockEntries.reduce(
+    (sum: number, e: { type: string; quantity: number }) =>
+      sum + (e.type === 'IN' ? e.quantity : -e.quantity),
+    0
+  );
+
+  return safeFinancialRound(product.openingStock + stockDelta);
 }
 
-// Inventory VAT-masked fields
-const STOCK_VAT_MASKED_FIELDS = [
-  'costPrice',
-  'salePrice',
-  'wholesalePrice',
-  'dealerPrice',
-  'stockValue',
-  'openingStock',
-  'totalValue',
-];
+// ============================================================
+// SHARED: Compute stock per godown for a product
+// ============================================================
 
-interface LocationEntry {
-  godownId: string;
-  godownName: string;
-  quantity: number;
-  costPrice: number;
-  totalValue: number;
-  alertLevel: number;
-  isSuspended: boolean;
+async function computeStockByGodown(
+  productId: string
+): Promise<Array<{ godownId: string; godownName: string; quantity: number }>> {
+  // Get all stock entries for this product, grouped by godown
+  const stockEntries = await db.stockEntry.findMany({
+    where: { productId, isActive: true },
+    select: { godownId: true, type: true, quantity: true },
+  });
+
+  // Get all opening stock entries for this product, grouped by godown
+  const openingStocks = await db.openingStock.findMany({
+    where: { productId, isActive: true, status: 'Posted' },
+    select: { godownId: true, quantity: true },
+  });
+
+  // Get all godowns
+  const godowns = await db.godown.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+  });
+  const godownMap = new Map(godowns.map(g => [g.id, g.name]));
+
+  // Aggregate stock by godown
+  const godownStockMap = new Map<string, number>();
+
+  // Add opening stock from Product.openingStock (default godown)
+  const product = await db.product.findUnique({
+    where: { id: productId },
+    select: { openingStock: true, godownId: true },
+  });
+
+  if (product && product.openingStock > 0 && product.godownId) {
+    godownStockMap.set(
+      product.godownId,
+      safeFinancialAdd(godownStockMap.get(product.godownId) || 0, product.openingStock)
+    );
+  }
+
+  // Add OpeningStock entries
+  for (const os of openingStocks) {
+    if (os.godownId) {
+      godownStockMap.set(
+        os.godownId,
+        safeFinancialAdd(godownStockMap.get(os.godownId) || 0, os.quantity)
+      );
+    }
+  }
+
+  // Add stock entry movements
+  for (const entry of stockEntries) {
+    if (entry.godownId) {
+      const current = godownStockMap.get(entry.godownId) || 0;
+      const delta = entry.type === 'IN' ? entry.quantity : -entry.quantity;
+      godownStockMap.set(entry.godownId, safeFinancialAdd(current, delta));
+    }
+  }
+
+  // Build result array
+  const result: Array<{ godownId: string; godownName: string; quantity: number }> = [];
+  for (const [gId, qty] of godownStockMap) {
+    if (qty > 0) {
+      result.push({
+        godownId: gId,
+        godownName: godownMap.get(gId) || 'Unknown',
+        quantity: qty,
+      });
+    }
+  }
+
+  return result;
 }
 
-interface BatchSummary {
-  activeBatches: number;
-  nearestExpiry: string | null;
-  expiredBatches: number;
+// ============================================================
+// SHARED: Auto-generate adjustment reference: ADJ-XXXXX
+// ============================================================
+
+async function generateAdjustmentRef(tx: any): Promise<string> {
+  // Collision-safe code generation: findMany + Math.max
+  const allAdjEntries = await tx.stockEntry.findMany({
+    where: { referenceType: 'Adjustment', reference: { startsWith: 'ADJ-' } },
+    select: { reference: true },
+  });
+
+  let maxNum = 0;
+  for (const entry of allAdjEntries) {
+    if (entry.reference) {
+      const match = entry.reference.match(/ADJ-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `ADJ-${String(maxNum + 1).padStart(5, '0')}`;
 }
 
-interface StockReportItem {
-  productId: string;
-  productName: string;
-  productCode: string;
-  category: string;
-  categoryId: string | null;
-  godown: string;
-  godownId: string | null;
-  currentStock: number;
-  reorderLevel: number;
-  stockStatus: string;
-  valuationMethod: string;
-  costPrice: number;
-  salePrice: number;
-  wholesalePrice: number;
-  dealerPrice: number;
-  stockValue: number;
-  openingStock: number;
-  locations: LocationEntry[];
-  batchSummary: BatchSummary;
-}
+// ============================================================
+// GET /api/stock — Enhanced Real-Time Inventory Control Framework
+// Query params: godownId, categoryId, status, includeBatchInfo, includeValuation
+// ============================================================
 
-/**
- * GET /api/stock
- * Enhanced stock calculation with location-wise breakdown and batch summaries.
- *
- * Query params:
- *   godownId    — filter by godown
- *   categoryId  — filter by category
- *   status      — "In Stock", "Low Stock", "Out of Stock"
- *   productId   — filter by single product
- */
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Stock', 'GET');
   if (!security.authorized) return security.response;
@@ -106,276 +154,415 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const godownId = searchParams.get('godownId');
     const categoryId = searchParams.get('categoryId');
-    const statusFilter = searchParams.get('status');
-    const productId = searchParams.get('productId');
-    const companyId = security.user.companyId;
+    const statusFilter = searchParams.get('status'); // "In Stock", "Low Stock", "Out of Stock"
+    const includeBatchInfo = searchParams.get('includeBatchInfo') === 'true';
+    const includeValuation = searchParams.get('includeValuation') === 'true';
 
-    // Build product filter with multi-tenant isolation
+    const role = security.user.role;
+
+    // Build product filter
     const productWhere: Record<string, unknown> = { isActive: true };
-    if (companyId) productWhere.companyId = companyId;
     if (godownId) productWhere.godownId = godownId;
     if (categoryId) productWhere.categoryId = categoryId;
-    if (productId) productWhere.id = productId;
 
-    // Get all products with their category and godown info
+    // Company isolation for non-admin users
+    if (security.user.companyId && role !== 'admin') {
+      productWhere.companyId = security.user.companyId;
+    }
+
+    // Get all products with their category, brand, and godown info
     const products = await db.product.findMany({
       include: {
-        category: { select: { name: true } },
-        godown: { select: { name: true, status: true } },
+        category: true,
+        brand: true,
+        godown: true,
       },
       where: productWhere,
     });
 
-    if (products.length === 0) {
-      return NextResponse.json([]);
-    }
-
-    const productIds = products.map((p) => p.id);
-
-    // Get all stock entries grouped by product
+    // Get all stock entries
     const stockEntries = await db.stockEntry.findMany({
-      where: {
-        productId: { in: productIds },
-        isActive: true,
-        ...(companyId ? { companyId } : {}),
-      },
+      where: { isActive: true },
       select: {
         productId: true,
+        godownId: true,
         type: true,
         quantity: true,
+        costPrice: true,
       },
     });
 
-    // Build a map of product stock movements
-    const stockMap = new Map<string, number>();
+    // Build stock maps
+    const stockMap = new Map<string, number>(); // productId -> total stock
+    const godownStockMap = new Map<string, Map<string, number>>(); // productId -> (godownId -> qty)
+    const costPriceMap = new Map<string, { totalCost: number; totalQty: number }>(); // productId -> weighted cost
+
     for (const entry of stockEntries) {
+      // Product total
       const current = stockMap.get(entry.productId) || 0;
       if (entry.type === 'IN') {
-        stockMap.set(
-          entry.productId,
-          safeFinancialAdd(current, entry.quantity)
-        );
+        stockMap.set(entry.productId, current + entry.quantity);
       } else if (entry.type === 'OUT') {
-        stockMap.set(
-          entry.productId,
-          safeFinancialSubtract(current, entry.quantity)
-        );
+        stockMap.set(entry.productId, current - entry.quantity);
       }
-    }
 
-    // Get ProductStock records for location-wise breakdown
-    const productStocks = await db.productStock.findMany({
-      where: {
-        productId: { in: productIds },
-        isActive: true,
-        ...(companyId ? { companyId } : {}),
-      },
-      include: {
-        godown: {
-          select: { name: true, status: true, isActive: true },
-        },
-      },
-    });
-
-    // Group ProductStock by productId
-    const productStockMap = new Map<
-      string,
-      Array<{
-        godownId: string;
-        godownName: string;
-        godownStatus: string;
-        quantity: number;
-        costPrice: number;
-        totalValue: number;
-        alertLevel: number;
-      }>
-    >();
-
-    for (const ps of productStocks) {
-      if (!productStockMap.has(ps.productId)) {
-        productStockMap.set(ps.productId, []);
+      // Per-godown tracking
+      if (entry.godownId) {
+        if (!godownStockMap.has(entry.productId)) {
+          godownStockMap.set(entry.productId, new Map());
+        }
+        const gMap = godownStockMap.get(entry.productId)!;
+        const gCurrent = gMap.get(entry.godownId) || 0;
+        if (entry.type === 'IN') {
+          gMap.set(entry.godownId, gCurrent + entry.quantity);
+        } else {
+          gMap.set(entry.godownId, gCurrent - entry.quantity);
+        }
       }
-      productStockMap.get(ps.productId)!.push({
-        godownId: ps.godownId,
-        godownName: ps.godown?.name || 'Unknown',
-        godownStatus: ps.godown?.status || 'ACTIVE',
-        quantity: ps.quantity,
-        costPrice: ps.costPrice,
-        totalValue: ps.totalValue,
-        alertLevel: ps.alertLevel,
-      });
-    }
 
-    // Get BatchMaster records for batch summary
-    const batchMasters = await db.batchMaster.findMany({
-      where: {
-        productId: { in: productIds },
-        isActive: true,
-        ...(companyId ? { companyId } : {}),
-      },
-      select: {
-        productId: true,
-        expiryDate: true,
-        status: true,
-      },
-    });
-
-    // Group batches by productId
-    const batchMap = new Map<
-      string,
-      Array<{ expiryDate: Date | null; status: string }>
-    >();
-    for (const batch of batchMasters) {
-      if (!batchMap.has(batch.productId)) {
-        batchMap.set(batch.productId, []);
+      // Weighted average cost tracking (only IN entries contribute)
+      if (entry.type === 'IN' && entry.costPrice > 0) {
+        const costData = costPriceMap.get(entry.productId) || { totalCost: 0, totalQty: 0 };
+        costData.totalCost += entry.costPrice * entry.quantity;
+        costData.totalQty += entry.quantity;
+        costPriceMap.set(entry.productId, costData);
       }
-      batchMap.get(batch.productId)!.push({
-        expiryDate: batch.expiryDate,
-        status: batch.status,
-      });
     }
 
     // Helper to determine stock status
-    const getStockStatus = (
-      currentStock: number,
-      reorderLevel: number
-    ): string => {
+    const getStockStatus = (currentStock: number, reorderLevel: number): string => {
       if (currentStock <= 0) return 'Out of Stock';
       if (currentStock <= reorderLevel) return 'Low Stock';
       return 'In Stock';
     };
 
-    // Build the result array with enhanced data
-    let stockReport: StockReportItem[] = products.map((product) => {
-      const stockMovements = stockMap.get(product.id) || 0;
-      const currentStock = safeFinancialAdd(
-        product.openingStock,
-        stockMovements
-      );
-      const stockValue = safeFinancialRound(currentStock * product.costPrice);
-      const stockStatus = getStockStatus(currentStock, product.reorderLevel);
+    // Get all godowns for name resolution
+    const allGodowns = await db.godown.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+    });
+    const godownNameMap = new Map(allGodowns.map(g => [g.id, g.name]));
 
-      // Build location-wise breakdown
-      const locationEntries = productStockMap.get(product.id) || [];
-      const locations: LocationEntry[] = locationEntries.map((loc) => ({
-        godownId: loc.godownId,
-        godownName: loc.godownName,
-        quantity: loc.quantity,
-        costPrice: loc.costPrice,
-        totalValue: loc.totalValue,
-        alertLevel: loc.alertLevel,
-        isSuspended: loc.godownStatus === 'SUSPENDED',
-      }));
-
-      // If no ProductStock records but product has a godown, create a single location entry
-      if (locations.length === 0 && product.godownId) {
-        locations.push({
-          godownId: product.godownId,
-          godownName: product.godown?.name || 'Unassigned',
-          quantity: currentStock,
-          costPrice: product.costPrice,
-          totalValue: stockValue,
-          alertLevel: product.reorderLevel,
-          isSuspended: product.godown?.status === 'SUSPENDED',
+    // Get batches if includeBatchInfo
+    let batchMap = new Map<string, Array<{ batchId: string; batchCode: string; onHand: number; status: string; expiryDate: Date | null }>>();
+    if (includeBatchInfo) {
+      const batches = await db.batchMaster.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          batchCode: true,
+          productId: true,
+          quantityOnHand: true,
+          status: true,
+          expiryDate: true,
+        },
+      });
+      for (const batch of batches) {
+        if (!batchMap.has(batch.productId)) {
+          batchMap.set(batch.productId, []);
+        }
+        // Auto-detect expired batches
+        let batchStatus = batch.status;
+        if (batch.expiryDate && new Date(batch.expiryDate) < new Date() && batch.status === 'Active') {
+          batchStatus = 'Expired';
+        }
+        batchMap.get(batch.productId)!.push({
+          batchId: batch.id,
+          batchCode: batch.batchCode,
+          onHand: batch.quantityOnHand,
+          status: batchStatus,
+          expiryDate: batch.expiryDate,
         });
       }
+    }
 
-      // Build batch summary
-      const productBatches = batchMap.get(product.id) || [];
-      const activeBatches = productBatches.filter(
-        (b) => b.status === 'Active'
-      ).length;
-      const expiredBatches = productBatches.filter(
-        (b) => b.status === 'Expired'
-      ).length;
+    // Build the result array
+    let stockReport = await Promise.all(products.map(async (product) => {
+      const stockMovements = stockMap.get(product.id) || 0;
+      const currentStock = safeFinancialRound(product.openingStock + stockMovements);
+      const stockStatus = getStockStatus(currentStock, product.reorderLevel);
 
-      // Find nearest expiry from active batches
-      let nearestExpiry: string | null = null;
-      const futureExpiries = productBatches
-        .filter(
-          (b) =>
-            b.expiryDate &&
-            b.status === 'Active' &&
-            new Date(b.expiryDate) > new Date()
-        )
-        .map((b) => new Date(b.expiryDate!))
-        .sort((a, b) => a.getTime() - b.getTime());
+      // Stock by godown
+      const gMap = godownStockMap.get(product.id) || new Map<string, number>();
+      const stockByGodown: Array<{ godownId: string; godownName: string; quantity: number }> = [];
 
-      if (futureExpiries.length > 0) {
-        nearestExpiry = futureExpiries[0].toISOString().split('T')[0];
+      // Add product's default godown opening stock
+      if (product.godownId && product.openingStock > 0) {
+        const existingQty = gMap.get(product.godownId) || 0;
+        gMap.set(product.godownId, existingQty + product.openingStock);
       }
 
-      const batchSummary: BatchSummary = {
-        activeBatches,
-        nearestExpiry,
-        expiredBatches,
-      };
+      for (const [gId, qty] of gMap) {
+        if (qty > 0) {
+          stockByGodown.push({
+            godownId: gId,
+            godownName: godownNameMap.get(gId) || 'Unknown',
+            quantity: safeFinancialRound(qty),
+          });
+        }
+      }
+
+      // Batch info
+      const batchInfo = includeBatchInfo ? (batchMap.get(product.id) || []) : undefined;
+
+      // Valuation data
+      let valuationData = undefined;
+      if (includeValuation) {
+        const costData = costPriceMap.get(product.id);
+        const weightedAvgCost = costData && costData.totalQty > 0
+          ? safeFinancialRound(costData.totalCost / costData.totalQty)
+          : product.costPrice;
+
+        const totalCostValue = safeFinancialRound(currentStock * weightedAvgCost);
+        const totalSaleValue = safeFinancialRound(currentStock * product.salePrice);
+        const totalWholesaleValue = safeFinancialRound(currentStock * product.wholesalePrice);
+
+        valuationData = {
+          totalCostValue,
+          totalSaleValue,
+          totalWholesaleValue,
+          weightedAvgCost,
+        };
+      }
 
       return {
         productId: product.id,
         productName: product.name,
         productCode: product.productCode,
+        sku: product.sku,
         category: product.category?.name || 'Uncategorized',
         categoryId: product.categoryId,
+        brand: product.brand?.name || null,
+        brandId: product.brandId,
         godown: product.godown?.name || 'Unassigned',
         godownId: product.godownId,
         currentStock,
         reorderLevel: product.reorderLevel,
         stockStatus,
-        valuationMethod: product.valuationMethod || 'FIFO',
         costPrice: product.costPrice,
         salePrice: product.salePrice,
         wholesalePrice: product.wholesalePrice,
         dealerPrice: product.dealerPrice,
-        stockValue,
+        stockValue: safeFinancialRound(currentStock * product.costPrice),
         openingStock: product.openingStock,
-        locations,
-        batchSummary,
+        stockByGodown,
+        ...(batchInfo !== undefined ? { batchInfo } : {}),
+        ...(valuationData !== undefined ? { valuationData } : {}),
       };
-    });
-
-    // Apply VAT Auditor masking
-    const role = security.user.role;
-    stockReport = stockReport.map((item) => {
-      const masked = maskForVatAuditor(
-        item as unknown as Record<string, unknown>,
-        role,
-        STOCK_VAT_MASKED_FIELDS
-      ) as unknown as StockReportItem;
-
-      // Also mask location-level costPrice and totalValue for VAT Auditor
-      if (role === 'vat_auditor' && masked.locations) {
-        masked.locations = masked.locations.map((loc) => ({
-          ...loc,
-          costPrice: 'N/A (Audit Mode)' as unknown as number,
-          totalValue: 'N/A (Audit Mode)' as unknown as number,
-        }));
-      }
-
-      return masked;
-    });
+    }));
 
     // Filter by status if provided
     if (statusFilter) {
-      stockReport = stockReport.filter(
-        (item) => item.stockStatus === statusFilter
-      );
+      stockReport = stockReport.filter((item) => item.stockStatus === statusFilter);
     }
 
-    // Log activity
-    await logUserActivity({
-      action: 'EXPORT',
-      module: 'Inv-Stock-Core',
-      userId: security.user.id,
-      userName: security.user.name,
-      details: `Stock report exported: products=${stockReport.length}, godownId=${godownId || 'all'}, statusFilter=${statusFilter || 'none'}`,
+    // Apply VAT Auditor masking using centralized maskForVatAuditor utility
+    const sensitiveFields = ['costPrice', 'salePrice', 'wholesalePrice', 'dealerPrice', 'stockValue', 'openingStock'];
+    const valuationFields = includeValuation
+      ? [...sensitiveFields, 'totalCostValue', 'totalSaleValue', 'totalWholesaleValue', 'weightedAvgCost']
+      : sensitiveFields;
+
+    stockReport = stockReport.map(item => {
+      let masked = maskForVatAuditor(item as Record<string, unknown>, role, valuationFields);
+      // Mask nested valuationData if present
+      if (includeValuation && masked.valuationData && typeof masked.valuationData === 'object' && role === 'vat_auditor') {
+        masked = {
+          ...masked,
+          valuationData: maskForVatAuditor(
+            masked.valuationData as Record<string, unknown>,
+            role,
+            ['totalCostValue', 'totalSaleValue', 'totalWholesaleValue', 'weightedAvgCost']
+          ),
+        };
+      }
+      // Mask nested batchInfo cost fields
+      if (includeBatchInfo && masked.batchInfo && Array.isArray(masked.batchInfo) && role === 'vat_auditor') {
+        masked = {
+          ...masked,
+          batchInfo: (masked.batchInfo as Record<string, unknown>[]).map(b =>
+            maskForVatAuditor(b, role, ['onHand'])
+          ),
+        };
+      }
+      return masked;
     });
 
     return NextResponse.json(stockReport);
   } catch (error) {
-    console.error('[Stock] Error calculating stock:', error);
+    console.error('[Stock] GET error:', error);
     return NextResponse.json(
       { error: 'Failed to calculate stock' },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================================
+// POST /api/stock — Manual Stock Adjustment (IN/OUT)
+// Body: { productId, godownId, type, quantity, batchId?, costPrice?, notes? }
+// ============================================================
+
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'Stock', 'POST');
+  if (!security.authorized) return security.response;
+
+  try {
+    const body = await request.json();
+    const { productId, godownId, type, quantity, batchId, costPrice, notes } = body;
+
+    // ── Validation ──
+    if (!productId) {
+      return NextResponse.json({ error: 'productId is required' }, { status: 400 });
+    }
+    if (!type || !['IN', 'OUT'].includes(type)) {
+      return NextResponse.json({ error: 'type must be "IN" or "OUT"' }, { status: 400 });
+    }
+    if (!quantity || quantity <= 0) {
+      return NextResponse.json({ error: 'quantity must be a positive number' }, { status: 400 });
+    }
+
+    // Validate product exists
+    const product = await db.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, productCode: true, costPrice: true, godownId: true },
+    });
+    if (!product) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 400 });
+    }
+
+    // Validate batchId if provided
+    if (batchId) {
+      const batch = await db.batchMaster.findUnique({
+        where: { id: batchId },
+        select: { id: true, productId: true, quantityOnHand: true, status: true },
+      });
+      if (!batch) {
+        return NextResponse.json({ error: 'Batch not found' }, { status: 400 });
+      }
+      if (batch.productId !== productId) {
+        return NextResponse.json({ error: 'Batch does not belong to this product' }, { status: 400 });
+      }
+    }
+
+    // Godown SUSPENDED check
+    const effectiveGodownId = godownId || product.godownId;
+    if (effectiveGodownId) {
+      const godown = await db.godown.findUnique({
+        where: { id: effectiveGodownId },
+        select: { id: true, name: true, status: true, isActive: true },
+      });
+      if (godown && godown.status === 'SUSPENDED') {
+        return NextResponse.json(
+          { error: `EMERGENCY CLOSURE: Warehouse "${godown.name}" is SUSPENDED. Stock adjustments are blocked.` },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Period-close check (use current date for adjustments)
+    const periodLock = await checkPeriodClose(new Date());
+    if (periodLock) return periodLock;
+
+    // For OUT adjustments, verify sufficient stock
+    if (type === 'OUT') {
+      const currentStock = await computeCurrentStock(db, productId, effectiveGodownId || undefined);
+      if (currentStock < quantity) {
+        const fmtBD = (v: number) =>
+          // Use en-US to guarantee Latin digits — en-US may produce Bengali numerals
+          new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+        return NextResponse.json(
+          { error: `Insufficient stock. Current stock is ${fmtBD(currentStock)} units, but ${fmtBD(quantity)} requested for adjustment.` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Snapshot costPrice
+    const effectiveCostPrice = costPrice || product.costPrice;
+
+    // Create adjustment entry atomically
+    const result = await db.$transaction(async (tx) => {
+      const adjustmentRef = await generateAdjustmentRef(tx);
+
+      const stockEntry = await tx.stockEntry.create({
+        data: {
+          productId,
+          godownId: effectiveGodownId || null,
+          type,
+          quantity,
+          reference: adjustmentRef,
+          referenceType: 'Adjustment',
+          date: new Date(),
+          batchId: batchId || null,
+          costPrice: effectiveCostPrice,
+          notes: notes || `Stock adjustment: ${type} ${quantity} units`,
+          companyId: security.user.companyId || null,
+        },
+      });
+
+      // Update batch quantityOnHand if batchId provided
+      if (batchId) {
+        const batch = await tx.batchMaster.findUnique({
+          where: { id: batchId },
+          select: { quantityOnHand: true },
+        });
+        if (batch) {
+          const newOnHand = type === 'IN'
+            ? safeFinancialAdd(batch.quantityOnHand, quantity)
+            : safeFinancialSubtract(batch.quantityOnHand, quantity);
+
+          await tx.batchMaster.update({
+            where: { id: batchId },
+            data: {
+              quantityOnHand: Math.max(0, newOnHand),
+              status: newOnHand <= 0 ? 'Depleted' : undefined,
+            },
+          });
+        }
+      }
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'Stock',
+          recordId: stockEntry.id,
+          recordLabel: adjustmentRef,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({
+            type: 'StockAdjustment',
+            productId,
+            productName: product.name,
+            adjustmentType: type,
+            quantity,
+            costPrice: effectiveCostPrice,
+            godownId: effectiveGodownId,
+            batchId: batchId || null,
+            reference: adjustmentRef,
+          }),
+        },
+      });
+
+      return stockEntry;
+    });
+
+    // Activity log
+    await logUserActivity({
+      action: 'CREATE',
+      module: 'Inv-Stock-Adjustment',
+      recordId: result.id,
+      recordLabel: result.reference,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: `Stock adjustment ${type} ${quantity} units of ${product.name} (${product.productCode})`,
+    });
+
+    return NextResponse.json(result, { status: 201 });
+  } catch (error) {
+    console.error('[Stock] POST error:', error);
+    return NextResponse.json(
+      { error: 'Failed to create stock adjustment' },
       { status: 500 }
     );
   }
