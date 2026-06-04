@@ -174,9 +174,21 @@ export default function AccountManagementPage() {
   }, [activeTab, heads, expenses, incomes, collections, deliveries, bankTxns]);
 
   const filtered = useMemo(() => {
-    if (!search) return currentData;
+    let result = currentData;
+    // Date range filter
+    if (dateFrom || dateTo) {
+      result = result.filter((item: any) => {
+        if (!item.date) return false;
+        const d = new Date(item.date);
+        if (dateFrom && d < new Date(dateFrom)) return false;
+        if (dateTo) { const to = new Date(dateTo); to.setHours(23, 59, 59, 999); if (d > to) return false; }
+        return true;
+      });
+    }
+    // Text search
+    if (!search) return result;
     const s = search.toLowerCase();
-    return currentData.filter((item: any) => {
+    return result.filter((item: any) => {
       const searchable = [
         item.expenseCode, item.incomeCode, item.collectionCode, item.deliveryCode, item.transactionCode,
         item.head?.name, item.customer?.name, item.supplier?.name, item.bank?.bankName,
@@ -184,7 +196,7 @@ export default function AccountManagementPage() {
       ].filter(Boolean).join(" ").toLowerCase();
       return searchable.includes(s);
     });
-  }, [currentData, search]);
+  }, [currentData, search, dateFrom, dateTo]);
 
   // ── Stats per tab ────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -276,6 +288,42 @@ export default function AccountManagementPage() {
 
   // ── Save handler ─────────────────────────────────────────────
   const handleSave = async () => {
+    // ── Form validation ──────────────────────────────────────
+    const errors: string[] = [];
+    switch (formContext) {
+      case "heads":
+        if (!formData.name?.trim()) errors.push("Name is required");
+        if (!formData.type_head && !formData.type) errors.push("Type is required");
+        break;
+      case "expenses":
+      case "incomes":
+        if (!formData.date) errors.push("Date is required");
+        if (!formData.headId) errors.push("Head is required");
+        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+        break;
+      case "collections":
+        if (!formData.customerId) errors.push("Customer is required");
+        if (!formData.date) errors.push("Date is required");
+        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+        break;
+      case "deliveries":
+        if (!formData.supplierId) errors.push("Supplier is required");
+        if (!formData.date) errors.push("Date is required");
+        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+        break;
+      case "bank-transactions":
+        if (!formData.bankId) errors.push("Bank is required");
+        if (!formData.type) errors.push("Type is required");
+        if (!formData.date) errors.push("Date is required");
+        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+        if (formData.type === "Transfer" && !formData.toBankId) errors.push("Target bank is required for Transfer");
+        break;
+    }
+    if (errors.length > 0) {
+      toast({ title: "Validation Error", description: errors.join("; "), variant: "destructive" });
+      return;
+    }
+
     setSaving(true);
     try {
       const apiBaseMap: Record<string, string> = {
@@ -309,11 +357,11 @@ export default function AccountManagementPage() {
   // ── Delete handler ───────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteItem) return;
-    if (!isAdmin) { toast({ title: "Access Denied", description: "Only administrators can delete financial posts", variant: "destructive" }); setDeleteItem(null); return; }
+    if (!isAdmin) { toast({ title: "Access Denied", description: "Only administrators can deactivate financial posts", variant: "destructive" }); setDeleteItem(null); return; }
     try {
       const apiBaseMap: Record<string, string> = { heads: "/api/expense-income-heads", expenses: "/api/expenses", incomes: "/api/incomes", collections: "/api/cash-collections", deliveries: "/api/cash-deliveries", "bank-transactions": "/api/bank-transactions" };
       await apiFetch(`${apiBaseMap[formContext]}/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" });
+      toast({ title: "Deactivated", description: "Record deactivated successfully" });
       setDeleteItem(null);
       loadAll();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
@@ -351,7 +399,7 @@ export default function AccountManagementPage() {
       const rows = filtered.map((item: any) => [
         item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || "—",
         item.head?.name || item.customer?.name || item.supplier?.name || item.bank?.bankName || item.name || "—",
-        fmtDate(item.date), isVatAuditor ? auditMask : String(item.amount || 0), item.status
+        fmtDate(item.date), isVatAuditor ? auditMask : bdCurrencyFmt.format(sanitizeCurrency(item.amount || 0)), item.status
       ]);
       exportToCSVSimple(`Account_${activeTab}`, headers, rows);
       toast({ title: "Exported", description: "CSV exported successfully" });
@@ -360,15 +408,48 @@ export default function AccountManagementPage() {
 
   // ── Import CSV ───────────────────────────────────────────────
   const importCSV = () => {
+    if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
     const apiBaseMap: Record<string, string> = { heads: "/api/expense-income-heads", expenses: "/api/expenses", incomes: "/api/incomes", collections: "/api/cash-collections", deliveries: "/api/cash-deliveries", "bank-transactions": "/api/bank-transactions" };
-    importFromCSV({
-      apiPath: apiBaseMap[activeTab] || "/api/expenses",
-      formFields: [
-        { key: "headId", label: "Head", type: "text" as const },
+    // Per-tab form fields for import
+    const formFieldsMap: Record<string, any[]> = {
+      heads: [
+        { key: "name", label: "Head Name", type: "text" as const, required: true },
+        { key: "type", label: "Type", type: "select" as const, required: true, options: [{ value: "Expense", label: "Expense" }, { value: "Income", label: "Income" }] },
+      ],
+      expenses: [
+        { key: "headName", label: "Expense Head Name", type: "text" as const, required: true },
         { key: "amount", label: "Amount", type: "number" as const, required: true },
         { key: "date", label: "Date", type: "date" as const, required: true },
         { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
       ],
+      incomes: [
+        { key: "headName", label: "Income Head Name", type: "text" as const, required: true },
+        { key: "amount", label: "Amount", type: "number" as const, required: true },
+        { key: "date", label: "Date", type: "date" as const, required: true },
+        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+      ],
+      collections: [
+        { key: "customerName", label: "Customer Name", type: "text" as const, required: true },
+        { key: "amount", label: "Amount", type: "number" as const, required: true },
+        { key: "date", label: "Date", type: "date" as const, required: true },
+        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+      ],
+      deliveries: [
+        { key: "supplierName", label: "Supplier Name", type: "text" as const, required: true },
+        { key: "amount", label: "Amount", type: "number" as const, required: true },
+        { key: "date", label: "Date", type: "date" as const, required: true },
+        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+      ],
+      "bank-transactions": [
+        { key: "bankName", label: "Bank Name", type: "text" as const, required: true },
+        { key: "type", label: "Type", type: "select" as const, required: true, options: [{ value: "Deposit", label: "Deposit" }, { value: "Withdraw", label: "Withdraw" }, { value: "Transfer", label: "Transfer" }] },
+        { key: "amount", label: "Amount", type: "number" as const, required: true },
+        { key: "date", label: "Date", type: "date" as const, required: true },
+      ],
+    };
+    importFromCSV({
+      apiPath: apiBaseMap[activeTab] || "/api/expenses",
+      formFields: formFieldsMap[activeTab] || formFieldsMap.expenses,
     }).then(result => {
       toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
       loadAll();
@@ -376,8 +457,13 @@ export default function AccountManagementPage() {
   };
 
   // ── RBAC ─────────────────────────────────────────────────────
-  const canCreate = !isVatAuditor && !isDealer;
+  const canMutate = !isVatAuditor && !isDealer && !isSR; // SR cannot create/edit/import in Account Management
+  const canCreate = canMutate;
   const canDelete = isAdmin;
+
+  // ── Date range filter ───────────────────────────────────────
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   // ── Dealer restriction ───────────────────────────────────────
   if (isDealer) {
@@ -551,7 +637,7 @@ export default function AccountManagementPage() {
             Account Management
           </h2>
           <div className="flex gap-2 flex-wrap">
-            {canCreate && <Button variant="outline" size="sm" onClick={importCSV} disabled={isVatAuditor}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>}
+            {canMutate && <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>}
             <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
             <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
             {canCreate && <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openCreate(activeTab)}><Plus className="w-4 h-4 mr-1" />Create</Button>}
@@ -664,15 +750,15 @@ export default function AccountManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
+      {/* Deactivate Confirmation */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
-          <DialogHeader><DialogTitle className="text-red-600">Confirm Deletion</DialogTitle>
-            <DialogDescription>This will soft-delete the record and reverse all ledger entries and bank balance changes. This action requires administrator privileges.</DialogDescription>
+          <DialogHeader><DialogTitle className="text-red-600">Confirm Deactivation</DialogTitle>
+            <DialogDescription>This will deactivate the record and reverse all ledger entries and bank balance changes. This action requires administrator privileges.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}><Trash2 className="w-4 h-4 mr-1" />Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}><Trash2 className="w-4 h-4 mr-1" />Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

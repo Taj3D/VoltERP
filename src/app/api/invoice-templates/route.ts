@@ -6,7 +6,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import { withApiSecurity, type UserRole, stripHtml } from '@/lib/api-security';
 
 // Inline code generator for TPL-XXXXX
 async function generateTemplateCode(): Promise<string> {
@@ -344,6 +344,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Sanitize text fields to prevent XSS (NOT headerHtml/bodyHtml/footerHtml/cssStyles — those are intentional HTML)
+    const sanitizedName = stripHtml(name);
+    const sanitizedSubject = subject ? stripHtml(subject) : null;
+
     const code = await generateTemplateCode();
 
     // Extract toggle fields with proper defaults
@@ -352,9 +356,9 @@ export async function POST(request: NextRequest) {
     const template = await db.invoiceTemplate.create({
       data: {
         code,
-        name,
+        name: sanitizedName,
         templateType: templateType || 'Invoice',
-        subject: subject || null,
+        subject: sanitizedSubject,
         headerHtml: headerHtml || null,
         bodyHtml: bodyHtml || null,
         footerHtml: footerHtml || null,
@@ -417,10 +421,10 @@ export async function PUT(request: NextRequest) {
 
     const updateData: Record<string, unknown> = {};
 
-    // Core fields
-    if (name !== undefined) updateData.name = name;
+    // Sanitize text fields to prevent XSS (NOT headerHtml/bodyHtml/footerHtml/cssStyles — those are intentional HTML)
+    if (name !== undefined) updateData.name = stripHtml(name);
     if (templateType !== undefined) updateData.templateType = templateType;
-    if (subject !== undefined) updateData.subject = subject;
+    if (subject !== undefined) updateData.subject = subject ? stripHtml(subject) : null;
     if (headerHtml !== undefined) updateData.headerHtml = headerHtml;
     if (bodyHtml !== undefined) updateData.bodyHtml = bodyHtml;
     if (footerHtml !== undefined) updateData.footerHtml = footerHtml;
@@ -437,10 +441,10 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // String nullable fields
+    // String nullable fields — sanitize text fields (NOT HTML content fields)
     for (const field of STRING_NULL_FIELDS) {
       if (body[field] !== undefined) {
-        updateData[field] = body[field] === null ? null : String(body[field]);
+        updateData[field] = body[field] === null ? null : stripHtml(String(body[field]));
       }
     }
 

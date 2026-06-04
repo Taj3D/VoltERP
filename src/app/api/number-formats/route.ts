@@ -5,7 +5,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import { withApiSecurity, type UserRole, stripHtml } from '@/lib/api-security';
 
 // Inline code generator for NF-XXXXX
 async function generateFormatCode(): Promise<string> {
@@ -99,11 +99,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate prefix format: only alphanumeric, dash, slash, and underscore allowed
+    if (!/^[A-Za-z0-9\-_\/]+$/.test(prefix)) {
+      return NextResponse.json(
+        { error: 'Prefix must only contain alphanumeric characters, dashes, slashes, and underscores.' },
+        { status: 400 }
+      );
+    }
+
+    // Validate prefix length
+    if (prefix.length < 1 || prefix.length > 10) {
+      return NextResponse.json(
+        { error: 'Prefix must be between 1 and 10 characters long.' },
+        { status: 400 }
+      );
+    }
+
+    // Sanitize text fields to prevent XSS
+    const sanitizedModuleKey = stripHtml(moduleKey).replace(/\s+/g, '_').toLowerCase();
+    const sanitizedPrefix = stripHtml(prefix);
+
     // Check for duplicate moduleKey
-    const existing = await db.numberFormat.findUnique({ where: { moduleKey } });
+    const existing = await db.numberFormat.findUnique({ where: { moduleKey: sanitizedModuleKey } });
     if (existing) {
       return NextResponse.json(
-        { error: `Number format for module "${moduleKey}" already exists.` },
+        { error: `Number format for module "${sanitizedModuleKey}" already exists.` },
         { status: 409 }
       );
     }
@@ -113,8 +133,8 @@ export async function POST(request: NextRequest) {
     const format = await db.numberFormat.create({
       data: {
         code,
-        moduleKey,
-        prefix,
+        moduleKey: sanitizedModuleKey,
+        prefix: sanitizedPrefix,
         paddingLength: paddingLength || 5,
         nextSequence: nextSequence || 1,
         resetYearly: resetYearly || false,
@@ -133,7 +153,7 @@ export async function POST(request: NextRequest) {
         recordLabel: format.code,
         userId: security.user.id,
         userName: security.user.name,
-        details: JSON.stringify({ moduleKey, prefix, code }),
+        details: JSON.stringify({ moduleKey: sanitizedModuleKey, prefix: sanitizedPrefix, code }),
       },
     });
 
@@ -161,6 +181,22 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Validate prefix format if being updated
+    if (prefix !== undefined && !/^[A-Za-z0-9\-_\/]+$/.test(prefix)) {
+      return NextResponse.json(
+        { error: 'Prefix must only contain alphanumeric characters, dashes, slashes, and underscores.' },
+        { status: 400 }
+      );
+    }
+
+    // Validate prefix length if being updated
+    if (prefix !== undefined && (prefix.length < 1 || prefix.length > 10)) {
+      return NextResponse.json(
+        { error: 'Prefix must be between 1 and 10 characters long.' },
+        { status: 400 }
+      );
+    }
+
     const existing = await db.numberFormat.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json(
@@ -178,23 +214,24 @@ export async function PUT(request: NextRequest) {
     }
 
     const updateData: Record<string, unknown> = {};
-    if (prefix !== undefined) updateData.prefix = prefix;
+    if (prefix !== undefined) updateData.prefix = stripHtml(prefix);
     if (paddingLength !== undefined) updateData.paddingLength = paddingLength;
     if (nextSequence !== undefined) updateData.nextSequence = nextSequence;
     if (resetYearly !== undefined) updateData.resetYearly = resetYearly;
-    if (separator !== undefined) updateData.separator = separator;
-    if (dateFormat !== undefined) updateData.dateFormat = dateFormat;
+    if (separator !== undefined) updateData.separator = separator ? stripHtml(separator) : null;
+    if (dateFormat !== undefined) updateData.dateFormat = dateFormat ? stripHtml(dateFormat) : null;
     if (isActive !== undefined) updateData.isActive = isActive;
     // moduleKey is unique but can be updated if not conflicting
     if (moduleKey !== undefined && moduleKey !== existing.moduleKey) {
-      const duplicate = await db.numberFormat.findUnique({ where: { moduleKey } });
+      const sanitizedKey = stripHtml(moduleKey).replace(/\s+/g, '_').toLowerCase();
+      const duplicate = await db.numberFormat.findUnique({ where: { moduleKey: sanitizedKey } });
       if (duplicate) {
         return NextResponse.json(
-          { error: `Number format for module "${moduleKey}" already exists.` },
+          { error: `Number format for module "${sanitizedKey}" already exists.` },
           { status: 409 }
         );
       }
-      updateData.moduleKey = moduleKey;
+      updateData.moduleKey = sanitizedKey;
     }
 
     const format = await db.numberFormat.update({

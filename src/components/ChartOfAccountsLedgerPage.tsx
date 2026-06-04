@@ -25,10 +25,12 @@ import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/expor
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
+const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdtFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -909,11 +911,11 @@ export default function ChartOfAccountsLedgerPage() {
       {/* COA Delete Dialog */}
       <Dialog open={!!coaDelete} onOpenChange={() => setCoaDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete account {coaDelete?.code}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Deactivate Account</DialogTitle></DialogHeader>
+          <DialogDescription>Are you sure you want to deactivate account {coaDelete?.code}? The account will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCoaDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={deleteCOA}>Delete</Button>
+            <Button variant="destructive" onClick={deleteCOA}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -921,11 +923,11 @@ export default function ChartOfAccountsLedgerPage() {
       {/* Ledger Delete Dialog */}
       <Dialog open={!!ledDelete} onOpenChange={() => setLedDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete entry {ledDelete?.entryCode}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Deactivate Entry</DialogTitle></DialogHeader>
+          <DialogDescription>Are you sure you want to deactivate entry {ledDelete?.entryCode}? The entry will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLedDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={deleteLedger}>Delete</Button>
+            <Button variant="destructive" onClick={deleteLedger}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

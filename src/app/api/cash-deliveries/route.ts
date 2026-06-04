@@ -13,6 +13,7 @@ import {
   safeFinancialRound,
   safeFinancialSubtract,
   safeFinancialAdd,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import Papa from 'papaparse';
@@ -164,10 +165,23 @@ export async function GET(request: NextRequest) {
         bank: true,
         chartOfAccount: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { date: 'asc' },
     });
 
-    const masked = maskFinancialArray(items, role, ['ledgerPosted', 'debitEntryCode', 'creditEntryCode']);
+    // Compute running balances (cumulative total of all deliveries over time)
+    let runningTotal = 0;
+    const computed = items.map((item: any) => {
+      runningTotal = safeFinancialAdd(runningTotal, item.amount || 0);
+      const runningBalance = safeFinancialRound(runningTotal);
+      // Fire-and-forget stale update
+      if (Math.abs((item.runningBalance || 0) - runningBalance) > 0.005) {
+        db.cashDelivery.update({ where: { id: item.id }, data: { runningBalance } }).catch(() => {});
+      }
+      return { ...item, runningBalance };
+    });
+    computed.reverse();
+
+    const masked = maskFinancialArray(computed, role, ['ledgerPosted', 'debitEntryCode', 'creditEntryCode', 'runningBalance']);
     return NextResponse.json(masked);
   } catch (error) {
     console.error('Error fetching cash deliveries:', error);
@@ -331,6 +345,26 @@ async function createSingleCashDelivery(
   if (!supplierId || !date || amount === undefined || amount === null) {
     throw new Error('supplierId, date, and amount are required');
   }
+
+  // Amount must be a positive number
+  const parsedAmount = parseFloat(String(amount));
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    throw new Error('amount must be a positive number greater than 0');
+  }
+
+  // Date validation
+  const dv = new Date(date as string);
+  if (isNaN(dv.getTime())) {
+    throw new Error('Invalid date provided');
+  }
+
+  // Sanitize text inputs for XSS
+  const sanitizedChequeNo = nullIfEmpty(chequeNo as string | undefined);
+  const sanitizedVoucherNo = nullIfEmpty(voucherNo as string | undefined);
+  const sanitizedDescription = nullIfEmpty(description as string | undefined);
+  if (sanitizedChequeNo) (body as any).chequeNo = stripHtml(sanitizedChequeNo);
+  if (sanitizedVoucherNo) (body as any).voucherNo = stripHtml(sanitizedVoucherNo);
+  if (sanitizedDescription) (body as any).description = stripHtml(sanitizedDescription);
 
   // Period-close lock check
   const transactionDate = new Date(date as string);

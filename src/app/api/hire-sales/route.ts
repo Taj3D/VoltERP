@@ -11,6 +11,13 @@ import {
 import type { UserRole } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+/**
+ * Strip HTML tags from a string to prevent XSS in text fields.
+ */
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 // ============================================================
 // GET /api/hire-sales — List all hire sales with relations
 // Includes real-time overdue installment processing
@@ -412,7 +419,7 @@ export async function POST(request: NextRequest) {
           totalPenaltyAmount: 0,
           cogsTotal,
           downPaymentPosted: dp > 0,
-          notes: notes || null,
+          notes: notes ? stripHtml(String(notes)) : null,
           companyId: companyId || security.user.companyId || null,
           lines: {
             create: processedLines.map((line) => ({

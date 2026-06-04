@@ -13,6 +13,7 @@ import {
   checkSmsSettingsWritePermission,
   safeFinancialRound,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -84,12 +85,12 @@ export async function POST(request: NextRequest) {
     const item = await db.$transaction(async (tx) => {
       const record = await tx.smsSetting.create({
         data: {
-          apiUrl: body.apiUrl,
-          apiKey: body.apiKey,
-          senderId: body.senderId,
-          maskingName: nullIfEmpty(body.maskingName),
-          maskingRegId: nullIfEmpty(body.maskingRegId),
-          gatewayName: nullIfEmpty(body.gatewayName),
+          apiUrl: stripHtml(body.apiUrl),
+          apiKey: body.apiKey, // API key: not stripped (may contain special chars)
+          senderId: stripHtml(body.senderId),
+          maskingName: nullIfEmpty(body.maskingName ? stripHtml(body.maskingName) : undefined),
+          maskingRegId: nullIfEmpty(body.maskingRegId ? stripHtml(body.maskingRegId) : undefined),
+          gatewayName: nullIfEmpty(body.gatewayName ? stripHtml(body.gatewayName) : undefined),
           ratePerSms: safeFinancialRound(Number(body.ratePerSms) || 0),
           unicodeRate: safeFinancialRound(Number(body.unicodeRate) || 0),
           setupCost: safeFinancialRound(Number(body.setupCost) || 0),

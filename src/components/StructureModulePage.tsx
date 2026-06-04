@@ -107,8 +107,6 @@ const CAPACITY_UNIT_OPTIONS = [
   { value: "tons", label: "Metric Tons" },
 ];
 
-const VALID_CAPACITY_UNITS = ["m³", "sqft", "units", "kg", "tons"];
-const VALID_GODOWN_STATUSES = ["ACTIVE", "SUSPENDED"];
 const CAPACITY_OVERFLOW_LIMIT = 999999999;
 
 // Column definitions per module for PDF export
@@ -516,6 +514,23 @@ function StructureModuleTab({
     for (const f of config.formFields) {
       if (f.required && !formData[f.key] && formData[f.key] !== 0) {
         toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+        return;
+      }
+    }
+
+    // Client-side duplicate name validation (case-insensitive)
+    const nameValue = (formData.name || "").trim().toLowerCase();
+    if (nameValue) {
+      const duplicate = data.find(d => {
+        if (editingItem && d.id === editingItem.id) return false; // skip self
+        return (d.name || "").toLowerCase() === nameValue;
+      });
+      if (duplicate) {
+        toast({
+          title: "Duplicate Name",
+          description: `A ${config.label.toLowerCase()} with name "${duplicate.name}" already exists`,
+          variant: "destructive",
+        });
         return;
       }
     }

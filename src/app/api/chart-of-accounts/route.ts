@@ -8,6 +8,7 @@ import {
   safeFinancialAdd,
   safeFinancialSubtract,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import { detectCircularParent, calculateAccountBalance, generateNextCode } from '@/lib/accounting-utils';
@@ -94,10 +95,30 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name, classification, parentAccountId, openingBalance, openingBalanceType } = body;
+    let { name, classification, parentAccountId, openingBalance, openingBalanceType } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+    }
+
+    // XSS protection: strip HTML from text fields
+    name = stripHtml(String(name));
+    if (classification) classification = stripHtml(String(classification));
+    if (openingBalanceType) openingBalanceType = stripHtml(String(openingBalanceType));
+
+    // Duplicate check: same account name within same company (case-insensitive for SQLite)
+    const dupWhere: Record<string, unknown> = { isActive: true };
+    if (companyId) dupWhere.companyId = companyId;
+    const allAccounts = await db.chartOfAccount.findMany({
+      where: dupWhere,
+      select: { name: true },
+    });
+    const nameLower = name.toLowerCase();
+    if (allAccounts.some((a: { name: string }) => a.name.toLowerCase() === nameLower)) {
+      return NextResponse.json(
+        { error: `An account with the name "${name}" already exists.` },
+        { status: 409 }
+      );
     }
 
     // COA-001: Circular parent detection

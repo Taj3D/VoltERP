@@ -2529,3 +2529,1102 @@ Stage Summary:
 - VAT Auditor masking confirmed working on Banks
 - Duplicate name/account validation confirmed working on Godowns and Banks
 - Products now fully manageable from Basic Modules page with pricing interlock validation
+
+---
+Task ID: 5-a
+Agent: Deep Audit Agent (Phase 5-a)
+Task: Deep Audit of StructureModulePage + 4 API route pairs
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT
+
+### FILES AUDITED:
+1. `src/components/StructureModulePage.tsx` (1276 lines)
+2. `src/app/api/departments/route.ts` (241 lines)
+3. `src/app/api/departments/[id]/route.ts` (237 lines)
+4. `src/app/api/godowns/route.ts` (270 lines)
+5. `src/app/api/godowns/[id]/route.ts` (393 lines)
+6. `src/app/api/godowns/routing-status/route.ts` (116 lines)
+7. `src/app/api/segments/route.ts` (227 lines)
+8. `src/app/api/segments/[id]/route.ts` (229 lines)
+9. `src/app/api/capacities/route.ts` (268 lines)
+10. `src/app/api/capacities/[id]/route.ts` (234 lines)
+
+### VERIFIED PASSING ✅:
+- Bengali digit risk: `Intl.NumberFormat("en-US", ...)` used correctly (line 38) ✅
+- Export PDF/CSV: Both present with corporate branding and VAT Auditor masking ✅
+- Import CSV: Present with capacity overflow validation ✅
+- XSS sanitization: Frontend `sanitizeInput()` strips HTML tags ✅
+- Form validation: Required fields validated, capacity min/max/overflow checked ✅
+- Delete confirmation: Works with `deleteConfirm` state dialog ✅
+- KPI stat cards: Total/Active/Inactive present ✅
+- Search/filter: Present and searches all columns ✅
+- RBAC: `canMutate = admin || manager` (SR/Dealer/VAT Auditor blocked) ✅
+- Responsive: `overflow-x-auto -mx-2 sm:mx-0`, `min-w-[600px]`, `max-w-[95vw] sm:max-w-*` ✅
+- All 4 API routes: `withApiSecurity()` wrapper on every method ✅
+- All 4 API routes: XSS `sanitizeText()` strips HTML tags ✅
+- All 4 API routes: `logUserActivity()` audit trail on every mutation ✅
+- All 4 API routes: Soft delete (`isActive: false`) on DELETE ✅
+- All 4 API routes: Batch mode support for CSV import ✅
+- All 4 API routes: Code auto-generation uses `findMany + Math.max` (collision-safe) ✅
+- All 4 API routes: Cross-tenant validation with companyId ✅
+- Departments API: Case-insensitive duplicate check with manual `.toLowerCase()` ✅
+- Godowns API: Case-insensitive duplicate check with manual `.toLowerCase()` ✅
+- No financial fields in these modules → VAT Auditor masking not needed ✅
+- No image upload fields → `validateImageFields()` not needed ✅
+
+### BUGS FOUND AND FIXED:
+
+**Bug #1 (BUG — Dead Code): VALID_CAPACITY_UNITS and VALID_GODOWN_STATUSES unused**
+- File: `StructureModulePage.tsx`, lines 110-111
+- Issue: Two constants defined but never referenced anywhere in the component
+- Fix: Removed both dead code constants
+- Status: FIXED ✅
+
+**Bug #2 (BUG — Missing Validation): No client-side duplicate name check**
+- File: `StructureModulePage.tsx`, `handleSave()` function (line 512+)
+- Issue: No frontend duplicate name validation before API call. Users only see error after round-trip
+- Fix: Added case-insensitive duplicate name check using existing `data` array before API submission. Skips self when editing
+- Status: FIXED ✅
+
+**Bug #3 (BUG — Data Integrity): Segments API missing case-insensitive duplicate check**
+- File: `src/app/api/segments/route.ts`, line 162-168 (single) and line 92-107 (batch)
+- Issue: Used `findFirst({ where: { companyId, name: sanitizedName } })` which is case-SENSITIVE in SQLite. Allowed "Sales" and "SALES" as separate entries
+- Fix: Replaced with `findMany` + manual `.toLowerCase()` comparison pattern (matching departments/godowns)
+- Status: FIXED ✅
+
+**Bug #4 (BUG — Data Integrity): Capacities API missing case-insensitive duplicate check**
+- File: `src/app/api/capacities/route.ts`, line 195-201 (single) and line 110-125 (batch)
+- Issue: Same as Bug #3 — case-SENSITIVE duplicate check in SQLite
+- Fix: Same pattern — `findMany` + manual `.toLowerCase()` comparison
+- Status: FIXED ✅
+
+**Bug #5 (BUG — Data Integrity): Segments [id] PUT duplicate check skipped when companyId is null**
+- File: `src/app/api/segments/[id]/route.ts`, line 98
+- Issue: `if (sanitizedName !== existing.name && companyId)` — duplicate check skipped entirely if companyId is null/undefined
+- Fix: Removed `&& companyId` condition. Now uses `findMany` with conditional companyId filter + `.toLowerCase()`
+- Status: FIXED ✅
+
+**Bug #6 (BUG — Data Integrity): Capacities [id] PUT duplicate check skipped when companyId is null**
+- File: `src/app/api/capacities/[id]/route.ts`, line 106
+- Issue: Same as Bug #5 — duplicate check skipped when companyId is null
+- Fix: Same pattern — removed `&& companyId` condition, added case-insensitive check
+- Status: FIXED ✅
+
+**Bug #7 (BUG — API Validation): Godowns API POST missing phone required validation**
+- File: `src/app/api/godowns/route.ts`, line 168
+- Issue: `phone` is marked `required: true` in frontend GODOWN_FIELDS but API allows null phone. Direct API call bypasses frontend validation
+- Fix: Added `if (!sanitizedPhone)` validation with 400 error response
+- Status: FIXED ✅
+
+**Bug #8 (BUG — API Validation): Godowns API missing capacityUnit and status validation**
+- File: `src/app/api/godowns/route.ts` (POST) and `src/app/api/godowns/[id]/route.ts` (PUT)
+- Issue: `capacityUnit` accepted any string value (e.g., "xyz"). `status` accepted any string (e.g., "HACKED"). No server-side validation against allowed values
+- Fix: Added `VALID_CAPACITY_UNITS` whitelist validation in both POST and PUT. Added `VALID_STATUSES` whitelist validation in PUT
+- Status: FIXED ✅
+
+### LINT CHECK
+- `bun run lint` — PASSED with zero errors ✅
+
+### FILES MODIFIED (5 files):
+1. `src/components/StructureModulePage.tsx` — Removed dead code + added client-side duplicate name validation
+2. `src/app/api/segments/route.ts` — Case-insensitive duplicate check (single + batch)
+3. `src/app/api/segments/[id]/route.ts` — Case-insensitive duplicate check, removed companyId dependency
+4. `src/app/api/capacities/route.ts` — Case-insensitive duplicate check (single + batch)
+5. `src/app/api/capacities/[id]/route.ts` — Case-insensitive duplicate check, removed companyId dependency
+6. `src/app/api/godowns/route.ts` — Added phone required validation + capacityUnit whitelist
+7. `src/app/api/godowns/[id]/route.ts` — Added capacityUnit + status whitelist validation
+
+---
+
+Task ID: 5-c
+Agent: Deep Audit Agent (Interest Percentage Engine)
+Task: Phase 5-c — Deep Audit of InterestPercentageEnginePage + API Routes
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT — Interest Percentage Engine
+
+### FILES AUDITED:
+1. `src/components/InterestPercentageEnginePage.tsx` (1250 lines)
+2. `src/app/api/interest-percentages/route.ts` (387 lines)
+3. `src/app/api/interest-percentages/[id]/route.ts` (257 lines)
+4. `src/app/api/interest-percentages/amortization/route.ts` (236 lines)
+
+---
+
+### BUGS FOUND AND FIXED:
+
+**Bug #1 — Bengali Digit Risk in fmtDate()** [Component, Line 80]
+- **Issue**: `fmtDate()` used `toLocaleDateString('en-GB', ...)` which can fall back to Bengali numerals (০-৯) in certain Node.js/browser environments. Same issue was fixed in `invoice-engine.ts` during Phase 4.
+- **Fix**: Replaced with `new Intl.DateTimeFormat('en-GB', {...})` instance (`bdDateFmt`), ensuring stable Western Arabic digits.
+- **Severity**: BUG (must fix — financial documents with Bengali digits are invalid)
+
+**Bug #2 — Missing VAT Auditor Masking in PDF Export** [Component, Line 469]
+- **Issue**: `exportRatePDF()` had `vatMaskedColumns: []` — financial columns (minimumAmount, maximumAmount) were NOT masked for VAT Auditor in PDF output. The CSV export correctly masked them (lines 581-582), creating inconsistency.
+- **Fix**: Changed `vatMaskedColumns: []` → `vatMaskedColumns: isVatAuditor ? ['minimumAmount', 'maximumAmount'] : []`, and added `isVatAuditor ? 'N/A (Audit Mode)' :` masking in the PDF data mapping.
+- **Severity**: BUG (VAT Auditor compliance violation — financial data leakage)
+
+**Bug #3 — Missing RBAC for Create/Edit Operations** [Component, Lines 753-761, 825]
+- **Issue**: The "Create Rate" button was always visible regardless of user role. The Edit button was only disabled for VAT Auditor. SR and Dealer roles could create and edit interest rates, which should be restricted to Admin and Manager only.
+- **Fix**: Added `canMutate = (isAdmin || isManager) && !isVatAuditor` and `canCreateEdit = canMutate`. Gated Create Rate button, Import button, and Edit button with `canCreateEdit`.
+- **Severity**: BUG (security — unauthorized role could modify financial rates)
+
+**Bug #4 — Delete Dialog Misleading Message** [Component, Line 1232]
+- **Issue**: Delete dialog said "This action cannot be undone" but the API uses soft delete (sets `isActive: false`). Users are misled into thinking the rate is permanently deleted.
+- **Fix**: Changed message to "Are you sure you want to deactivate rate {code}? The rate will be marked as inactive and can be reactivated later." Changed button text from "Delete" to "Deactivate".
+- **Severity**: BUG (misleading UX — contradicts actual API behavior)
+
+**Bug #5 — API GET Route Only Returns Active Rates** [API route.ts, Line 128]
+- **Issue**: `GET /api/interest-percentages` had `where: { isActive: true }` hardcoded. Inactive rates were completely invisible — no way to view or reactivate them.
+- **Fix**: Added `?includeInactive=true` query parameter support. Component now fetches with `includeInactive=true` to show all rates including deactivated ones.
+- **Severity**: BUG (data loss — once deactivated, rates are invisible and unresolvable)
+
+**Bug #6 — API sanitizeText Missing XSS Vectors** [API route.ts + [id]/route.ts, Line 15-22]
+- **Issue**: API `sanitizeText()` only stripped HTML tags but missed `javascript:` URIs and `on\w+=` event handler attributes. An attacker could inject `javascript:alert(1)` or `onclick=malicious()` in the description field. The component's `sanitizeXSS()` handled these, but the API (server-side) didn't.
+- **Fix**: Added `.replace(/javascript:/gi, '')` and `.replace(/on\w+=/gi, '')` to both `sanitizeText()` functions.
+- **Severity**: BUG (XSS vulnerability — server-side sanitization bypass)
+
+**Bug #7 — API PUT Missing expiryDate > effectiveDate Validation** [API [id]/route.ts, Line 102-111]
+- **Issue**: The PUT endpoint validated `effectiveDate` format but did NOT validate that `expiryDate > effectiveDate`. A client could update a rate with expiry before effective date, creating an invalid rate configuration. The component validated this client-side, but the API must enforce server-side.
+- **Fix**: Added server-side validation: if either effectiveDate or expiryDate is being updated, check `expiryDate > effectiveDate` using the combined new+existing values.
+- **Severity**: BUG (data integrity — invalid date range could cause rate lookup failures)
+
+**Bug #8 — Pre-existing TypeScript Errors in Batch/Schedule Arrays** [API route.ts Line 164, amortization/route.ts Line 162]
+- **Issue**: `const records = []` and `const schedule = []` were inferred as `never[]` by TypeScript, causing TS2345/TS2339 errors on `.push()` and `.map()`.
+- **Fix**: Added explicit type annotations: `const records: any[] = []` and `const schedule: any[] = []`.
+- **Severity**: BUG (TypeScript compilation error — caught by `tsc --noEmit`)
+
+---
+
+### ENHANCEMENTS NOTED (not fixed — future work):
+
+**Enhancement #1 — Missing Duplicate Rate Check in API**
+- The API doesn't prevent creating two rates with the same `type` + overlapping `effectiveDate/expiryDate` range. This could lead to ambiguity in the rate lookup logic.
+- **Suggested Fix**: Add a date overlap check before create/update: query for existing rates with the same type where the date ranges overlap.
+
+**Enhancement #2 — Missing Rate Type Filter in UI**
+- The search only filters by text. A dropdown filter for rate type (HIRE_PURCHASE, TERM_LOAN, OVERDRAFT, CUSTOM) would improve usability.
+- **Suggested Fix**: Add a `<Select>` dropdown above the table for rate type filtering.
+
+**Enhancement #3 — Missing Active/Inactive Toggle in Table**
+- Currently, toggling a rate's active status requires editing it. An inline toggle switch in the table would be more convenient.
+- **Suggested Fix**: Add a `<Switch>` component in the Status column that calls PUT to toggle `isActive`.
+
+**Enhancement #4 — Missing Percentage Decimal Precision Limit**
+- The form accepts any number of decimal places for percentage (e.g., 12.3456789%). Financial rates should be limited to 2-4 decimal places.
+- **Suggested Fix**: Add `step="0.0001"` and validation for max 4 decimal places in `validateForm()`.
+
+**Enhancement #5 — Missing Minimum Amount Non-Negative Validation**
+- The form doesn't validate that minimumAmount and maximumAmount are non-negative. Negative amounts could pass through.
+- **Suggested Fix**: Add `min="0"` to amount inputs and validate in `validateForm()`.
+
+**Enhancement #6 — Missing Description Length Limit**
+- No max length validation on the description field. Extremely long descriptions could bloat the database.
+- **Suggested Fix**: Add `maxLength={500}` to the Textarea and validate in `validateForm()`.
+
+---
+
+### WHAT WAS ALREADY CORRECT ✅:
+
+1. **Intl.NumberFormat for currency** — Uses `en-US` locale (not `toLocaleString`) — no Bengali digit risk for currency ✅
+2. **withApiSecurity()** — All 3 API routes use the wrapper correctly ✅
+3. **logUserActivity()** — All CRUD operations and amortization calculation are audit-logged ✅
+4. **Soft delete** — DELETE endpoint sets `isActive: false` instead of hard delete ✅
+5. **Cross-tenant validation** — [id] route validates companyId against requesting user ✅
+6. **Batch mode** — POST route supports CSV import via `batchMode: true` ✅
+7. **Export PDF/CSV** — Both Rate Configuration and Amortization Schedule have PDF + CSV export ✅
+8. **Import CSV** — Rate configuration supports CSV import ✅
+9. **KPI stat cards** — Total, Active, Expired, Rate Types stats displayed ✅
+10. **Search/filter** — Text search across code, type, percentage, description ✅
+11. **XSS sanitization** — Component sanitizes description input ✅ (API now also sanitizes ✅)
+12. **Amortization calculator** — Full EMI reducing-balance method with auto-fill rate ✅
+13. **Percentage validation** — 0-100 range validated client-side and server-side ✅
+14. **Date range validation** — expiryDate > effectiveDate validated client-side (now also server-side ✅)
+15. **Rate type validation** — Validated against HIRE_PURCHASE/TERM_LOAN/OVERDRAFT/CUSTOM ✅
+16. **Company profile for PDF** — Loads from `/api/company-branding` ✅
+17. **VAT Auditor badge** — Shows audit mode banner ✅
+18. **Manager restriction banner** — Shows delete restriction notice ✅
+19. **Responsive design** — Tables, grids, dialogs use responsive breakpoints ✅
+20. **safeFinancialRound** — Amortization calculation uses financial-safe rounding ✅
+
+### DEAD CODE REMOVED:
+- Removed unused imports `sanitizeCurrencyValue` and `formatSanitizedCurrency` from component (line 30)
+
+### LINT CHECK:
+- `bun run lint` — PASSED with zero errors ✅
+- `bunx tsc --noEmit` — No errors in interest-percentages files ✅
+
+### FILES MODIFIED (4 files):
+1. `src/components/InterestPercentageEnginePage.tsx` — 8 fixes (Bengali digit, VAT masking, RBAC, delete dialog, includeInactive, dead imports, Import RBAC, Edit RBAC)
+2. `src/app/api/interest-percentages/route.ts` — 3 fixes (XSS sanitize, includeInactive support, TypeScript array type)
+3. `src/app/api/interest-percentages/[id]/route.ts` — 2 fixes (XSS sanitize, expiryDate > effectiveDate validation)
+4. `src/app/api/interest-percentages/amortization/route.ts` — 1 fix (TypeScript array type)
+
+---
+Task ID: phase-5-structure-operations-interest
+Agent: Main Orchestrator + 3 Sub-Agents
+Task: Phase 5 — Structure, Operations & Interest Deep Audit (3 component files, 9 module pages)
+
+Work Log:
+
+### AUDIT SCOPE
+3 component files audited + 12 API route files:
+1. StructureModulePage.tsx (4 tabs: Departments, Godowns, Segments, Capacities)
+2. OperationsModulePage.tsx (4 tabs: SR Targets, Payment Options, Card Types, Card Type Setup)
+3. InterestPercentageEnginePage.tsx (Interest Percentage Engine + Amortization Calculator)
+
+### BUGS FOUND AND FIXED (26 total + 4 post-audit hotfixes)
+
+#### StructureModulePage (8 bugs):
+1. Dead code: unused constants VALID_CAPACITY_UNITS, VALID_GODOWN_STATUSES — Removed
+2. Missing client-side duplicate name validation — Added case-insensitive check in handleSave()
+3. Segments API: case-sensitive duplicate check — Fixed with findMany + .toLowerCase()
+4. Capacities API: case-sensitive duplicate check — Fixed with findMany + .toLowerCase()
+5. Segments PUT: duplicate check skipped when companyId is null — Fixed with conditional companyId filter
+6. Capacities PUT: duplicate check skipped when companyId is null — Same fix
+7. Godowns API: phone not enforced as required — Added 400 error on empty phone
+8. Godowns API: no capacityUnit/status whitelist validation — Added VALID_CAPACITY_UNITS and VALID_STATUSES checks
+
+#### OperationsModulePage (10 bugs):
+1. VAT Auditor: missing financial masking on derived columns (achievementPct, remainingAmount, commissionProjection) — Fixed
+2. VAT Auditor: Effective Total Rate not masked in Card Type Setup — Fixed
+3. printedBy/preparedBy fallback exposes raw role string — Changed all 8 occurrences to "System"
+4. Delete confirmation dialogs misleading ("cannot be undone") — Changed to "deactivate" language
+5. Card Types API: missing duplicate name check on create AND update — Added case-insensitive check
+6. Payment Options API: case-sensitive duplicate check — Fixed with findMany + .toLowerCase()
+7. All API routes missing stripHtml() XSS sanitization — Added stripHtml import and usage
+8. SR Targets API: commissionPercentage has no upper bound (allows 99999%) — Added <= 100% validation
+9. Card Type Setup [id] API: chargePercentage missing rate bounds validation on PUT — Added validateRateBounds
+10. Duplicate /api/card-type-setups route missing bankServiceCharge/customerConvFee fields — Added to both POST and PUT
+
+#### InterestPercentageEnginePage (8 bugs):
+1. Bengali digit risk in fmtDate() — Fixed with Intl.DateTimeFormat instance
+2. VAT Auditor PDF data leakage (vatMaskedColumns was []) — Fixed to mask minimumAmount/maximumAmount
+3. Missing RBAC for Create/Edit — Added canMutate check gating Create, Import, Edit buttons
+4. Misleading delete dialog text — Changed to "deactivate" language
+5. API only returns active rates (isActive: true hardcoded) — Added ?includeInactive=true parameter
+6. XSS sanitization bypass in sanitizeText() — Added javascript: and on\w+= regex filters
+7. Missing server-side date validation on PUT — Added expiryDate > effectiveDate check
+8. TypeScript compilation errors (empty arrays inferred as never[]) — Added explicit any[] type annotations
+
+#### Post-Audit Hotfixes (4 fixes):
+- Sub-agents incorrectly imported `stripHtml` from `@/lib/api-security` but it doesn't exist there
+- Fixed all 4 files by adding local `stripHtml()` function definition (matching banks route pattern):
+  - src/app/api/payment-options/route.ts
+  - src/app/api/payment-options/[id]/route.ts
+  - src/app/api/card-types/route.ts
+  - src/app/api/card-types/[id]/route.ts
+
+### VERIFICATION RESULTS
+
+**API Endpoints — All returning data:**
+- Departments: 5 records ✅
+- Godowns: 3 records ✅
+- Segments: 3 records ✅
+- Capacities: 0 records (no seed data) ✅
+- SR Targets: 5 records ✅
+- Payment Options: 5 records (Cash, Card, bKash, Nagad, Bank Transfer) ✅
+- Card Types: 3 records (Visa, MasterCard, Amex) ✅
+- Card Type Setup: 3 records ✅
+- Interest Percentages: 0 records ✅
+
+**Browser Verification:**
+- Structure page renders with 4 tabs ✅
+- Operations pages render with all 4 sub-pages ✅
+- Interest Percentage Engine renders with amortization calculator ✅
+- Zero page errors after stripHtml fix ✅
+
+**Lint:** `bun run lint` — PASSED with zero errors ✅
+
+### FILES MODIFIED
+**StructureModulePage (3 files):**
+1. src/components/StructureModulePage.tsx — Removed dead code, added client-side duplicate check
+2. src/app/api/segments/route.ts — Case-insensitive duplicate check
+3. src/app/api/segments/[id]/route.ts — Fixed companyId null bypass
+4. src/app/api/capacities/route.ts — Case-insensitive duplicate check
+5. src/app/api/capacities/[id]/route.ts — Fixed companyId null bypass
+6. src/app/api/godowns/route.ts — Phone required enforcement, capacityUnit/status whitelist
+7. src/app/api/godowns/[id]/route.ts — capacityUnit/status whitelist
+
+**OperationsModulePage (10 files):**
+8. src/components/OperationsModulePage.tsx — VAT masking (6 places), printedBy fallback (8 places), delete dialog text (4 places)
+9. src/app/api/card-types/route.ts — stripHtml + case-insensitive duplicate check
+10. src/app/api/card-types/[id]/route.ts — stripHtml + case-insensitive duplicate check on rename
+11. src/app/api/payment-options/route.ts — stripHtml + case-insensitive duplicate check
+12. src/app/api/payment-options/[id]/route.ts — stripHtml + case-insensitive duplicate check on rename
+13. src/app/api/sr-targets/route.ts — commissionPercentage <= 100% validation
+14. src/app/api/sr-targets/[id]/route.ts — commissionPercentage <= 100% validation
+15. src/app/api/card-type-setup/[id]/route.ts — chargePercentage rate bounds validation
+16. src/app/api/card-type-setups/route.ts — Added bankServiceCharge/customerConvFee
+17. src/app/api/card-type-setups/[id]/route.ts — Added bankServiceCharge/customerConvFee
+
+**InterestPercentageEnginePage (4 files):**
+18. src/components/InterestPercentageEnginePage.tsx — Bengali digit fix, VAT masking, RBAC, delete dialog
+19. src/app/api/interest-percentages/route.ts — includeInactive, XSS sanitization, TS fixes
+20. src/app/api/interest-percentages/[id]/route.ts — Date validation, XSS sanitization
+21. src/app/api/interest-percentages/amortization/route.ts — TS type annotation fix
+
+Stage Summary:
+- 26 bugs fixed + 4 post-audit hotfixes across 21 files
+- All 9 module pages verified working via API + browser testing
+- VAT Auditor masking confirmed on all financial columns
+- Case-insensitive duplicate name checks fixed on segments, capacities, card types, payment options
+- XSS sanitization added to card types and payment options APIs
+- Commission percentage capped at 100% on SR Targets
+- Date validation added to interest percentages PUT endpoint
+- stripHtml import error fixed across 4 API route files
+
+---
+
+Task ID: phase-6-staff-crm
+Agent: Staff & CRM Deep Audit Agent
+Task: Phase 6 — Deep Audit of PersonnelCRMGroupPage and all associated API routes for Staff & CRM module
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT
+
+### BUGS FOUND AND FIXED
+
+#### BUG 1: Bengali Digit Risk in Frontend Formatters — CRITICAL 🔴
+**File:** `src/components/PersonnelCRMGroupPage.tsx` (lines 38-56)
+**Problem:** `toLocaleString("en-US", { minimumFractionDigits: 2 })` and `toLocaleDateString("en-GB", ...)` can produce Bengali numerals (০-৯) in certain Node.js/browser environments
+**Fix:** Replaced with `Intl.NumberFormat('en-US', ...)` and `Intl.DateTimeFormat('en-US', ...)` instances — created `currencyFormatter`, `numberFormatter`, and `dateFormatter` as module-level constants
+
+#### BUG 2: Delete Dialog Text Incorrect for Soft-Delete Modules — HIGH 🟡
+**File:** `src/components/PersonnelCRMGroupPage.tsx` (line 1952)
+**Problem:** Delete dialog said "This action cannot be undone" for ALL modules, but Designations, Employees, Customers, Suppliers are soft-delete (isActive=false)
+**Fix:** Added `isSoftDeleteModule` flag. Dialog now says:
+- Soft-delete modules: "Are you sure you want to deactivate this X? The record will be marked as inactive but preserved in the system." with "Deactivate" button
+- Hard-delete modules (employee-leaves, leave-allocations): "Are you sure you want to permanently remove this X? This action cannot be undone." with "Delete" button
+
+#### BUG 3: VAT Auditor/SR Masking Missing on KPI Cards — HIGH 🟡
+**File:** `src/components/PersonnelCRMGroupPage.tsx` (lines 1451, 1514, 1553)
+**Problem:** Total Monthly Payroll card, Total Outstanding AR card, and Total Outstanding AP card displayed real values to VAT Auditor and SR roles
+**Fix:** 
+- Total Monthly Payroll: Shows "N/A (Audit Mode)" for VAT Auditor or SR
+- Total Outstanding AR: Shows "N/A (Audit Mode)" for VAT Auditor
+- Total Outstanding AP: Shows "N/A (Audit Mode)" for VAT Auditor
+- Also fixed `totalSalary` computation to return 0 when isVatAuditor or isSR
+
+#### BUG 4: Stale Credit Status Display — HIGH 🟡
+**File:** `src/components/PersonnelCRMGroupPage.tsx`
+**Problem:** Credit status badges and KPI cards used `item.creditStatus` (stored/stale) instead of `item.computedCreditStatus` (real-time computed from transactions)
+**Fix:** 
+- Main table credit status badge: Uses `item.computedCreditStatus || item.creditStatus`
+- Customer Credit Utilization section: Uses `computedCurrentBalance` and `computedCreditStatus`
+- Supplier Credit Utilization section: Same fix
+- KPI stats for creditFrozen/creditOverLimit: Uses `computedCreditStatus`
+- Filter changed from `Number(item.creditLimit) > 0` to include items with `computedCurrentBalance > 0`
+
+#### BUG 5: Stale AR/AP Balance Calculation — HIGH 🟡
+**File:** `src/components/PersonnelCRMGroupPage.tsx`
+**Problem:** AR/AP outstanding totals used `item.currentBalance` and `item.currentBalanceType` (stored values) instead of computed values from transaction aggregation
+**Fix:** Stats now use `item.computedCurrentBalance ?? item.currentBalance` and `item.computedCurrentBalanceType ?? item.currentBalanceType`
+
+#### BUG 6: Missing Case-Insensitive Duplicate Name Check — HIGH 🟡
+**Files:** All 6 API routes + frontend
+**Problem:** No case-insensitive duplicate name validation before creating/updating records
+**Fix:**
+- Frontend: Added `formData.name` case-insensitive duplicate check in `handleSave()` before API call
+- Backend (all 6 modules): Added `.toLowerCase()` comparison using `findFirst({ where: { name: { contains: normalizedName }, isActive: true } })` then exact `.toLowerCase()` match
+- For PUT routes: Excludes current record with `id: { not: id }`
+
+#### BUG 7: Missing XSS Sanitization — HIGH 🟡
+**Files:** All 10 API route files
+**Problem:** No `stripHtml()` or equivalent on any text inputs across all 6 Staff & CRM modules
+**Fix:** Added `stripHtml()` function to all API route files and applied it to:
+- Designations: name, description
+- Employees: name, religion, fatherName, motherName, spouseName, email, presentAddress, permanentAddress, emergencyContactName, bankName, referenceBy, address
+- Employee Leaves: reason
+- Customers: name, phone, email, address, area, reference
+- Suppliers: name, contactPerson, phone, email, address, area, terms
+
+#### BUG 8: Customer Batch Mode Missing Validation — CRITICAL 🔴
+**File:** `src/app/api/customers/route.ts` (line 129-132)
+**Problem:** Batch mode (`body.batchMode === true`) just created raw records via `db.customer.create({ data: record })` without image validation, code generation, XSS sanitization, duplicate checks, phone/email validation, or audit logging
+**Fix:** Complete rewrite of batch mode with:
+- `validateImageFields()` check per row
+- Case-insensitive duplicate name check
+- Phone/email format validation
+- Auto-generated CUS-XXXXX codes
+- XSS sanitization via `stripHtml()`
+- Proper `safeFinancialRound()` on financial fields
+- Batch audit logging via `logUserActivity()`
+
+#### BUG 9: Supplier Batch Mode Missing Validation — CRITICAL 🔴
+**File:** `src/app/api/suppliers/route.ts` (line 113-118)
+**Problem:** Same as Bug 8 — batch mode created raw records without any validation
+**Fix:** Complete rewrite matching customer batch mode pattern
+
+#### BUG 10: Customer PUT Resetting openingBalance to 0 — HIGH 🟡
+**File:** `src/app/api/customers/[id]/route.ts` (line 54)
+**Problem:** `body.openingBalance ?? 0` resets openingBalance to 0 when not provided in the update payload (e.g., just updating the name)
+**Fix:** Changed to only-when-provided pattern: `if (body.openingBalance !== undefined) updateData.openingBalance = Number(body.openingBalance)`. Applied same fix to all customer and supplier fields.
+
+#### BUG 11: Customer/Supplier DELETE No Admin Check — HIGH 🟡
+**Files:** `src/app/api/customers/[id]/route.ts`, `src/app/api/suppliers/[id]/route.ts`
+**Problem:** Any user with DELETE permission (not just admin) could delete customers/suppliers
+**Fix:** Added role check: `if (security.user.role !== 'admin' && security.user.role !== 'manager') return 403`
+
+#### BUG 12: Customer/Supplier DELETE No FK Integrity Check — HIGH 🟡
+**Files:** `src/app/api/customers/[id]/route.ts`, `src/app/api/suppliers/[id]/route.ts`
+**Problem:** Could soft-delete a customer with active sales orders or supplier with active purchase orders, creating orphaned references
+**Fix:**
+- Customer DELETE: Checks `activeSalesOrders` and `activeHireSales` before soft-deleting
+- Supplier DELETE: Checks `activePurchaseOrders` before soft-deleting
+- Returns 400 with descriptive error if references exist
+
+#### BUG 13: Missing Phone/Email/NID Format Validation — MEDIUM 🟢
+**Files:** All employee, customer, supplier API routes
+**Problem:** No format validation on phone, email, or NID fields
+**Fix:** Added validation functions:
+- `isValidPhone()`: Bangladesh format (+880XXXXXXXXXX) or generic international
+- `isValidEmail()`: Standard email regex
+- `isValidNID()`: 10-17 digit number
+- Applied to POST and PUT on employees, customers, suppliers (single mode)
+
+#### BUG 14: SR Import Access Missing — MEDIUM 🟢
+**File:** `src/components/PersonnelCRMGroupPage.tsx` (line 1564)
+**Problem:** Import CSV button only showed for `canMutate` (admin/manager), but SR should be able to import customers
+**Fix:** Changed condition from `canMutate` to `canMutate || (isSR && config.key === "customers")`
+
+#### BUG 15: VAT Auditor Masking Missing computedCurrentBalance — MEDIUM 🟢
+**File:** `src/components/PersonnelCRMGroupPage.tsx`
+**Problem:** `vatMaskedColumns` for customers/suppliers didn't include `computedCurrentBalance`
+**Fix:** Added `computedCurrentBalance` to `vatMaskedColumns` for both customers and suppliers
+
+#### BUG 16: Main Table currentBalance Not Using Computed Value — HIGH 🟡
+**File:** `src/components/PersonnelCRMGroupPage.tsx` (line 1667)
+**Problem:** Table `currentBalance` column showed stored `item.currentBalance` instead of computed `item.computedCurrentBalance`
+**Fix:** Added special handling in table column rendering:
+- `currentBalance` column: Uses `item.computedCurrentBalance ?? item.currentBalance`
+- `currentBalanceType` column: Uses `item.computedCurrentBalanceType ?? item.currentBalanceType`
+
+#### BUG 17: Customer/Supplier Cross-Tenant Validation Missing on PUT/DELETE — MEDIUM 🟢
+**Files:** `src/app/api/customers/[id]/route.ts`, `src/app/api/suppliers/[id]/route.ts`
+**Problem:** PUT and DELETE routes didn't validate companyId cross-tenant access
+**Fix:** Added cross-tenant validation in PUT and DELETE transactions, and added proper error handling for "Not found" cases
+
+#### BUG 18: Customer/Supplier PUT Missing Audit Log via logUserActivity — MEDIUM 🟢
+**Files:** `src/app/api/customers/[id]/route.ts`, `src/app/api/suppliers/[id]/route.ts`
+**Problem:** PUT routes used `tx.auditLog.create()` instead of `logUserActivity({ tx })` which is the consistent pattern
+**Fix:** Changed to use `logUserActivity({ tx, action, module, recordId, recordLabel, userId, userName, details })` for consistency
+
+### BUG SEVERITY SUMMARY
+
+| Severity | Count | Description |
+|----------|-------|-------------|
+| CRITICAL | 3 | Bengali digit risk, Customer/Supplier batch mode no validation |
+| HIGH | 9 | Delete dialog text, VAT masking, stale credit status, AR/AP balance, duplicate check, XSS, PUT reset, DELETE no admin/FK check, table computed balance |
+| MEDIUM | 6 | Phone/email/NID validation, SR import, VAT masking column, cross-tenant, audit log, computedCurrentBalance masking |
+| LOW | 0 | — |
+
+### FILES MODIFIED (12 files)
+
+1. `src/components/PersonnelCRMGroupPage.tsx` — Bengali digit fix, delete dialog text, VAT masking on KPIs, computed balance/status, case-insensitive duplicate check, SR import access, computedCurrentBalance in table
+2. `src/app/api/designations/route.ts` — stripHtml on name/description, case-insensitive duplicate name check
+3. `src/app/api/designations/[id]/route.ts` — stripHtml on name/description, case-insensitive duplicate name check
+4. `src/app/api/employees/route.ts` — stripHtml on all text fields, phone/email/NID validation, case-insensitive duplicate check
+5. `src/app/api/employees/[id]/route.ts` — stripHtml on all text fields, phone/email/NID validation
+6. `src/app/api/employee-leaves/route.ts` — stripHtml on reason field
+7. `src/app/api/employee-leaves/[id]/route.ts` — stripHtml on reason field
+8. `src/app/api/customers/route.ts` — Complete rewrite: batch mode with validation, stripHtml, duplicate check, phone/email validation, proper audit logging
+9. `src/app/api/customers/[id]/route.ts` — Complete rewrite: only-when-provided fields, stripHtml, duplicate check, phone/email validation, admin-only DELETE, FK integrity check, cross-tenant validation, logUserActivity
+10. `src/app/api/suppliers/route.ts` — Complete rewrite: batch mode with validation, stripHtml, duplicate check, phone/email validation, proper audit logging
+11. `src/app/api/suppliers/[id]/route.ts` — Complete rewrite: only-when-provided fields, stripHtml, duplicate check, phone/email validation, admin-only DELETE, FK integrity check, cross-tenant validation, logUserActivity
+12. `src/app/api/leave-allocations/route.ts` — No changes needed (already well-structured)
+
+### VERIFICATION RESULTS
+
+**Lint Check:** `bun run lint` — PASSED with zero errors ✅
+
+**API Endpoint Tests:**
+- `GET /api/designations` → 9 items ✅
+- `GET /api/employees` → 10 items, salary masked for SR ✅
+- `GET /api/employee-leaves` → 1 item ✅
+- `GET /api/leave-allocations` → 0 items ✅
+- `GET /api/customers` → 11 items with computedCurrentBalance/computedCreditStatus ✅
+- `GET /api/suppliers` → 5 items with computedCurrentBalance/computedCreditStatus ✅
+- VAT Auditor masking: creditLimit="N/A (Audit Mode)", computedCurrentBalance="N/A (Audit Mode)" ✅
+- SR masking: creditLimit="N/A (Restricted)", computedCurrentBalance visible ✅
+- Dealer DELETE customer: "Delete access denied" ✅
+
+**Browser Test:** agent-browser verified Staff/CRM pages render without console errors ✅
+
+### KEY IMPROVEMENTS NOT PREVIOUSLY AUDITED
+
+1. **Date Formatting Safety**: `toLocaleDateString("en-GB")` replaced with `Intl.DateTimeFormat('en-US')` to prevent Bengali digit output
+2. **Supplier Credit Utilization**: Previously showed only customers with `creditLimit > 0`; now also shows those with `computedCurrentBalance > 0`
+3. **Customer/Supplier Batch Mode**: Was completely broken (no validation, no code generation, raw data insertion); now production-ready
+4. **Employee NID Validation**: Backend now validates NID format (10-17 digits) — was completely missing
+5. **Customer/Supplier DELETE Safety**: Now checks for active sales orders / purchase orders before soft-deleting
+
+---
+
+Task ID: phase-7-inventory-audit
+Agent: Inventory Audit Agent
+Task: Phase 7 — Inventory Module Deep Audit (14 pages: Order Sheets, POs, Auto PO, Sales Orders, Hire Sales, Sales Returns, Purchase Returns, Replacements, Stock, Stock Details, Transfers, Opening Stock, Batch Master, Valuation)
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT
+
+### Scope: 2 Frontend Components + 8 API Route Files
+
+- InventoryGroupPage.tsx (3867 lines) — 12 tabs: Company OS, Customer OS, OS Report, POs, Auto PO, Sales Orders, Hire Sales, Sales Returns, Purchase Returns, Replacements, Stock, Stock Details, Transfers
+- StockModulePage.tsx (2239 lines) — 6 tabs: Stock, Stock Details, Transfers, Opening Stock, Batch Master, Valuation
+- API routes: order-sheets, purchase-orders, sales-orders, hire-sales, sales-returns, purchase-returns, replacements, transfers
+
+### CRITICAL Bugs Found & Fixed (3)
+
+1. **Bengali Digit Risk — InventoryGroupPage.tsx** (5 occurrences)
+   - `toLocaleString("en-US", ...)` replaced with `Intl.NumberFormat("en-US", ...)` instances (`_bdCurrencyFmt`, `_bdNumberFmt`)
+   - Lines 42, 45, 52 (fmt/fmtCurrency functions) + lines 3721, 3763 (stock qty display)
+
+2. **Bengali Digit Risk — StockModulePage.tsx** (15 occurrences)
+   - Added `_bdNumFmt = new Intl.NumberFormat("en-US")` and `fmtNum()` helper
+   - Replaced all `.toLocaleString()` calls: stock qty, reorder level, godown stock, batch qty, stock details stats, movement trail, transfers, opening stock, batch master, valuation
+
+3. **XSS Vulnerability — 8 Inventory API Routes Missing stripHtml()**
+   - Added `stripHtml()` function to: order-sheets, purchase-orders, sales-orders, sales-returns, purchase-returns, hire-sales, replacements, transfers
+   - Applied to all text inputs: notes, reason, line.notes
+
+### HIGH Bugs Found & Fixed (7)
+
+4. **VAT Auditor Masking Gap — Sales Order Financial Columns** (4 columns)
+   - subTotal, discount, vatAmount, grandTotal were NOT masked
+
+5. **VAT Auditor Masking Gap — Hire Sales** (2 columns)
+   - subTotal, downPayment were NOT masked
+
+6. **VAT Auditor Masking Gap — Sales Returns** (3 columns)
+   - subTotal, vatAmount, grandTotal were NOT masked
+
+7. **VAT Auditor Masking Gap — Sales Returns Stat Card**
+   - "Total Value" stat card showed raw financial data
+
+8. **RBAC Gap — Sales Returns Edit Button Ungated**
+   - Edit button visible to ALL users; fixed with `(isAdmin || isSR) &&`
+
+9. **RBAC Gap — Purchase Returns Edit/Delete Buttons Ungated**
+   - Both visible to ALL users; fixed with `isAdmin &&`
+
+10. **RBAC Gap — Replacements Edit Button Ungated**
+    - Edit button visible to ALL users; fixed with `(isAdmin || isSR) &&`
+
+### MEDIUM Bugs Found & Fixed (6)
+
+11. **Delete Dialog Text — Soft-Delete Wording** (8 instances)
+    - Changed from "Are you sure? This action cannot be undone." to "Deactivate" + "marked as inactive" wording
+
+12. **preparedBy Empty String in PDF Footer** (3 occurrences)
+    - Changed from `preparedBy: ""` to `preparedBy: auth.user?.displayName || "System"`
+
+13. **Stock Page Tables Missing Responsive Wrapper** (3 tables)
+    - Added `overflow-x-auto -mx-2 sm:mx-0` and `min-w-[600px]`
+
+14. **Replacements canCreate Missing SR**
+    - Changed `canCreate={isAdmin}` to `canCreate={isAdmin || isSR}`
+
+15. **StockModulePage Stat Cards Using toLocaleString**
+    - Replaced with fmtNum() helper
+
+16. **StockModulePage Batch/Valuation Number Displays**
+    - All number displays updated to use fmtNum()
+
+### Lint Check
+- `bun run lint` — PASSED with zero errors ✅
+
+### API Verification
+- All 10+ inventory API endpoints responding correctly ✅
+- VAT Auditor financial masking working on purchase-orders and sales-orders ✅
+- SR/Dealer blocked from purchase-orders (403) ✅
+- Stock API returns product data with correct structure ✅
+
+### Files Modified (10 files)
+1. `src/components/InventoryGroupPage.tsx` — Bengali digit fix, VAT masking (7 spots), delete dialog text (8), preparedBy (3), RBAC gating (3), responsive tables (3), canCreate fix
+2. `src/components/StockModulePage.tsx` — Bengali digit fix (15+), added fmtNum helper
+3. `src/app/api/order-sheets/route.ts` — Added stripHtml(), applied to notes + line notes
+4. `src/app/api/purchase-orders/route.ts` — Added stripHtml(), applied to notes
+5. `src/app/api/sales-orders/route.ts` — Added stripHtml(), applied to notes
+6. `src/app/api/sales-returns/route.ts` — Added stripHtml(), applied to reason
+7. `src/app/api/purchase-returns/route.ts` — Added stripHtml(), applied to reason
+8. `src/app/api/hire-sales/route.ts` — Added stripHtml(), applied to notes
+9. `src/app/api/replacements/route.ts` — Added stripHtml(), applied to reason + notes
+10. `src/app/api/transfers/route.ts` — Added stripHtml(), applied to notes
+
+---
+Task ID: phase-8-account-management
+Agent: Main Orchestrator
+Task: Phase 8 — Account Management Deep Audit (6 pages: Expense Heads, Income Heads, Expenses, Incomes, Cash Collections, Cash Deliveries + Bank Transactions)
+
+Work Log:
+
+### AUDIT SCOPE
+4 component files audited + 14 API route files:
+1. AccountManagementPage.tsx (6 tabs: Heads, Expenses, Incomes, Collections, Deliveries, Bank Transactions)
+2. ExpensesIncomesPage.tsx (3 tabs: Heads, Expenses, Incomes)
+3. CashCollectionsDeliveriesPage.tsx (2 tabs: Cash Collections, Cash Deliveries)
+4. BankTransactionsPage.tsx (Bank Transactions with ledger fusion)
+
+### BUGS FOUND AND FIXED (5 total)
+
+#### Bug 1: Delete Dialog Text — "This cannot be undone" on soft-delete modules (MEDIUM)
+**Problem**: ExpensesIncomesPage.tsx line 880 showed "This cannot be undone" for soft-delete operations, misleading users into thinking the action is irreversible.
+**Fix**: Changed to "Deactivate {tabLabel}? This will mark the record as inactive and reverse any associated ledger entries. The record can be restored by an administrator if needed." Changed button text from "Delete" to "Deactivate".
+
+#### Bug 2: Delete Dialog Text — Bank Transactions "cannot be undone" (MEDIUM)
+**Problem**: BankTransactionsPage.tsx line 1233 showed "This action cannot be undone" for soft-delete operations with ledger reversal.
+**Fix**: Changed to "This will deactivate the transaction, reverse the bank balance change, and remove associated ledger entries. Only administrators can perform this action." Changed button text from "Delete Transaction" to "Deactivate Transaction".
+
+#### Bug 3: Customer Outstanding Balance Calculation Incomplete (HIGH)
+**Problem**: CashCollectionsDeliveriesPage.tsx `fetchCustomerOutstanding()` only computed Sales Orders - Cash Collections, missing Hire Sales, Sales Returns, and Opening Balance adjustments. The correct AR formula is: Opening(Dr) + Sales + Hire - Collections - Returns - Opening(Cr).
+**Fix**: Replaced manual calculation with `/api/customers/balances?customerId=X` API call which computes the full AR balance correctly. Added fallback to customer record's `computedCurrentBalance` field.
+
+#### Bug 4: Supplier Accounts Payable Calculation Incomplete (HIGH)
+**Problem**: CashCollectionsDeliveriesPage.tsx `fetchSupplierPayable()` only computed Purchase Orders - Cash Deliveries, missing Purchase Returns and Opening Balance adjustments. The correct AP formula is: Opening(Cr) + Purchases - Deliveries - Purchase Returns - Opening(Dr).
+**Fix**: Replaced manual calculation with `/api/suppliers/balances?supplierId=X` API call which computes the full AP balance correctly. Added fallback to supplier record's `computedCurrentBalance` field.
+
+#### Bug 5: Parsing Error — Extra closing brace in AccountManagementPage.tsx (LOW)
+**Problem**: Line 640 had `</Button>}}` — an extra `}` causing ESLint parsing error.
+**Fix**: Changed to `</Button>}` (single closing brace for JSX conditional).
+
+### VERIFICATION RESULTS
+
+**Already Verified (No Issues Found):**
+- ✅ Bengali Digit Risk: All 4 components use `Intl.NumberFormat('en-US', ...)` — NO `toLocaleString` found
+- ✅ VAT Auditor Masking: All financial columns masked across all 4 components
+- ✅ printedBy/preparedBy: All use `user?.displayName || "System"` — NO raw email leakage
+- ✅ XSS Sanitization: All 14 API route files use `stripHtml()`
+- ✅ RBAC: Admin-only delete enforced both frontend (disabled button) and backend (`checkFinancialDeletePermission`)
+- ✅ SR restrictions: SR blocked from expenses creation/edit, SR blocked from Bank Transactions entirely, SR blocked from Cash Deliveries
+- ✅ Dealer restrictions: Dealer blocked from all Account Management pages
+- ✅ Export PDF/CSV: All tabs have working PDF and CSV export
+- ✅ Import CSV: All tabs have working CSV import
+- ✅ Form validation: Date, Head, Amount required; Amount > 0 validated
+- ✅ Bank balance validation: Withdraw/Transfer checks sufficient balance
+- ✅ Same bank validation: Transfer prevents same source/target bank
+- ✅ Running balance: Bank Transactions displays running balance correctly
+- ✅ Duplicate head check: Case-insensitive duplicate check on Expense/Income Heads
+- ✅ Auto-code generation: Uses findMany + Math.max pattern
+
+**API Endpoints — All returning data:**
+- Expense-Income Heads ✅
+- Expenses ✅ (7 records)
+- Incomes ✅
+- Cash Collections ✅ (2 records)
+- Cash Deliveries ✅
+- Bank Transactions ✅ (2 records)
+
+**Lint:** `bun run lint` — PASSED with zero errors ✅
+
+### FILES MODIFIED (4 files)
+1. src/components/ExpensesIncomesPage.tsx — Delete dialog text + button
+2. src/components/BankTransactionsPage.tsx — Delete dialog text + button
+3. src/components/CashCollectionsDeliveriesPage.tsx — Customer AR + Supplier AP calculation fix
+4. src/components/AccountManagementPage.tsx — Extra closing brace fix
+
+Stage Summary:
+- 5 bugs fixed across 4 files
+- Customer AR and Supplier AP now use the proper balance engine APIs
+- Delete dialog text corrected for all soft-delete modules
+- Lint passes clean
+- Account Management module is production-ready
+
+---
+
+Task ID: phase-9-accounting-reports
+Agent: Deep Audit Agent (Phase 9 — Accounting Reports & Financial Audit)
+Task: Phase 9 Deep Audit — Accounting Reports & Financial Audit Module (12 pages)
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT
+
+### BUGS FOUND AND FIXED
+
+#### 1. Bengali Digit Risk — toLocaleString → Intl.NumberFormat (CRITICAL)
+**Problem**: 5 frontend components + 2 API routes used `toLocaleString("en-US")` or `toLocaleString("en-BD")` for currency formatting, which can produce Bengali numerals (০-৯) in certain Node.js/browser locales.
+
+**Files Fixed**:
+- `src/components/AccountingReportsPage.tsx` — Added `const bdtFmt = new Intl.NumberFormat("en-US", ...)`, replaced `toLocaleString` in `fmt()`
+- `src/components/ChartOfAccountsLedgerPage.tsx` — Same fix
+- `src/components/BalanceSheetPeriodClosePage.tsx` — Same fix + `Intl.DateTimeFormat` for month names
+- `src/components/CustomerSupplierLedgerPage.tsx` — Same fix
+- `src/components/AccountsLedgerPage.tsx` — Fixed `toLocaleString("en-BD")` (especially dangerous!)
+- `src/app/api/reports/profit-loss/route.ts` — Fixed `d.toLocaleString('en', ...)` for month formatting
+- `src/app/api/reports/cash-in-hand/route.ts` — Fixed `d.toLocaleDateString('en', ...)` for daily flow
+
+#### 2. VAT Auditor Masking — Incomplete Column Masking (HIGH)
+**Problem**: Export PDF/CSV for Cash In Hand only masked "expense" and "currentBalance" columns. Trial Balance only masked "netBalance". VAT Auditor should see ALL financial columns masked.
+
+**Files Fixed**:
+- `src/components/AccountingReportsPage.tsx` — Cash In Hand vatMasked expanded from `["expense", "currentBalance"]` to `["openingBalance", "deposits", "withdrawals", "income", "expense", "collections", "deliveries", "currentBalance"]`
+- `src/components/AccountingReportsPage.tsx` — Trial Balance vatMasked expanded from `["netBalance"]` to `["totalDebit", "totalCredit", "netBalance"]`
+
+**Verified via curl**: VAT Auditor sees "N/A (Audit Mode)" on all financial columns in Trial Balance, P&L, Balance Sheet, Cash In Hand, and Ledger Entries.
+
+#### 3. Delete Dialog Wording — Deactivate vs Permanently Remove (HIGH)
+**Problem**: Chart of Accounts and Ledger Entries use soft-delete (isActive=false) but dialogs said "Delete" / "This cannot be undone". Period Close uses hard-delete but also just said "Delete".
+
+**Files Fixed**:
+- `src/components/ChartOfAccountsLedgerPage.tsx` — COA delete dialog: "Confirm Delete" → "Deactivate Account", button "Delete" → "Deactivate", description says "marked as inactive but preserved"
+- `src/components/ChartOfAccountsLedgerPage.tsx` — Ledger delete dialog: Same treatment, "Deactivate Entry"
+- `src/components/BalanceSheetPeriodClosePage.tsx` — Period delete dialog: "Confirm Delete" → "Permanently Remove Period", button "Delete" → "Permanently Remove", description says "This action cannot be undone"
+
+#### 4. XSS Protection — stripHtml() in API Routes (HIGH)
+**Problem**: Chart of Accounts and Ledger Entries POST/PUT routes accepted raw text without stripping HTML tags, creating XSS risk.
+
+**Files Fixed**:
+- `src/app/api/chart-of-accounts/route.ts` — Added `stripHtml()` import, applied to `name`, `classification`, `openingBalanceType` in POST
+- `src/app/api/chart-of-accounts/[id]/route.ts` — Added `stripHtml()` import, applied to `name`, `classification`, `openingBalanceType` in PUT
+- `src/app/api/ledger-entries/route.ts` — Added `stripHtml()` import, applied to `account`, `particulars`, `reference`, `referenceType` in POST
+- `src/app/api/ledger-entries/[id]/route.ts` — Added `stripHtml()` import, applied to same fields in PUT
+
+**Verified via curl**: `{"name":"<script>alert(1)</script>"}` → stored as `""` (stripped). `{"particulars":"<script>alert(1)</script>test"}` → stored as `"test"`.
+
+#### 5. Duplicate Check on Chart of Accounts (HIGH)
+**Problem**: POST /api/chart-of-accounts had no duplicate name check. Users could create multiple accounts with the same name.
+
+**Files Fixed**:
+- `src/app/api/chart-of-accounts/route.ts` — Added case-insensitive duplicate name check using `findMany` + `.toLowerCase()` comparison (SQLite-safe). Returns 409 with descriptive error.
+
+**Verified via curl**: Creating account "Test Liability Head" when it already exists → `{"error": "An account with the name \"Test Liability Head\" already exists."}` with HTTP 409.
+
+#### 6. generateNextCode Bug — Non-Numeric Entry Codes (CRITICAL)
+**Problem**: `generateNextCode()` in `accounting-utils.ts` used `findFirst` with `orderBy: { code: 'desc' }` which returned `LED-OB-P8` (a non-numeric entry code). `parseInt('OB-P8')` returned NaN, defaulting to 0, generating `LED-00001` which already existed → unique constraint violation → 500 error on every new ledger entry creation.
+
+**Files Fixed**:
+- `src/lib/accounting-utils.ts` — Rewrote `generateNextCode()` to use `findMany` + iterate all codes + `parseInt` with `isNaN` check + `Math.max` approach. Now correctly finds the highest numeric code (LED-00034) and generates LED-00035.
+
+**Also fixed**: The function was using `code` field for all models, but `LedgerEntry` uses `entryCode`. Added `codeField` variable to use the correct field name per model.
+
+**Verified via curl**: Creating a new ledger entry now works and generates correct sequential codes.
+
+### VERIFIED WORKING (No Changes Needed)
+
+#### 7. printedBy — Never Shows Raw Email ✅
+- `AccountingReportsPage.tsx`: Uses `user?.displayName || user?.name || "System"`
+- `FinancialAuditGroupPage.tsx`: Uses `userName || "System"`
+- No component falls back to `user.email` for printedBy
+
+#### 8. RBAC Restrictions ✅
+- SR and Dealer: 403 Access Denied on AccountingReportsPage, ChartOfAccountsLedgerPage, BalanceSheetPeriodClosePage
+- Dealer: 403 on CustomerSupplierLedgerPage
+- VAT Auditor: All financial columns masked in API responses, create/edit/delete buttons disabled
+- BalanceSheetPeriodClosePage: Only Admin can create/lock/unlock period closes
+
+#### 9. Export PDF/CSV ✅
+- All 5 accounting report components have Export PDF and Export CSV buttons
+- ChartOfAccountsLedgerPage has export for both COA and Ledger tabs
+- CustomerSupplierLedgerPage has export for all tabs
+
+#### 10. Date Filtering ✅
+- Cash In Hand: from/to date params
+- Trial Balance: from/to date params
+- P&L: from/to date params
+- Balance Sheet: asOf date param
+- Ledger Entries: from/to + account + referenceType filters
+
+#### 11. Trial Balance: Debit/Credit Must Balance ✅
+**Verified via curl**: `grandTotalDebit: 9756300`, `grandTotalCredit: 9756300`, `balanced: True`
+
+#### 12. P&L: Revenue - Expenses = Net Profit ✅
+**Verified via curl**: Revenue (1,283,700) - COGS (1,005,500) - OperatingExpenses (450,500) = NetProfit (-172,300) ✓
+
+#### 13. Balance Sheet: Assets = Liabilities + Equity ✅
+**Verified via curl**: Total Assets = Total Liabilities = 11,196,500, `balanced: True`
+
+#### 14. Currency Formatting ✅
+- All frontend `fmt()` functions now use `Intl.NumberFormat` instances
+- FinancialAuditGroupPage already used `bdCurrencyFmt` (Intl.NumberFormat)
+- API routes use `safeFinancialRound()` for all monetary values
+
+### FILES MODIFIED (10 files)
+
+1. `src/components/AccountingReportsPage.tsx` — Bengali digit fix + expanded VAT masking columns
+2. `src/components/ChartOfAccountsLedgerPage.tsx` — Bengali digit fix + deactivate dialog wording
+3. `src/components/BalanceSheetPeriodClosePage.tsx` — Bengali digit fix + permanently remove dialog wording + month format fix
+4. `src/components/CustomerSupplierLedgerPage.tsx` — Bengali digit fix
+5. `src/components/AccountsLedgerPage.tsx` — Bengali digit fix (en-BD was especially dangerous)
+6. `src/app/api/chart-of-accounts/route.ts` — Added stripHtml() + duplicate name check (409)
+7. `src/app/api/chart-of-accounts/[id]/route.ts` — Added stripHtml()
+8. `src/app/api/ledger-entries/route.ts` — Added stripHtml()
+9. `src/app/api/ledger-entries/[id]/route.ts` — Added stripHtml()
+10. `src/app/api/reports/profit-loss/route.ts` — Bengali digit fix (month format)
+11. `src/app/api/reports/cash-in-hand/route.ts` — Bengali digit fix (date format)
+12. `src/lib/accounting-utils.ts` — Fixed generateNextCode bug (non-numeric codes + wrong field name)
+
+### LINT CHECK
+- `bun run lint` — PASSED with zero errors ✅
+
+### API TESTS (All Passed)
+- GET /api/chart-of-accounts → 200 ✅
+- POST /api/chart-of-accounts (duplicate name) → 409 ✅
+- POST /api/chart-of-accounts (XSS payload) → stripped ✅
+- POST /api/ledger-entries → 201 with correct code ✅
+- GET /api/reports/trial-balance → balanced: True ✅
+- GET /api/reports/profit-loss → Revenue - COGS - Expenses = NetProfit ✅
+- GET /api/reports/balance-sheet → Assets = Liabilities, balanced: True ✅
+- GET /api/reports/cash-in-hand → totalCashInHand correct ✅
+- VAT Auditor masking on all report APIs → "N/A (Audit Mode)" ✅
+
+---
+
+Task ID: phase-10-sms-service
+Agent: Deep Audit Agent (Phase 10 — SMS Service Module)
+Task: Phase 10 Deep Audit — SMS Analytics Page component and ALL associated API routes
+
+Work Log:
+
+## COMPREHENSIVE AUDIT — SMS Service Module (7 pages)
+
+### AUDIT SCOPE
+- Main component: `src/components/SMSAnalyticsPage.tsx` (~2900 lines)
+- 12 API route files across 7 SMS sub-modules
+- Auto-SMS trigger system (notification triggers)
+
+### BUGS FOUND & FIXED
+
+#### 1. printedBy — Raw Email Exposure (4 occurrences) ⚠️ FIXED
+- **Bug**: All 4 PDF export handlers had `printedBy: authUser?.displayName || authUser?.email || ""` — fallback to raw email
+- **Fix**: Changed all to `printedBy: authUser?.displayName || "System"` — never shows raw email
+- **Files**: SMSAnalyticsPage.tsx (4 locations: log PDF, bill PDF, report PDF, settings PDF)
+
+#### 2. Delete Dialog — Wrong Wording for Soft Delete ⚠️ FIXED
+- **Bug**: Dialog said "Confirm Deletion — Are you sure you want to delete this record? This action cannot be undone." but ALL deletes are soft deletes (isActive = false)
+- **Fix**: Changed title to "Confirm Deactivation", description to specify record type (SMS bill / SMS configuration) and clarify it's a soft deactivation that can be restored by admin
+- **Button**: Changed from "Delete" to "Deactivate"
+- **Dialog width**: Added `max-w-[95vw]` prefix for mobile
+
+#### 3. XSS — stripHtml() Missing in ALL SMS API Routes ⚠️ FIXED
+- **Bug**: The `stripHtml()` function existed in `api-security.ts` but was NOT used in any SMS API route
+- **Fix**: Added `stripHtml()` to all user-entered text fields in 8 API route files:
+  1. `sms-logs/route.ts` — recipient, message, campaignName sanitized; deduplication of bulk recipients
+  2. `sms-settings/route.ts` — apiUrl, senderId, maskingName, maskingRegId, gatewayName sanitized (apiKey NOT stripped — may contain special chars)
+  3. `sms-settings/[id]/route.ts` — same fields sanitized on PUT
+  4. `sms-inbox/route.ts` — category, relatedModule, relatedId, relatedCode, tags, notes sanitized
+  5. `sms-notification-triggers/route.ts` — label, description, templateBody sanitized
+  6. `sms-notification-triggers/[id]/route.ts` — same fields sanitized on PUT
+  7. `sms-campaigns/route.ts` — name, description, message, targetFilter sanitized
+  8. `sms-bill-payments/route.ts` — method, reference, notes sanitized
+  9. `sms-bills/route.ts` — period sanitized on POST
+  10. `sms-bills/[id]/route.ts` — period sanitized on PUT
+
+#### 4. Inbox/Campaigns API Response Format Mismatch ⚠️ FIXED
+- **Bug**: GET `/api/sms-inbox` returns `{ items: [...], summary: {...} }` and GET `/api/sms-campaigns` returns `{ items: [...], summary: {...} }`, but the component's `loadData()` only checked for `.data` fallback, not `.items`
+- **Fix**: Changed `inboxRes?.data || []` → `inboxRes?.items || inboxRes?.data || []` and same for campaignsRes
+- **Result**: Inbox messages and campaigns now display correctly instead of showing empty
+
+#### 5. Bulk SMS — Duplicate Number Detection ⚠️ FIXED
+- **Bug**: Bulk SMS handler accepted duplicate phone numbers — same person could receive multiple identical messages
+- **Fix (Client)**: 
+  - Added deduplication: `[...new Set(rawRecipients)]` in `handleSendSms()`
+  - Shows toast notification when duplicates are removed
+  - Recipient count display now shows unique count and duplicate count
+  - Estimated cost calculation multiplies by unique recipient count for bulk mode
+- **Fix (Server)**: 
+  - Added `uniqueRecipients = [...new Set(body.recipients.map(...))]` in POST /api/sms-logs batch mode
+  - Server-side deduplication as defense-in-depth
+
+#### 6. Bulk SMS — Cost Estimation Wrong for Multiple Recipients ⚠️ FIXED
+- **Bug**: Estimated cost in Send SMS tab showed `segmentCount * costPerSegment` regardless of how many bulk recipients there were
+- **Fix**: Now calculates `segmentCount * costPerSegment * (bulk ? uniqueRecipientCount : 1)` — correctly multiplies cost by number of recipients in bulk mode
+
+#### 7. Missing Report CSV Export ⚠️ FIXED
+- **Bug**: Dashboard's SMS Report section only had "Export PDF" button — no CSV export
+- **Fix**: Added "Export CSV" button with proper column definitions and VAT Auditor masking on cost column
+
+#### 8. Settings Dialog Not Responsive ⚠️ FIXED
+- **Bug**: Settings form dialog had `sm:max-w-2xl` but no `max-w-[95vw]` prefix — overflow on mobile
+- **Fix**: Changed to `max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto`
+
+#### 9. Template Body Rendering Shows Raw HTML Tags ⚠️ FIXED
+- **Bug**: The trigger template display did `templateBody?.replace(/\{\{/g, '<strong>{{')` which rendered `<strong>` as raw text in a `<p>` tag (not dangerouslySetInnerHTML)
+- **Fix**: Simplified to just show `trigger.templateBody || "No template configured"` — template variables like `{{customerName}}` display correctly as-is
+
+### AUDIT POINTS VERIFIED ✅
+
+#### Bengali Digit Risk ✅ NO ISSUE
+- Component already uses `Intl.NumberFormat("en-US", ...)` via `bdCurrencyFmt` — no `toLocaleString` found
+- Safe from Bengali numeral (০-৯) output
+
+#### VAT Auditor Masking ✅ COMPREHENSIVE
+- All cost/billing fields masked with `isVatAuditor ? "N/A (Audit Mode)" : ...` pattern
+- API routes use `maskSmsArray()` and `maskForVatAuditorSms()` with proper field lists
+- Export handlers use `vatMaskedColumns` arrays
+- API Key partially masked for non-admin users
+
+#### RBAC — SR/Dealer Restrictions ✅ PROPER
+- Dealer: Full access restricted — shows "Access Restricted" card with lock icon
+- SR: Can see Dashboard, Inbox, SMS Log, Send SMS (single only)
+- SR: Cannot see Billing, Campaigns, Settings tabs
+- SR: Send SMS limited to single mode (bulk toggle hidden)
+- Admin-only: SMS Settings CRUD, Bill deletion
+- Manager: Can view settings (read-only), can create/update bills
+
+#### Auto-SMS Triggers ✅ WORKING
+- ON/OFF toggle via Switch component calls PUT `/api/sms-notification-triggers/${id}` with `{ isEnabled: checked }`
+- API route properly handles `body.isEnabled` with `Boolean()` conversion
+- 4 event types supported: SalesConfirmation, FinancialCollection, InventoryIngestion, HRLifecycle
+- Create/Edit dialog for triggers with template body, recipient type, label, description
+
+#### SMS Bill Calculation Accuracy ✅ VERIFIED
+- Client-side: `outstanding = totalCost - paidAmount`, status auto-determined (Paid/Partial/Unpaid)
+- Server-side: Uses `safeFinancialSubtract()`, `safeFinancialRound()` for all arithmetic
+- Bill payments correctly recalculate `paidAmount` as sum of all payments via `safeFinancialAdd()`
+- Status auto-updates after each payment
+
+#### Export PDF/CSV ✅ ALL TABS COVERED
+- Dashboard: Export PDF + Export CSV (report section)
+- Inbox: Export PDF + Export CSV + Import CSV
+- SMS Log: Export PDF + Export CSV + Import CSV
+- Billing: Export PDF + Export CSV + Import CSV
+- Campaigns: Export PDF + Export CSV + Import CSV
+- Settings: Export PDF + Export CSV
+- Triggers: Export PDF + Export CSV
+
+#### Responsive Design ✅ ALREADY ADDRESSED
+- Phase 2 responsive patterns applied (grid-cols-2, overflow-x-auto, max-w-[95vw], etc.)
+
+### LINT CHECK
+- `bun run lint` — PASSED with zero errors ✅
+
+### FILES MODIFIED (11 files)
+1. `src/components/SMSAnalyticsPage.tsx` — 9 bugs fixed (printedBy, delete dialog, API response format, bulk SMS dedup/cost, report CSV, settings dialog responsive, template rendering)
+2. `src/app/api/sms-logs/route.ts` — stripHtml() on all text fields, bulk recipient deduplication
+3. `src/app/api/sms-settings/route.ts` — stripHtml() on apiUrl, senderId, maskingName, maskingRegId, gatewayName
+4. `src/app/api/sms-settings/[id]/route.ts` — stripHtml() on PUT fields
+5. `src/app/api/sms-inbox/route.ts` — stripHtml() on category, relatedModule, relatedId, relatedCode, tags, notes
+6. `src/app/api/sms-notification-triggers/route.ts` — stripHtml() on label, description, templateBody
+7. `src/app/api/sms-notification-triggers/[id]/route.ts` — stripHtml() on PUT fields
+8. `src/app/api/sms-campaigns/route.ts` — stripHtml() on name, description, message, targetFilter
+9. `src/app/api/sms-bill-payments/route.ts` — stripHtml() on method, reference, notes
+10. `src/app/api/sms-bills/route.ts` — stripHtml() on period
+11. `src/app/api/sms-bills/[id]/route.ts` — stripHtml() on period
+
+---
+Task ID: phase-11-mis-reports
+Agent: MIS Reports Deep Audit Agent
+Task: Phase 11 — Deep Audit of MIS Reports Module (47+ reports across 8 categories)
+
+Work Log:
+
+## COMPREHENSIVE AUDIT REPORT
+
+### FILES AUDITED
+- `src/components/MISReportEngine.tsx` — Main MIS Report Engine component (1007+ lines)
+- `src/app/api/mis-reports/route.ts` — MIS Reports API (3597 lines, 52 report subtypes)
+- `src/app/api/reports/route.ts` — General reports API
+- `src/app/api/reports/basic/route.ts` — Basic reports
+- `src/app/api/reports/sales/route.ts` — Sales reports
+- `src/app/api/reports/purchase/route.ts` — Purchase reports
+- `src/app/api/reports/hire-sales/route.ts` — Hire sales reports
+- `src/app/api/reports/sr/route.ts` — SR reports
+- `src/app/api/reports/customer-wise/route.ts` — Customer reports
+- `src/app/api/reports/bank/route.ts` — Bank reports
+- `src/app/api/reports/advance-search/route.ts` — Advance search
+
+### REPORT COUNT VERIFICATION
+- Basic Reports: 12 subtypes ✅
+- Purchase Reports: 7 subtypes ✅
+- Sales Reports: 3 subtypes ✅
+- Hire Sales Reports: 5 subtypes ✅
+- SR Reports: 8 subtypes ✅
+- Customer Wise Reports: 6 subtypes ✅
+- Management Reports: 8 subtypes (7 in REPORT_CATEGORIES + management-report) ✅
+- Bank Reports: 3 subtypes ✅
+- Advance Search: 1 subtype ✅
+- **Total: 53 subtypes (including advance-search)**
+
+### BUGS FOUND AND FIXED (7 bugs across 3 files)
+
+#### Bug 1: Bengali Digit Risk — toLocaleDateString() without locale 🔴 CRITICAL
+**File**: `src/app/api/mis-reports/route.ts` (25+ occurrences)
+**Problem**: `new Date(x).toLocaleDateString()` without locale specification can output Bengali digits (০-৯) in BD/IN Node.js environments
+**Fix**: 
+- Added `fmtDate()` utility function using `Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })`
+- Replaced ALL 25 `toLocaleDateString()` calls with `fmtDate()`
+- Replaced 5 `toLocaleString('en', { month: 'short', year: '2-digit' })` with `fmtDate().replace()` for safe grouping keys
+
+#### Bug 2: Missing stripHtml() — XSS Vulnerability 🔴 CRITICAL
+**File**: `src/app/api/mis-reports/route.ts`
+**Problem**: No XSS prevention on user-provided text parameters (type, subtype, keyword, sortField, groupBy)
+**Fix**: 
+- Added `stripHtml` import from `@/lib/api-security`
+- Applied `stripHtml()` to all text search params: type, subtype, keyword, sortField, groupBy
+- Used sanitized values in QueryParams construction
+
+#### Bug 3: Missing RBAC for SR/Dealer Roles 🔴 CRITICAL
+**File**: `src/app/api/mis-reports/route.ts`
+**Problem**: While frontend blocks SR/Dealer from viewing MIS Reports, the API route had no role check — SR/Dealer could access reports via direct API calls
+**Fix**: 
+- Added role check after `withApiSecurity()`: if `userRole === 'sr' || userRole === 'dealer'`, return 403 with clear error message
+- Verified: SR (emart.sr) → 403 "Access denied", Dealer (emart.dealer) → 403 "Access denied"
+- Note: `withApiSecurity` already blocked with module-level message, now the RBAC message is more specific
+
+#### Bug 4: VAT Auditor Masking Gap — salePrice unmasked 🟡 MEDIUM
+**File**: `src/app/api/mis-reports/route.ts` (productInformation function)
+**Problem**: `salePrice: p.salePrice` was not masked for VAT Auditor — reveals retail pricing
+**Fix**: Changed to `salePrice: maskVat(p.salePrice, params.vatMode)` — now all 4 price fields (costPrice, salePrice, wholesalePrice, dealerPrice) are masked
+
+#### Bug 5: VAT Auditor Masking Gap — Ledger debit/credit/balance unmasked 🟡 MEDIUM
+**File**: `src/app/api/mis-reports/route.ts` (supplierLedger and customerLedger functions)
+**Problem**: 
+- Supplier Ledger: `debit: e.debit`, `credit: e.credit`, `balance: running` — unmasked for VAT Auditor
+- Customer Ledger: `debit: e.debit`, `credit: e.credit`, `balance: runningBalance` — unmasked
+- Customer Ledger opening row: `debit: customer.openingBalance` — unmasked
+- Summary fields: `totalDebit`, `totalCredit`, `netBalance` — unmasked
+**Fix**: Applied `maskVat()` to all financial row fields and summary fields in both ledger functions
+
+#### Bug 6: Product Wise Benefit Report — NaN in totalRevenue 🔴 CRITICAL
+**File**: `src/app/api/mis-reports/route.ts` (productWiseBenefit function, line 2577)
+**Problem**: `line.lineTotal` does not exist on SalesOrderLine model — the field is named `total`. Also `line.unitPrice` doesn't exist — the field is `rate`. This caused `undefined * undefined = NaN` which propagated to summary.
+**Fix**: Changed `line.lineTotal || (line.quantity * line.unitPrice)` → `line.total || (line.quantity * line.rate) || 0`
+- Also changed `line.product?.costPrice * line.quantity` → `line.costPrice * line.quantity` (using the COGS snapshot field)
+- Verified: totalRevenue now correctly shows "1,236,000.00"
+
+#### Bug 7: Bengali Digit Risk in /api/reports/route.ts 🟡 MEDIUM
+**File**: `src/app/api/reports/route.ts`
+**Problem**: `d.toLocaleString('en', { month: 'short', year: 'numeric' })` used for grouping keys — while 'en' locale is mostly safe, it's inconsistent with the rest of the codebase
+**Fix**: 
+- Added `fmtDate()` and `fmtMonthLabel()` utility functions
+- Replaced `d.toLocaleString('en', ...)` with `fmtMonthLabel(d)` for consistent formatting
+
+### COMPONENT VERIFICATION — MISReportEngine.tsx ✅
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Bengali Digit Risk | ✅ | Uses `Intl.NumberFormat("en-US")` for currency, `toLocaleDateString("en-GB")` for dates |
+| VAT Auditor Masking | ✅ | All financial data in statCards and grandTotalRow shows "N/A (Audit Mode)" |
+| printedBy | ✅ | Uses `user?.displayName \|\| user?.name \|\| "System"` — never shows raw email |
+| RBAC Frontend | ✅ | SR and Dealer see 403 Access Denied page |
+| Export PDF | ✅ | Available on all reports via header button |
+| Export CSV | ✅ | Available on all reports via header button |
+| Date Range | ✅ | From/To date filters on all reports |
+| VAT Masking in Export | ✅ | Both PDF and CSV mask currency columns for VAT Auditor |
+| Search keyword | ✅ | URL-encoded before API call |
+| 9 Report Categories | ✅ | All tabs rendering correctly |
+
+### API ENDPOINT TESTS ✅
+
+| Test | Result |
+|------|--------|
+| Employee Information Report | ✅ Returns 10 employees, dates in "15 Mar 2020" format |
+| Product Information (VAT Mode) | ✅ All 4 prices masked as "N/A (Audit Mode)" |
+| Supplier Ledger (VAT Mode) | ✅ debit/credit/balance masked |
+| Daily Sales Report | ✅ Returns data with correct summary |
+| Bank Transaction Report | ✅ Returns 3 transactions |
+| SR Role → 403 | ✅ Blocked at API level |
+| Dealer Role → 403 | ✅ Blocked at API level |
+| Product Wise Benefit | ✅ Revenue now correctly calculated |
+
+### LINT CHECK
+- `bun run lint` — PASSED with zero errors ✅
+
+### FILES MODIFIED (2 files)
+1. `src/app/api/mis-reports/route.ts` — 7 bugs fixed (Bengali digits, XSS, RBAC, VAT masking ×3, NaN calculation)
+2. `src/app/api/reports/route.ts` — 1 bug fixed (toLocaleString → fmtMonthLabel)

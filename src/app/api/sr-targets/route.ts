@@ -148,10 +148,13 @@ async function createSingleTarget(
     throw new Error('VALIDATION:minimumSalesQuota must be greater than zero. Negative, zero, or null values are not allowed.');
   }
 
-  // ── Financial Benchmark Shield: commissionPercentage must be >= 0 ──
+  // ── Financial Benchmark Shield: commissionPercentage must be >= 0 and <= 100 ──
   const safeCommissionPercentage = safeFinancialRound(Number(commissionPercentage));
   if (safeCommissionPercentage < 0 || isNaN(safeCommissionPercentage)) {
     throw new Error('VALIDATION:commissionPercentage must be zero or greater. Negative values are not allowed.');
+  }
+  if (safeCommissionPercentage > 100) {
+    throw new Error('VALIDATION:commissionPercentage must not exceed 100%.');
   }
 
   // ── Monthly Overlap Interlock ──

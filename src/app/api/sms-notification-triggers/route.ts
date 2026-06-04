@@ -10,6 +10,7 @@ import {
   withApiSecurity,
   maskSmsArray,
   safeFinancialRound,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -155,10 +156,10 @@ export async function POST(request: NextRequest) {
           code,
           eventType,
           label: label.trim(),
-          description: nullIfEmpty(body.description),
+          description: nullIfEmpty(body.description ? stripHtml(body.description) : undefined),
           isEnabled: body.isEnabled !== undefined ? Boolean(body.isEnabled) : true,
           recipientType,
-          templateBody: templateBody.trim(),
+          templateBody: stripHtml(templateBody.trim()),
           ...(companyId && { companyId }),
         },
       });

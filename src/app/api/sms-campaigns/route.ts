@@ -13,6 +13,7 @@ import {
   computeSmsSegments,
   safeFinancialRound,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import Papa from 'papaparse';
@@ -192,6 +193,11 @@ async function handleCreate(
       );
     }
 
+    // Sanitize user-entered text to prevent XSS
+    const sanitizedName = stripHtml(name.trim());
+    const sanitizedMessage = stripHtml(message.trim());
+    const sanitizedDescription = body.description ? stripHtml(body.description) : null;
+
     // Validate targetGroup
     const targetGroup = body.targetGroup || 'All';
     if (!VALID_TARGET_GROUPS.includes(targetGroup as typeof VALID_TARGET_GROUPS[number])) {
@@ -202,7 +208,7 @@ async function handleCreate(
     }
 
     // Compute SMS segments for message
-    const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
+    const { charCount, isUnicode, segmentCount } = computeSmsSegments(sanitizedMessage);
 
     // Count recipients from database based on targetGroup
     const recipientCount = await countRecipients(targetGroup, companyId);
@@ -230,14 +236,14 @@ async function handleCreate(
       const record = await tx.smsCampaign.create({
         data: {
           code,
-          name: name.trim(),
-          description: nullIfEmpty(body.description),
-          message: message.trim(),
+          name: sanitizedName,
+          description: nullIfEmpty(sanitizedDescription),
+          message: sanitizedMessage,
           charCount,
           isUnicode,
           segmentCount,
           targetGroup,
-          targetFilter: nullIfEmpty(body.targetFilter),
+          targetFilter: nullIfEmpty(body.targetFilter ? stripHtml(body.targetFilter) : undefined),
           recipientCount,
           sentCount: 0,
           deliveredCount: 0,

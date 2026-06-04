@@ -4,6 +4,7 @@ import {
   withApiSecurity,
   safeFinancialRound,
   maskAccountingArray,
+  stripHtml,
 } from '@/lib/api-security';
 import { generateNextCode, verifyLedgerBalance } from '@/lib/accounting-utils';
 import { logUserActivity } from '@/lib/activity-logger';
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
-    const {
+    let {
       date,
       account,
       particulars,
@@ -123,6 +124,12 @@ export async function POST(request: NextRequest) {
       accountId,
     } = body;
     const companyId = security.user.companyId;
+
+    // XSS protection: strip HTML from text fields
+    if (account) account = stripHtml(String(account));
+    if (particulars) particulars = stripHtml(String(particulars));
+    if (reference) reference = stripHtml(String(reference));
+    if (referenceType) referenceType = stripHtml(String(referenceType));
 
     if (!date || !account) {
       return NextResponse.json(

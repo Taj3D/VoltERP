@@ -137,6 +137,8 @@ export async function PUT(
           ...(body.paymentOptionId !== undefined ? { paymentOptionId: body.paymentOptionId } : {}),
           ...(body.cardTypeId !== undefined ? { cardTypeId: body.cardTypeId } : {}),
           ...(body.chargePercentage !== undefined ? { chargePercentage: body.chargePercentage } : {}),
+          ...(body.bankServiceCharge !== undefined ? { bankServiceCharge: body.bankServiceCharge } : {}),
+          ...(body.customerConvFee !== undefined ? { customerConvFee: body.customerConvFee } : {}),
           ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
         },
         include: {

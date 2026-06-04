@@ -2,6 +2,23 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 
+// MIS-004 FIX: Safe date formatter — prevents Bengali digit output
+const reportsDateFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+function fmtDate(d: Date): string {
+  try {
+    if (isNaN(d.getTime())) return '—';
+    return reportsDateFmt.format(d);
+  } catch {
+    return '—';
+  }
+}
+
+// Safe month label — uses explicit 'en' locale for grouping keys
+function fmtMonthLabel(d: Date): string {
+  return d.toLocaleString('en', { month: 'short', year: 'numeric' });
+}
+
 // GET /api/reports - Various report queries based on type parameter
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Reports', 'GET');
@@ -90,7 +107,7 @@ async function getExpenseReport(searchParams: URLSearchParams) {
   for (const expense of expenses) {
     const d = new Date(expense.date);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = d.toLocaleString('en', { month: 'short', year: 'numeric' });
+    const label = fmtMonthLabel(d);
     const existing = byMonth.get(key);
     if (existing) {
       existing.amount += expense.amount;
@@ -167,7 +184,7 @@ async function getIncomeReport(searchParams: URLSearchParams) {
   for (const income of incomes) {
     const d = new Date(income.date);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = d.toLocaleString('en', { month: 'short', year: 'numeric' });
+    const label = fmtMonthLabel(d);
     const existing = byMonth.get(key);
     if (existing) {
       existing.amount += income.amount;

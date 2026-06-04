@@ -245,8 +245,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       setSmsBills(Array.isArray(billsRes) ? billsRes : billsRes?.data || []);
       setSmsSettings(Array.isArray(settingsRes) ? settingsRes : settingsRes?.data || []);
       setSmsBillPayments(Array.isArray(paymentsRes) ? paymentsRes : paymentsRes?.data || []);
-      setSmsInbox(Array.isArray(inboxRes) ? inboxRes : inboxRes?.data || []);
-      setSmsCampaigns(Array.isArray(campaignsRes) ? campaignsRes : campaignsRes?.data || []);
+      setSmsInbox(Array.isArray(inboxRes) ? inboxRes : inboxRes?.items || inboxRes?.data || []);
+      setSmsCampaigns(Array.isArray(campaignsRes) ? campaignsRes : campaignsRes?.items || campaignsRes?.data || []);
       setSmsTriggers(Array.isArray(triggersRes) ? triggersRes : triggersRes?.data || []);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -569,12 +569,23 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         toast({ title: "SMS Sent", description: `Message queued for ${smsRecipient}` });
       } else {
         // Bulk SMS with batchMode API
-        const recipientsList = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
+        const rawRecipients = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
+        // Deduplicate recipients
+        const uniqueRecipients = [...new Set(rawRecipients)];
+        const duplicatesRemoved = rawRecipients.length - uniqueRecipients.length;
+        if (duplicatesRemoved > 0) {
+          toast({ title: "Duplicates Removed", description: `${duplicatesRemoved} duplicate number(s) removed from recipient list`, variant: "destructive" });
+        }
+        if (uniqueRecipients.length === 0) {
+          toast({ title: "Error", description: "No valid unique recipients found", variant: "destructive" });
+          setSmsSending(false);
+          return;
+        }
         await apiFetch("/api/sms-logs", {
           method: "POST",
           body: JSON.stringify({
             batchMode: true,
-            recipients: recipientsList,
+            recipients: uniqueRecipients,
             message: smsMessage.trim(),
             campaignName: campaignName || undefined,
             status: "Pending",
@@ -582,7 +593,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         });
         toast({
           title: "Bulk SMS Complete",
-          description: `Campaign queued for ${recipientsList.length} recipient(s)`,
+          description: `Campaign queued for ${uniqueRecipients.length} recipient(s)${duplicatesRemoved > 0 ? ` (${duplicatesRemoved} duplicates removed)` : ''}`,
         });
       }
       setSmsRecipient("");
@@ -654,7 +665,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: authUser?.displayName || authUser?.email || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "Exported", description: "SMS Logs exported to PDF" });
@@ -694,7 +705,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: authUser?.displayName || authUser?.email || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "Exported", description: "SMS Bills exported to PDF" });
@@ -726,7 +737,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: authUser?.displayName || authUser?.email || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "Exported", description: "SMS Report exported to PDF" });
@@ -760,7 +771,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: authUser?.displayName || authUser?.email || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "Exported", description: "SMS Settings exported to PDF" });
@@ -1140,6 +1151,22 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 <Button variant="outline" size="sm" onClick={handleExportReportPDF}>
                   <FileDown className="w-4 h-4 mr-1" />
                   Export PDF
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => {
+                  try {
+                    const reportColumns: ExportColumnDef[] = [
+                      { key: "date", label: "Date", type: "date" },
+                      { key: "totalSent", label: "Total Sent", type: "number" },
+                      { key: "delivered", label: "Delivered", type: "number" },
+                      { key: "failed", label: "Failed", type: "number" },
+                      { key: "cost", label: "Cost", type: "currency" },
+                    ];
+                    exportToCSV({ title: "SMS Report", columns: reportColumns, data: smsReport, isVatAuditor, vatMaskedColumns: ["cost"], filename: "sms-report" });
+                    toast({ title: "Exported", description: "SMS Report exported to CSV" });
+                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+                }}>
+                  <Download className="w-4 h-4 mr-1" />
+                  Export CSV
                 </Button>
               </div>
 
@@ -1991,7 +2018,12 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                       className="min-h-[80px]"
                     />
                     <p className="text-xs text-muted-foreground">
-                      {smsBulkRecipients.split(",").filter(r => r.trim()).length} recipient(s) detected
+                      {(() => {
+                        const raw = smsBulkRecipients.split(",").filter(r => r.trim()).length;
+                        const unique = new Set(smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean)).size;
+                        const dupes = raw - unique;
+                        return dupes > 0 ? `${unique} unique recipient(s) (${dupes} duplicate(s) removed)` : `${raw} recipient(s) detected`;
+                      })()}
                     </p>
                   </div>
                 )}
@@ -2041,7 +2073,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                         {segmentCount} SMS
                       </span>
                       <span className="font-medium text-slate-900 dark:text-white">
-                        Est. cost: {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(segmentCount * estimatedCostPerSegment)}
+                        Est. cost: {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(segmentCount * estimatedCostPerSegment * (sendMode === "bulk" ? new Set(smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean)).size || 1 : 1))}
                       </span>
                     </div>
                   </div>
@@ -2600,7 +2632,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
           {/* Settings Form Dialog */}
           <Dialog open={settingsDialog} onOpenChange={setSettingsDialog}>
-            <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{settingsEdit ? "Edit SMS Configuration" : "New SMS Configuration"}</DialogTitle>
                 <DialogDescription>
@@ -2775,7 +2807,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                             {trigger ? (
                               <div className="mt-2">
                                 <p className="text-xs bg-slate-50 dark:bg-slate-900 p-2 rounded font-mono whitespace-pre-wrap line-clamp-3">
-                                  {trigger.templateBody?.replace(/\{\{/g, '<strong>{{').replace(/\}\}/g, '}}</strong>')}
+                                  {trigger.templateBody || "No template configured"}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">Variables: <span className="font-mono">{evt.variables}</span></p>
                               </div>
@@ -2869,20 +2901,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialog} onOpenChange={setDeleteDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
               <AlertTriangle className="w-5 h-5" />
-              Confirm Deletion
+              Confirm Deactivation
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this record? This action cannot be undone.
+              Are you sure you want to deactivate this {deleteTarget?.type === "bill" ? "SMS bill" : deleteTarget?.type === "settings" ? "SMS configuration" : "record"}? It will be marked as inactive and hidden from views. An administrator can restore it later if needed.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => { setDeleteDialog(false); setDeleteTarget(null); }}>Cancel</Button>
             <Button variant="destructive" onClick={confirmDelete}>
-              Delete
+              Deactivate
             </Button>
           </DialogFooter>
         </DialogContent>

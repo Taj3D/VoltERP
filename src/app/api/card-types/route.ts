@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').replace(/javascript:/gi, '').replace(/on\w+=/gi, '').trim();
+}
+
 // GET /api/card-types — List card types filtered by companyId, include cardTypeSetups count
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'CardTypes', 'GET');
@@ -53,10 +57,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const trimmedName = stripHtml(body.name.trim());
+
+    // Company-scoped case-insensitive duplicate name check (SQLite-compatible)
+    const existing = await db.cardType.findFirst({
+      where: {
+        ...(companyId ? { companyId } : {}),
+        isActive: true,
+      },
+    });
+    const allActive = await db.cardType.findMany({
+      where: {
+        ...(companyId ? { companyId } : {}),
+        isActive: true,
+      },
+      select: { id: true, name: true },
+    });
+    const duplicate = allActive.find(
+      (ct) => ct.name.toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (duplicate) {
+      return NextResponse.json(
+        { error: `Card type "${trimmedName}" already exists` },
+        { status: 409 }
+      );
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.cardType.create({
         data: {
-          name: body.name.trim(),
+          name: trimmedName,
           isActive: body.isActive ?? true,
           ...(companyId && { companyId }),
         },

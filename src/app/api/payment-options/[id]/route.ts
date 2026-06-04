@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').replace(/javascript:/gi, '').replace(/on\w+=/gi, '').trim();
+}
+
 // GET /api/payment-options/[id] — Get single payment option with cross-tenant validation
 export async function GET(
   request: NextRequest,
@@ -68,17 +72,20 @@ export async function PUT(
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    // If changing name, check company-scoped unique constraint
+    // If changing name, check company-scoped case-insensitive unique constraint
     if (body.name && typeof body.name === 'string' && body.name.trim() !== existing.name) {
-      const trimmedName = body.name.trim();
-      const duplicate = await db.paymentOption.findFirst({
+      const trimmedName = stripHtml(body.name.trim());
+      const allActive = await db.paymentOption.findMany({
         where: {
           ...(companyId ? { companyId } : {}),
-          name: trimmedName,
           isActive: true,
-          id: { not: id }, // Exclude current record
+          id: { not: id },
         },
+        select: { id: true, name: true },
       });
+      const duplicate = allActive.find(
+        (po) => po.name.toLowerCase() === trimmedName.toLowerCase()
+      );
 
       if (duplicate) {
         return NextResponse.json(
@@ -100,7 +107,7 @@ export async function PUT(
       const record = await tx.paymentOption.update({
         where: { id },
         data: {
-          ...(body.name && { name: body.name.trim() }),
+          ...(body.name && { name: stripHtml(body.name.trim()) }),
           ...(body.status && { status: body.status }),
           ...(body.isActive !== undefined && { isActive: body.isActive }),
           // Enforce companyId — prevent cross-tenant reassignment

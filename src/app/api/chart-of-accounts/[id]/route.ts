@@ -7,6 +7,7 @@ import {
   safeFinancialAdd,
   safeFinancialSubtract,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import { detectCircularParent, calculateAccountBalance } from '@/lib/accounting-utils';
@@ -97,7 +98,12 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, classification, parentAccountId, openingBalance, openingBalanceType, isActive } = body;
+    let { name, classification, parentAccountId, openingBalance, openingBalanceType, isActive } = body;
+
+    // XSS protection: strip HTML from text fields
+    if (name) name = stripHtml(String(name));
+    if (classification) classification = stripHtml(String(classification));
+    if (openingBalanceType) openingBalanceType = stripHtml(String(openingBalanceType));
 
     // Fetch existing record
     const existing = await db.chartOfAccount.findUnique({ where: { id } });

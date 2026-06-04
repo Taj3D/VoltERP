@@ -90,13 +90,19 @@ export async function POST(request: NextRequest) {
         }> = [];
 
         for (const item of sanitizedBatch) {
-          // Duplicate check within company scope
-          const existing = await tx.segment.findFirst({
-            where: { companyId, name: item.name, isActive: true },
+          // Duplicate check within company scope (case-insensitive for SQLite)
+          const lowerName = item.name.toLowerCase();
+          const allActiveForDup = await tx.segment.findMany({
+            where: {
+              ...(companyId ? { companyId } : {}),
+              isActive: true,
+            },
+            select: { name: true },
           });
-          if (existing) {
+          const caseMatch = allActiveForDup.find(s => s.name.toLowerCase() === lowerName);
+          if (caseMatch) {
             throw new Error(
-              `DUPLICATE_NAME: A segment with name "${item.name}" already exists in your company`
+              `DUPLICATE_NAME: A segment with name "${item.name}" already exists (case-insensitive match: "${caseMatch.name}")`
             );
           }
 
@@ -160,12 +166,18 @@ export async function POST(request: NextRequest) {
     }
 
     const item = await db.$transaction(async (tx) => {
-      // Duplicate check within company scope
-      const existing = await tx.segment.findFirst({
-        where: { companyId, name: sanitizedName, isActive: true },
+      // Duplicate check within company scope (case-insensitive for SQLite)
+      const lowerName = sanitizedName.toLowerCase();
+      const allActive = await tx.segment.findMany({
+        where: {
+          ...(companyId ? { companyId } : {}),
+          isActive: true,
+        },
+        select: { name: true },
       });
-      if (existing) {
-        throw new Error('DUPLICATE_NAME: A segment with this name already exists in your company');
+      const caseMatch = allActive.find(s => s.name.toLowerCase() === lowerName);
+      if (caseMatch) {
+        throw new Error(`DUPLICATE_NAME: A segment with name "${sanitizedName}" already exists (case-insensitive match: "${caseMatch.name}")`);
       }
 
       // Collision-safe code generation (findMany + Math.max)

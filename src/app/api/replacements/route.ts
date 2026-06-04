@@ -11,6 +11,13 @@ import {
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+/**
+ * Strip HTML tags from a string to prevent XSS in text fields.
+ */
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 // ============================================================
 // SHARED: AP Adjustment for Supplier (Cr balance system)
 // Positive amount = we owe more (increase Cr), Negative = we owe less (decrease Cr)
@@ -521,7 +528,7 @@ export async function POST(request: NextRequest) {
           supplierId: supplierId || null,
           customerId: customerId || null,
           date: new Date(date),
-          reason: reason || null,
+          reason: reason ? stripHtml(String(reason)) : null,
           status: replacementStatus,
           companyId,
           financialAdjustmentPosted: shouldPostFinancial,
@@ -529,7 +536,7 @@ export async function POST(request: NextRequest) {
           adjustmentAmount,
           originalCostTotal,
           replacementCostTotal,
-          notes: notes || null,
+          notes: notes ? stripHtml(String(notes)) : null,
           referenceKey: referenceKey || null,
           lines: {
             create: computedLines.map((cl) => ({

@@ -11,6 +11,13 @@ import {
 import { logUserActivity } from '@/lib/activity-logger';
 import Papa from 'papaparse';
 
+/**
+ * Strip HTML tags from a string to prevent XSS in text fields.
+ */
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 // ============================================================
 // SHARED: Line-level Financial Computation for Sales Return
 // ============================================================
@@ -542,7 +549,7 @@ async function handleCreate(
         discount: headerDiscount,
         vatPercentage: vatPct,
         vatAmount,
-        reason: reason || null,
+        reason: reason ? stripHtml(String(reason)) : null,
         grandTotal,
         creditMemoCode: creditMemoCode || null,
         status: 'Pending',

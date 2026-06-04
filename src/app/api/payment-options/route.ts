@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').replace(/javascript:/gi, '').replace(/on\w+=/gi, '').trim();
+}
+
 // GET /api/payment-options — List payment options filtered by companyId
 // Supports ?activeOnly=true to filter status="ACTIVE" only
 // Default: returns ALL (both ACTIVE and INACTIVE)
@@ -66,16 +70,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const trimmedName = body.name.trim();
+    const trimmedName = stripHtml(body.name.trim());
 
-    // Company-scoped unique name check
-    const existing = await db.paymentOption.findFirst({
+    // Company-scoped case-insensitive duplicate name check (SQLite-compatible)
+    const allActive = await db.paymentOption.findMany({
       where: {
         ...(companyId ? { companyId } : {}),
-        name: trimmedName,
         isActive: true,
       },
+      select: { id: true, name: true },
     });
+    const existing = allActive.find(
+      (po) => po.name.toLowerCase() === trimmedName.toLowerCase()
+    );
 
     if (existing) {
       return NextResponse.json(

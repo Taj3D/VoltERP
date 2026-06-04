@@ -164,21 +164,25 @@ export async function generateNextCode(
   model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose',
   prefix: string
 ): Promise<string> {
-  const latestRecord = await (db[model] as any).findFirst({
-    where: { code: { startsWith: prefix } },
-    orderBy: { code: 'desc' },
-    select: { code: true },
+  // LedgerEntry uses 'entryCode' instead of 'code'
+  const codeField = model === 'ledgerEntry' ? 'entryCode' : 'code';
+
+  // Fetch all codes with this prefix and find the highest numeric one
+  const allRecords = await (db[model] as any).findMany({
+    where: { [codeField]: { startsWith: prefix } },
+    select: { [codeField]: true },
   });
 
-  if (!latestRecord) {
-    return `${prefix}00001`;
+  let maxNumber = 0;
+  for (const record of allRecords) {
+    const numericPart = record[codeField].replace(prefix, '');
+    const num = parseInt(numericPart, 10);
+    if (!isNaN(num) && num > maxNumber) {
+      maxNumber = num;
+    }
   }
 
-  // Extract the numeric portion after the prefix
-  const numericPart = latestRecord.code.replace(prefix, '');
-  const lastNumber = parseInt(numericPart, 10) || 0;
-  const nextNumber = lastNumber + 1;
-
+  const nextNumber = maxNumber + 1;
   return `${prefix}${String(nextNumber).padStart(5, '0')}`;
 }
 

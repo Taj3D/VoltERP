@@ -102,6 +102,24 @@ export async function PUT(
       );
     }
 
+    // Validate capacityUnit if being updated
+    const VALID_CAPACITY_UNITS = ['m³', 'sqft', 'units', 'kg', 'tons'];
+    if (body.capacityUnit && !VALID_CAPACITY_UNITS.includes(body.capacityUnit)) {
+      return NextResponse.json(
+        { error: `Invalid capacity unit. Must be one of: ${VALID_CAPACITY_UNITS.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // Validate status if being updated
+    const VALID_STATUSES = ['ACTIVE', 'SUSPENDED'];
+    if (body.status && !VALID_STATUSES.includes(body.status)) {
+      return NextResponse.json(
+        { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
     // Detect status transitions for special logging and routing propagation
     let statusChangeDetail = '';
     let isSuspending = false;

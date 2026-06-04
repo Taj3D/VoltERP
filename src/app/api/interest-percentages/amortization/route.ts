@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build schedule
-    const schedule = [];
+    const schedule: any[] = [];
     let remainingBalance = netPrincipal;
 
     for (let month = 1; month <= duration; month++) {

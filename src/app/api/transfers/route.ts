@@ -10,6 +10,13 @@ import {
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+/**
+ * Strip HTML tags from a string to prevent XSS in text fields.
+ */
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 // ============================================================
 // SHARED: Compute current stock for a product at a specific godown
 // currentStock = product.openingStock + sum(IN entries) - sum(OUT entries)
@@ -402,7 +409,7 @@ async function handleCreate(
         totalQuantity,
         totalCostValue,
         referenceKey: referenceKey || null,
-        notes: notes || null,
+        notes: notes ? stripHtml(String(notes)) : null,
         companyId: security.user.companyId || null,
         lines: {
           create: processedLines.map(l => ({

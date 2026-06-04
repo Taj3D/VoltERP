@@ -132,13 +132,19 @@ export async function PUT(
       }
     }
 
-    // ── Financial Benchmark Shield: commissionPercentage must be >= 0 if provided ──
+    // ── Financial Benchmark Shield: commissionPercentage must be >= 0 and <= 100 if provided ──
     let safeCommissionPercentage: number | undefined;
     if (commissionPercentage !== undefined) {
       safeCommissionPercentage = safeFinancialRound(Number(commissionPercentage));
       if (safeCommissionPercentage < 0 || isNaN(safeCommissionPercentage)) {
         return NextResponse.json(
           { error: 'commissionPercentage must be zero or greater. Negative values are not allowed.' },
+          { status: 400 }
+        );
+      }
+      if (safeCommissionPercentage > 100) {
+        return NextResponse.json(
+          { error: 'commissionPercentage must not exceed 100%.' },
           { status: 400 }
         );
       }

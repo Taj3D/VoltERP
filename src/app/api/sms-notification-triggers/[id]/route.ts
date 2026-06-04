@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   withApiSecurity,
   maskForVatAuditorSms,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -124,11 +125,11 @@ export async function PUT(
         where: { id },
         data: {
           eventType: body.eventType !== undefined ? body.eventType : existing.eventType,
-          label: body.label !== undefined ? body.label.trim() : existing.label,
-          description: body.description !== undefined ? nullIfEmpty(body.description) : existing.description,
+          label: body.label !== undefined ? stripHtml(body.label.trim()) : existing.label,
+          description: body.description !== undefined ? nullIfEmpty(stripHtml(body.description)) : existing.description,
           isEnabled: body.isEnabled !== undefined ? Boolean(body.isEnabled) : existing.isEnabled,
           recipientType: body.recipientType !== undefined ? body.recipientType : existing.recipientType,
-          templateBody: body.templateBody !== undefined ? body.templateBody.trim() : existing.templateBody,
+          templateBody: body.templateBody !== undefined ? stripHtml(body.templateBody.trim()) : existing.templateBody,
         },
       });
 

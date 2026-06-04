@@ -11,6 +11,7 @@ import {
   maskSmsArray,
   computeSmsSegments,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -189,13 +190,13 @@ export async function POST(request: NextRequest) {
           isUnicode,
           status,
           priority,
-          category: nullIfEmpty(body.category),
-          relatedModule: nullIfEmpty(body.relatedModule),
-          relatedId: nullIfEmpty(body.relatedId),
-          relatedCode: nullIfEmpty(body.relatedCode),
+          category: nullIfEmpty(body.category ? stripHtml(body.category) : undefined),
+          relatedModule: nullIfEmpty(body.relatedModule ? stripHtml(body.relatedModule) : undefined),
+          relatedId: nullIfEmpty(body.relatedId ? stripHtml(body.relatedId) : undefined),
+          relatedCode: nullIfEmpty(body.relatedCode ? stripHtml(body.relatedCode) : undefined),
           receivedAt: body.receivedAt ? new Date(body.receivedAt) : new Date(),
-          tags: nullIfEmpty(body.tags),
-          notes: nullIfEmpty(body.notes),
+          tags: nullIfEmpty(body.tags ? stripHtml(body.tags) : undefined),
+          notes: nullIfEmpty(body.notes ? stripHtml(body.notes) : undefined),
           ...(companyId && { companyId }),
         },
       });

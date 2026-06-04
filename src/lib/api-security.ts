@@ -946,6 +946,39 @@ export function maskDashboardForVatAuditor(
  *
  * Returns a 403 response if the role is not admin, or null if allowed.
  */
+
+/**
+ * stripHtml - Sanitizes user-entered text to prevent XSS attacks.
+ * Strips all HTML tags, script content, and event handlers.
+ * Must be applied to ALL user-entered text fields before database storage.
+ */
+export function stripHtml(input: string): string {
+  if (typeof input !== 'string') return '';
+  return input
+    // Remove script tags and their content
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    // Remove style tags and their content
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    // Remove all HTML tags
+    .replace(/<[^>]*>/g, '')
+    // Remove HTML entities
+    .replace(/&(?:nbsp|lt|gt|amp|quot|apos|colon|lpar|rpar|#\d+|#x[\da-fA-F]+);/gi, ' ')
+    // Remove javascript: URLs
+    .replace(/javascript\s*:/gi, '')
+    // Remove on* event handlers
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * checkAutoPostAdminPermission - Only Administrators (admin) can force manual
+ * triggers of the Ledger Auto-Post engine. Managers can view but cannot trigger.
+ * SR and Dealer are already blocked by MODULE_DENY.
+ *
+ * Returns a 403 response if the role is not admin, or null if allowed.
+ */
 export function checkAutoPostAdminPermission(role: UserRole): NextResponse | null {
   if (role !== 'admin') {
     return NextResponse.json(

@@ -154,6 +154,8 @@ export async function POST(request: NextRequest) {
               paymentOptionId,
               cardTypeId,
               chargePercentage: typeof data.chargePercentage === 'number' ? data.chargePercentage : 0,
+              bankServiceCharge: typeof data.bankServiceCharge === 'number' ? data.bankServiceCharge : 0,
+              customerConvFee: typeof data.customerConvFee === 'number' ? data.customerConvFee : 0,
               companyId: data.companyId,
               isActive: data.isActive !== undefined ? data.isActive : true,
             },
@@ -219,6 +221,8 @@ export async function POST(request: NextRequest) {
           paymentOptionId,
           cardTypeId,
           chargePercentage: chargePercentage ?? 0,
+          bankServiceCharge: body.bankServiceCharge ?? 0,
+          customerConvFee: body.customerConvFee ?? 0,
           companyId: companyId || null,
           isActive: isActive !== undefined ? isActive : true,
         },
@@ -237,7 +241,7 @@ export async function POST(request: NextRequest) {
           recordLabel: `${record.paymentOption?.name || record.id} - ${record.cardType?.name || record.id}`,
           userId: security.user.id,
           userName: security.user.name,
-          details: JSON.stringify({ paymentOptionId, cardTypeId, chargePercentage: chargePercentage ?? 0, companyId }),
+          details: JSON.stringify({ paymentOptionId, cardTypeId, chargePercentage: chargePercentage ?? 0, bankServiceCharge: body.bankServiceCharge ?? 0, customerConvFee: body.customerConvFee ?? 0, companyId }),
         },
       });
 

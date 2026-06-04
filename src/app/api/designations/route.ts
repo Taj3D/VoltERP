@@ -5,6 +5,11 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
 
+// XSS sanitization — strip HTML tags from text inputs
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Designations', 'GET');
   if (!security.authorized) return security.response;
@@ -70,12 +75,12 @@ export async function POST(request: NextRequest) {
             const created = await tx.designation.create({
               data: {
                 code,
-                name: row.name,
+                name: stripHtml(String(row.name || '')),
                 departmentId: row.departmentId,
                 gradeLevel: nullIfEmpty(row.gradeLevel),
                 salaryBandMin: safeFinancialRound(Number(row.salaryBandMin ?? 0)),
                 salaryBandMax: safeFinancialRound(Number(row.salaryBandMax ?? 0)),
-                description: nullIfEmpty(row.description),
+                description: row.description ? stripHtml(String(row.description)) : null,
                 isActive: row.isActive ?? true,
                 ...(companyId && { companyId }),
               },
@@ -114,6 +119,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Case-insensitive duplicate name check
+    if (body.name?.trim()) {
+      const normalizedName = body.name.trim().toLowerCase();
+      const duplicate = await db.designation.findFirst({
+        where: { name: { contains: normalizedName }, isActive: true },
+      });
+      if (duplicate && duplicate.name.trim().toLowerCase() === normalizedName) {
+        return NextResponse.json(
+          { error: `Corporate Entity Collision: Designation name "${body.name.trim()}" already exists (case-insensitive match).` },
+          { status: 400 }
+        );
+      }
+    }
+
     const item = await db.$transaction(async (tx) => {
       // Auto-generate DSG-XXXXX code
       let code = body.code;
@@ -130,12 +149,12 @@ export async function POST(request: NextRequest) {
       const record = await tx.designation.create({
         data: {
           code,
-          name: body.name,
+          name: stripHtml(String(body.name || '')),
           departmentId: body.departmentId,
           gradeLevel: nullIfEmpty(body.gradeLevel),
           salaryBandMin: safeFinancialRound(Number(body.salaryBandMin ?? 0)),
           salaryBandMax: safeFinancialRound(Number(body.salaryBandMax ?? 0)),
-          description: nullIfEmpty(body.description),
+          description: body.description ? stripHtml(String(body.description)) : null,
           isActive: body.isActive ?? true,
           ...(companyId && { companyId }),
         },

@@ -108,13 +108,19 @@ export async function POST(request: NextRequest) {
         }> = [];
 
         for (const item of sanitizedBatch) {
-          // Duplicate name check within company scope
-          const existing = await tx.capacity.findFirst({
-            where: { companyId, name: item.name, isActive: true },
+          // Duplicate name check within company scope (case-insensitive for SQLite)
+          const lowerName = item.name.toLowerCase();
+          const allActiveForDup = await tx.capacity.findMany({
+            where: {
+              ...(companyId ? { companyId } : {}),
+              isActive: true,
+            },
+            select: { name: true },
           });
-          if (existing) {
+          const caseMatch = allActiveForDup.find(c => c.name.toLowerCase() === lowerName);
+          if (caseMatch) {
             throw new Error(
-              `DUPLICATE_NAME: A capacity with name "${item.name}" already exists in your company`
+              `DUPLICATE_NAME: A capacity with name "${item.name}" already exists (case-insensitive match: "${caseMatch.name}")`
             );
           }
 
@@ -193,12 +199,18 @@ export async function POST(request: NextRequest) {
     const finalCapacityUnit = sanitizedCapacityUnit || null;
 
     const item = await db.$transaction(async (tx) => {
-      // Duplicate name check within company scope
-      const existing = await tx.capacity.findFirst({
-        where: { companyId, name: sanitizedName, isActive: true },
+      // Duplicate name check within company scope (case-insensitive for SQLite)
+      const lowerName = sanitizedName.toLowerCase();
+      const allActive = await tx.capacity.findMany({
+        where: {
+          ...(companyId ? { companyId } : {}),
+          isActive: true,
+        },
+        select: { name: true },
       });
-      if (existing) {
-        throw new Error('DUPLICATE_NAME: A capacity with this name already exists in your company');
+      const caseMatch = allActive.find(c => c.name.toLowerCase() === lowerName);
+      if (caseMatch) {
+        throw new Error(`DUPLICATE_NAME: A capacity with name "${sanitizedName}" already exists (case-insensitive match: "${caseMatch.name}")`);
       }
 
       // Collision-safe code generation (findMany + Math.max)

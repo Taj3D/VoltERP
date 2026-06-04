@@ -14,6 +14,7 @@ import {
   safeFinancialRound,
   safeFinancialSubtract,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -122,7 +123,7 @@ export async function PUT(
       const smsBill = await tx.smsBill.update({
         where: { id },
         data: {
-          ...(body.period !== undefined && { period: body.period }),
+          ...(body.period !== undefined && { period: stripHtml(body.period) }),
           ...(body.totalSms !== undefined && { totalSms: body.totalSms }),
           ...(body.totalSegments !== undefined && { totalSegments: body.totalSegments }),
           totalCost: newTotalCost,

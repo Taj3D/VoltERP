@@ -162,9 +162,11 @@ export async function GET(request: NextRequest) {
       profitMargin: number;
     }[] = [];
 
+    const monthFmt = new Intl.DateTimeFormat('en', { month: 'short', year: '2-digit' });
+
     for (let i = monthsToGenerate - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthStr = d.toLocaleString('en', { month: 'short', year: '2-digit' });
+      const monthStr = monthFmt.format(d);
       const year = d.getFullYear();
       const month = d.getMonth();
 

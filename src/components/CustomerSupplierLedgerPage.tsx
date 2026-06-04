@@ -30,9 +30,11 @@ import {
 // UTILITY FUNCTIONS
 // ============================================================
 
+const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdtFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);

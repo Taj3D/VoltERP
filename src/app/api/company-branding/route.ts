@@ -9,7 +9,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, validateImageFields } from '@/lib/api-security';
+import { withApiSecurity, validateImageFields, stripHtml } from '@/lib/api-security';
 
 // GET /api/company-branding
 // Returns the first active company's branding data for invoice generation
@@ -94,6 +94,18 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
+
+    // Sanitize text fields to prevent XSS
+    if (body.name) body.name = stripHtml(body.name);
+    if (body.address) body.address = stripHtml(body.address);
+    if (body.phone) body.phone = stripHtml(body.phone);
+    if (body.mobile) body.mobile = stripHtml(body.mobile);
+    if (body.email) body.email = stripHtml(body.email);
+    if (body.vatNumber) body.vatNumber = stripHtml(body.vatNumber);
+    if (body.tradeLicense) body.tradeLicense = stripHtml(body.tradeLicense);
+    if (body.invoicePrefix) body.invoicePrefix = stripHtml(body.invoicePrefix);
+    if (body.thankYouMsg) body.thankYouMsg = stripHtml(body.thankYouMsg);
+    if (body.systemNote) body.systemNote = stripHtml(body.systemNote);
 
     // Validate image fields
     const imgError = validateImageFields(body, ['logo', 'brandLogo']);

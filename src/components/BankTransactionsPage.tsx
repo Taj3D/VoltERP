@@ -1230,7 +1230,7 @@ export default function BankTransactionsPage() {
             </DialogTitle>
             <DialogDescription>
               Are you sure you want to delete transaction <span className="font-mono font-bold">{deleteItem?.transactionCode}</span>?
-              This will reverse the bank balance change and remove the ledger entries. This action cannot be undone.
+              This will deactivate the transaction, reverse the bank balance change, and remove associated ledger entries. Only administrators can perform this action.
             </DialogDescription>
           </DialogHeader>
           {deleteItem && (
@@ -1242,7 +1242,7 @@ export default function BankTransactionsPage() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete Transaction</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate Transaction</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -37,19 +37,23 @@ import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, t
 // UTILITY FUNCTIONS
 // ============================================================
 
+// Safe formatters — use Intl.NumberFormat to prevent Bengali digit output
+const _bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const _bdNumberFmt = new Intl.NumberFormat("en-US");
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${_bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return Number(v).toLocaleString();
+  if (type === "number") return _bdNumberFmt.format(Number(v));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  return `৳${_bdCurrencyFmt.format(Number(v))}`;
 };
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -975,7 +979,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
               orientation: "landscape" as const,
               company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
               financialFooter: {
-                preparedBy: "",
+                preparedBy: auth.user?.displayName || "System",
                 checkedBy: "",
                 authorizedBy: "",
                 printedBy: auth.user?.displayName || "System",
@@ -1248,7 +1252,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       </Dialog>
       {/* Delete Dialog */}
       <Dialog open={!!coDelete} onOpenChange={() => setCoDelete(null)}>
-        <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Ordersheet</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+        <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Ordersheet</DialogTitle><DialogDescription>Are you sure you want to deactivate this ordersheet? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
         <DialogFooter><Button variant="outline" onClick={() => setCoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteCo}>Delete</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
@@ -1403,7 +1407,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 orientation: "landscape" as const,
                 company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
                 financialFooter: {
-                  preparedBy: "",
+                  preparedBy: auth.user?.displayName || "System",
                   checkedBy: "",
                   authorizedBy: "",
                   printedBy: auth.user?.displayName || "System",
@@ -1676,7 +1680,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Dialog>
         {/* Delete Dialog */}
         <Dialog open={!!custODelete} onOpenChange={() => setCustODelete(null)}>
-          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Ordersheet</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Ordersheet</DialogTitle><DialogDescription>Are you sure you want to deactivate this ordersheet? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setCustODelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteCustO}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -1808,7 +1812,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   orientation: "landscape" as const,
                   company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
                   financialFooter: {
-                    preparedBy: "",
+                    preparedBy: auth.user?.displayName || "System",
                     checkedBy: "",
                     authorizedBy: "",
                     printedBy: auth.user?.displayName || "System",
@@ -2263,7 +2267,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Dialog>
         {/* PO Delete Dialog */}
         <Dialog open={!!poDelete} onOpenChange={() => setPoDelete(null)}>
-          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Purchase Order</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Purchase Order</DialogTitle><DialogDescription>Are you sure you want to deactivate this purchase order? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setPoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deletePo}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
         {/* PO Receive Dialog */}
@@ -2802,10 +2806,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
                       <TableCell className="text-xs">{item.customer?.name || "—"}</TableCell>
                       <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.subTotal)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.discount)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.vatAmount)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.grandTotal)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.discount)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
                       <TableCell className="text-xs">{item.paymentOption?.name || "Cash"}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
@@ -2859,7 +2863,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!soDelete} onOpenChange={() => setSoDelete(null)}>
-          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Sales Order</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Sales Order</DialogTitle><DialogDescription>Are you sure you want to deactivate this sales order? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setSoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteSo}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -2972,8 +2976,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs font-medium">{item.invoiceNo || `HIR-${String(item.id).padStart(5, "0")}`}</TableCell>
                       <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
                       <TableCell className="text-xs">{item.customer?.name || "—"}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.subTotal)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.downPayment)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.downPayment)}</TableCell>
                       <TableCell className="text-xs">{item.duration || "—"}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.installmentAmount)}</TableCell>
                       <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.balanceAmount)}</TableCell>
@@ -3066,7 +3070,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!hsDelete} onOpenChange={() => setHsDelete(null)}>
-          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Hire Sale</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Hire Sale</DialogTitle><DialogDescription>Are you sure you want to deactivate this hire sale? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setHsDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteHs}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -3169,7 +3173,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
           <StatCard label="Total Returns" value={srStats.total} icon={RotateCcw} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
           <StatCard label="Pending" value={srStats.pending} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
-          <StatCard label="Total Value" value={fmtCurrency(srStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
+          <StatCard label="Total Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(srStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
         </div>
         <Toolbar search={srSearch} setSearch={setSrSearch} onRefresh={loadSalesReturns} loading={srLoading}
           onExportCSV={() => doExportCSV("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
@@ -3197,14 +3201,14 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
                       <TableCell className="text-xs">{item.salesOrder?.invoiceNo || "—"}</TableCell>
                       <TableCell className="text-xs">{item.salesOrder?.customer?.name || "—"}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.subTotal)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.vatAmount)}</TableCell>
-                      <TableCell className="text-xs">{fmtCurrency(item.grandTotal)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
+                      <TableCell className="text-xs">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
                       <TableCell className="text-xs max-w-[150px] truncate">{item.reason || "—"}</TableCell>
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openSrEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+                          {(isAdmin || isSR) && <Button variant="ghost" size="sm" onClick={() => openSrEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>}
                           {isAdmin && <Button variant="ghost" size="sm" onClick={() => setSrDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
                         </div>
                       </TableCell>
@@ -3275,7 +3279,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!srDelete} onOpenChange={() => setSrDelete(null)}>
-          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Sales Return</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Sales Return</DialogTitle><DialogDescription>Are you sure you want to deactivate this sales return? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setSrDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteSr}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -3416,8 +3420,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openPrEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
-                          <Button variant="ghost" size="sm" onClick={() => setPrDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>
+                          {isAdmin && <Button variant="ghost" size="sm" onClick={() => openPrEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>}
+                          {isAdmin && <Button variant="ghost" size="sm" onClick={() => setPrDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -3484,7 +3488,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!prDelete} onOpenChange={() => setPrDelete(null)}>
-          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Delete Purchase Return</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Purchase Return</DialogTitle><DialogDescription>Are you sure you want to deactivate this purchase return? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setPrDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deletePr}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -3561,7 +3565,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onExportCSV={() => doExportCSV("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onExportPDF={() => doExportPDF("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onImportCSV={() => doImportCSV("/api/replacements", [], loadReplacements)}
-          canCreate={isAdmin} onCreate={openRplCreate} createLabel="Add Replacement" />
+          canCreate={isAdmin || isSR} onCreate={openRplCreate} createLabel="Add Replacement" />
         <Card className="border-slate-200 dark:border-slate-700">
           <CardContent className="p-0">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
@@ -3586,7 +3590,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => openRplEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+                          {(isAdmin || isSR) && <Button variant="ghost" size="sm" onClick={() => openRplEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>}
                           {isAdmin && <Button variant="ghost" size="sm" onClick={() => setRplDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
                         </div>
                       </TableCell>
@@ -3624,7 +3628,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </DialogContent>
         </Dialog>
         <Dialog open={!!rplDelete} onOpenChange={() => setRplDelete(null)}>
-          <DialogContent><DialogHeader><DialogTitle>Delete Replacement</DialogTitle><DialogDescription>Are you sure? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogContent><DialogHeader><DialogTitle>Deactivate Replacement</DialogTitle><DialogDescription>Are you sure you want to deactivate this replacement? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setRplDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteRpl}>Delete</Button></DialogFooter></DialogContent>
         </Dialog>
       </div>
@@ -3696,8 +3700,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         }}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
         <Button variant="ghost" size="sm" onClick={loadStock}><RefreshCw className={`h-4 w-4 ${stockLoading ? "animate-spin" : ""}`} /></Button>
       </div>
-      <div className="border rounded-lg overflow-auto max-h-[70vh]">
-        <Table>
+      <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
+        <Table className="min-w-[600px]">
           <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
             <TableHead className="text-white text-xs">Product</TableHead>
             <TableHead className="text-white text-xs">Category</TableHead>
@@ -3718,7 +3722,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <TableCell className="text-xs font-medium">{s.productCode || s.product?.productCode || ""} — {s.productName || s.product?.name || ""}</TableCell>
                 <TableCell className="text-xs">{s.category || s.product?.category?.name || "—"}</TableCell>
                 <TableCell className="text-xs">{s.godown || s.godown?.name || "Main"}</TableCell>
-                <TableCell className="text-xs text-right font-medium">{Number(s.currentStock || 0).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-right font-medium">{_bdNumberFmt.format(Number(s.currentStock || 0))}</TableCell>
                 <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.stockValue || 0)}</TableCell>
                 <TableCell className="text-xs"><StockStatusBadge status={s.stockStatus || "In Stock"} /></TableCell>
               </TableRow>
@@ -3743,8 +3747,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> CSV</Button>
         <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
       </div>
-      <div className="border rounded-lg overflow-auto max-h-[70vh]">
-        <Table>
+      <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
+        <Table className="min-w-[600px]">
           <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
             <TableHead className="text-white text-xs">Date</TableHead>
             <TableHead className="text-white text-xs">Type</TableHead>
@@ -3760,7 +3764,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <TableCell className="text-xs">{fmt(e.date, "date")}</TableCell>
                 <TableCell className="text-xs"><Badge className={`${TYPE_BADGE[e.type as string] || ""} border-0 text-xs`}>{e.type}</Badge></TableCell>
                 <TableCell className="text-xs">{e.reference || "—"}</TableCell>
-                <TableCell className="text-xs text-right font-medium">{Number(e.quantity || 0).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-right font-medium">{_bdNumberFmt.format(Number(e.quantity || 0))}</TableCell>
                 <TableCell className="text-xs">{e.notes || "—"}</TableCell>
               </TableRow>
             ))}
@@ -3778,8 +3782,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         onImportCSV={() => doImportCSV("/api/transfers", [], loadTransfers)}
         canCreate={isAdmin} onCreate={() => { setTrnForm({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" }); setTrnLines([{ productId: "", quantity: 1 }]); setTrnEdit(null); setTrnDialog(true); }} createLabel="New Transfer"
       />
-      <div className="border rounded-lg overflow-auto max-h-[70vh]">
-        <Table>
+      <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
+        <Table className="min-w-[600px]">
           <TableHeader><TableRow className="bg-[#132240] dark:bg-[#0a1628]">
             <TableHead className="text-white text-xs">Date</TableHead>
             <TableHead className="text-white text-xs">From</TableHead>

@@ -12,6 +12,7 @@ import {
   safeFinancialRound,
   safeFinancialAdd,
   safeFinancialSubtract,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -261,6 +262,11 @@ export async function POST(request: NextRequest) {
     const cleanDepositorName = nullIfEmpty(depositorName as string | undefined);
     const cleanReferenceNo = nullIfEmpty(referenceNo as string | undefined);
     const cleanDescription = nullIfEmpty(description as string | undefined);
+    // Sanitize text inputs for XSS
+    if (cleanChequeNo) (body as any).chequeNo = stripHtml(cleanChequeNo);
+    if (cleanDepositorName) (body as any).depositorName = stripHtml(cleanDepositorName);
+    if (cleanReferenceNo) (body as any).referenceNo = stripHtml(cleanReferenceNo);
+    if (cleanDescription) (body as any).description = stripHtml(cleanDescription);
     const effectiveStatus = status || 'Approved';
 
     const bankCompanyFilter: Record<string, unknown> = {};

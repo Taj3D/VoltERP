@@ -166,6 +166,21 @@ export async function POST(request: NextRequest) {
 
     const sanitizedInCharge = body.inCharge ? sanitizeText(body.inCharge) : null;
     const sanitizedPhone = body.phone ? sanitizeText(body.phone) : null;
+    if (!sanitizedPhone) {
+      return NextResponse.json(
+        { error: 'Godown/Warehouse phone is required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate capacityUnit if provided
+    const VALID_CAPACITY_UNITS = ['m³', 'sqft', 'units', 'kg', 'tons'];
+    if (body.capacityUnit && !VALID_CAPACITY_UNITS.includes(body.capacityUnit)) {
+      return NextResponse.json(
+        { error: `Invalid capacity unit. Must be one of: ${VALID_CAPACITY_UNITS.join(', ')}` },
+        { status: 400 }
+      );
+    }
 
     // Validate capacityValue
     const capacityValue = body.capacityValue ?? 0;

@@ -33,10 +33,12 @@ import {
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
+const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdtFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -576,7 +578,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                 { key: "deliveries", label: "Deliveries", type: "currency" },
                 { key: "currentBalance", label: "Current Balance", type: "currency" },
               ];
-              const vatMasked = isVatAuditor ? ["expense", "currentBalance"] : [];
+              const vatMasked = isVatAuditor ? ["openingBalance", "deposits", "withdrawals", "income", "expense", "collections", "deliveries", "currentBalance"] : [];
               const period = cashFrom || cashTo ? `Period: ${cashFrom || "—"} to ${cashTo || "—"}` : undefined;
               doExportPDF("Cash In Hand Report", period, columns, cashData.bankBreakdown || [], vatMasked);
             }}><FileDown className="w-4 h-4 mr-1" />PDF</Button>
@@ -594,7 +596,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                 { key: "deliveries", label: "Deliveries", type: "currency" },
                 { key: "currentBalance", label: "Current Balance", type: "currency" },
               ];
-              const vatMasked = isVatAuditor ? ["expense", "currentBalance"] : [];
+              const vatMasked = isVatAuditor ? ["openingBalance", "deposits", "withdrawals", "income", "expense", "collections", "deliveries", "currentBalance"] : [];
               doExportCSV("Cash In Hand Report", columns, cashData.bankBreakdown || [], vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
           </div>
@@ -772,7 +774,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                 { key: "totalCredit", label: "Total Credit", type: "currency" },
                 { key: "netBalance", label: "Net Balance", type: "currency" },
               ];
-              const vatMasked = isVatAuditor ? ["netBalance"] : [];
+              const vatMasked = isVatAuditor ? ["totalDebit", "totalCredit", "netBalance"] : [];
               const period = tbFrom || tbTo ? `Period: ${tbFrom || "—"} to ${tbTo || "—"}` : undefined;
               doExportPDF("Trial Balance Report", period, columns, tbData.entries || [], vatMasked);
             }}><FileDown className="w-4 h-4 mr-1" />PDF</Button>
@@ -785,7 +787,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                 { key: "totalCredit", label: "Total Credit", type: "currency" },
                 { key: "netBalance", label: "Net Balance", type: "currency" },
               ];
-              const vatMasked = isVatAuditor ? ["netBalance"] : [];
+              const vatMasked = isVatAuditor ? ["totalDebit", "totalCredit", "netBalance"] : [];
               doExportCSV("Trial Balance Report", columns, tbData.entries || [], vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
           </div>

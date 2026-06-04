@@ -15,6 +15,8 @@ const VALID_TYPES = ['HIRE_PURCHASE', 'TERM_LOAN', 'OVERDRAFT', 'CUSTOM'] as con
 function sanitizeText(input: string): string {
   return input
     .replace(/<[^>]*>/g, '')           // Strip HTML/XSS tags
+    .replace(/javascript:/gi, '')       // Strip javascript: URIs
+    .replace(/on\w+=/gi, '')           // Strip event handler attributes (onclick=, etc.)
     .replace(/\r\n/g, '\n')            // Normalize line breaks
     .replace(/\n{3,}/g, '\n\n')        // Collapse excessive newlines
     .replace(/  +/g, ' ')              // Collapse double spaces
@@ -124,8 +126,12 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Standard list mode ──
+    const includeInactive = searchParams.get('includeInactive') === 'true';
     const items = await db.interestPercentage.findMany({
-      where: { isActive: true, ...(companyId ? { companyId } : {}) },
+      where: {
+        ...(includeInactive ? {} : { isActive: true }),
+        ...(companyId ? { companyId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         company: { select: { id: true, name: true } },
@@ -155,7 +161,7 @@ export async function POST(request: NextRequest) {
     // ── Batch mode support ──
     if (body.batchMode === true && Array.isArray(body.data)) {
       const results = await db.$transaction(async (tx) => {
-        const records = [];
+        const records: any[] = [];
 
         for (const item of body.data as Array<{
           percentage?: number;

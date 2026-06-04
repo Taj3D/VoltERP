@@ -5,6 +5,11 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
 
+// XSS sanitization — strip HTML tags from text inputs
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -59,6 +64,20 @@ export async function PUT(
       );
     }
 
+    // Case-insensitive duplicate name check (exclude current record)
+    if (body.name?.trim()) {
+      const normalizedName = body.name.trim().toLowerCase();
+      const duplicate = await db.designation.findFirst({
+        where: { name: { contains: normalizedName }, isActive: true, id: { not: id } },
+      });
+      if (duplicate && duplicate.name.trim().toLowerCase() === normalizedName) {
+        return NextResponse.json(
+          { error: `Corporate Entity Collision: Designation name "${body.name.trim()}" already exists (case-insensitive match).` },
+          { status: 400 }
+        );
+      }
+    }
+
     const item = await db.$transaction(async (tx) => {
       // Cross-tenant validation before modification
       const existing = await tx.designation.findUnique({ where: { id } });
@@ -70,12 +89,12 @@ export async function PUT(
       const record = await tx.designation.update({
         where: { id },
         data: {
-          name: body.name,
+          name: body.name !== undefined ? stripHtml(String(body.name)) : undefined,
           departmentId: body.departmentId,
           gradeLevel: body.gradeLevel !== undefined ? nullIfEmpty(body.gradeLevel) : undefined,
           salaryBandMin: body.salaryBandMin !== undefined ? safeFinancialRound(Number(body.salaryBandMin)) : undefined,
           salaryBandMax: body.salaryBandMax !== undefined ? safeFinancialRound(Number(body.salaryBandMax)) : undefined,
-          description: body.description !== undefined ? nullIfEmpty(body.description) : undefined,
+          description: body.description !== undefined ? (body.description ? stripHtml(String(body.description)) : null) : undefined,
           isActive: body.isActive !== undefined ? body.isActive : undefined,
         },
         include: { department: true, _count: { select: { employees: true } } },

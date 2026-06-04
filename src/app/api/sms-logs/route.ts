@@ -13,6 +13,7 @@ import {
   computeSmsSegments,
   safeFinancialRound,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -82,6 +83,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Sanitize message to prevent XSS
+      const sanitizedMessage = stripHtml(message);
+      const sanitizedCampaignName = campaignName ? stripHtml(campaignName) : null;
+
+      // Deduplicate recipients
+      const uniqueRecipients = [...new Set(body.recipients.map((r: string) => r.trim()).filter(Boolean))];
+
       // Get tenant's active SmsSetting for rate calculation
       let ratePerSms = 0;
       let unicodeRate = 0;
@@ -98,20 +106,20 @@ export async function POST(request: NextRequest) {
       }
 
       // Compute SMS segments
-      const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
+      const { charCount, isUnicode, segmentCount } = computeSmsSegments(sanitizedMessage);
       const applicableRate = isUnicode ? unicodeRate : ratePerSms;
       const costPerRecipient = safeFinancialRound(segmentCount * applicableRate);
 
       const createdRecords = await db.$transaction(async (tx) => {
         const records = [];
 
-        for (const recipient of body.recipients) {
+        for (const recipient of uniqueRecipients) {
           if (!recipient || typeof recipient !== 'string') continue;
 
           const record = await tx.smsLog.create({
             data: {
               recipient: recipient.trim(),
-              message,
+              message: sanitizedMessage,
               charCount,
               smsSegmentCount: segmentCount,
               isUnicode,
@@ -119,7 +127,7 @@ export async function POST(request: NextRequest) {
               gatewayResponse: nullIfEmpty(body.gatewayResponse),
               sentAt: body.sentAt ? new Date(body.sentAt) : new Date(),
               cost: costPerRecipient,
-              campaignName,
+              campaignName: sanitizedCampaignName,
               isActive: body.isActive ?? true,
               ...(companyId && { companyId }),
             },
@@ -133,13 +141,13 @@ export async function POST(request: NextRequest) {
           action: 'CREATE',
           module: 'SMS-Campaign-Marketing',
           recordId: 'BATCH',
-          recordLabel: campaignName || `Bulk: ${records.length} recipients`,
+          recordLabel: sanitizedCampaignName || `Bulk: ${records.length} recipients`,
           userId: security.user.id,
           userName: security.user.name,
           details: JSON.stringify({
             batchMode: true,
             recipientCount: records.length,
-            campaignName,
+            campaignName: sanitizedCampaignName,
             charCount,
             isUnicode,
             segmentCount,
@@ -173,6 +181,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Sanitize to prevent XSS
+    const sanitizedRecipient = stripHtml(recipient);
+    const sanitizedMessage = stripHtml(message);
+
     // Get tenant's active SmsSetting for rate calculation
     let ratePerSms = 0;
     let unicodeRate = 0;
@@ -189,15 +201,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Compute SMS segments
-    const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
+    const { charCount, isUnicode, segmentCount } = computeSmsSegments(sanitizedMessage);
     const applicableRate = isUnicode ? unicodeRate : ratePerSms;
     const cost = safeFinancialRound(segmentCount * applicableRate);
 
     const item = await db.$transaction(async (tx) => {
       const record = await tx.smsLog.create({
         data: {
-          recipient,
-          message,
+          recipient: sanitizedRecipient,
+          message: sanitizedMessage,
           charCount,
           smsSegmentCount: segmentCount,
           isUnicode,
@@ -205,7 +217,7 @@ export async function POST(request: NextRequest) {
           gatewayResponse: nullIfEmpty(body.gatewayResponse),
           sentAt: body.sentAt ? new Date(body.sentAt) : new Date(),
           cost,
-          campaignName: nullIfEmpty(body.campaignName),
+          campaignName: nullIfEmpty(body.campaignName ? stripHtml(body.campaignName) : undefined),
           isActive: body.isActive ?? true,
           ...(companyId && { companyId }),
         },

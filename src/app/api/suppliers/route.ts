@@ -1,6 +1,26 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, maskForVatAuditor, validateImageFields, safeFinancialRound, safeFinancialAdd, safeFinancialSubtract } from '@/lib/api-security';
+import { logUserActivity } from '@/lib/activity-logger';
+
+const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
+
+// XSS sanitization — strip HTML tags from text inputs
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
+// Phone validation
+function isValidPhone(phone: string): boolean {
+  const bdPhone = /^\+?880\d{10}$/;
+  const genericPhone = /^\+?[\d\s\-()]{7,15}$/;
+  return bdPhone.test(phone.replace(/\s/g, '')) || genericPhone.test(phone.replace(/\s/g, ''));
+}
+
+// Email format validation
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Suppliers', 'GET');
@@ -91,6 +111,7 @@ export async function GET(request: NextRequest) {
     });
 
     // VAT Auditor: mask opening balances and credit limits
+    // SR: completely blocked from suppliers by MODULE_DENY in api-security
     const maskedItems = enrichedItems.map(item => {
       if (security.user.role === 'vat_auditor') {
         return maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit', 'computedCurrentBalance', 'computedCreditUtilization']);
@@ -110,17 +131,135 @@ export async function POST(request: NextRequest) {
   // SR: blocked from creating suppliers (handled by MODULE_DENY in api-security)
   try {
     const body = await request.json();
+
+    // ── Batch mode support for CSV import ──
     if (body.batchMode && Array.isArray(body.data)) {
-      const results = await db.$transaction(body.data.map((record: any) =>
-        db.supplier.create({ data: record })
-      ));
-      return NextResponse.json({ success: true, count: results.length, data: results });
+      const results: unknown[] = [];
+      const errors: string[] = [];
+
+      for (let i = 0; i < body.data.length; i++) {
+        const row = body.data[i];
+        try {
+          // Image validation
+          const imgError = validateImageFields(row, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+          if (imgError) { errors.push(`Row ${i + 1}: ${imgError}`); continue; }
+
+          // Case-insensitive duplicate name check
+          if (row.name?.trim()) {
+            const normalizedName = row.name.trim().toLowerCase();
+            const duplicate = await db.supplier.findFirst({
+              where: { name: { contains: normalizedName }, isActive: true },
+            });
+            if (duplicate && duplicate.name.trim().toLowerCase() === normalizedName) {
+              errors.push(`Row ${i + 1}: Duplicate supplier name "${row.name.trim()}" (case-insensitive match)`);
+              continue;
+            }
+          }
+
+          // Phone/email validation
+          if (row.phone?.trim() && !isValidPhone(row.phone.trim())) {
+            errors.push(`Row ${i + 1}: Invalid phone format`);
+            continue;
+          }
+          if (row.email?.trim() && !isValidEmail(row.email.trim())) {
+            errors.push(`Row ${i + 1}: Invalid email format`);
+            continue;
+          }
+
+          // Auto-generate code
+          let supplierCode = row.supplierCode;
+          if (!supplierCode) {
+            const allSuppliers = await db.supplier.findMany({ select: { supplierCode: true } });
+            let nextNum = 1;
+            for (const s of allSuppliers) {
+              const match = s.supplierCode?.match(/SUP-(\d+)/);
+              if (match) nextNum = Math.max(nextNum, parseInt(match[1]) + 1);
+            }
+            nextNum += results.length;
+            supplierCode = `SUP-${String(nextNum).padStart(5, '0')}`;
+          }
+
+          const openingBalance = safeFinancialRound(Number(row.openingBalance) || 0);
+          const openingBalanceType = row.openingBalanceType || 'Cr';
+          const creditLimit = safeFinancialRound(Number(row.creditLimit) || 0);
+
+          let initialCreditStatus = 'Active';
+          if (creditLimit > 0 && openingBalance > creditLimit) {
+            initialCreditStatus = 'OverLimit';
+          }
+
+          const record = await db.supplier.create({
+            data: {
+              supplierCode,
+              name: stripHtml(String(row.name || '')),
+              contactPerson: row.contactPerson ? stripHtml(String(row.contactPerson)) : null,
+              phone: row.phone ? stripHtml(String(row.phone)) : null,
+              email: row.email ? stripHtml(String(row.email)).toLowerCase() : null,
+              address: row.address ? stripHtml(String(row.address)) : null,
+              area: row.area ? stripHtml(String(row.area)) : null,
+              terms: row.terms ? stripHtml(String(row.terms)) : null,
+              openingBalance,
+              openingBalanceType,
+              currentBalance: openingBalance,
+              currentBalanceType: openingBalanceType,
+              creditLimit,
+              creditStatus: initialCreditStatus,
+              profileImage: row.profileImage || null,
+              nidFrontImage: row.nidFrontImage || null,
+              nidBackImage: row.nidBackImage || null,
+              companyId: security.user.companyId || null,
+              isActive: row.isActive ?? true,
+            },
+          });
+
+          results.push(record);
+        } catch (err) {
+          errors.push(`Row ${i + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+      }
+
+      // Batch audit log
+      await logUserActivity({
+        action: 'IMPORT',
+        module: 'Suppliers',
+        recordId: 'BATCH',
+        recordLabel: `Batch import: ${results.length} suppliers`,
+        userId: security.user?.id || 'system',
+        userName: security.user?.name || 'System',
+        details: JSON.stringify({ total: body.data.length, created: results.length, errors: errors.length }),
+      });
+
+      return NextResponse.json({ created: results, errors }, { status: 201 });
     }
+
+    // ── Single mode ──
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
+    // Phone/email validation
+    if (body.phone?.trim() && !isValidPhone(body.phone.trim())) {
+      return NextResponse.json({ error: 'Invalid phone format' }, { status: 400 });
+    }
+    if (body.email?.trim() && !isValidEmail(body.email.trim())) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    }
+
+    // Case-insensitive duplicate name check
+    if (body.name?.trim()) {
+      const normalizedName = body.name.trim().toLowerCase();
+      const duplicate = await db.supplier.findFirst({
+        where: { name: { contains: normalizedName }, isActive: true },
+      });
+      if (duplicate && duplicate.name.trim().toLowerCase() === normalizedName) {
+        return NextResponse.json(
+          { error: `Corporate Entity Collision: Supplier name "${body.name.trim()}" already exists (case-insensitive match).` },
+          { status: 400 }
+        );
+      }
+    }
+
     // Set initial balance from opening balance
-    const openingBalance = body.openingBalance ?? 0;
+    const openingBalance = safeFinancialRound(Number(body.openingBalance) || 0);
     const openingBalanceType = body.openingBalanceType || 'Cr';
 
     const item = await db.$transaction(async (tx) => {
@@ -136,7 +275,7 @@ export async function POST(request: NextRequest) {
         supplierCode = `SUP-${String(nextNum).padStart(5, '0')}`;
       }
 
-      const creditLimit = body.creditLimit ?? 0;
+      const creditLimit = safeFinancialRound(Number(body.creditLimit) || 0);
       // Determine initial credit status
       let initialCreditStatus: string = 'Active';
       if (creditLimit > 0 && openingBalance > creditLimit) {
@@ -146,13 +285,13 @@ export async function POST(request: NextRequest) {
       const record = await tx.supplier.create({
         data: {
           supplierCode,
-          name: body.name,
-          contactPerson: body.contactPerson || null,
-          phone: body.phone || null,
-          email: body.email || null,
-          address: body.address || null,
-          area: body.area || null,
-          terms: body.terms || null,
+          name: stripHtml(String(body.name || '')),
+          contactPerson: body.contactPerson ? stripHtml(String(body.contactPerson)) : null,
+          phone: body.phone ? stripHtml(String(body.phone)) : null,
+          email: body.email ? stripHtml(String(body.email)).toLowerCase() : null,
+          address: body.address ? stripHtml(String(body.address)) : null,
+          area: body.area ? stripHtml(String(body.area)) : null,
+          terms: body.terms ? stripHtml(String(body.terms)) : null,
           openingBalance,
           openingBalanceType,
           currentBalance: openingBalance,       // Initial current balance = opening balance
@@ -170,16 +309,15 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          action: 'CREATE',
-          module: 'Suppliers',
-          recordId: record.id,
-          recordLabel: `${record.supplierCode} - ${record.name}`,
-          userId: security.user?.id || 'system',
-          userName: security.user?.name || 'System',
-          details: JSON.stringify({ supplierCode: record.supplierCode, name: record.name, creditLimit: record.creditLimit, openingBalance, openingBalanceType }),
-        },
+      await logUserActivity({
+          tx: tx,
+        action: 'CREATE',
+        module: 'Suppliers',
+        recordId: record.id,
+        recordLabel: `${record.supplierCode} - ${record.name}`,
+        userId: security.user?.id || 'system',
+        userName: security.user?.name || 'System',
+        details: JSON.stringify({ supplierCode: record.supplierCode, name: record.name, creditLimit: record.creditLimit, openingBalance, openingBalanceType }),
       });
 
       return record;

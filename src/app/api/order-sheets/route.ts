@@ -10,6 +10,13 @@ import {
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+/**
+ * Strip HTML tags from a string to prevent XSS in text fields.
+ */
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 // ============================================================
 // SHARED: Stock Validation Engine
 // ============================================================
@@ -127,7 +134,7 @@ function computeLineFinancials(line: LineInput, stockSnapshot?: { availableStock
     fulfilledQuantity: 0,
     availableStock: stockSnapshot?.availableStock ?? 0,
     stockStatus: stockSnapshot?.stockStatus ?? 'Available',
-    notes: line.notes || null,
+    notes: line.notes ? stripHtml(String(line.notes)) : null,
   };
 }
 
@@ -396,7 +403,7 @@ async function handleCreate(
         grandTotal,
         fulfillmentStatus,
         paymentOptionId: paymentOptionId || null,
-        notes: notes || null,
+        notes: notes ? stripHtml(String(notes)) : null,
         referenceKey: referenceKey || null,
         lines: {
           create: computedLines.map((cl) => ({

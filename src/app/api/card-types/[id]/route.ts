@@ -9,6 +9,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').replace(/javascript:/gi, '').replace(/on\w+=/gi, '').trim();
+}
+
 // GET /api/card-types/[id] — Get single card type with cross-tenant validation
 export async function GET(
   request: NextRequest,
@@ -68,11 +72,33 @@ export async function PUT(
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
+    // If changing name, check company-scoped case-insensitive unique constraint
+    if (body.name && typeof body.name === 'string' && body.name.trim() !== existing.name) {
+      const trimmedName = stripHtml(body.name.trim());
+      const allActive = await db.cardType.findMany({
+        where: {
+          ...(companyId ? { companyId } : {}),
+          isActive: true,
+          id: { not: id },
+        },
+        select: { id: true, name: true },
+      });
+      const duplicate = allActive.find(
+        (ct) => ct.name.toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Card type "${trimmedName}" already exists` },
+          { status: 409 }
+        );
+      }
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.cardType.update({
         where: { id },
         data: {
-          ...(body.name && { name: body.name.trim() }),
+          ...(body.name && { name: stripHtml(body.name.trim()) }),
           ...(body.isActive !== undefined && { isActive: body.isActive }),
           // Enforce companyId — prevent cross-tenant reassignment
           ...(companyId && { companyId }),

@@ -94,14 +94,21 @@ export async function PUT(
       );
     }
 
-    // Duplicate name check within company scope (only if name is changing)
-    if (sanitizedName !== existing.name && companyId) {
-      const duplicate = await db.segment.findFirst({
-        where: { companyId, name: sanitizedName, isActive: true, id: { not: id } },
+    // Duplicate name check within company scope (case-insensitive for SQLite, only if name is changing)
+    if (sanitizedName !== existing.name) {
+      const lowerName = sanitizedName.toLowerCase();
+      const allActive = await db.segment.findMany({
+        where: {
+          ...(companyId ? { companyId } : {}),
+          isActive: true,
+          NOT: { id },
+        },
+        select: { name: true },
       });
-      if (duplicate) {
+      const caseMatch = allActive.find(s => s.name.toLowerCase() === lowerName);
+      if (caseMatch) {
         return NextResponse.json(
-          { error: 'DUPLICATE_NAME: A segment with this name already exists in your company' },
+          { error: `DUPLICATE_NAME: A segment with name "${sanitizedName}" already exists (case-insensitive match: "${caseMatch.name}")` },
           { status: 409 }
         );
       }

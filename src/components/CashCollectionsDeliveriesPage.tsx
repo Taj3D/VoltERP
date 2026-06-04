@@ -186,19 +186,20 @@ export default function CashCollectionsDeliveriesPage() {
   const fetchCustomerOutstanding = useCallback(async (customerId: string) => {
     if (!customerId) { setCustomerOutstanding(null); return; }
     try {
-      const [salesRes, collRes] = await Promise.all([
-        apiFetch(`/api/sales-orders?customerId=${customerId}`).catch(() => []),
-        apiFetch(`/api/cash-collections?customerId=${customerId}`).catch(() => []),
-      ]);
-      const salesOrders = Array.isArray(salesRes) ? salesRes : (salesRes as any).data || [];
-      const collections = Array.isArray(collRes) ? collRes : (collRes as any).data || [];
-      const totalSales = salesOrders
-        .filter((so: any) => so.customerId === customerId)
-        .reduce((s: number, so: any) => s + (so.grandTotal || 0), 0);
-      const totalCollections = collections
-        .filter((cc: any) => cc.customerId === customerId)
-        .reduce((s: number, cc: any) => s + (cc.amount || 0), 0);
-      setCustomerOutstanding(totalSales - totalCollections);
+      // Use the balances API which computes AR correctly:
+      // AR = Opening(Dr) + Sales + Hire - Collections - Returns - Opening(Cr)
+      const res = await apiFetch(`/api/customers/balances?customerId=${customerId}`).catch(() => null);
+      if (res && Array.isArray(res.balances) && res.balances.length > 0) {
+        setCustomerOutstanding(res.balances[0].currentBalance || 0);
+      } else if (res?.balance) {
+        setCustomerOutstanding(res.balance.currentBalance || 0);
+      } else {
+        // Fallback: use customer record's computedCurrentBalance from list API
+        const custRes = await apiFetch(`/api/customers?customerId=${customerId}`).catch(() => []);
+        const customers = Array.isArray(custRes) ? custRes : (custRes as any).data || [];
+        const customer = customers.find((c: any) => c.id === customerId);
+        setCustomerOutstanding(customer?.computedCurrentBalance ?? customer?.currentBalance ?? null);
+      }
     } catch { setCustomerOutstanding(null); }
   }, []);
 
@@ -206,19 +207,20 @@ export default function CashCollectionsDeliveriesPage() {
   const fetchSupplierPayable = useCallback(async (supplierId: string) => {
     if (!supplierId) { setSupplierPayable(null); return; }
     try {
-      const [poRes, delRes] = await Promise.all([
-        apiFetch(`/api/purchase-orders?supplierId=${supplierId}`).catch(() => []),
-        apiFetch(`/api/cash-deliveries?supplierId=${supplierId}`).catch(() => []),
-      ]);
-      const purchaseOrders = Array.isArray(poRes) ? poRes : (poRes as any).data || [];
-      const deliveries = Array.isArray(delRes) ? delRes : (delRes as any).data || [];
-      const totalPO = purchaseOrders
-        .filter((po: any) => po.supplierId === supplierId)
-        .reduce((s: number, po: any) => s + (po.grandTotal || 0), 0);
-      const totalDeliveries = deliveries
-        .filter((cd: any) => cd.supplierId === supplierId)
-        .reduce((s: number, cd: any) => s + (cd.amount || 0), 0);
-      setSupplierPayable(totalPO - totalDeliveries);
+      // Use the balances API which computes AP correctly:
+      // AP = Opening(Cr) + Purchases - Deliveries - Purchase Returns - Opening(Dr)
+      const res = await apiFetch(`/api/suppliers/balances?supplierId=${supplierId}`).catch(() => null);
+      if (res && Array.isArray(res.balances) && res.balances.length > 0) {
+        setSupplierPayable(res.balances[0].currentBalance || 0);
+      } else if (res?.balance) {
+        setSupplierPayable(res.balance.currentBalance || 0);
+      } else {
+        // Fallback: use supplier record's computedCurrentBalance from list API
+        const suppRes = await apiFetch(`/api/suppliers?supplierId=${supplierId}`).catch(() => []);
+        const suppliers = Array.isArray(suppRes) ? suppRes : (suppRes as any).data || [];
+        const supplier = suppliers.find((s: any) => s.id === supplierId);
+        setSupplierPayable(supplier?.computedCurrentBalance ?? supplier?.currentBalance ?? null);
+      }
     } catch { setSupplierPayable(null); }
   }, []);
 

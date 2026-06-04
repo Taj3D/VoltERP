@@ -1438,6 +1438,7 @@ model CashCollection {
   ledgerPosted     Boolean       @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
   debitEntryCode   String?       // LED-XXXXX of the debit entry (cash/bank)
   creditEntryCode  String?       // LED-XXXXX of the credit entry (customer)
+  runningBalance   Float          @default(0)
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -1477,6 +1478,7 @@ model CashDelivery {
   ledgerPosted     Boolean       @default(false)  // Whether LedgerEntry + LedgerAutoPost have been created
   debitEntryCode   String?       // LED-XXXXX of the debit entry (supplier)
   creditEntryCode  String?       // LED-XXXXX of the credit entry (cash/bank)
+  runningBalance   Float          @default(0)
   isActive        Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

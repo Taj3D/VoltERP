@@ -5,6 +5,28 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
 
+// XSS sanitization — strip HTML tags from text inputs
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
+// Phone validation: Bangladesh format (+880XXXXXXXXXX) or generic
+function isValidPhone(phone: string): boolean {
+  const bdPhone = /^\+?880\d{10}$/;
+  const genericPhone = /^\+?[\d\s\-()]{7,15}$/;
+  return bdPhone.test(phone.replace(/\s/g, '')) || genericPhone.test(phone.replace(/\s/g, ''));
+}
+
+// Email format validation
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// NID validation: 10-17 digit number
+function isValidNID(nid: string): boolean {
+  return /^\d{10,17}$/.test(nid.replace(/\s/g, ''));
+}
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Employees', 'GET');
   if (!security.authorized) return security.response;
@@ -162,6 +184,17 @@ export async function POST(request: NextRequest) {
     const imgError = validateImageFields(body, ['photo', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
+    // Phone/email/NID format validation
+    if (body.phone?.trim() && !isValidPhone(body.phone.trim())) {
+      return NextResponse.json({ error: 'Invalid phone format. Use Bangladesh format (+880XXXXXXXXXX) or international format.' }, { status: 400 });
+    }
+    if (body.email?.trim() && !isValidEmail(body.email.trim())) {
+      return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
+    }
+    if (body.nidNumber?.trim() && !isValidNID(body.nidNumber.trim())) {
+      return NextResponse.json({ error: 'Invalid NID format. Must be 10-17 digits.' }, { status: 400 });
+    }
+
     // Standalone DOB 18+ validation: Person must be at least 18 years old today
     if (body.dateOfBirth) {
       const dob = new Date(body.dateOfBirth);
@@ -242,7 +275,7 @@ export async function POST(request: NextRequest) {
       const record = await tx.employee.create({
         data: {
           employeeCode,
-          name: body.name,
+          name: stripHtml(String(body.name || '')),
           designationId: body.designationId,
           departmentId: body.departmentId,
           joiningDate: body.joiningDate ? new Date(body.joiningDate) : new Date(),
@@ -253,27 +286,27 @@ export async function POST(request: NextRequest) {
           companyId: companyId || null,
           gender: nullIfEmpty(body.gender),
           bloodGroup: nullIfEmpty(body.bloodGroup),
-          religion: nullIfEmpty(body.religion),
+          religion: body.religion ? stripHtml(String(body.religion)) : null,
           dateOfBirth: body.dateOfBirth ? new Date(body.dateOfBirth) : null,
-          fatherName: nullIfEmpty(body.fatherName),
-          motherName: nullIfEmpty(body.motherName),
-          spouseName: nullIfEmpty(body.spouseName),
+          fatherName: body.fatherName ? stripHtml(String(body.fatherName)) : null,
+          motherName: body.motherName ? stripHtml(String(body.motherName)) : null,
+          spouseName: body.spouseName ? stripHtml(String(body.spouseName)) : null,
           maritalStatus: nullIfEmpty(body.maritalStatus),
           nidNumber: nullIfEmpty(body.nidNumber),
           tinNumber: nullIfEmpty(body.tinNumber),
           phone: nullIfEmpty(body.phone),
-          email: nullIfEmpty(body.email),
-          presentAddress: nullIfEmpty(body.presentAddress),
-          permanentAddress: nullIfEmpty(body.permanentAddress),
+          email: body.email ? stripHtml(String(body.email)).toLowerCase() : null,
+          presentAddress: body.presentAddress ? stripHtml(String(body.presentAddress)) : null,
+          permanentAddress: body.permanentAddress ? stripHtml(String(body.permanentAddress)) : null,
           emergencyContact: nullIfEmpty(body.emergencyContact),
-          emergencyContactName: nullIfEmpty(body.emergencyContactName),
-          bankName: nullIfEmpty(body.bankName),
+          emergencyContactName: body.emergencyContactName ? stripHtml(String(body.emergencyContactName)) : null,
+          bankName: body.bankName ? stripHtml(String(body.bankName)) : null,
           bankAccountNo: nullIfEmpty(body.bankAccountNo),
           photo: nullIfEmpty(body.photo),
           nidFrontImage: nullIfEmpty(body.nidFrontImage),
           nidBackImage: nullIfEmpty(body.nidBackImage),
-          referenceBy: nullIfEmpty(body.referenceBy),
-          address: nullIfEmpty(body.address),
+          referenceBy: body.referenceBy ? stripHtml(String(body.referenceBy)) : null,
+          address: body.address ? stripHtml(String(body.address)) : null,
           isActive: body.isActive ?? true,
         },
         include: {

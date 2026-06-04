@@ -14,6 +14,8 @@ const VALID_TYPES = ['HIRE_PURCHASE', 'TERM_LOAN', 'OVERDRAFT', 'CUSTOM'] as con
 function sanitizeText(input: string): string {
   return input
     .replace(/<[^>]*>/g, '')           // Strip HTML/XSS tags
+    .replace(/javascript:/gi, '')       // Strip javascript: URIs
+    .replace(/on\w+=/gi, '')           // Strip event handler attributes (onclick=, etc.)
     .replace(/\r\n/g, '\n')            // Normalize line breaks
     .replace(/\n{3,}/g, '\n\n')        // Collapse excessive newlines
     .replace(/  +/g, ' ')              // Collapse double spaces
@@ -108,6 +110,18 @@ export async function PUT(
           { status: 400 }
         );
       }
+    }
+
+    // Validate expiryDate > effectiveDate if either is being updated
+    const effectiveDateToCheck = body.effectiveDate ? new Date(body.effectiveDate) : existing.effectiveDate;
+    const expiryDateToCheck = body.expiryDate !== undefined
+      ? (body.expiryDate ? new Date(body.expiryDate) : null)
+      : existing.expiryDate;
+    if (expiryDateToCheck && effectiveDateToCheck && new Date(expiryDateToCheck) <= new Date(effectiveDateToCheck)) {
+      return NextResponse.json(
+        { error: 'expiryDate must be after effectiveDate' },
+        { status: 400 }
+      );
     }
 
     // Amount range validation

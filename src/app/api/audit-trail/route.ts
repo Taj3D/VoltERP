@@ -104,14 +104,24 @@ export async function GET(request: NextRequest) {
       where.createdAt = createdAt;
     }
 
-    // Fuzzy search on recordLabel and details
+    // Fuzzy search on recordLabel and details (case-insensitive for SQLite)
     const search = searchParams.get('search');
     if (search) {
+      // SQLite doesn't support mode: 'insensitive' — use multiple OR conditions
+      // with both lowercased search and original case
+      const searchLower = search.toLowerCase();
+      const searchUpper = search.toUpperCase();
       where.OR = [
         { recordLabel: { contains: search } },
+        { recordLabel: { contains: searchLower } },
+        { recordLabel: { contains: searchUpper } },
         { details: { contains: search } },
+        { details: { contains: searchLower } },
+        { details: { contains: searchUpper } },
         { userName: { contains: search } },
+        { userName: { contains: searchLower } },
         { module: { contains: search } },
+        { module: { contains: searchLower } },
       ];
     }
 

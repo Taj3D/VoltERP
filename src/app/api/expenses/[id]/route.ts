@@ -13,6 +13,7 @@ import {
   safeFinancialRound,
   safeFinancialSubtract,
   safeFinancialAdd,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -248,6 +249,18 @@ export async function PUT(
         });
       }
 
+      // Validate amount > 0 if being changed
+      if (body.amount !== undefined) {
+        const newAmount = safeFinancialRound(parseFloat(String(body.amount)));
+        if (isNaN(newAmount) || newAmount <= 0) {
+          throw new Error('Amount must be a positive number greater than 0');
+        }
+      }
+      // Sanitize text inputs for XSS
+      const updatedChequeNo = body.chequeNo !== undefined ? (body.chequeNo ? stripHtml(String(body.chequeNo)) : null) : undefined;
+      const updatedVoucherNo = body.voucherNo !== undefined ? (body.voucherNo ? stripHtml(String(body.voucherNo)) : null) : undefined;
+      const updatedDescription = body.description !== undefined ? (body.description ? stripHtml(String(body.description)) : null) : undefined;
+
       // Update the expense record
       const expense = await tx.expense.update({
         where: { id },
@@ -257,9 +270,9 @@ export async function PUT(
           ...(body.amount !== undefined && { amount: safeFinancialRound(parseFloat(String(body.amount))) }),
           ...(body.paymentOptionId !== undefined && { paymentOptionId: body.paymentOptionId ? String(body.paymentOptionId) : null }),
           ...(body.bankId !== undefined && { bankId: body.bankId ? String(body.bankId) : null }),
-          ...(body.chequeNo !== undefined && { chequeNo: body.chequeNo ? String(body.chequeNo) : null }),
-          ...(body.voucherNo !== undefined && { voucherNo: body.voucherNo ? String(body.voucherNo) : null }),
-          ...(body.description !== undefined && { description: body.description ? String(body.description) : null }),
+          ...(updatedChequeNo !== undefined && { chequeNo: updatedChequeNo }),
+          ...(updatedVoucherNo !== undefined && { voucherNo: updatedVoucherNo }),
+          ...(updatedDescription !== undefined && { description: updatedDescription }),
           ...(status !== undefined && { status: newStatus }),
         },
         include: {

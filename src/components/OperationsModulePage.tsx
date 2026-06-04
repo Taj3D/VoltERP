@@ -258,7 +258,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
 
   const canMutate = userRole === "admin" || userRole === "manager";
-  const maskedColumns = isVatAuditor ? ["targetAmount", "minimumSalesQuota", "commissionPercentage"] : [];
+  const maskedColumns = isVatAuditor ? ["targetAmount", "minimumSalesQuota", "commissionPercentage", "achievementPct", "remainingAmount", "commissionProjection"] : [];
 
   // Load data
   const loadData = useCallback(async () => {
@@ -558,9 +558,9 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
           vatNumber: companyProfile.vatNumber,
         } : undefined,
         financialFooter: {
-          preparedBy: authUser?.displayName || userRole || "",
+          preparedBy: authUser?.displayName || "System",
           checkedBy: "", authorizedBy: "", approvedBy: "",
-          printedBy: authUser?.displayName || userRole || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: "SR Target report exported with compliance footer" });
@@ -654,7 +654,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Total Target Amount</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(kpiStats.totalTargetAmount)}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.totalTargetAmount)}</p>
             </div>
           </CardContent>
         </Card>
@@ -665,7 +665,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Avg Target</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(kpiStats.avgTarget)}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.avgTarget)}</p>
             </div>
           </CardContent>
         </Card>
@@ -676,7 +676,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Total Achieved</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(kpiStats.totalAchieved)}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.totalAchieved)}</p>
             </div>
           </CardContent>
         </Card>
@@ -687,7 +687,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Commission Projections</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(kpiStats.totalCommissionProjection)}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.totalCommissionProjection)}</p>
             </div>
           </CardContent>
         </Card>
@@ -821,16 +821,18 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`font-semibold ${getAchievementColor(achievementPct)}`}>
-                              {achievementPct.toFixed(1)}%
+                            <span className={`font-semibold ${isVatAuditor ? "text-slate-400" : getAchievementColor(achievementPct)}`}>
+                              {isVatAuditor ? "N/A (Audit Mode)" : `${achievementPct.toFixed(1)}%`}
                             </span>
-                            <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full ${getAchievementBarColor(achievementPct)}`} style={{ width: `${Math.min(achievementPct, 100)}%` }} />
-                            </div>
+                            {!isVatAuditor && (
+                              <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${getAchievementBarColor(achievementPct)}`} style={{ width: `${Math.min(achievementPct, 100)}%` }} />
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {fmtCurrency(remaining)}
+                          {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(remaining)}
                         </TableCell>
                         <TableCell className="text-center">
                           <Button variant="ghost" size="sm" onClick={() => handleViewPerformance(item)} title="View Performance">
@@ -927,7 +929,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this SR target? This action cannot be undone.</DialogDescription>
+            <DialogDescription>Are you sure you want to delete this SR target? It will be deactivated but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
@@ -1196,9 +1198,9 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
           vatNumber: companyProfile.vatNumber,
         } : undefined,
         financialFooter: {
-          preparedBy: authUser?.displayName || userRole || "",
+          preparedBy: authUser?.displayName || "System",
           checkedBy: "", authorizedBy: "", approvedBy: "",
-          printedBy: authUser?.displayName || userRole || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: "Payment Options report exported with compliance footer" });
@@ -1429,7 +1431,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this payment option? This action cannot be undone.</DialogDescription>
+            <DialogDescription>Are you sure you want to delete this payment option? It will be deactivated but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
@@ -1609,9 +1611,9 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
           vatNumber: companyProfile.vatNumber,
         } : undefined,
         financialFooter: {
-          preparedBy: authUser?.displayName || userRole || "",
+          preparedBy: authUser?.displayName || "System",
           checkedBy: "", authorizedBy: "", approvedBy: "",
-          printedBy: authUser?.displayName || userRole || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: "Card Types report exported with compliance footer" });
@@ -1797,7 +1799,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this card type? This action cannot be undone.</DialogDescription>
+            <DialogDescription>Are you sure you want to delete this card type? It will be deactivated but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
@@ -2052,9 +2054,9 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
           vatNumber: companyProfile.vatNumber,
         } : undefined,
         financialFooter: {
-          preparedBy: authUser?.displayName || userRole || "",
+          preparedBy: authUser?.displayName || "System",
           checkedBy: "", authorizedBy: "", approvedBy: "",
-          printedBy: authUser?.displayName || userRole || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: "Card Type Setup report exported with compliance footer" });
@@ -2148,7 +2150,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Avg Effective Rate</p>
-              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.avgEffectiveRate.toFixed(2)}%</p>
+              <p className="text-xl font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : `${stats.avgEffectiveRate.toFixed(2)}%`}</p>
             </div>
           </CardContent>
         </Card>
@@ -2159,7 +2161,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">High Rate (&gt;5%)</p>
-              <p className="text-xl font-bold text-red-500">{stats.highRateCount}</p>
+              <p className="text-xl font-bold text-red-500">{isVatAuditor ? "N/A (Audit Mode)" : stats.highRateCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -2234,12 +2236,16 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
                           {isVatAuditor && maskedColumns.includes("customerConvFee") ? "N/A (Audit Mode)" : fmtPercent(item.customerConvFee)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Badge className={effectiveRate > 5
-                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                          }>
-                            {effectiveRate.toFixed(2)}%
-                          </Badge>
+                          {isVatAuditor ? (
+                            <Badge className="bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">N/A (Audit Mode)</Badge>
+                          ) : (
+                            <Badge className={effectiveRate > 5
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            }>
+                              {effectiveRate.toFixed(2)}%
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge className={item.isActive !== false
@@ -2365,7 +2371,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this card type setup? This action cannot be undone.</DialogDescription>
+            <DialogDescription>Are you sure you want to delete this card type setup? It will be deactivated but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>

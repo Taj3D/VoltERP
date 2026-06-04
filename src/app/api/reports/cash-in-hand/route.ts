@@ -309,7 +309,7 @@ export async function GET(request: NextRequest) {
       }
 
       dailyFlow.push({
-        date: d.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+        date: new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(d),
         inflow: dayInflow,
         outflow: dayOutflow,
         net: safeFinancialSubtract(dayInflow, dayOutflow),

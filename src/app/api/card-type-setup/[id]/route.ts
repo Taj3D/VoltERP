@@ -116,7 +116,12 @@ export async function PUT(
       );
     }
 
-    // Validate rate bounds: bankServiceCharge and customerConvFee
+    // Validate rate bounds: chargePercentage, bankServiceCharge and customerConvFee
+    const chargeError = validateRateBounds(chargePercentage, 'Charge Percentage');
+    if (chargeError) {
+      return NextResponse.json({ error: chargeError }, { status: 400 });
+    }
+
     const bscError = validateRateBounds(bankServiceCharge, 'Bank Service Charge (BSC %)');
     if (bscError) {
       return NextResponse.json({ error: bscError }, { status: 400 });

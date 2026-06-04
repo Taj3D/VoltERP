@@ -66,6 +66,10 @@ const safeNum = (v: any, fallback = 0) => {
   return isNaN(n) ? fallback : n;
 };
 
+// Safe number formatter — prevents Bengali digit output
+const _bdNumFmt = new Intl.NumberFormat("en-US");
+const fmtNum = (v: any) => _bdNumFmt.format(safeNum(v));
+
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
   try {
@@ -1033,8 +1037,8 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                         <TableCell className="text-xs font-medium">{item.productName}</TableCell>
                         <TableCell className="text-xs">{item.category}</TableCell>
                         <TableCell className="text-xs">{item.godown}</TableCell>
-                        <TableCell className="text-xs text-right font-medium">{safeNum(item.currentStock).toLocaleString()}</TableCell>
-                        <TableCell className="text-xs text-right">{safeNum(item.reorderLevel).toLocaleString()}</TableCell>
+                        <TableCell className="text-xs text-right font-medium">{fmtNum(item.currentStock)}</TableCell>
+                        <TableCell className="text-xs text-right">{fmtNum(item.reorderLevel)}</TableCell>
                         <TableCell><StockStatusBadge status={item.stockStatus} /></TableCell>
                         <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.costPrice, isVatAuditor))}</TableCell>
                         <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.stockValue, isVatAuditor))}</TableCell>
@@ -1062,7 +1066,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                                         return (
                                           <TableRow key={g.id}>
                                             <TableCell className="text-xs">{g.name}</TableCell>
-                                            <TableCell className="text-xs text-right font-medium">{safeNum(godownStock).toLocaleString()}</TableCell>
+                                            <TableCell className="text-xs text-right font-medium">{fmtNum(godownStock)}</TableCell>
                                           </TableRow>
                                         );
                                       })}
@@ -1092,7 +1096,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                                       {productBatches.length > 0 ? productBatches.map(b => (
                                         <TableRow key={b.id} className={isBatchExpired(b.expiryDate) ? "bg-red-50 dark:bg-red-900/10" : ""}>
                                           <TableCell className="text-xs font-mono">{b.batchCode}</TableCell>
-                                          <TableCell className="text-xs text-right">{safeNum(b.quantityOnHand).toLocaleString()}</TableCell>
+                                          <TableCell className="text-xs text-right">{fmtNum(b.quantityOnHand)}</TableCell>
                                           <TableCell className="text-xs">{fmtDate(b.expiryDate)}</TableCell>
                                           <TableCell><StatusBadge status={b.status || "Active"} /></TableCell>
                                         </TableRow>
@@ -1187,10 +1191,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
         {/* Summary Panel */}
         {sdSummary && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Total IN" value={safeNum(sdSummary.totalIn).toLocaleString()} icon={TrendingUp} color="text-emerald-600" bg="bg-emerald-100 dark:bg-emerald-900/30" />
-            <StatCard label="Total OUT" value={safeNum(sdSummary.totalOut).toLocaleString()} icon={ArrowLeftRight} color="text-red-600" bg="bg-red-100 dark:bg-red-900/30" />
-            <StatCard label="Current Balance" value={safeNum(sdSummary.currentBalance).toLocaleString()} icon={Calculator} color="text-blue-600" bg="bg-blue-100 dark:bg-blue-900/30" />
-            <StatCard label="Opening Stock" value={safeNum(sdSummary.openingStock).toLocaleString()} icon={Archive} color="text-amber-600" bg="bg-amber-100 dark:bg-amber-900/30" />
+            <StatCard label="Total IN" value={fmtNum(sdSummary.totalIn)} icon={TrendingUp} color="text-emerald-600" bg="bg-emerald-100 dark:bg-emerald-900/30" />
+            <StatCard label="Total OUT" value={fmtNum(sdSummary.totalOut)} icon={ArrowLeftRight} color="text-red-600" bg="bg-red-100 dark:bg-red-900/30" />
+            <StatCard label="Current Balance" value={fmtNum(sdSummary.currentBalance)} icon={Calculator} color="text-blue-600" bg="bg-blue-100 dark:bg-blue-900/30" />
+            <StatCard label="Opening Stock" value={fmtNum(sdSummary.openingStock)} icon={Archive} color="text-amber-600" bg="bg-amber-100 dark:bg-amber-900/30" />
           </div>
         )}
 
@@ -1225,11 +1229,11 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                         {entry.type}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-right font-medium">{safeNum(entry.quantity).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs text-right font-medium">{fmtNum(entry.quantity)}</TableCell>
                     <TableCell className="text-xs font-mono">{entry.reference || "—"}</TableCell>
                     <TableCell><SourceTypeBadge source={entry.sourceLabel || entry.referenceType || "Manual"} /></TableCell>
                     <TableCell className="text-xs">{entry.godownId ? godowns.find(g => g.id === entry.godownId)?.name || "—" : "—"}</TableCell>
-                    <TableCell className="text-xs text-right font-medium">{entry.runningBalance !== null && entry.runningBalance !== undefined ? safeNum(entry.runningBalance).toLocaleString() : "—"}</TableCell>
+                    <TableCell className="text-xs text-right font-medium">{entry.runningBalance !== null && entry.runningBalance !== undefined ? fmtNum(entry.runningBalance) : "—"}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(entry.lineValue, isVatAuditor))}</TableCell>
                   </TableRow>
                 ))}
@@ -1362,7 +1366,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                         <TableCell className="text-xs">{item.fromGodown?.name || "—"}</TableCell>
                         <TableCell className="text-xs">{item.toGodown?.name || "—"}</TableCell>
                         <TableCell className="text-xs text-right">{item.totalItems}</TableCell>
-                        <TableCell className="text-xs text-right">{safeNum(item.totalQuantity).toLocaleString()}</TableCell>
+                        <TableCell className="text-xs text-right">{fmtNum(item.totalQuantity)}</TableCell>
                         <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.totalCostValue, isVatAuditor))}</TableCell>
                         <TableCell><StatusBadge status={item.shippingStatus || "Pending"} /></TableCell>
                         <TableCell><StatusBadge status={item.status} /></TableCell>
@@ -1422,11 +1426,11 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                                   {item.lines?.length > 0 ? item.lines.map((line: any, idx: number) => (
                                     <TableRow key={idx}>
                                       <TableCell className="text-xs">{line.product?.name || line.productId}</TableCell>
-                                      <TableCell className="text-xs text-right">{safeNum(line.quantity).toLocaleString()}</TableCell>
+                                      <TableCell className="text-xs text-right">{fmtNum(line.quantity)}</TableCell>
                                       <TableCell className="text-xs font-mono">{line.batchId || "—"}</TableCell>
                                       <TableCell className="text-xs text-right">{fmtCurrency(vatMask(line.costPrice, isVatAuditor))}</TableCell>
                                       <TableCell className="text-xs text-right">{fmtCurrency(vatMask(line.lineTotal, isVatAuditor))}</TableCell>
-                                      <TableCell className="text-xs text-right">{safeNum(line.availableStock).toLocaleString()}</TableCell>
+                                      <TableCell className="text-xs text-right">{fmtNum(line.availableStock)}</TableCell>
                                       <TableCell><StockStatusBadge status={line.stockStatus || "Available"} /></TableCell>
                                     </TableRow>
                                   )) : (
@@ -1709,7 +1713,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                     <TableCell className="text-xs font-mono">{item.productCode}</TableCell>
                     <TableCell className="text-xs font-medium">{item.product?.name || "—"}</TableCell>
                     <TableCell className="text-xs">{item.godown?.name || godowns.find(g => g.id === item.godownId)?.name || "—"}</TableCell>
-                    <TableCell className="text-xs text-right">{safeNum(item.quantity).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs text-right">{fmtNum(item.quantity)}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.costPrice, isVatAuditor))}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.totalValue, isVatAuditor))}</TableCell>
                     <TableCell className="text-xs">{fmtDate(item.effectiveDate)}</TableCell>
@@ -1934,9 +1938,9 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                       <TableCell className="text-xs font-mono">{item.batchCode}</TableCell>
                       <TableCell className="text-xs font-medium">{item.product?.name || "—"}</TableCell>
                       <TableCell className="text-xs">{item.godown?.name || godowns.find(g => g.id === item.godownId)?.name || "—"}</TableCell>
-                      <TableCell className="text-xs text-right">{safeNum(item.quantityReceived).toLocaleString()}</TableCell>
-                      <TableCell className="text-xs text-right">{safeNum(item.quantitySold).toLocaleString()}</TableCell>
-                      <TableCell className="text-xs text-right font-medium">{safeNum(item.quantityOnHand).toLocaleString()}</TableCell>
+                      <TableCell className="text-xs text-right">{fmtNum(item.quantityReceived)}</TableCell>
+                      <TableCell className="text-xs text-right">{fmtNum(item.quantitySold)}</TableCell>
+                      <TableCell className="text-xs text-right font-medium">{fmtNum(item.quantityOnHand)}</TableCell>
                       <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.costPricePerUnit, isVatAuditor))}</TableCell>
                       <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.salePricePerUnit, isVatAuditor))}</TableCell>
                       <TableCell className="text-xs">{fmtDate(item.manufacturingDate)}</TableCell>
@@ -2149,7 +2153,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                     <TableCell className="text-xs font-medium">{item.productName}</TableCell>
                     <TableCell className="text-xs">{item.category}</TableCell>
                     <TableCell className="text-xs">{item.godown}</TableCell>
-                    <TableCell className="text-xs text-right">{safeNum(item.currentStock).toLocaleString()}</TableCell>
+                    <TableCell className="text-xs text-right">{fmtNum(item.currentStock)}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.valuationPerUnit, isVatAuditor))}</TableCell>
                     <TableCell className="text-xs text-right font-medium">{fmtCurrency(vatMask(item.totalValue, isVatAuditor))}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.saleValue, isVatAuditor))}</TableCell>

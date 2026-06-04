@@ -9,6 +9,7 @@ import {
   withApiSecurity,
   maskFinancialArray,
   safeFinancialRound,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -112,12 +113,26 @@ async function createSingleHead(
 ) {
   const { name, type, chartOfAccountId } = body;
 
-  if (!name || !type) {
-    throw new Error('name and type are required');
+  const sanitizedName = stripHtml(String(name));
+  if (!sanitizedName) {
+    throw new Error('name is required');
+  }
+  if (!type) {
+    throw new Error('type is required');
   }
 
   if (!['Expense', 'Income'].includes(String(type))) {
     throw new Error('type must be "Expense" or "Income"');
+  }
+
+  // Case-insensitive duplicate name check (manual toLowerCase for SQLite compatibility)
+  const allHeadsOfType = await db.expenseIncomeHead.findMany({
+    where: { type: String(type), isActive: true },
+    select: { name: true },
+  });
+  const existingHead = allHeadsOfType.find(h => h.name.toLowerCase() === sanitizedName.toLowerCase());
+  if (existingHead) {
+    throw new Error(`A ${String(type)} head with name "${sanitizedName}" already exists`);
   }
 
   // Validate CoA link if provided
@@ -156,7 +171,7 @@ async function createSingleHead(
     const record = await tx.expenseIncomeHead.create({
       data: {
         code,
-        name: String(name),
+        name: sanitizedName,
         type: String(type),
         chartOfAccountId: effectiveCoAId,
         isActive: true,

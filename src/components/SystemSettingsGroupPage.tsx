@@ -1568,12 +1568,12 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this template? This action cannot be undone.</DialogDescription>
+            <DialogTitle>Delete Invoice Template</DialogTitle>
+            <DialogDescription>Are you sure you want to permanently delete this invoice template? All associated HTML/CSS and toggle configurations will be lost. This action cannot be undone.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete Template</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1986,12 +1986,12 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Delete this number format? This action cannot be undone.</DialogDescription>
+            <DialogTitle>Delete Number Format</DialogTitle>
+            <DialogDescription>Are you sure you want to permanently delete this number format? Documents using this format will no longer auto-increment. This action cannot be undone.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete Format</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2277,7 +2277,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                 )}
               </div>
               <div className="mt-4 text-xs text-slate-400">
-                Last refreshed: {cacheStats.lastUpdated ? new Date(cacheStats.lastUpdated).toLocaleString() : "Never"}
+                Last refreshed: {cacheStats.lastUpdated ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(cacheStats.lastUpdated)) : "Never"}
               </div>
             </CardContent>
           </Card>

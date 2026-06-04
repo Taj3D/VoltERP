@@ -5,6 +5,11 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
 
+// XSS sanitization — strip HTML tags from text inputs
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'EmployeeLeaves', 'GET');
   if (!security.authorized) return security.response;
@@ -103,7 +108,7 @@ export async function POST(request: NextRequest) {
           fromDate,
           toDate,
           totalDays: Number(body.totalDays) || calculatedDays,
-          reason: nullIfEmpty(body.reason),
+          reason: body.reason ? stripHtml(String(body.reason)) : null,
           status: body.status || 'Pending',
           ...(companyId && { companyId }),
         },

@@ -5,7 +5,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import { withApiSecurity, type UserRole, stripHtml } from '@/lib/api-security';
 
 // Keys that are sensitive — VAT Auditor must NOT see their values
 const PROFIT_SENSITIVE_KEYS = ['profit', 'margin', 'writeoff'];
@@ -96,22 +96,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Sanitize text fields to prevent XSS
+    const sanitizedKey = stripHtml(configKey);
+    const sanitizedValue = String(configValue);
+    const sanitizedDescription = description ? stripHtml(description) : null;
+
     // Check for duplicate key
-    const existing = await db.systemConfig.findUnique({ where: { configKey } });
+    const existing = await db.systemConfig.findUnique({ where: { configKey: sanitizedKey } });
     if (existing) {
       return NextResponse.json(
-        { error: `Config key "${configKey}" already exists. Use PUT to update.` },
+        { error: `Config key "${sanitizedKey}" already exists. Use PUT to update.` },
         { status: 409 }
       );
     }
 
     const config = await db.systemConfig.create({
       data: {
-        configKey,
-        configValue: String(configValue),
+        configKey: sanitizedKey,
+        configValue: sanitizedValue,
         configType: configType || 'string',
-        category: category || 'General',
-        description: description || null,
+        category: category ? stripHtml(category) : 'General',
+        description: sanitizedDescription,
         isActive: isActive !== undefined ? isActive : true,
       },
     });
@@ -125,7 +130,7 @@ export async function POST(request: NextRequest) {
         recordLabel: config.configKey,
         userId: security.user.id,
         userName: security.user.name,
-        details: JSON.stringify({ configKey, configValue, category }),
+        details: JSON.stringify({ configKey: sanitizedKey, configValue: sanitizedValue, category }),
       },
     });
 
@@ -164,9 +169,9 @@ export async function PUT(request: NextRequest) {
     const updateData: Record<string, unknown> = {};
 
     if (body.configValue !== undefined) updateData.configValue = String(body.configValue);
-    if (body.configType !== undefined) updateData.configType = body.configType;
-    if (body.category !== undefined) updateData.category = body.category;
-    if (body.description !== undefined) updateData.description = body.description;
+    if (body.configType !== undefined) updateData.configType = stripHtml(body.configType);
+    if (body.category !== undefined) updateData.category = stripHtml(body.category);
+    if (body.description !== undefined) updateData.description = body.description ? stripHtml(body.description) : null;
     if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
     const config = await db.systemConfig.update({

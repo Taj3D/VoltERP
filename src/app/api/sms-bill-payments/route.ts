@@ -16,6 +16,7 @@ import {
   safeFinancialAdd,
   safeFinancialSubtract,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -116,9 +117,9 @@ export async function POST(request: NextRequest) {
           smsBillId,
           amount: safeAmount,
           date: new Date(date),
-          method: nullIfEmpty(method),
-          reference: nullIfEmpty(reference),
-          notes: nullIfEmpty(notes),
+          method: nullIfEmpty(method ? stripHtml(method) : undefined),
+          reference: nullIfEmpty(reference ? stripHtml(reference) : undefined),
+          notes: nullIfEmpty(notes ? stripHtml(notes) : undefined),
         },
         include: {
           smsBill: true,

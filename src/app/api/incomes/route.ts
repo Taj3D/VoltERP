@@ -11,6 +11,7 @@ import {
   maskFinancialArray,
   safeFinancialRound,
   safeFinancialAdd,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import Papa from 'papaparse';
@@ -309,6 +310,28 @@ async function createSingleIncome(
   if (!headId || amount === undefined || amount === null) {
     throw new Error('headId and amount are required');
   }
+
+  // Amount must be a positive number
+  const parsedAmount = parseFloat(String(amount));
+  if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    throw new Error('amount must be a positive number greater than 0');
+  }
+
+  // Date validation
+  if (date) {
+    const d = new Date(date as string);
+    if (isNaN(d.getTime())) {
+      throw new Error('Invalid date provided');
+    }
+  }
+
+  // Sanitize text inputs for XSS
+  const sanitizedChequeNo = nullIfEmpty(chequeNo as string | undefined);
+  const sanitizedVoucherNo = nullIfEmpty(voucherNo as string | undefined);
+  const sanitizedDescription = nullIfEmpty(description as string | undefined);
+  if (sanitizedChequeNo) (body as any).chequeNo = stripHtml(sanitizedChequeNo);
+  if (sanitizedVoucherNo) (body as any).voucherNo = stripHtml(sanitizedVoucherNo);
+  if (sanitizedDescription) (body as any).description = stripHtml(sanitizedDescription);
 
   // Period-close lock check
   const transactionDate = date ? new Date(date as string) : new Date();

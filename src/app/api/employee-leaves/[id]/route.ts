@@ -5,6 +5,11 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
 
+// XSS sanitization — strip HTML tags from text inputs
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, '').trim();
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -94,7 +99,7 @@ export async function PUT(
 
       if (body.employeeId !== undefined) updateData.employeeId = body.employeeId;
       if (body.leaveType !== undefined) updateData.leaveType = body.leaveType;
-      if (body.reason !== undefined) updateData.reason = nullIfEmpty(body.reason);
+      if (body.reason !== undefined) updateData.reason = body.reason ? stripHtml(String(body.reason)) : null;
 
       // Handle date changes and recalculate totalDays
       const newFromDate = body.fromDate ? new Date(body.fromDate) : existingLeave.fromDate;

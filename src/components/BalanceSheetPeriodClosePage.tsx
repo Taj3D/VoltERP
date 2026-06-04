@@ -29,10 +29,13 @@ import {
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
+const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const monthFmt = new Intl.DateTimeFormat("en", { month: "long" });
+
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdtFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -618,7 +621,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                      <SelectItem key={m} value={String(m)}>{new Date(2024, m - 1, 1).toLocaleString("en", { month: "long" })}</SelectItem>
+                      <SelectItem key={m} value={String(m)}>{monthFmt.format(new Date(2024, m - 1, 1))}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -651,15 +654,15 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
       {/* Period Delete Dialog */}
       <Dialog open={!!perDelete} onOpenChange={() => setPerDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Permanently Remove Period</DialogTitle></DialogHeader>
           <DialogDescription>
             {perDelete?.isLocked
-              ? `Period ${perDelete?.code} is locked. Unlock it first before deleting.`
-              : `Delete period ${perDelete?.code} (${perDelete?.periodMonth}/${perDelete?.periodYear})? This cannot be undone.`}
+              ? `Period ${perDelete?.code} is locked. Unlock it first before removing.`
+              : `Are you sure you want to permanently remove period ${perDelete?.code} (${perDelete?.periodMonth}/${perDelete?.periodYear})? This action cannot be undone.`}
           </DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPerDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={deletePeriod} disabled={perDelete?.isLocked}>Delete</Button>
+            <Button variant="destructive" onClick={deletePeriod} disabled={perDelete?.isLocked}>Permanently Remove</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -5,6 +5,7 @@ import {
   safeFinancialRound,
   checkFinancialDeletePermission,
   maskAccountingArray,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -84,7 +85,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const {
+    let {
       date,
       account,
       particulars,
@@ -95,6 +96,12 @@ export async function PUT(
       accountId,
     } = body;
     const companyId = security.user.companyId;
+
+    // XSS protection: strip HTML from text fields
+    if (account) account = stripHtml(String(account));
+    if (particulars) particulars = stripHtml(String(particulars));
+    if (reference) reference = stripHtml(String(reference));
+    if (referenceType) referenceType = stripHtml(String(referenceType));
 
     // Verify entry exists
     const existing = await db.ledgerEntry.findUnique({ where: { id } });

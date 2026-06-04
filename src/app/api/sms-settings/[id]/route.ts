@@ -12,6 +12,7 @@ import {
   checkSmsSettingsWritePermission,
   safeFinancialRound,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -94,12 +95,12 @@ export async function PUT(
       const record = await tx.smsSetting.update({
         where: { id },
         data: {
-          apiUrl: body.apiUrl !== undefined ? body.apiUrl : existing.apiUrl,
+          apiUrl: body.apiUrl !== undefined ? stripHtml(body.apiUrl) : existing.apiUrl,
           apiKey: body.apiKey !== undefined ? body.apiKey : existing.apiKey,
-          senderId: body.senderId !== undefined ? body.senderId : existing.senderId,
-          maskingName: body.maskingName !== undefined ? nullIfEmpty(body.maskingName) : existing.maskingName,
-          maskingRegId: body.maskingRegId !== undefined ? nullIfEmpty(body.maskingRegId) : existing.maskingRegId,
-          gatewayName: body.gatewayName !== undefined ? nullIfEmpty(body.gatewayName) : existing.gatewayName,
+          senderId: body.senderId !== undefined ? stripHtml(body.senderId) : existing.senderId,
+          maskingName: body.maskingName !== undefined ? nullIfEmpty(stripHtml(body.maskingName)) : existing.maskingName,
+          maskingRegId: body.maskingRegId !== undefined ? nullIfEmpty(stripHtml(body.maskingRegId)) : existing.maskingRegId,
+          gatewayName: body.gatewayName !== undefined ? nullIfEmpty(stripHtml(body.gatewayName)) : existing.gatewayName,
           ratePerSms: body.ratePerSms !== undefined ? safeFinancialRound(Number(body.ratePerSms) || 0) : existing.ratePerSms,
           unicodeRate: body.unicodeRate !== undefined ? safeFinancialRound(Number(body.unicodeRate) || 0) : existing.unicodeRate,
           setupCost: body.setupCost !== undefined ? safeFinancialRound(Number(body.setupCost) || 0) : existing.setupCost,

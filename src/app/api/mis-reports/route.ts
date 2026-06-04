@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, validateVatMode } from '@/lib/api-security';
+import { withApiSecurity, validateVatMode, stripHtml } from '@/lib/api-security';
 import { safeFinancialAdd, safeFinancialSubtract, safeFinancialRound } from '@/lib/api-security';
 import type { UserRole } from '@/lib/api-security';
 
@@ -105,6 +105,20 @@ function fmt(num: number): string {
   return misApiCurrencyFmt.format(num);
 }
 
+// MIS-004 FIX: Safe date formatter — prevents Bengali digit output from toLocaleDateString()
+// Uses explicit 'en-GB' locale with day/month/year format (e.g., "05 Mar 2026")
+const misApiDateFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+function fmtDate(d: Date | string): string {
+  try {
+    const date = typeof d === 'string' ? new Date(d) : d;
+    if (isNaN(date.getTime())) return '—';
+    return misApiDateFmt.format(date);
+  } catch {
+    return '—';
+  }
+}
+
 function emptyReport(title: string, columns: ColumnDef[]): ReportResult {
   return { title, columns, rows: [], summary: {}, chartData: [] };
 }
@@ -137,7 +151,7 @@ async function employeeInformation(params: QueryParams): Promise<ReportResult> {
     name: e.name,
     designation: e.designation?.name || '',
     department: e.department?.name || '',
-    joiningDate: e.joiningDate ? new Date(e.joiningDate).toLocaleDateString() : '',
+    joiningDate: e.joiningDate ? fmtDate(e.joiningDate) : '',
     phone: e.phone || '',
     status: e.isActive ? 'Active' : 'Inactive',
   }));
@@ -194,7 +208,7 @@ async function productInformation(params: QueryParams): Promise<ReportResult> {
     category: p.category?.name || '',
     company: p.company?.name || '',
     costPrice: maskVat(p.costPrice, params.vatMode),
-    salePrice: p.salePrice,
+    salePrice: maskVat(p.salePrice, params.vatMode),
     wholesalePrice: maskVat(p.wholesalePrice, params.vatMode),
     dealerPrice: maskVat(p.dealerPrice, params.vatMode),
     openingStock: p.openingStock,
@@ -368,7 +382,7 @@ async function stockLedger(params: QueryParams): Promise<ReportResult> {
   ];
 
   let rows = entries.map((e) => ({
-    date: new Date(e.date).toLocaleDateString(),
+    date: fmtDate(e.date),
     product: e.product?.name || '',
     type: e.type,
     quantity: e.quantity,
@@ -389,7 +403,7 @@ async function stockLedger(params: QueryParams): Promise<ReportResult> {
     rows,
     summary: { totalEntries: entries.length, totalIn, totalOut, net: totalIn - totalOut },
     chartData: entries.slice(0, 50).map((e) => ({
-      date: new Date(e.date).toLocaleDateString(),
+      date: fmtDate(e.date),
       in: e.type === 'IN' ? e.quantity : 0,
       out: e.type === 'OUT' ? e.quantity : 0,
     })),
@@ -702,7 +716,7 @@ async function supplierStatus(params: QueryParams): Promise<ReportResult> {
       ...s.cashDeliveries.map((d) => new Date(d.date).getTime()),
     ];
     const lastTransactionDate = allDates.length > 0
-      ? new Date(Math.max(...allDates)).toLocaleDateString()
+      ? fmtDate(new Date(Math.max(...allDates)))
       : '—';
 
     return {
@@ -789,7 +803,7 @@ async function salesPerformance(params: QueryParams): Promise<ReportResult> {
 
   for (const so of salesOrders) {
     if (!so.sr) continue;
-    const monthKey = new Date(so.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+    const monthKey = fmtDate(so.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
     const mapKey = `${so.srId}:${monthKey}`;
     const existing = srMonthMap.get(mapKey);
     const revenue = so.grandTotal;
@@ -922,7 +936,7 @@ async function employeeRecords(params: QueryParams): Promise<ReportResult> {
       name: e.name,
       designation: e.designation?.name || '',
       department: e.department?.name || '',
-      joiningDate: e.joiningDate ? new Date(e.joiningDate).toLocaleDateString() : '',
+      joiningDate: e.joiningDate ? fmtDate(e.joiningDate) : '',
       baseSalary: maskVat(e.baseSalary, params.vatMode),
       casualLeave,
       sickLeave,
@@ -1029,13 +1043,13 @@ async function supplierLedger(params: QueryParams): Promise<ReportResult> {
       // Cash Delivery / Return (debit - we pay/reduce) decreases balance
       running += e.credit - e.debit;
       allRows.push({
-        date: new Date(e.date).toLocaleDateString(),
+        date: fmtDate(e.date),
         supplier: supplier.name,
         type: e.type,
         reference: e.ref,
-        debit: e.debit,
-        credit: e.credit,
-        balance: running,
+        debit: maskVat(e.debit, params.vatMode),
+        credit: maskVat(e.credit, params.vatMode),
+        balance: maskVat(running, params.vatMode),
       });
     }
   }
@@ -1048,7 +1062,7 @@ async function supplierLedger(params: QueryParams): Promise<ReportResult> {
     title: 'Supplier Ledger Report',
     columns,
     rows: sortedRows,
-    summary: { totalEntries: allRows.length, totalDebit, totalCredit, netBalance: totalDebit - totalCredit },
+    summary: { totalEntries: allRows.length, totalDebit: maskVat(totalDebit, params.vatMode), totalCredit: maskVat(totalCredit, params.vatMode), netBalance: maskVat(totalDebit - totalCredit, params.vatMode) },
     chartData: allRows.slice(0, 30).map((r) => ({ date: r.date, debit: r.debit, credit: r.credit })),
   };
 }
@@ -1069,7 +1083,7 @@ async function dailyPurchase(params: QueryParams): Promise<ReportResult> {
 
   const dayMap = new Map<string, { date: string; totalPOs: number; totalValue: number; suppliers: string[] }>();
   for (const po of purchaseOrders) {
-    const day = new Date(po.date).toLocaleDateString();
+    const day = fmtDate(po.date);
     const existing = dayMap.get(day);
     if (existing) {
       existing.totalPOs += 1;
@@ -1174,7 +1188,7 @@ async function supplierCashDelivery(params: QueryParams): Promise<ReportResult> 
   ];
 
   let rows = deliveries.map((d) => ({
-    date: new Date(d.date).toLocaleDateString(),
+    date: fmtDate(d.date),
     deliveryCode: d.deliveryCode,
     supplier: d.supplier?.name || '',
     amount: d.amount,
@@ -1335,7 +1349,7 @@ async function vatReport(params: QueryParams): Promise<ReportResult> {
     rows.push({
       type: 'Purchase',
       reference: po.poNumber,
-      date: new Date(po.date).toLocaleDateString(),
+      date: fmtDate(po.date),
       vatPercentage: po.vatPercentage,
       vatAmount: po.vatAmount,
       grandTotal: po.grandTotal,
@@ -1345,7 +1359,7 @@ async function vatReport(params: QueryParams): Promise<ReportResult> {
     rows.push({
       type: 'Sales',
       reference: so.invoiceNo,
-      date: new Date(so.date).toLocaleDateString(),
+      date: fmtDate(so.date),
       vatPercentage: so.vatPercentage,
       vatAmount: so.vatAmount,
       grandTotal: so.grandTotal,
@@ -1397,7 +1411,7 @@ async function dailySales(params: QueryParams): Promise<ReportResult> {
 
   const dayMap = new Map<string, { date: string; totalOrders: number; totalValue: number; customers: string[] }>();
   for (const so of salesOrders) {
-    const day = new Date(so.date).toLocaleDateString();
+    const day = fmtDate(so.date);
     const existing = dayMap.get(day);
     if (existing) {
       existing.totalOrders += 1;
@@ -1461,7 +1475,7 @@ async function replacementReport(params: QueryParams): Promise<ReportResult> {
     for (const line of r.lines) {
       rows.push({
         replacementNo: r.replacementNo,
-        date: new Date(r.date).toLocaleDateString(),
+        date: fmtDate(r.date),
         customer: r.salesOrder?.customer?.name || '',
         product: line.product?.name || '',
         quantity: line.quantity,
@@ -1568,8 +1582,8 @@ async function installmentCollection(params: QueryParams): Promise<ReportResult>
     invoiceNo: i.hireSales?.invoiceNo || '',
     customer: i.hireSales?.customer?.name || '',
     product: i.hireSales?.lines?.[0]?.product?.name || '',
-    dueDate: new Date(i.dueDate).toLocaleDateString(),
-    paidDate: i.paidDate ? new Date(i.paidDate).toLocaleDateString() : '',
+    dueDate: fmtDate(i.dueDate),
+    paidDate: i.paidDate ? fmtDate(i.paidDate) : '',
     amount: i.amount,
     paidAmount: i.paidAmount,
   }));
@@ -1612,7 +1626,7 @@ async function upcomingInstallment(params: QueryParams): Promise<ReportResult> {
     invoiceNo: i.hireSales?.invoiceNo || '',
     customer: i.hireSales?.customer?.name || '',
     product: i.hireSales?.lines?.[0]?.product?.name || '',
-    dueDate: new Date(i.dueDate).toLocaleDateString(),
+    dueDate: fmtDate(i.dueDate),
     amount: i.amount,
     status: i.status,
   }));
@@ -1668,7 +1682,7 @@ async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
       customer: i.hireSales?.customer?.name || '',
       invoiceNo: i.hireSales?.invoiceNo || '',
       product: i.hireSales?.lines?.[0]?.product?.name || '',
-      dueDate: new Date(i.dueDate).toLocaleDateString(),
+      dueDate: fmtDate(i.dueDate),
       amount: i.amount,
       daysOverdue,
       phone: i.hireSales?.customer?.phone || '',
@@ -1758,7 +1772,7 @@ async function hireAccountDetails(params: QueryParams): Promise<ReportResult> {
 
   let rows = hireSales.map((hs) => ({
     invoiceNo: hs.invoiceNo,
-    date: new Date(hs.date).toLocaleDateString(),
+    date: fmtDate(hs.date),
     customer: hs.customer?.name || '',
     grandTotal: hs.grandTotal,
     totalPaid: hs.totalPaid,
@@ -1875,7 +1889,7 @@ async function srWiseSalesDetails(params: QueryParams): Promise<ReportResult> {
     for (const line of so.lines) {
       rows.push({
         invoiceNo: so.invoiceNo,
-        date: new Date(so.date).toLocaleDateString(),
+        date: fmtDate(so.date),
         customer: so.customer?.name || '',
         product: line.product?.name || '',
         quantity: line.quantity,
@@ -2010,7 +2024,7 @@ async function srVisitReport(params: QueryParams): Promise<ReportResult> {
   ];
 
   let rows = auditLogs.map((a) => ({
-    date: new Date(a.createdAt).toLocaleDateString(),
+    date: fmtDate(a.createdAt),
     action: a.action,
     userName: a.userName || '',
     recordLabel: a.recordLabel || '',
@@ -2055,7 +2069,7 @@ async function srWiseCustomerStatus(params: QueryParams): Promise<ReportResult> 
     return {
       customer: c.name,
       totalOrders: c.salesOrders.length,
-      lastOrderDate: lastOrderDate ? lastOrderDate.toLocaleDateString() : 'Never',
+      lastOrderDate: lastOrderDate ? fmtDate(lastOrderDate) : 'Never',
       status: isActiveCustomer ? 'Active' : 'Inactive',
     };
   });
@@ -2096,7 +2110,7 @@ async function srWiseCashCollection(params: QueryParams): Promise<ReportResult> 
   ];
 
   let rows = collections.map((c) => ({
-    date: new Date(c.date).toLocaleDateString(),
+    date: fmtDate(c.date),
     collectionCode: c.collectionCode,
     customer: c.customer?.name || '',
     amount: c.amount,
@@ -2317,17 +2331,17 @@ async function customerLedger(params: QueryParams): Promise<ReportResult> {
 
   let runningBalance = customer.openingBalance;
   const rows: Record<string, unknown>[] = [
-    { date: 'Opening', type: 'Opening Balance', reference: '-', debit: customer.openingBalance, credit: 0, balance: customer.openingBalance },
+    { date: 'Opening', type: 'Opening Balance', reference: '-', debit: maskVat(customer.openingBalance, params.vatMode), credit: 0, balance: maskVat(customer.openingBalance, params.vatMode) },
   ];
   for (const e of entries) {
     runningBalance += e.debit - e.credit;
     rows.push({
-      date: new Date(e.date).toLocaleDateString(),
+      date: fmtDate(e.date),
       type: e.type,
       reference: e.reference,
-      debit: e.debit,
-      credit: e.credit,
-      balance: runningBalance,
+      debit: maskVat(e.debit, params.vatMode),
+      credit: maskVat(e.credit, params.vatMode),
+      balance: maskVat(runningBalance, params.vatMode),
     });
   }
 
@@ -2416,7 +2430,7 @@ async function customerCashCollection(params: QueryParams): Promise<ReportResult
   ];
 
   let rows = collections.map((c) => ({
-    date: new Date(c.date).toLocaleDateString(),
+    date: fmtDate(c.date),
     collectionCode: c.collectionCode,
     customer: c.customer?.name || '',
     amount: c.amount,
@@ -2560,8 +2574,8 @@ async function productWiseBenefit(params: QueryParams): Promise<ReportResult> {
     for (const line of so.lines) {
       const pName = line.product?.name || 'Unknown';
       const existing = prodMap.get(pName);
-      const revenue = line.lineTotal || (line.quantity * line.unitPrice);
-      const cost = line.product?.costPrice ? line.product.costPrice * line.quantity : 0;
+      const revenue = line.total || (line.quantity * line.rate) || 0;
+      const cost = line.costPrice ? line.costPrice * line.quantity : 0;
       if (existing) {
         existing.qtySold += line.quantity;
         existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, revenue);
@@ -2703,7 +2717,7 @@ async function adjustmentReport(params: QueryParams): Promise<ReportResult> {
   ];
 
   let rows = adjustments.map((le) => ({
-    date: new Date(le.date).toLocaleDateString(),
+    date: fmtDate(le.date),
     account: le.chartOfAccount?.name || '',
     debit: le.debit,
     credit: le.credit,
@@ -2818,19 +2832,19 @@ async function monthlyTransaction(params: QueryParams): Promise<ReportResult> {
   // Group by month
   const monthMap = new Map<string, { month: string; sales: number; purchases: number; expenses: number }>();
   for (const so of salesOrders) {
-    const key = new Date(so.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const key = fmtDate(so.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
     const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
     existing.sales = safeFinancialAdd(existing.sales, so.grandTotal);
     monthMap.set(key, existing);
   }
   for (const po of purchaseOrders) {
-    const key = new Date(po.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const key = fmtDate(po.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
     const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
     existing.purchases = safeFinancialAdd(existing.purchases, po.grandTotal);
     monthMap.set(key, existing);
   }
   for (const exp of expenses) {
-    const key = new Date(exp.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const key = fmtDate(exp.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
     const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
     existing.expenses = safeFinancialAdd(existing.expenses, exp.amount);
     monthMap.set(key, existing);
@@ -2961,7 +2975,7 @@ async function transferReport(params: QueryParams): Promise<ReportResult> {
   ];
 
   let rows = transfers.map((t) => ({
-    date: new Date(t.date).toLocaleDateString(),
+    date: fmtDate(t.date),
     transactionCode: t.transactionCode,
     fromBank: t.bank?.bankName || '',
     toBank: t.toBank?.bankName || '',
@@ -3054,13 +3068,13 @@ async function managementReport(params: QueryParams): Promise<ReportResult> {
   // Monthly breakdown chart
   const monthlyMap = new Map<string, { revenue: number; expenses: number; profit: number }>();
   for (const so of salesOrders) {
-    const key = new Date(so.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const key = fmtDate(so.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
     const existing = monthlyMap.get(key) || { revenue: 0, expenses: 0, profit: 0 };
     existing.revenue += so.grandTotal;
     monthlyMap.set(key, existing);
   }
   for (const e of expenses) {
-    const key = new Date(e.date).toLocaleString('en', { month: 'short', year: '2-digit' });
+    const key = fmtDate(e.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
     const existing = monthlyMap.get(key) || { revenue: 0, expenses: 0, profit: 0 };
     existing.expenses += e.amount;
     monthlyMap.set(key, existing);
@@ -3118,7 +3132,7 @@ async function bankTransactionReport(params: QueryParams): Promise<ReportResult>
   ];
 
   let rows = transactions.map((t) => ({
-    date: new Date(t.date).toLocaleDateString(),
+    date: fmtDate(t.date),
     transactionCode: t.transactionCode,
     bank: t.bank?.bankName || '',
     type: t.type,
@@ -3308,15 +3322,32 @@ export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'MISReports', 'GET');
   if (!security.authorized) return security.response;
 
+  // MIS-005 FIX: RBAC — SR and Dealer roles cannot access MIS Reports
+  const userRole = security.user.role as UserRole;
+  if (userRole === 'sr' || userRole === 'dealer') {
+    return NextResponse.json(
+      { error: 'Access denied. MIS Reports are not available for your role.' },
+      { status: 403 }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
 
+  // MIS-006 FIX: XSS prevention — strip HTML from all user-provided text params
+  const reportType = stripHtml(searchParams.get('type') || '');
+  const rawSubtype = stripHtml(searchParams.get('subtype') || '');
+  const rawKeyword = searchParams.get('keyword');
+  const keyword = rawKeyword ? stripHtml(rawKeyword) : null;
+  const rawSortField = searchParams.get('sortField');
+  const sortField = rawSortField ? stripHtml(rawSortField) : null;
+  const rawGroupBy = searchParams.get('groupBy');
+  const groupBy = rawGroupBy ? stripHtml(rawGroupBy) : null;
+
   // VAT-001: Validate vatMode — only vat_auditor role can activate masking
-  const userRole = security.user.role as UserRole;
   const rawVatMode = searchParams.get('vatMode') === 'true';
   const effectiveVatMode = validateVatMode(rawVatMode, userRole);
 
   // MIS-002: Map entityId to the correct filter based on report type/category
-  const reportType = searchParams.get('type') || '';
   const entityId = searchParams.get('entityId');
   let mappedSupplierId = searchParams.get('supplierId');
   let mappedCustomerId = searchParams.get('customerId');
@@ -3355,12 +3386,12 @@ export async function GET(request: NextRequest) {
   try {
     const params: QueryParams = {
       type: reportType,
-      subtype: searchParams.get('subtype') || '',
+      subtype: rawSubtype,
       from: searchParams.get('from'),
       to: searchParams.get('to'),
-      sortField: searchParams.get('sortField'),
+      sortField,
       sortOrder: (searchParams.get('sortOrder') as 'asc' | 'desc') || 'asc',
-      groupBy: searchParams.get('groupBy'),
+      groupBy,
       supplierId: mappedSupplierId,
       customerId: mappedCustomerId,
       employeeId: mappedEmployeeId,
@@ -3370,7 +3401,7 @@ export async function GET(request: NextRequest) {
       productId: mappedProductId,
       godownId: mappedGodownId,
       vatMode: effectiveVatMode,
-      keyword: searchParams.get('keyword'),
+      keyword,
     };
 
     let result: ReportResult;

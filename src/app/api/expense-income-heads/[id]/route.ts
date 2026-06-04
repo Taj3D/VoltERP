@@ -9,6 +9,7 @@ import {
   withApiSecurity,
   maskForVatAuditorFinancial,
   checkFinancialDeletePermission,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -109,12 +110,31 @@ export async function PUT(
       }
     }
 
+    // Sanitize text inputs for XSS
+    const sanitizedName = body.name !== undefined ? stripHtml(String(body.name)) : undefined;
+    const sanitizedType = body.type !== undefined ? String(body.type) : undefined;
+
+    // Case-insensitive duplicate name check if name is being changed (manual toLowerCase for SQLite compatibility)
+    if (sanitizedName && sanitizedName !== existing.name) {
+      const allHeadsOfType = await db.expenseIncomeHead.findMany({
+        where: { type: sanitizedType || existing.type, isActive: true },
+        select: { name: true },
+      });
+      const dupHead = allHeadsOfType.find(h => h.name.toLowerCase() === sanitizedName.toLowerCase() && h.id !== existing.id);
+      if (dupHead) {
+        return NextResponse.json(
+          { error: `A ${(sanitizedType || existing.type)} head with name "${sanitizedName}" already exists` },
+          { status: 400 }
+        );
+      }
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.expenseIncomeHead.update({
         where: { id },
         data: {
-          ...(body.name !== undefined && { name: String(body.name) }),
-          ...(body.type !== undefined && { type: String(body.type) }),
+          ...(sanitizedName !== undefined && { name: sanitizedName }),
+          ...(sanitizedType !== undefined && { type: sanitizedType }),
           ...(body.chartOfAccountId !== undefined && { chartOfAccountId: newChartOfAccountId }),
           isActive: body.isActive ?? existing.isActive,
           ...(companyId && { companyId }),

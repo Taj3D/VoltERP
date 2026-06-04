@@ -35,19 +35,24 @@ import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 // UTILITY FUNCTIONS
 // ============================================================
 
+// Safe number formatters — use Intl.NumberFormat to prevent Bengali digit output
+const currencyFormatter = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const numberFormatter = new Intl.NumberFormat('en-US');
+const dateFormatter = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "currency") return `৳${currencyFormatter.format(Number(v))}`;
+  if (type === "date") return v ? dateFormatter.format(new Date(v)) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return Number(v).toLocaleString();
+  if (type === "number") return numberFormatter.format(Number(v));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  return `৳${currencyFormatter.format(Number(v))}`;
 };
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -386,7 +391,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
-    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance"],
+    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
     formSections: [
       { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
@@ -432,7 +437,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
-    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance"],
+    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
     formSections: [
       { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
@@ -493,6 +498,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   const isSR = userRole === "sr";
   const isDealer = userRole === "dealer";
   const isAdmin = userRole === "admin";
+
+  // Soft-delete modules: designations, employees, customers, suppliers
+  // Hard-delete modules: employee-leaves, leave-allocations
+  const isSoftDeleteModule = ["designations", "employees", "customers", "suppliers"].includes(config.key);
 
   // Dealer: hidden from HR and suppliers and leave-allocations
   const isHidden = isDealer && (config.key === "designations" || config.key === "employees" || config.key === "employee-leaves" || config.key === "leave-allocations" || config.key === "suppliers");
@@ -693,13 +702,28 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     const permanentCount = config.key === "employees" ? data.filter(d => d.employeeType === "Permanent").length : 0;
     const contractCount = config.key === "employees" ? data.filter(d => d.employeeType === "Contract").length : 0;
     const probationCount = config.key === "employees" ? data.filter(d => d.employeeType === "Probation").length : 0;
-    // Total salary for employees
-    const totalSalary = config.key === "employees" ? data.filter(d => d.isActive !== false).reduce((sum, d) => sum + (Number(d.baseSalary) || 0), 0) : 0;
-    // Credit status stats for customers/suppliers
-    const creditFrozen = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => d.creditStatus === "Frozen").length : 0;
-    const creditOverLimit = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => d.creditStatus === "OverLimit").length : 0;
-    const totalOutstandingAR = config.key === "customers" ? data.filter(d => d.isActive !== false && d.currentBalanceType === "Dr").reduce((sum, d) => sum + (Number(d.currentBalance) || 0), 0) : 0;
-    const totalOutstandingAP = config.key === "suppliers" ? data.filter(d => d.isActive !== false && d.currentBalanceType === "Cr").reduce((sum, d) => sum + (Number(d.currentBalance) || 0), 0) : 0;
+    // Total salary for employees (mask for VAT Auditor / SR)
+    const totalSalary = (config.key === "employees" && !isVatAuditor && !isSR)
+      ? data.filter(d => d.isActive !== false).reduce((sum, d) => sum + (Number(d.baseSalary) || 0), 0)
+      : 0;
+    // Credit status stats for customers/suppliers — use computed credit status
+    const creditFrozen = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => (d.computedCreditStatus || d.creditStatus) === "Frozen").length : 0;
+    const creditOverLimit = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => (d.computedCreditStatus || d.creditStatus) === "OverLimit").length : 0;
+    // AR/AP totals — use computed balance for accuracy
+    const totalOutstandingAR = (config.key === "customers" && !isVatAuditor)
+      ? data.filter(d => d.isActive !== false).reduce((sum, d) => {
+          const bal = d.computedCurrentBalance ?? Number(d.currentBalance) ?? 0;
+          const type = d.computedCurrentBalanceType ?? d.currentBalanceType;
+          return sum + (type === "Dr" ? bal : 0);
+        }, 0)
+      : 0;
+    const totalOutstandingAP = (config.key === "suppliers" && !isVatAuditor)
+      ? data.filter(d => d.isActive !== false).reduce((sum, d) => {
+          const bal = d.computedCurrentBalance ?? Number(d.currentBalance) ?? 0;
+          const type = d.computedCurrentBalanceType ?? d.currentBalanceType;
+          return sum + (type === "Cr" ? bal : 0);
+        }, 0)
+      : 0;
     return { total, active, inactive, pendingLeaves, approvedLeaves, rejectedLeaves, permanentCount, contractCount, probationCount, totalSalary, creditFrozen, creditOverLimit, totalOutstandingAR, totalOutstandingAP };
   }, [data, config.key]);
 
@@ -778,6 +802,19 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     // SR cannot modify credit limit on customers
     if (shouldMaskCreditLimit && editingItem) {
       delete formData.creditLimit;
+    }
+    // Case-insensitive duplicate name check before API call
+    const nameField = formData.name;
+    if (nameField && typeof nameField === 'string' && nameField.trim()) {
+      const normalizedName = nameField.trim().toLowerCase();
+      const duplicate = data.find(d => {
+        const existingName = (d.name || '').trim().toLowerCase();
+        return existingName === normalizedName && d.id !== editingItem?.id;
+      });
+      if (duplicate) {
+        toast({ title: "Corporate Entity Collision", description: `A ${singularize(config.label).toLowerCase()} with the name "${nameField.trim()}" already exists (case-insensitive match).`, variant: "destructive" });
+        return;
+      }
     }
     // Employee Leave: validate date range (toDate >= fromDate)
     if (config.key === "employee-leaves" && formData.fromDate && formData.toDate) {
@@ -1448,7 +1485,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Monthly Payroll</p>
-                <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(stats.totalSalary)}</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{(isVatAuditor || isSR) ? "N/A (Audit Mode)" : fmtCurrency(stats.totalSalary)}</p>
               </div>
             </CardContent>
           </Card>
@@ -1487,7 +1524,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AR</p>
-                <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(stats.totalOutstandingAR)}</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(stats.totalOutstandingAR)}</p>
               </div>
             </CardContent>
           </Card>
@@ -1526,7 +1563,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AP</p>
-                <p className="text-lg font-bold text-slate-900 dark:text-white">{fmtCurrency(stats.totalOutstandingAP)}</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(stats.totalOutstandingAP)}</p>
               </div>
             </CardContent>
           </Card>
@@ -1561,7 +1598,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
           <FileDown className="h-4 w-4 mr-1" /> PDF
         </Button>
-        {canMutate && (
+        {(canMutate || (isSR && config.key === "customers")) && (
           <Button variant="outline" size="sm" onClick={handleImportCSV}>
             <Upload className="h-4 w-4 mr-1" /> Import
           </Button>
@@ -1641,6 +1678,13 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                       <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
                       {config.columns.map(col => {
                         let val = getNestedValue(item, col.key);
+                        // Use computed balance for customers/suppliers instead of stored stale value
+                        if (col.key === "currentBalance" && (config.key === "customers" || config.key === "suppliers")) {
+                          val = item.computedCurrentBalance ?? item.currentBalance ?? val;
+                        }
+                        if (col.key === "currentBalanceType" && (config.key === "customers" || config.key === "suppliers")) {
+                          val = item.computedCurrentBalanceType ?? item.currentBalanceType ?? val;
+                        }
                         if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
                         if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
                         if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
@@ -1700,8 +1744,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                           );
                         }
 
-                        // Credit status badge for customers and suppliers
+                        // Credit status badge for customers and suppliers — use computed credit status
                         if (col.key === "creditStatus" && (config.key === "customers" || config.key === "suppliers")) {
+                          const displayStatus = item.computedCreditStatus || item.creditStatus || "Active";
                           const creditColors: Record<string, string> = {
                             Active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
                             Frozen: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
@@ -1709,8 +1754,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                           };
                           return (
                             <TableCell key={col.key}>
-                              <Badge className={creditColors[val] || "bg-slate-100 text-slate-500"}>
-                                {val === "OverLimit" ? "Over Limit" : val || "Active"}
+                              <Badge className={creditColors[displayStatus] || "bg-slate-100 text-slate-500"}>
+                                {displayStatus === "OverLimit" ? "Over Limit" : displayStatus}
                               </Badge>
                             </TableCell>
                           );
@@ -1798,8 +1843,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredData.filter(item => Number(item.creditLimit) > 0).map(item => {
-                    const balance = Number(item.currentBalance) || 0;
+                  {filteredData.filter(item => Number(item.creditLimit) > 0 || Number(item.computedCurrentBalance) > 0).map(item => {
+                    const balance = Number(item.computedCurrentBalance ?? item.currentBalance) || 0;
                     const limit = Number(item.creditLimit) || 0;
                     const pct = limit > 0 ? Math.round((Math.abs(balance) / limit) * 100) : 0;
                     let barColor = "bg-emerald-500";
@@ -1823,11 +1868,11 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                         </TableCell>
                         <TableCell className="text-xs">
                           <Badge className={
-                            item.creditStatus === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
-                            item.creditStatus === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
+                            (item.computedCreditStatus || item.creditStatus) === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
+                            (item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
                             "bg-emerald-100 text-emerald-700 text-[10px]"
                           }>
-                            {item.creditStatus === "OverLimit" ? "Over Limit" : item.creditStatus || "Active"}
+                            {(item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "Over Limit" : (item.computedCreditStatus || item.creditStatus || "Active")}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -1862,8 +1907,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredData.filter(item => Number(item.creditLimit) > 0).map(item => {
-                    const balance = Number(item.currentBalance) || 0;
+                  {filteredData.filter(item => Number(item.creditLimit) > 0 || Number(item.computedCurrentBalance) > 0).map(item => {
+                    const balance = Number(item.computedCurrentBalance ?? item.currentBalance) || 0;
                     const limit = Number(item.creditLimit) || 0;
                     const pct = limit > 0 ? Math.round((Math.abs(balance) / limit) * 100) : 0;
                     let barColor = "bg-emerald-500";
@@ -1887,11 +1932,11 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                         </TableCell>
                         <TableCell className="text-xs">
                           <Badge className={
-                            item.creditStatus === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
-                            item.creditStatus === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
+                            (item.computedCreditStatus || item.creditStatus) === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
+                            (item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
                             "bg-emerald-100 text-emerald-700 text-[10px]"
                           }>
-                            {item.creditStatus === "OverLimit" ? "Over Limit" : item.creditStatus || "Active"}
+                            {(item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "Over Limit" : (item.computedCreditStatus || item.creditStatus || "Active")}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -1948,12 +1993,12 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this {singularize(config.label).toLowerCase()}? This action cannot be undone.</DialogDescription>
+            <DialogTitle>Confirm {isSoftDeleteModule ? "Deactivate" : "Delete"}</DialogTitle>
+            <DialogDescription>Are you sure you want to {isSoftDeleteModule ? "deactivate" : "permanently remove"} this {singularize(config.label).toLowerCase()}? {isSoftDeleteModule ? "The record will be marked as inactive but preserved in the system." : "This action cannot be undone."}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>{isSoftDeleteModule ? "Deactivate" : "Delete"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

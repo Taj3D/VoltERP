@@ -27,7 +27,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { useToast } from '@/hooks/use-toast';
 import {
   exportToPDF, exportToCSV, importFromCSV,
-  sanitizeCurrencyValue, formatSanitizedCurrency
 } from '@/lib/export-utils';
 import type { ColumnDef, FieldDef, CompanyProfile } from '@/lib/export-utils';
 
@@ -76,8 +75,10 @@ const fmtNumber = (v: any) => {
   return bdCurrencyFmt.format(Number(v));
 };
 
+const bdDateFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
 const fmtDate = (d: string | Date) =>
-  d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014';
+  d ? bdDateFmt.format(new Date(d)) : '\u2014';
 
 function sanitizeXSS(input: string): string {
   return input
@@ -236,7 +237,7 @@ export default function InterestPercentageEnginePage({
   const loadRates = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('/api/interest-percentages').catch(() => []);
+      const res = await apiFetch('/api/interest-percentages?includeInactive=true');
       setRates(Array.isArray(res) ? res : res.data || []);
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' });
@@ -452,8 +453,8 @@ export default function InterestPercentageEnginePage({
         percentage: r.percentage,
         effectiveDate: r.effectiveDate,
         expiryDate: r.expiryDate,
-        minimumAmount: r.minimumAmount,
-        maximumAmount: r.maximumAmount,
+        minimumAmount: isVatAuditor ? 'N/A (Audit Mode)' : r.minimumAmount,
+        maximumAmount: isVatAuditor ? 'N/A (Audit Mode)' : r.maximumAmount,
         durationMonthsMin: r.durationMonthsMin,
         durationMonthsMax: r.durationMonthsMax,
         isActive: r.isActive,
@@ -466,7 +467,7 @@ export default function InterestPercentageEnginePage({
         columns,
         data,
         isVatAuditor,
-        vatMaskedColumns: [],
+        vatMaskedColumns: isVatAuditor ? ['minimumAmount', 'maximumAmount'] : [],
         company: companyProfile,
         systemNotice: 'This is a system generated interest rate configuration report. Rates are subject to regulatory approval.',
         financialFooter: {
@@ -663,8 +664,11 @@ export default function InterestPercentageEnginePage({
     });
   };
 
-  // ── Delete disabled check ──
+  // ── RBAC checks ──
+  const isManager = user?.role === 'manager';
+  const canMutate = (isAdmin || isManager) && !isVatAuditor;
   const deleteDisabled = isVatAuditor || !isAdmin;
+  const canCreateEdit = canMutate;
 
   return (
     <div className="page-enter space-y-4">
@@ -741,18 +745,22 @@ export default function InterestPercentageEnginePage({
                   <RefreshCw className="w-4 h-4" />
                 </Button>
                 <div className="flex gap-2 flex-wrap ml-auto">
-                  <Button variant="outline" size="sm" onClick={importCSV}>
-                    <FileUp className="w-4 h-4 mr-1" />Import
-                  </Button>
+                  {canCreateEdit && (
+                    <Button variant="outline" size="sm" onClick={importCSV}>
+                      <FileUp className="w-4 h-4 mr-1" />Import
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={exportRateCSV}>
                     <FileDown className="w-4 h-4 mr-1" />CSV
                   </Button>
                   <Button variant="outline" size="sm" onClick={exportRatePDF}>
                     <FileDown className="w-4 h-4 mr-1" />PDF
                   </Button>
-                  <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}>
-                    <Plus className="w-4 h-4 mr-1" />Create Rate
-                  </Button>
+                  {canCreateEdit && (
+                    <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}>
+                      <Plus className="w-4 h-4 mr-1" />Create Rate
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -822,7 +830,7 @@ export default function InterestPercentageEnginePage({
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => openEdit(r)} disabled={isVatAuditor}>
+                              <Button variant="ghost" size="sm" onClick={() => openEdit(r)} disabled={!canCreateEdit}>
                                 <Edit className="w-3.5 h-3.5" />
                               </Button>
                               {deleteDisabled ? (
@@ -1228,8 +1236,8 @@ export default function InterestPercentageEnginePage({
               Delete Interest Rate
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete rate <strong>{deleteItem?.code}</strong>?
-              This action cannot be undone.
+              Are you sure you want to deactivate rate <strong>{deleteItem?.code}</strong>?
+              The rate will be marked as inactive and can be reactivated later.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1239,7 +1247,7 @@ export default function InterestPercentageEnginePage({
               onClick={handleDelete}
               disabled={deleteDisabled}
             >
-              {deleteDisabled && !isAdmin ? 'Admin Only' : 'Delete'}
+              {deleteDisabled && !isAdmin ? 'Admin Only' : 'Deactivate'}
             </Button>
           </DialogFooter>
         </DialogContent>

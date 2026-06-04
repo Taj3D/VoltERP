@@ -13,6 +13,7 @@ import {
   safeFinancialRound,
   safeFinancialAdd,
   safeFinancialSubtract,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -123,12 +124,16 @@ export async function PUT(
     const effectiveBankId = bankId || existing.bankId;
     const effectiveToBankId = toBankId !== undefined ? toBankId : existing.toBankId;
     const effectiveAmount = amount !== undefined ? safeFinancialRound(Number(amount)) : existing.amount;
+    // Validate amount > 0 if being changed
+    if (amount !== undefined && (isNaN(effectiveAmount) || effectiveAmount <= 0)) {
+      return NextResponse.json({ error: 'Amount must be a positive number greater than 0' }, { status: 400 });
+    }
     const effectiveDate = date ? new Date(date) : existing.date;
 
-    const cleanChequeNo = chequeNo !== undefined ? (chequeNo ? String(chequeNo).trim() || null : null) : existing.chequeNo;
-    const cleanDepositorName = depositorName !== undefined ? (depositorName ? String(depositorName).trim() || null : null) : existing.depositorName;
-    const cleanReferenceNo = referenceNo !== undefined ? (referenceNo ? String(referenceNo).trim() || null : null) : existing.referenceNo;
-    const cleanDescription = description !== undefined ? (description ? String(description).trim() || null : null) : existing.description;
+    const cleanChequeNo = chequeNo !== undefined ? (chequeNo ? stripHtml(String(chequeNo).trim()) || null : null) : existing.chequeNo;
+    const cleanDepositorName = depositorName !== undefined ? (depositorName ? stripHtml(String(depositorName).trim()) || null : null) : existing.depositorName;
+    const cleanReferenceNo = referenceNo !== undefined ? (referenceNo ? stripHtml(String(referenceNo).trim()) || null : null) : existing.referenceNo;
+    const cleanDescription = description !== undefined ? (description ? stripHtml(String(description).trim()) || null : null) : existing.description;
 
     const amountChanged = effectiveAmount !== existing.amount;
     const bankChanged = effectiveBankId !== existing.bankId;

@@ -15,6 +15,7 @@ import {
   safeFinancialRound,
   safeFinancialSubtract,
   formatFinancialField,
+  stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
@@ -79,6 +80,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Sanitize period to prevent XSS
+    const sanitizedPeriod = stripHtml(period);
+
     // Safe financial calculations
     const safeTotalCost = safeFinancialRound(Number(totalCost) || 0);
     const safePaidAmount = safeFinancialRound(Number(paidAmount) || 0);
@@ -97,7 +101,7 @@ export async function POST(request: NextRequest) {
     const result = await db.$transaction(async (tx) => {
       const smsBill = await tx.smsBill.create({
         data: {
-          period,
+          period: sanitizedPeriod,
           totalSms: totalSms || 0,
           totalSegments: totalSegments || 0,
           totalCost: safeTotalCost,

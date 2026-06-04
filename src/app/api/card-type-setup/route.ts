@@ -86,7 +86,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate rate bounds: bankServiceCharge and customerConvFee must be 0 <= rate <= 10.00
+    // Validate rate bounds: chargePercentage, bankServiceCharge and customerConvFee must be 0 <= rate <= 10.00
+    const chargeError = validateRateBounds(chargePercentage, 'Charge Percentage');
+    if (chargeError) {
+      return NextResponse.json({ error: chargeError }, { status: 400 });
+    }
+
     const bscError = validateRateBounds(bankServiceCharge, 'Bank Service Charge (BSC %)');
     if (bscError) {
       return NextResponse.json({ error: bscError }, { status: 400 });

@@ -877,10 +877,10 @@ export default function ExpensesIncomesPage() {
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete {tabLabel} {deleteItem?.[codeField]}? This cannot be undone.</DialogDescription>
+          <DialogDescription>Deactivate {tabLabel} {deleteItem?.[codeField]}? This will mark the record as inactive and reverse any associated ledger entries. The record can be restored by an administrator if needed.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
