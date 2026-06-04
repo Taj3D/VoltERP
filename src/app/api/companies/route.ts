@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
               address: item.address || null,
               phone: item.phone || null,
               email: item.email || null,
+              logo: item.logo || null,
               brandLogo: item.brandLogo || null,
               isActive: item.isActive ?? true,
             },

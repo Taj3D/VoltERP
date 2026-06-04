@@ -83,28 +83,30 @@ export async function POST(request: NextRequest) {
           const capacityValue = item.capacityValue ?? 0;
           if (capacityValue < 0) continue; // Skip invalid capacity in batch
 
-          // Auto-generate code with uniqueness check
-          let code: string;
-          let codeExists = true;
-          let counter = await tx.godown.count();
+          // Duplicate check within tenant (case-insensitive, skip silently in batch)
+          const lowerName = sanitizedName.toLowerCase();
+          const allActiveForDup = await tx.godown.findMany({
+            where: {
+              ...(companyId ? { companyId } : {}),
+              isActive: true,
+            },
+            select: { name: true },
+          });
+          const caseMatch = allActiveForDup.find(d => d.name.toLowerCase() === lowerName);
+          if (caseMatch) continue; // Skip duplicates in batch
 
-          while (codeExists) {
-            counter++;
-            code = `WH-${String(counter).padStart(5, '0')}`;
-            const existingCode = await tx.godown.findFirst({
-              where: {
-                ...(companyId ? { companyId } : {}),
-                code,
-              },
-            });
-            if (!existingCode) {
-              codeExists = false;
-            }
+          // Collision-safe code generation (findMany + Math.max)
+          const allGodowns = await tx.godown.findMany({ select: { code: true } });
+          let maxNum = 0;
+          for (const g of allGodowns) {
+            const match = g.code?.match(/WH-(\d+)/);
+            if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
           }
+          const code = `WH-${String(maxNum + 1).padStart(5, '0')}`;
 
           const record = await tx.godown.create({
             data: {
-              code: code!,
+              code,
               name: sanitizedName,
               address: sanitizedAddress,
               inCharge: sanitizedInCharge,
@@ -175,28 +177,32 @@ export async function POST(request: NextRequest) {
     }
 
     const item = await db.$transaction(async (tx) => {
-      // Auto-generate code with multi-tenant uniqueness check
-      let code: string;
-      let codeExists = true;
-      let counter = await tx.godown.count();
-
-      while (codeExists) {
-        counter++;
-        code = `WH-${String(counter).padStart(5, '0')}`;
-        const existingCode = await tx.godown.findFirst({
-          where: {
-            ...(companyId ? { companyId } : {}),
-            code,
-          },
-        });
-        if (!existingCode) {
-          codeExists = false;
-        }
+      // Case-insensitive duplicate check (manual lowercased comparison for SQLite)
+      const lowerName = sanitizedName.toLowerCase();
+      const allActive = await tx.godown.findMany({
+        where: {
+          ...(companyId ? { companyId } : {}),
+          isActive: true,
+        },
+        select: { name: true },
+      });
+      const caseMatch = allActive.find(d => d.name.toLowerCase() === lowerName);
+      if (caseMatch) {
+        throw new Error(`Godown with name "${sanitizedName}" already exists (case-insensitive match: "${caseMatch.name}")`);
       }
+
+      // Collision-safe code generation (findMany + Math.max)
+      const allGodowns = await tx.godown.findMany({ select: { code: true } });
+      let maxNum = 0;
+      for (const g of allGodowns) {
+        const match = g.code?.match(/WH-(\d+)/);
+        if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+      }
+      const code = `WH-${String(maxNum + 1).padStart(5, '0')}`;
 
       const record = await tx.godown.create({
         data: {
-          code: code!,
+          code,
           name: sanitizedName,
           address: sanitizedAddress,
           inCharge: sanitizedInCharge,
@@ -233,6 +239,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message.includes('already exists')) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error('Error creating godown:', error instanceof Error ? error.message : error);
     return NextResponse.json(
       { error: 'Failed to create godown' },

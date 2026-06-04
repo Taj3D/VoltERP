@@ -91,6 +91,107 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
+    // ── Batch mode support ──
+    if (body.batchMode === true && Array.isArray(body.data)) {
+      const records = await db.$transaction(async (tx) => {
+        const created: any[] = [];
+        for (const item of body.data) {
+          const bankName = stripHtml(String(item.bankName || ''));
+          const branch = item.branch ? stripHtml(String(item.branch)) : null;
+          const accountNo = stripHtml(String(item.accountNo || ''));
+          const accountHolder = stripHtml(String(item.accountHolder || ''));
+
+          if (!bankName || !accountNo || !accountHolder) continue; // Skip invalid
+
+          const bankType: BankType = item.bankType || 'Bank';
+          if (!VALID_BANK_TYPES.includes(bankType)) continue;
+
+          const rawOpening = Number(item.openingBalance ?? 0);
+          if (rawOpening < 0) continue;
+          const openingBalance = safeFinancialRound(rawOpening);
+
+          // Duplicate account number check within company
+          const existingAccount = await tx.bank.findFirst({
+            where: {
+              ...(companyId ? { companyId } : {}),
+              accountNo,
+              isActive: true,
+            },
+          });
+          if (existingAccount) continue; // Skip duplicates in batch
+
+          // COA auto-mapping (same as single mode)
+          let assetsRoot = await tx.chartOfAccount.findFirst({
+            where: { classification: 'Asset', parentAccountId: null, companyId: companyId || null, isActive: true },
+          });
+          if (!assetsRoot) {
+            const assetsCount = await tx.chartOfAccount.count();
+            assetsRoot = await tx.chartOfAccount.create({
+              data: { code: `COA-${String(assetsCount + 1).padStart(5, '0')}`, name: 'Assets', classification: 'Asset', companyId: companyId || null, isActive: true },
+            });
+          }
+
+          let liquidNode = await tx.chartOfAccount.findFirst({
+            where: { name: 'Liquid/Cash Equivalents', parentAccountId: assetsRoot.id, companyId: companyId || null, isActive: true },
+          });
+          if (!liquidNode) {
+            const liquidCount = await tx.chartOfAccount.count();
+            liquidNode = await tx.chartOfAccount.create({
+              data: { code: `COA-${String(liquidCount + 1).padStart(5, '0')}`, name: 'Liquid/Cash Equivalents', classification: 'Asset', parentAccountId: assetsRoot.id, companyId: companyId || null, isActive: true },
+            });
+          }
+
+          const bankCoaCount = await tx.chartOfAccount.count();
+          const bankCoaNode = await tx.chartOfAccount.create({
+            data: {
+              code: `COA-${String(bankCoaCount + 1).padStart(5, '0')}`,
+              name: `${bankName} - ${accountNo}`,
+              classification: 'Asset',
+              parentAccountId: liquidNode.id,
+              openingBalance,
+              openingBalanceType: 'Dr',
+              companyId: companyId || null,
+              isActive: true,
+            },
+          });
+
+          const bank = await tx.bank.create({
+            data: {
+              bankName,
+              bankType,
+              branch,
+              accountNo,
+              accountHolder,
+              openingBalance,
+              currentBalance: openingBalance,
+              companyId: companyId || null,
+              chartOfAccountId: bankCoaNode.id,
+              isActive: item.isActive ?? true,
+            },
+            include: { chartOfAccount: true },
+          });
+
+          created.push(bank);
+        }
+
+        // Single audit log for batch
+        await logUserActivity({
+          tx: tx,
+          action: 'IMPORT',
+          module: 'Sys-Catalog-Core',
+          recordId: 'BATCH',
+          recordLabel: `Batch import: ${created.length} bank(s)`,
+          userId: security.user?.id || 'system',
+          userName: security.user?.name || 'System',
+          details: JSON.stringify({ count: created.length, names: created.map((b: any) => b.bankName), companyId }),
+        });
+
+        return created;
+      });
+
+      return NextResponse.json({ success: true, count: records.length, data: records }, { status: 201 });
+    }
+
     // ── Text Sanitizer: strip HTML tags ──
     const bankName = stripHtml(String(body.bankName || ''));
     const branch = body.branch ? stripHtml(String(body.branch)) : null;
@@ -115,6 +216,21 @@ export async function POST(request: NextRequest) {
       );
     }
     const openingBalance = safeFinancialRound(rawOpening);
+
+    // ── Duplicate account number check within company ──
+    const existingAccount = await db.bank.findFirst({
+      where: {
+        ...(companyId ? { companyId } : {}),
+        accountNo,
+        isActive: true,
+      },
+    });
+    if (existingAccount) {
+      return NextResponse.json(
+        { error: `A bank account with account number "${accountNo}" already exists in this company.` },
+        { status: 409 }
+      );
+    }
 
     // ── COA Auto-Mapping + Bank Creation (atomic transaction with extended timeout) ──
     const record = await db.$transaction(async (tx) => {

@@ -6,7 +6,7 @@ import {
   FileDown, Building2, Tag, Palette, Box, Layers, Building,
   Warehouse, CreditCard, Settings, Target, Hash, X, Shield,
   CheckCircle, ChevronRight, Ruler, Loader2, AlertTriangle, Banknote,
-  Power,
+  Power, Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,19 +36,22 @@ import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 // UTILITY FUNCTIONS
 // ============================================================
 
+const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const bdFmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  if (type === "currency") return `৳${bdFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return Number(v).toLocaleString();
+  if (type === "number") return bdFmtInt.format(Number(v));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+  return `৳${bdFmt.format(Number(v))}`;
 };
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -234,6 +237,46 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "description", label: "Description", type: "textarea" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
+  },
+  {
+    key: "products", label: "Products", icon: Package, apiPath: "/api/products",
+    category: "core",
+    columns: [
+      { key: "productCode", label: "Code", type: "text" },
+      { key: "name", label: "Product Name", type: "text" },
+      { key: "category.name", label: "Category", type: "text" },
+      { key: "brand.name", label: "Brand", type: "text" },
+      { key: "costPrice", label: "Purchase Price", type: "currency" },
+      { key: "salePrice", label: "MRP/Retail", type: "currency" },
+      { key: "wholesalePrice", label: "Wholesale", type: "currency" },
+      { key: "dealerPrice", label: "Dealer", type: "currency" },
+      { key: "currentStock", label: "Stock", type: "number" },
+      { key: "stockStatus", label: "Stock Status", type: "text" },
+      { key: "skuStatus", label: "SKU Status", type: "text" },
+      { key: "isActive", label: "Status", type: "boolean" },
+    ],
+    formFields: [
+      { key: "name", label: "Product Name", type: "text", required: true },
+      { key: "categoryId", label: "Category", type: "select", required: true, options: [] },
+      { key: "brandId", label: "Brand", type: "select", required: false, options: [] },
+      { key: "colorId", label: "Color", type: "select", required: false, options: [] },
+      { key: "sku", label: "SKU", type: "text", required: false },
+      { key: "barcode", label: "Barcode", type: "text", required: false },
+      { key: "unit", label: "Unit", type: "text", required: false, placeholder: "e.g. pcs, kg" },
+      { key: "sizeCapacity", label: "Size/Capacity", type: "text", required: false },
+      { key: "costPrice", label: "Purchase Price (৳)", type: "number", required: true, step: "0.01" },
+      { key: "salePrice", label: "MRP/Retail Price (৳)", type: "number", required: true, step: "0.01" },
+      { key: "wholesalePrice", label: "Wholesale Price (৳)", type: "number", defaultValue: 0, step: "0.01" },
+      { key: "dealerPrice", label: "Dealer Price (৳)", type: "number", defaultValue: 0, step: "0.01" },
+      { key: "openingStock", label: "Opening Stock", type: "number", defaultValue: 0, step: "0.01" },
+      { key: "reorderLevel", label: "Reorder Level", type: "number", defaultValue: 0, step: "0.01" },
+      { key: "godownId", label: "Warehouse", type: "select", required: false, options: [] },
+      { key: "segmentId", label: "Segment", type: "select", required: false, options: [] },
+      { key: "imeiNumber", label: "IMEI Number", type: "text", required: false },
+      { key: "image", label: "Product Image", type: "image" },
+      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+    ],
+    vatMaskedColumns: ["costPrice", "wholesalePrice", "dealerPrice"],
   },
   // ── Structural Infrastructure ──
   {
@@ -484,6 +527,11 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         else if (field.key === "cardTypeId") apiPath = "/api/card-types";
         else if (field.key === "departmentId") apiPath = "/api/departments";
         else if (field.key === "designationId") apiPath = "/api/designations";
+        else if (field.key === "categoryId") apiPath = "/api/categories";
+        else if (field.key === "brandId") apiPath = "/api/brands";
+        else if (field.key === "colorId") apiPath = "/api/colors";
+        else if (field.key === "godownId") apiPath = "/api/godowns";
+        else if (field.key === "segmentId") apiPath = "/api/segments";
         if (apiPath) {
           const items = await apiFetch(apiPath);
           opts[field.key] = Array.isArray(items) ? items : [];
@@ -658,6 +706,20 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         return;
       }
       setCardFeeError(null);
+    }
+
+    // Product pricing validation
+    if (config.key === "products") {
+      const costPrice = Number(formData.costPrice);
+      const salePrice = Number(formData.salePrice);
+      if (costPrice <= 0 || salePrice <= 0) {
+        toast({ title: "Validation Error", description: "Purchase Price and MRP/Retail Price must be greater than zero", variant: "destructive" });
+        return;
+      }
+      if (costPrice >= salePrice) {
+        toast({ title: "Pricing Interlock", description: "Purchase Price must be less than MRP/Retail Price", variant: "destructive" });
+        return;
+      }
     }
 
     // Phase 6: XSS Sanitization — sanitize all string fields
@@ -838,6 +900,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     if (config.key === "payment-options") return "Authorizing Payment Channel...";
     if (config.key === "card-types") return "Registering Card Type Classification...";
     if (config.key === "card-type-setup") return "Synchronizing Field Targets & Financial Processing Fees...";
+    if (config.key === "products") return "Validating Product Catalog & SKU Matrix...";
     return "Saving...";
   };
 
@@ -899,6 +962,38 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           placeholder={field.placeholder || field.label}
           rows={3}
         />
+      );
+    }
+
+    // Color code field with preview swatch
+    if (field.key === "colorCode") {
+      const colorVal = String(val);
+      const isValidHex = /^#[0-9A-Fa-f]{6}$/.test(colorVal);
+      return (
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <Input
+              value={colorVal}
+              onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
+              placeholder={field.placeholder || field.label}
+              className={colorVal && !isValidHex ? "border-amber-500" : ""}
+            />
+          </div>
+          <input
+            type="color"
+            value={isValidHex ? colorVal : "#000000"}
+            onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value.toUpperCase() }))}
+            className="h-9 w-9 rounded border border-slate-300 cursor-pointer shrink-0"
+            title="Pick color"
+          />
+          {isValidHex && (
+            <div
+              className="h-9 w-9 rounded border border-slate-300 shrink-0"
+              style={{ backgroundColor: colorVal }}
+              title={colorVal}
+            />
+          )}
+        </div>
       );
     }
 
@@ -1140,13 +1235,13 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                           );
                         }
 
-                        // Color preview
+                        // Color code with preview swatch
                         if (col.key === "colorCode" && val) {
                           return (
-                            <TableCell key={col.key}>
-                              <div className="flex items-center gap-2">
-                                <div className="h-4 w-4 rounded-full border border-slate-300" style={{ backgroundColor: String(val) }} />
-                                <span className="text-sm">{String(val)}</span>
+                            <TableCell key={col.key} className="whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <div className="h-4 w-4 rounded border border-slate-300 shrink-0" style={{ backgroundColor: String(val) }} />
+                                <span className="text-xs font-mono">{fmt(val, col.type)}</span>
                               </div>
                             </TableCell>
                           );
