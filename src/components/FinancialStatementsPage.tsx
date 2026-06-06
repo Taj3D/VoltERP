@@ -424,7 +424,7 @@ export default function FinancialStatementsPage({
     preparedBy: user?.displayName || "",
     checkedBy: "",
     authorizedBy: "",
-    printedBy: user?.displayName || user?.email || "",
+    printedBy: user?.displayName || "System",
   });
 
   // ── Trial Balance CSV ──

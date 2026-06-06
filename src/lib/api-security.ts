@@ -334,11 +334,15 @@ export function validateVatMode(
   requestedVatMode: boolean,
   userRole: UserRole
 ): boolean {
-  // Only vat_auditor role can activate VAT audit mode
-  if (requestedVatMode && userRole !== 'vat_auditor') {
-    return false;
+  // SECURITY: VAT Auditor role ALWAYS gets masked data, regardless of client param.
+  // Non-VAT-Auditor users cannot activate VAT mode (prevents data snooping).
+  if (userRole === 'vat_auditor') {
+    return true; // Always mask for VAT Auditor — defense in depth
   }
-  return requestedVatMode;
+  if (requestedVatMode) {
+    return false; // Non-VAT-Auditor cannot activate VAT mode
+  }
+  return false;
 }
 
 /**
@@ -532,6 +536,7 @@ export function formatFinancialField(value: unknown): string {
  * asset statements, and capital metrics.
  */
 export const ACCOUNTING_VAT_MASKED_FIELDS = [
+  // Core monetary amounts
   'amount',
   'debit',
   'credit',
@@ -543,37 +548,99 @@ export const ACCOUNTING_VAT_MASKED_FIELDS = [
   'vatAmount',
   'discount',
   'discountAmount',
+  'netBalance',
+  'balance',
+  // Revenue / Cost / Profit
+  'revenue',
+  'salesRevenue',
+  'otherIncome',
+  'costOfGoods',
+  'cogs',
+  'grossProfit',
+  'grossProfitMargin',
+  'operatingExpenses',
+  'netProfit',
+  'netProfitMargin',
+  'profit',
+  'profitMargin',
+  'returnOnSales',
+  // Asset / Liability / Equity
+  'equity',
+  'totalAssets',
+  'totalLiabilities',
+  'totalEquity',
+  'retainedEarnings',
+  'totalCashInHand',
+  'cashInHand',
+  'stock',
+  'stockValue',
+  'bankBalance',
+  'receivables',
+  'payables',
+  'creditLimit',
+  'supplierAdvances',
+  'inventoryValue',
+  'workingCapital',
+  'currentAssets',
+  'currentLiabilities',
+  // Totals and aggregates
   'totalDebit',
   'totalCredit',
   'totalNet',
+  'totalRevenue',
+  'totalPurchases',
+  'totalExpenses',
+  'totalIncomes',
+  'totalBankBalance',
+  'totalReceivables',
+  'totalPayables',
+  'totalOutstanding',
+  'totalPurchaseValue',
+  'totalPurchase',
+  // Cash flow
+  'deposits',
+  'withdrawals',
+  'income',
+  'expense',
+  'collections',
+  'deliveries',
+  // Opening balances
+  'openingDebit',
+  'openingCredit',
+  'opening',
+  // Time-based aggregates
+  'todaysSales',
+  'todaysPurchases',
+  'todaysCollections',
+  'monthToDateSales',
+  'monthToDatePurchases',
+  'lastYearRevenue',
+  'lastYearPurchases',
+  // Product pricing
+  'costPrice',
+  'salePrice',
+  'wholesalePrice',
+  'dealerPrice',
+  // Payment / Outstanding
+  'amountPaid',
+  'amountDue',
+  'paidAmount',
+  'outstanding',
+  'targetAmount',
+  // Ratios
+  'assetTurnoverRatio',
+  'turnoverRatio',
+  // Group subtotals (COA)
   'ownDebit',
   'ownCredit',
   'ownNet',
   'childDebit',
   'childCredit',
   'childNet',
-  'netBalance',
-  'revenue',
-  'costOfGoods',
-  'grossProfit',
-  'grossProfitMargin',
-  'operatingExpenses',
-  'netProfit',
-  'netProfitMargin',
-  'equity',
-  'totalAssets',
-  'totalLiabilities',
-  'totalCashInHand',
-  'stock',
-  'bankBalance',
-  'receivables',
-  'payables',
-  'retainedEarnings',
-  'totalEquity',
-  'creditLimit',
-  'balance',
-  'profit',
-  'profitMargin',
+  // Sales-specific
+  'totalSalesValue',
+  'lineTotal',
+  'deficit',
 ];
 
 /**

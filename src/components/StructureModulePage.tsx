@@ -626,7 +626,7 @@ function StructureModuleTab({
     setSnapshot([...data]);
     try {
       await apiFetch(`${config.apiPath}/${id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: `${config.label} deleted successfully` });
+      toast({ title: "Deactivated", description: `${config.label} deactivated successfully` });
       setDeleteConfirm(null);
       loadData();
       if (onGodownModified && config.key === "godowns") onGodownModified();
@@ -668,11 +668,11 @@ function StructureModuleTab({
           vatNumber: companyProfile.vatNumber,
         } : undefined,
         financialFooter: {
-          preparedBy: authUser?.displayName || userRole || "",
+          preparedBy: authUser?.displayName || "System",
           checkedBy: "",
           authorizedBy: "",
           approvedBy: "",
-          printedBy: authUser?.displayName || userRole || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: `${config.label} report exported with compliance footer` });
@@ -1085,15 +1085,15 @@ function StructureModuleTab({
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this {config.label.toLowerCase()}? This action cannot be undone.
+              Are you sure you want to deactivate this {config.label.toLowerCase()}? It will be marked as inactive but can be restored by an admin.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>
-              Delete
+              Deactivate
             </Button>
           </DialogFooter>
         </DialogContent>

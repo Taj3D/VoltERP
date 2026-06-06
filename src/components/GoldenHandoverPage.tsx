@@ -22,7 +22,8 @@ import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-
 // UTILITY FUNCTIONS
 // ============================================================
 
-const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const safeFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => safeFmt.format(n);
 
 const fmtDate = (d: string | Date) =>
   d

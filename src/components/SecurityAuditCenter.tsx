@@ -501,10 +501,10 @@ export default function SecurityAuditCenter() {
         filename: "enterprise-security-compliance-audit",
         company: companyProfile || undefined,
         financialFooter: {
-          preparedBy: user?.displayName || user?.email || "",
+          preparedBy: user?.displayName || "System",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
+          printedBy: user?.displayName || "System",
         },
       });
 
@@ -565,10 +565,10 @@ export default function SecurityAuditCenter() {
         filename: "forensic-security-audit-trail",
         company: companyProfile || undefined,
         financialFooter: {
-          preparedBy: user?.displayName || user?.email || "",
+          preparedBy: user?.displayName || "System",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: user?.displayName || user?.email || "",
+          printedBy: user?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: "Forensic audit trail exported to PDF" });
@@ -628,7 +628,7 @@ export default function SecurityAuditCenter() {
               Total Forensic Events
             </div>
             <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
-              {auditTotal.toLocaleString()}
+              {new Intl.NumberFormat('en-US').format(auditTotal)}
             </p>
           </CardContent>
         </Card>

@@ -428,7 +428,7 @@ export default function CashCollectionsDeliveriesPage() {
     try {
       const apiBase = formType === "collection" ? "/api/cash-collections" : "/api/cash-deliveries";
       await apiFetch(`${apiBase}/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" });
+      toast({ title: "Deactivated" });
       setDeleteItem(null);
       if (formType === "collection") loadCollections(); else loadDeliveries();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
@@ -1053,13 +1053,13 @@ export default function CashCollectionsDeliveriesPage() {
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this {formType === "collection" ? "cash collection" : "cash delivery"}? This action will soft-delete the record and reverse any bank impact.</DialogDescription>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this {formType === "collection" ? "cash collection" : "cash delivery"}? The record will be marked as inactive and associated bank impact will be reversed.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={!isAdmin}>
-              {isAdmin ? "Delete" : "Admin Only"}
+              {isAdmin ? "Deactivate" : "Admin Only"}
             </Button>
           </DialogFooter>
         </DialogContent>

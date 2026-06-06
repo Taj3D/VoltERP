@@ -23,7 +23,8 @@ import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-
 // UTILITY FUNCTIONS
 // ============================================================
 
-const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const safeFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => safeFmt.format(n);
 
 const fmtDate = (d: string | Date) =>
   d
@@ -1064,7 +1065,7 @@ export default function StagingQAPage() {
               <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 text-center">
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Total Deleted</p>
                 <p className="text-2xl font-bold text-red-700 dark:text-red-400">
-                  {wipeResult.data?.totalDeleted?.toLocaleString() || 0}
+                  {wipeResult.data?.totalDeleted != null ? new Intl.NumberFormat('en-US').format(wipeResult.data.totalDeleted) : 0}
                 </p>
               </div>
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
@@ -1101,7 +1102,7 @@ export default function StagingQAPage() {
                           <TableRow key={table}>
                             <TableCell className="text-sm font-mono text-slate-900 dark:text-white">{table}</TableCell>
                             <TableCell className="text-sm text-right font-semibold text-red-600 dark:text-red-400">
-                              {(count as number).toLocaleString()}
+                              {new Intl.NumberFormat('en-US').format(count as number)}
                             </TableCell>
                           </TableRow>
                         ))}

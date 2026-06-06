@@ -785,10 +785,10 @@ export default function MultiBranchConsolidationPage({
         filename: `consolidated-${statementType.toLowerCase()}-${startDate}-${endDate}`,
         company: profile || undefined,
         financialFooter: {
-          preparedBy: userName || userEmail || "",
+          preparedBy: userName || "System",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: userName || userEmail || "",
+          printedBy: userName || "System",
         },
       });
 

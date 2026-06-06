@@ -8,7 +8,7 @@ import {
   Printer, Mail, DollarSign, Percent, Palette, Search,
   Database, Zap, Trash, RotateCcw, Info, Code,
   Image as ImageIcon, Phone, Globe, Receipt, StickyNote,
-  HardDrive, Activity, Server, Cpu, MemoryStick,
+  HardDrive, Activity, Server, Cpu, MemoryStick, Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1568,12 +1568,12 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete Invoice Template</DialogTitle>
-            <DialogDescription>Are you sure you want to permanently delete this invoice template? All associated HTML/CSS and toggle configurations will be lost. This action cannot be undone.</DialogDescription>
+            <DialogTitle>Permanently Remove Invoice Template</DialogTitle>
+            <DialogDescription>Are you sure you want to permanently remove this invoice template? All associated HTML/CSS and toggle configurations will be lost. This action cannot be undone and the data cannot be recovered.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete Template</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Permanently Remove</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1986,12 +1986,12 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete Number Format</DialogTitle>
-            <DialogDescription>Are you sure you want to permanently delete this number format? Documents using this format will no longer auto-increment. This action cannot be undone.</DialogDescription>
+            <DialogTitle>Permanently Remove Number Format</DialogTitle>
+            <DialogDescription>Are you sure you want to permanently remove this number format? Documents using this format will no longer auto-increment. This action cannot be undone and the data cannot be recovered.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete Format</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Permanently Remove</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2000,7 +2000,366 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
 }
 
 // ============================================================
-// TAB 4: PERFORMANCE & CACHE
+// TAB 4: AUDIT TRAIL VIEWER
+// ============================================================
+
+function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
+  const { toast } = useToast();
+  const [entries, setEntries] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [filterModule, setFilterModule] = useState<string>("all");
+  const [filterAction, setFilterAction] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
+  const [appliedFilters, setAppliedFilters] = useState({ module: "", action: "", dateFrom: "", dateTo: "", search: "" });
+  const [availableModules, setAvailableModules] = useState<string[]>([]);
+  const [availableActions, setAvailableActions] = useState<string[]>([]);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const loadEntries = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "200");
+      if (appliedFilters.module) params.set("module", appliedFilters.module);
+      if (appliedFilters.action) params.set("action", appliedFilters.action);
+      if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+      if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
+      if (appliedFilters.search) params.set("search", appliedFilters.search);
+
+      const res = await apiFetch(`/api/audit-trail?${params.toString()}`);
+      setEntries(res.entries || []);
+      setTotalCount(res.total || 0);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [appliedFilters, toast]);
+
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/audit-logs?limit=1&offset=0");
+      if (res.modules) setAvailableModules(res.modules);
+      if (res.actions) setAvailableActions(res.actions);
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadEntries(); }, [appliedFilters, loadEntries]);
+  useEffect(() => { loadFilterOptions(); }, [loadFilterOptions]);
+
+  const handleApplyFilters = () => {
+    setAppliedFilters({
+      module: filterModule === "all" ? "" : filterModule,
+      action: filterAction === "all" ? "" : filterAction,
+      dateFrom: filterDateFrom,
+      dateTo: filterDateTo,
+      search: filterSearch.trim(),
+    });
+  };
+
+  const handleResetFilters = () => {
+    setFilterModule("all");
+    setFilterAction("all");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setFilterSearch("");
+    setAppliedFilters({ module: "", action: "", dateFrom: "", dateTo: "", search: "" });
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // Mask details for VAT Auditor
+  const maskDetailsIfVat = (details: string | null | undefined): string => {
+    if (!details) return "—";
+    if (isVatAuditor) {
+      const lower = details.toLowerCase();
+      if (lower.includes("profit") || lower.includes("margin") || lower.includes("cost") || lower.includes("writeoff") || lower.includes("costprice") || lower.includes("wholesaleprice") || lower.includes("dealerprice")) {
+        return "N/A (Audit Mode)";
+      }
+    }
+    return details;
+  };
+
+  const actionBadgeClass = (action: string): string => {
+    switch ((action || "").toUpperCase()) {
+      case "CREATE": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+      case "UPDATE": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+      case "DELETE": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      case "LOGIN": case "LOGOUT": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      case "EXPORT": case "IMPORT": return "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
+      default: return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400";
+    }
+  };
+
+  const actionDotColor = (action: string): string => {
+    switch ((action || "").toUpperCase()) {
+      case "CREATE": return "bg-green-500";
+      case "UPDATE": return "bg-blue-500";
+      case "DELETE": return "bg-red-500";
+      case "LOGIN": case "LOGOUT": return "bg-yellow-500";
+      case "EXPORT": case "IMPORT": return "bg-purple-500";
+      default: return "bg-slate-500";
+    }
+  };
+
+  // Export handlers
+  const handleExportPDF = async () => {
+    try {
+      let companyProfile: CompanyProfile | undefined;
+      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch {}
+      const columns: ExportColumnDef[] = [
+        { key: "action", label: "Action", type: "text" },
+        { key: "module", label: "Module", type: "text" },
+        { key: "recordLabel", label: "Record", type: "text" },
+        { key: "userName", label: "User", type: "text" },
+        { key: "details", label: "Details", type: "text" },
+        { key: "createdAt", label: "Timestamp", type: "date" },
+      ];
+      const exportData = entries.map(e => ({
+        ...e,
+        details: maskDetailsIfVat(e.details),
+      }));
+      const userName = authState.user?.displayName || authState.user?.name || "System";
+      exportToPDF({
+        title: "Audit Trail",
+        subtitle: `${totalCount} entries${isVatAuditor ? " — VAT Audit Mode" : ""}`,
+        columns,
+        data: exportData,
+        isVatAuditor,
+        company: companyProfile,
+        financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" },
+      });
+      toast({ title: "PDF Exported", description: "Audit trail data exported" });
+    } catch (e: any) {
+      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      const columns: ExportColumnDef[] = [
+        { key: "action", label: "Action", type: "text" },
+        { key: "module", label: "Module", type: "text" },
+        { key: "recordLabel", label: "Record", type: "text" },
+        { key: "userName", label: "User", type: "text" },
+        { key: "details", label: "Details", type: "text" },
+        { key: "createdAt", label: "Timestamp", type: "date" },
+      ];
+      const exportData = entries.map(e => ({
+        ...e,
+        details: maskDetailsIfVat(e.details),
+      }));
+      exportToCSV({ title: "Audit Trail", columns, data: exportData, isVatAuditor, vatMaskedColumns: ["details"] });
+      toast({ title: "CSV Exported", description: "Audit trail data exported" });
+    } catch (e: any) {
+      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+          <Download className="h-4 w-4 mr-1" /> CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleExportPDF}>
+          <FileDown className="h-4 w-4 mr-1" /> PDF
+        </Button>
+        <Button variant="ghost" size="sm" onClick={loadEntries}>
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {/* Filters */}
+      <Card className="border-slate-200 dark:border-slate-700">
+        <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+          <CardTitle className="text-white flex items-center gap-2 text-base">
+            <Search className="h-4 w-4 text-cyan-400" />
+            Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Module</Label>
+              <Select value={filterModule} onValueChange={setFilterModule}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Modules</SelectItem>
+                  {availableModules.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Action</Label>
+              <Select value={filterAction} onValueChange={setFilterAction}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Actions</SelectItem>
+                  {availableActions.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Date From</Label>
+              <Input type="date" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Date To</Label>
+              <Input type="date" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Search</Label>
+              <Input value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} placeholder="Search records..." className="h-8 text-xs" />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Button size="sm" onClick={handleApplyFilters} className="bg-[#2563eb] hover:bg-[#1d4ed8] h-8 text-xs">Apply</Button>
+            <Button size="sm" variant="outline" onClick={handleResetFilters} className="h-8 text-xs">Reset</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-3 flex items-center gap-2">
+            <Activity className="h-4 w-4 text-blue-500" />
+            <div>
+              <p className="text-xs text-slate-500">Total Entries</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{totalCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-3 flex items-center gap-2">
+            <Plus className="h-4 w-4 text-green-500" />
+            <div>
+              <p className="text-xs text-slate-500">Creates</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{entries.filter(e => (e.action || "").toUpperCase() === "CREATE").length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-3 flex items-center gap-2">
+            <Edit className="h-4 w-4 text-blue-500" />
+            <div>
+              <p className="text-xs text-slate-500">Updates</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{entries.filter(e => (e.action || "").toUpperCase() === "UPDATE").length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="hover:shadow-md transition-shadow">
+          <CardContent className="p-3 flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-red-500" />
+            <div>
+              <p className="text-xs text-slate-500">Deletes</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{entries.filter(e => (e.action || "").toUpperCase() === "DELETE").length}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Timeline */}
+      <Card className="border-slate-200 dark:border-slate-700">
+        <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+          <CardTitle className="text-white flex items-center gap-2 text-base">
+            <Shield className="h-4 w-4 text-emerald-400" />
+            Audit Timeline
+            <span className="ml-auto text-xs text-white/60">Showing {entries.length} of {totalCount}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4">
+          {loading ? (
+            <div className="text-center py-8 text-slate-400">
+              <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" /> Loading audit trail...
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="text-center py-8 text-slate-400">No audit entries found</div>
+          ) : (
+            <div className="relative">
+              {/* Timeline line */}
+              <div className="absolute left-3.5 top-0 bottom-0 w-0.5 bg-slate-200 dark:bg-slate-700" />
+
+              <div className="space-y-4">
+                {entries.slice(0, 100).map((entry, idx) => {
+                  const entryId = entry.id || `entry-${idx}`;
+                  const isExpanded = expandedIds.has(entryId);
+                  const action = (entry.action || "UNKNOWN").toUpperCase();
+                  const maskedDetails = maskDetailsIfVat(entry.details);
+
+                  return (
+                    <div key={entryId} className="relative pl-10 group">
+                      {/* Timeline dot */}
+                      <div className={`absolute left-2 top-1.5 w-3 h-3 rounded-full ring-2 ring-white dark:ring-slate-900 ${actionDotColor(action)}`} />
+
+                      <div className="hover:bg-slate-50 dark:hover:bg-slate-800/30 rounded-lg p-3 transition-colors">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className={`${actionBadgeClass(action)} font-semibold text-xs`}>{action}</Badge>
+                            <span className="text-sm font-medium text-slate-900 dark:text-white">{entry.module || "—"}</span>
+                            {entry.recordLabel && (
+                              <>
+                                <span className="text-slate-300 dark:text-slate-600">›</span>
+                                <span className="text-sm text-[#2563eb] dark:text-blue-400">{entry.recordLabel}</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-slate-500 shrink-0">
+                            <Clock className="h-3 w-3" />
+                            <span>{entry.timeAgo || fmt(entry.createdAt, "date")}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-1">
+                          <div className="w-5 h-5 rounded-full bg-[#132240] dark:bg-[#0a1628] flex items-center justify-center">
+                            <span className="text-[8px] font-bold text-white">{(entry.userName || "?").charAt(0).toUpperCase()}</span>
+                          </div>
+                          <span className="text-xs text-slate-700 dark:text-slate-300">{entry.userName || "System"}</span>
+                        </div>
+
+                        {/* Expandable details */}
+                        {maskedDetails && maskedDetails.length > 80 && (
+                          <div className="mt-2">
+                            <button onClick={() => toggleExpand(entryId)} className="flex items-center gap-1 text-xs text-[#2563eb] hover:text-[#1d4ed8] dark:text-blue-400">
+                              {isExpanded ? <>▲ Hide</> : <>▼ Show Details</>}
+                            </button>
+                            {isExpanded && (
+                              <pre className="mt-2 text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-md p-2 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap">
+                                <code className="text-slate-700 dark:text-slate-300">{maskedDetails}</code>
+                              </pre>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {entries.length > 100 && (
+                <p className="text-xs text-slate-500 mt-4 text-center">Showing first 100 of {totalCount} entries. Use filters to narrow results.</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// TAB 5: PERFORMANCE & CACHE
 // ============================================================
 
 function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
@@ -2328,7 +2687,7 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
 
       {/* Tabs */}
       <Tabs defaultValue={initialTab || "company"} className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 w-full">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full overflow-x-auto">
           <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Building2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Company</span> Settings
           </TabsTrigger>
@@ -2337,6 +2696,9 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
           </TabsTrigger>
           <TabsTrigger value="formats" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Hash className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Number</span> Formats
+          </TabsTrigger>
+          <TabsTrigger value="audit" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <Shield className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Audit</span> Trail
           </TabsTrigger>
           <TabsTrigger value="performance" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Gauge className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Performance</span> & Cache
@@ -2353,6 +2715,10 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
 
         <TabsContent value="formats">
           <NumberFormatsTab isVatAuditor={isVatAuditor} userRole={userRole} />
+        </TabsContent>
+
+        <TabsContent value="audit">
+          <AuditTrailTab isVatAuditor={isVatAuditor} userRole={userRole} />
         </TabsContent>
 
         <TabsContent value="performance">

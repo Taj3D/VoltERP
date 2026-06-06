@@ -67,12 +67,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update the password and set passwordChangedAt
+    // Update the password
     await db.user.update({
       where: { id: user.id },
       data: {
         password: newPassword,
-        passwordChangedAt: new Date(),
       },
     });
 
@@ -92,16 +91,22 @@ export async function POST(req: NextRequest) {
       // Audit log creation should not block the password change
     }
 
-    // Log to user activity
-    await db.userActivityLog.create({
-      data: {
-        userId: user.id,
-        userName: user.name,
-        actionType: 'UPDATE',
-        module: 'Auth-Password',
-        details: 'Password changed successfully',
-      },
-    }).catch(() => {});
+    // Log to user activity (using AuditLog as UserActivityLog model doesn't exist)
+    try {
+      await db.auditLog.create({
+        data: {
+          action: 'UPDATE',
+          module: 'Auth-Password',
+          recordId: user.id,
+          recordLabel: 'Password Change Activity',
+          userId: user.id,
+          userName: user.name,
+          details: 'Password changed successfully',
+        },
+      });
+    } catch {
+      // Activity log should not block the response
+    }
 
     return NextResponse.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {

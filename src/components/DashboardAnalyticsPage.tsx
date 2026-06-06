@@ -390,14 +390,14 @@ function exportStockAlertsCSV(data: any[]) {
   }
 }
 
-function exportStockAlertsPDF(data: any[], kpiData?: Record<string, any>) {
+function exportStockAlertsPDF(data: any[], kpiData?: Record<string, any>, printedBy?: string) {
   try {
     const headers = ["Product Code", "Product Name", "Category", "Current Stock", "Reorder Level", "Deficit", "Godown"];
     const body = data.map(d => [d.productCode, d.productName, d.category, String(d.currentStock ?? ""), String(d.reorderLevel ?? ""), String(d.deficit ?? ""), d.godown ?? ""]);
     const subtitle = kpiData
       ? `KPI: Revenue ${fmt(kpiData.totalRevenue, "currency")} | Purchases ${fmt(kpiData.totalPurchases, "currency")} | Profit ${typeof kpiData.netProfit === "string" ? kpiData.netProfit : fmt(kpiData.netProfit, "currency")} | Today's Sales ${fmt(kpiData.todaysSales, "currency")}`
       : undefined;
-    exportToPDFSimple("Stock Alerts & KPI Summary", headers, body, "landscape", subtitle);
+    exportToPDFSimple("Stock Alerts & KPI Summary", headers, body, "landscape", subtitle, undefined, { preparedBy: printedBy || "System", checkedBy: "", authorizedBy: "", printedBy: printedBy || "System" });
   } catch (e: any) {
     console.error("Export Stock Alerts PDF Error:", e);
   }
@@ -413,11 +413,11 @@ function exportFinancialRatiosCSV(ratios: Record<string, any>) {
   }
 }
 
-function exportFinancialRatiosPDF(ratios: Record<string, any>) {
+function exportFinancialRatiosPDF(ratios: Record<string, any>, printedBy?: string) {
   try {
     const headers = ["Ratio", "Value"];
     const body = Object.entries(ratios).filter(([k]) => k !== "type" && k !== "vatMode" && k !== "vatAuditMode").map(([k, v]) => [k.replace(/([A-Z])/g, " $1").trim(), String(v)]);
-    exportToPDFSimple("Financial Ratios", headers, body, "portrait");
+    exportToPDFSimple("Financial Ratios", headers, body, "portrait", undefined, undefined, { preparedBy: printedBy || "System", checkedBy: "", authorizedBy: "", printedBy: printedBy || "System" });
   } catch (e: any) {
     console.error("Export Financial Ratios PDF Error:", e);
   }
@@ -734,7 +734,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
               <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => exportDashboardCSV(stockAlerts.data, financialRatios)}>
                 <Download className="w-3.5 h-3.5 mr-1" />CSV
               </Button>
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => exportStockAlertsPDF(stockAlerts.data, kpiData)}>
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => exportStockAlertsPDF(stockAlerts.data, kpiData, userName)}>
                 <FileDown className="w-3.5 h-3.5 mr-1" />PDF
               </Button>
             </div>
@@ -1006,7 +1006,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                 <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={() => exportFinancialRatiosCSV(financialRatios)}>
                   <Download className="w-4 h-4 mr-1" />CSV
                 </Button>
-                <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={() => exportFinancialRatiosPDF(financialRatios)}>
+                <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={() => exportFinancialRatiosPDF(financialRatios, userName)}>
                   <FileDown className="w-4 h-4 mr-1" />PDF
                 </Button>
               </div>
@@ -1101,7 +1101,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                 <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={() => exportDashboardCSV(stockAlerts.data, financialRatios)}>
                   <Download className="w-4 h-4 mr-1" />Export CSV
                 </Button>
-                <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={() => exportStockAlertsPDF(stockAlerts.data, kpiData)}>
+                <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={() => exportStockAlertsPDF(stockAlerts.data, kpiData, userName)}>
                   <FileDown className="w-4 h-4 mr-1" />Export PDF
                 </Button>
               </div>

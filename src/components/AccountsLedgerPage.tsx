@@ -554,6 +554,7 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
   };
 
   // ── Tab 4: Export helpers ──
+  const getPrintedBy = () => { try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); return a.user?.displayName || a.user?.name || "System"; } catch { return "System"; } };
   const exportVoucherPDF = (voucher: any) => {
     try {
       const headers = ["Account", "Debit", "Credit", "Particulars"];
@@ -563,12 +564,15 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
         l.credit > 0 ? fmt(l.credit, "currency") : "—",
         l.particulars || "—",
       ]);
+      const printedBy = getPrintedBy();
       exportToPDFSimple(
         `Voucher-${voucher.voucherNo}`,
         headers,
         rows,
         "landscape",
-        `${voucher.type} | ${fmtDate(voucher.date)} | ${voucher.narration || ""}`
+        `${voucher.type} | ${fmtDate(voucher.date)} | ${voucher.narration || ""}`,
+        undefined,
+        { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy }
       );
       toast({ title: "Exported", description: `Voucher ${voucher.voucherNo} exported to PDF` });
     } catch (e: any) {
@@ -605,12 +609,15 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
           fmt(runningBalance, "currency"),
         ];
       });
+      const printedBy = getPrintedBy();
       exportToPDFSimple(
         `Ledger-${acct?.name || "Statement"}`,
         headers,
         rows,
         "portrait",
-        `${acct?.code || ""} - ${acct?.name || ""} | From: ${ledgerFrom || "—"} To: ${ledgerTo || "—"}`
+        `${acct?.code || ""} - ${acct?.name || ""} | From: ${ledgerFrom || "—"} To: ${ledgerTo || "—"}`,
+        undefined,
+        { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy }
       );
       toast({ title: "Exported", description: "Ledger statement exported to PDF" });
     } catch (e: any) {

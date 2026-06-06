@@ -40,28 +40,45 @@ import { CommandDialog, CommandInput, CommandList, CommandGroup, CommandItem, Co
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
-import AccountManagementPage from "@/components/AccountManagementPage";
-import ChartOfAccountsLedgerPage from "@/components/ChartOfAccountsLedgerPage";
-import AccountingReportsPage from "@/components/AccountingReportsPage";
-import BalanceSheetPeriodClosePage from "@/components/BalanceSheetPeriodClosePage";
-import DashboardAnalyticsPage from "@/components/DashboardAnalyticsPage";
-import MISReportEngine from "@/components/MISReportEngine";
-import CustomerSupplierLedgerPage from "@/components/CustomerSupplierLedgerPage";
-import SMSAnalyticsPage from "@/components/SMSAnalyticsPage";
-import InvestmentGroupPage from "@/components/InvestmentGroupPage";
-import BasicModulesGroupPage from "@/components/BasicModulesGroupPage";
-import OperationsModulePage from "@/components/OperationsModulePage";
-import StructureModulePage from "@/components/StructureModulePage";
-import InterestPercentageEnginePage from "@/components/InterestPercentageEnginePage";
-import PersonnelCRMGroupPage from "@/components/PersonnelCRMGroupPage";
+import ErrorBoundary from "@/components/erp/ui/ErrorBoundary";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
-import InventoryGroupPage from "@/components/InventoryGroupPage";
-import SalesModulePage from "@/components/SalesModulePage";
-import StockModulePage from "@/components/StockModulePage";
-import ReturnReplacementModulePage from "@/components/ReturnReplacementModulePage";
-import FinancialAuditGroupPage from "@/components/FinancialAuditGroupPage";
-import SystemSettingsGroupPage from "@/components/SystemSettingsGroupPage";
-import AuditTrailViewer from "@/components/AuditTrailViewer";
+
+// ─── Lazy-loaded page components for performance ───
+// Heavy components are loaded on-demand when the user navigates to them,
+// reducing the initial bundle size significantly.
+const AccountManagementPage = React.lazy(() => import("@/components/AccountManagementPage"));
+const ChartOfAccountsLedgerPage = React.lazy(() => import("@/components/ChartOfAccountsLedgerPage"));
+const AccountingReportsPage = React.lazy(() => import("@/components/AccountingReportsPage"));
+const BalanceSheetPeriodClosePage = React.lazy(() => import("@/components/BalanceSheetPeriodClosePage"));
+const DashboardAnalyticsPage = React.lazy(() => import("@/components/DashboardAnalyticsPage"));
+const MISReportEngine = React.lazy(() => import("@/components/MISReportEngine"));
+const CustomerSupplierLedgerPage = React.lazy(() => import("@/components/CustomerSupplierLedgerPage"));
+const SMSAnalyticsPage = React.lazy(() => import("@/components/SMSAnalyticsPage"));
+const InvestmentGroupPage = React.lazy(() => import("@/components/InvestmentGroupPage"));
+const BasicModulesGroupPage = React.lazy(() => import("@/components/BasicModulesGroupPage"));
+const OperationsModulePage = React.lazy(() => import("@/components/OperationsModulePage"));
+const StructureModulePage = React.lazy(() => import("@/components/StructureModulePage"));
+const InterestPercentageEnginePage = React.lazy(() => import("@/components/InterestPercentageEnginePage"));
+const PersonnelCRMGroupPage = React.lazy(() => import("@/components/PersonnelCRMGroupPage"));
+const InventoryGroupPage = React.lazy(() => import("@/components/InventoryGroupPage"));
+const SalesModulePage = React.lazy(() => import("@/components/SalesModulePage"));
+const StockModulePage = React.lazy(() => import("@/components/StockModulePage"));
+const ReturnReplacementModulePage = React.lazy(() => import("@/components/ReturnReplacementModulePage"));
+const FinancialAuditGroupPage = React.lazy(() => import("@/components/FinancialAuditGroupPage"));
+const SystemSettingsGroupPage = React.lazy(() => import("@/components/SystemSettingsGroupPage"));
+const AuditTrailViewer = React.lazy(() => import("@/components/AuditTrailViewer"));
+
+// ─── Lazy-load fallback spinner ───
+function LazyFallback({ name }: { name?: string }) {
+  return (
+    <div className="flex items-center justify-center min-h-[300px]">
+      <div className="flex items-center gap-3 text-muted-foreground">
+        <Loader2 className="w-5 h-5 animate-spin" />
+        <span className="text-sm">{name ? `Loading ${name}...` : "Loading..."}</span>
+      </div>
+    </div>
+  );
+}
 import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
@@ -772,7 +789,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
     if (!deleteItem) return;
     try {
       await apiFetch(`${apiPath}/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: `${title} deleted successfully` });
+      toast({ title: "Deactivated", description: `${title} deactivated successfully` });
       setDeleteItem(null);
       loadData();
     } catch (e: any) {
@@ -959,12 +976,12 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this record? This action cannot be undone.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this record? It will be marked as inactive but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1119,7 +1136,7 @@ function ProductsPage() {
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/products/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -1248,7 +1265,7 @@ function ProductsPage() {
         { label: "Low Stock", value: String(lowStock) },
         { label: "Out of Stock", value: String(outOfStock) },
         { label: "Active SKUs", value: String(activeSKUs) },
-        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `৳${sanitizeCurrency(totalInventoryValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }]),
+        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue))}` }]),
       ];
       const user = authState.user;
       exportToPDF({
@@ -1495,11 +1512,11 @@ function ProductsPage() {
 
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Are you sure? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Are you sure? The record will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2397,7 +2414,7 @@ function DashboardChart() {
           <XAxis dataKey="name" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
           <YAxis tick={{ fontSize: 11 }} className="fill-muted-foreground" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
           <RechartsTooltip
-            formatter={(value: number) => [`৳${value.toLocaleString()}`, ""]}
+            formatter={(value: number) => [`৳${new Intl.NumberFormat('en-US').format(value)}`, ""]}
             contentStyle={{ borderRadius: "8px", fontSize: "12px" }}
           />
           <Legend wrapperStyle={{ fontSize: "12px" }} />
@@ -3025,7 +3042,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/purchase-orders/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -3329,11 +3346,11 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Purchase Order {deleteItem?.poNumber}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Deactivate Purchase Order {deleteItem?.poNumber}? It will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3542,7 +3559,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/sales-orders/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -3867,11 +3884,11 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Sales Order {deleteItem?.invoiceNo}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Deactivate Sales Order {deleteItem?.invoiceNo}? It will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -4086,7 +4103,7 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/hire-sales/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -4463,11 +4480,11 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Hire Sale {deleteItem?.invoiceNo}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Deactivate Hire Sale {deleteItem?.invoiceNo}? It will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -4708,7 +4725,7 @@ function SalesReturnsPage({ onNavigate }: { onNavigate?: (page: string) => void 
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/sales-returns/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -5027,11 +5044,11 @@ function SalesReturnsPage({ onNavigate }: { onNavigate?: (page: string) => void 
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Sales Return {deleteItem?.returnNo}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Deactivate Sales Return {deleteItem?.returnNo}? It will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -5270,7 +5287,7 @@ function PurchaseReturnsPage({ onNavigate }: { onNavigate?: (page: string) => vo
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/purchase-returns/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -5594,11 +5611,11 @@ function PurchaseReturnsPage({ onNavigate }: { onNavigate?: (page: string) => vo
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Purchase Return {deleteItem?.returnNo}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Deactivate Purchase Return {deleteItem?.returnNo}? It will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -5751,7 +5768,7 @@ function StockTransfersPage() {
     if (!deleteItem) return;
     try {
       await apiFetch(`/api/transfers/${deleteItem.id}`, { method: "DELETE" });
-      toast({ title: "Deleted" }); setDeleteItem(null); load();
+      toast({ title: "Deactivated" }); setDeleteItem(null); load();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -6072,11 +6089,11 @@ function StockTransfersPage() {
       {/* Delete Dialog */}
       <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Delete</DialogTitle></DialogHeader>
-          <DialogDescription>Delete Stock Transfer {deleteItem?.transferNo}? This cannot be undone.</DialogDescription>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" />Confirm Deactivate</DialogTitle></DialogHeader>
+          <DialogDescription>Deactivate Stock Transfer {deleteItem?.transferNo}? It will be marked as inactive but preserved in the system.</DialogDescription>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" onClick={handleDelete}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -6319,7 +6336,11 @@ function AppLayout() {
       {/* Main content */}
       <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-all duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
         <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8">
-          {renderPage()}
+          <ErrorBoundary fallbackTitle={currentPageConfig?.label || "Page"}>
+            <React.Suspense fallback={<LazyFallback name={currentPageConfig?.label} />}>
+              {renderPage()}
+            </React.Suspense>
+          </ErrorBoundary>
         </div>
       </main>
 

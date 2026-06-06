@@ -876,7 +876,7 @@ async function handleDailySalesTrend(
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     dailyMap[key] = {
-      date: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+      date: new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short' }).format(d),
       sales: 0,
       expenses: 0,
     };

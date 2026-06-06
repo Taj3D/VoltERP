@@ -484,7 +484,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
   const handleDelete = async (id: string) => {
     try {
       await apiFetch(`/api/sr-targets/${id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: "SR Target deleted successfully" });
+      toast({ title: "Deactivated", description: "SR Target deactivated successfully" });
       setDeleteConfirm(null);
       loadData();
     } catch (e: any) {
@@ -928,12 +928,12 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this SR target? It will be deactivated but can be restored by an admin.</DialogDescription>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this SR target? It will be marked as inactive but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1430,12 +1430,12 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this payment option? It will be deactivated but can be restored by an admin.</DialogDescription>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this payment option? It will be marked as inactive but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1580,7 +1580,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
   const handleDelete = async (id: string) => {
     try {
       await apiFetch(`/api/card-types/${id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: "Card Type deleted successfully" });
+      toast({ title: "Deactivated", description: "Card Type deactivated successfully" });
       setDeleteConfirm(null);
       loadData();
     } catch (e: any) {
@@ -1798,12 +1798,12 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this card type? It will be deactivated but can be restored by an admin.</DialogDescription>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this card type? It will be marked as inactive but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2007,7 +2007,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
   const handleDelete = async (id: string) => {
     try {
       await apiFetch(`/api/card-type-setup/${id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: "Card Type Setup deleted successfully" });
+      toast({ title: "Deactivated", description: "Card Type Setup deactivated successfully" });
       setDeleteConfirm(null);
       loadData();
     } catch (e: any) {
@@ -2370,12 +2370,12 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this card type setup? It will be deactivated but can be restored by an admin.</DialogDescription>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this card type setup? It will be marked as inactive but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

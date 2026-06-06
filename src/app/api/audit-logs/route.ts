@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, type UserRole, stripHtml } from '@/lib/api-security';
 
 export async function GET(req: NextRequest) {
   const security = await withApiSecurity(req, 'AuditLogs', 'GET');
   if (!security.authorized) return security.response;
   try {
+    const userRole = security.user.role as UserRole;
+    const isVatAuditor = userRole === 'vat_auditor';
+
     const url = new URL(req.url);
     const moduleFilter = url.searchParams.get("module");
     const action = url.searchParams.get("action");
@@ -47,8 +50,27 @@ export async function GET(req: NextRequest) {
       orderBy: { action: "asc" },
     });
 
+    // VAT Auditor: mask details containing profit/margin/cost information
+    const maskedLogs = logs.map((log: any) => {
+      if (isVatAuditor && log.details) {
+        const lower = (log.details as string).toLowerCase();
+        if (
+          lower.includes('profit') ||
+          lower.includes('margin') ||
+          lower.includes('cost') ||
+          lower.includes('writeoff') ||
+          lower.includes('costprice') ||
+          lower.includes('wholesaleprice') ||
+          lower.includes('dealerprice')
+        ) {
+          return { ...log, details: 'N/A (Audit Mode)' };
+        }
+      }
+      return log;
+    });
+
     return NextResponse.json({
-      logs,
+      logs: maskedLogs,
       total,
       modules: modules.map(m => m.module),
       actions: actions.map(a => a.action),
@@ -77,12 +99,12 @@ export async function POST(req: NextRequest) {
       data: {
         action,
         module,
-        recordId,
-        recordLabel,
+        recordId: recordId ? stripHtml(recordId) : undefined,
+        recordLabel: recordLabel ? stripHtml(recordLabel) : undefined,
         userId: userId || security.user?.id || 'system',
-        userName: userName || security.user?.name || 'System',
-        details,
-        ip,
+        userName: userName ? stripHtml(userName) : (security.user?.name || 'System'),
+        details: details ? stripHtml(details) : undefined,
+        ip: ip ? stripHtml(ip) : undefined,
       },
     });
     return NextResponse.json(log, { status: 201 });

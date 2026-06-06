@@ -8,7 +8,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, stripHtml } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import { sanitizeError } from '@/lib/exception-sanitizer';
 
@@ -210,19 +210,19 @@ export async function POST(request: NextRequest) {
             item = await tx.company.create({
               data: {
                 code,
-                name: String(record.name).trim(),
-                address: record.address || null,
-                phone: record.phone || null,
-                email: record.email || null,
-                mobile: record.mobile || null,
-                website: record.website || null,
-                vatNumber: record.vatNumber || null,
-                tradeLicense: record.tradeLicense || null,
-                binNumber: record.binNumber || null,
+                name: stripHtml(String(record.name).trim()),
+                address: record.address ? stripHtml(String(record.address)) : null,
+                phone: record.phone ? stripHtml(String(record.phone)) : null,
+                email: record.email ? stripHtml(String(record.email)) : null,
+                mobile: record.mobile ? stripHtml(String(record.mobile)) : null,
+                website: record.website ? stripHtml(String(record.website)) : null,
+                vatNumber: record.vatNumber ? stripHtml(String(record.vatNumber)) : null,
+                tradeLicense: record.tradeLicense ? stripHtml(String(record.tradeLicense)) : null,
+                binNumber: record.binNumber ? stripHtml(String(record.binNumber)) : null,
                 currencySymbol: record.currencySymbol || '৳',
-                invoicePrefix: record.invoicePrefix || null,
-                thankYouMsg: record.thankYouMsg || null,
-                systemNote: record.systemNote || null,
+                invoicePrefix: record.invoicePrefix ? stripHtml(String(record.invoicePrefix)) : null,
+                thankYouMsg: record.thankYouMsg ? stripHtml(String(record.thankYouMsg)) : null,
+                systemNote: record.systemNote ? stripHtml(String(record.systemNote)) : null,
                 showBarcode: record.showBarcode !== undefined ? Boolean(record.showBarcode) : true,
                 showPayInWord: record.showPayInWord !== undefined ? Boolean(record.showPayInWord) : true,
                 logoWidth: record.logoWidth ? parseFloat(String(record.logoWidth)) : 30,
@@ -241,8 +241,8 @@ export async function POST(request: NextRequest) {
             item = await tx.category.create({
               data: {
                 code,
-                name: String(record.name).trim(),
-                description: record.description || null,
+                name: stripHtml(String(record.name).trim()),
+                description: record.description ? stripHtml(String(record.description)) : null,
                 parentCategoryId: record.parentCategoryId || null,
                 isActive: record.isActive !== undefined ? Boolean(record.isActive) : true,
               },
@@ -252,8 +252,8 @@ export async function POST(request: NextRequest) {
           case 'colors': {
             item = await tx.color.create({
               data: {
-                name: String(record.name).trim(),
-                colorCode: String(record.colorCode).trim(),
+                name: stripHtml(String(record.name).trim()),
+                colorCode: stripHtml(String(record.colorCode).trim()),
                 isActive: record.isActive !== undefined ? Boolean(record.isActive) : true,
               },
             });
@@ -265,8 +265,8 @@ export async function POST(request: NextRequest) {
             item = await tx.brand.create({
               data: {
                 code,
-                name: String(record.name).trim(),
-                description: record.description || null,
+                name: stripHtml(String(record.name).trim()),
+                description: record.description ? stripHtml(String(record.description)) : null,
                 isActive: record.isActive !== undefined ? Boolean(record.isActive) : true,
               },
             });
@@ -278,9 +278,9 @@ export async function POST(request: NextRequest) {
             item = await tx.unit.create({
               data: {
                 code,
-                name: String(record.name).trim(),
-                symbol: record.symbol || null,
-                description: record.description || null,
+                name: stripHtml(String(record.name).trim()),
+                symbol: record.symbol ? stripHtml(String(record.symbol)) : null,
+                description: record.description ? stripHtml(String(record.description)) : null,
                 isActive: record.isActive !== undefined ? Boolean(record.isActive) : true,
               },
             });

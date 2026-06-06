@@ -795,7 +795,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   const handleDelete = async (id: string) => {
     try {
       await apiFetch(`${config.apiPath}/${id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: `${config.label} deleted successfully` });
+      toast({ title: "Deactivated", description: `${config.label} deactivated successfully` });
       setDeleteConfirm(null);
       loadData();
     } catch (e: any) {
@@ -863,10 +863,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           vatNumber: companyProfile.vatNumber,
         } : undefined,
         financialFooter: {
-          preparedBy: authUser?.displayName || authUser?.name || userRole || "",
+          preparedBy: authUser?.displayName || "System",
           checkedBy: "",
           authorizedBy: "",
-          printedBy: authUser?.displayName || authUser?.name || userRole || "",
+          printedBy: authUser?.displayName || "System",
         },
       });
       toast({ title: "PDF Exported", description: `${config.label} data exported with compliance footer` });
@@ -1389,12 +1389,12 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this {singularize(config.label).toLowerCase()}? This action cannot be undone.</DialogDescription>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this {singularize(config.label).toLowerCase()}? It will be marked as inactive but can be restored by an admin.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

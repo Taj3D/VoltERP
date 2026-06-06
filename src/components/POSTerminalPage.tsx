@@ -1617,7 +1617,7 @@ export default function POSTerminalPage() {
                         onClick={() => setQuickCash(amount)}
                         disabled={isLoading}
                       >
-                        ৳{amount.toLocaleString()}
+                        ৳{new Intl.NumberFormat('en-US').format(amount)}
                       </Button>
                     ))}
                     <Button

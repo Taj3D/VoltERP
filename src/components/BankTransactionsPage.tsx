@@ -1226,10 +1226,10 @@ export default function BankTransactionsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-red-500" />
-              Confirm Delete
+              Confirm Deactivate
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete transaction <span className="font-mono font-bold">{deleteItem?.transactionCode}</span>?
+              Are you sure you want to deactivate transaction <span className="font-mono font-bold">{deleteItem?.transactionCode}</span>?
               This will deactivate the transaction, reverse the bank balance change, and remove associated ledger entries. Only administrators can perform this action.
             </DialogDescription>
           </DialogHeader>

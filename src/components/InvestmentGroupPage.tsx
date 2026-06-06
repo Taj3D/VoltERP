@@ -752,7 +752,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     if (!headsDelete) return;
     try {
       await apiFetch(`/api/investment-heads/${headsDelete.id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: "Investment Head deleted" });
+      toast({ title: "Deactivated", description: "Investment Head deactivated" });
       setHeadsDelete(null);
       loadHeads();
       loadHeadOptions();
@@ -839,7 +839,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const deleteAsset = async (item: any, category: "Fixed" | "Current") => {
     try {
       await apiFetch(`/api/assets/${item.id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: `${category} Asset deleted` });
+      toast({ title: "Deactivated", description: `${category} Asset deactivated` });
       if (category === "Fixed") { setAssetsDelete(null); loadAssets(); }
       else { setCurrentAssetsDelete(null); loadCurrentAssets(); }
     } catch (e: any) {
@@ -997,7 +997,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const deleteLiab = async (item: any, type: "received" | "pay") => {
     try {
       await apiFetch(`/api/liabilities/${item.id}`, { method: "DELETE" });
-      toast({ title: "Deleted", description: `Liability ${type === "received" ? "Receive" : "Pay"} deleted` });
+      toast({ title: "Deactivated", description: `Liability ${type === "received" ? "Receive" : "Pay"} deactivated` });
       if (type === "received") { setLiabReceiveDelete(null); loadLiabReceive(); }
       else { setLiabPayDelete(null); loadLiabPay(); }
     } catch (e: any) {
@@ -2329,13 +2329,13 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       <Dialog open={!!headsDelete} onOpenChange={() => setHeadsDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete &quot;{headsDelete?.name}&quot; ({headsDelete?.code})?</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate &quot;{headsDelete?.name}&quot; ({headsDelete?.code})?</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">This action will deactivate the investment head. If it has active assets or liabilities, deletion will be blocked.</p>
+          <p className="text-sm text-muted-foreground">The investment head will be marked as inactive. If it has active assets or liabilities, deactivation will be blocked.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setHeadsDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={deleteHeads}>Delete</Button>
+            <Button variant="destructive" onClick={deleteHeads}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2487,12 +2487,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       <Dialog open={!!assetsDelete} onOpenChange={() => setAssetsDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this fixed asset?</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this fixed asset?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssetsDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteAsset(assetsDelete, "Fixed")}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteAsset(assetsDelete, "Fixed")}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2553,12 +2553,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       <Dialog open={!!currentAssetsDelete} onOpenChange={() => setCurrentAssetsDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this current asset?</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this current asset?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCurrentAssetsDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteAsset(currentAssetsDelete, "Current")}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteAsset(currentAssetsDelete, "Current")}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2698,12 +2698,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       <Dialog open={!!liabReceiveDelete} onOpenChange={() => setLiabReceiveDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this liability receive entry?</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this liability receive entry?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLiabReceiveDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteLiab(liabReceiveDelete, "received")}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteLiab(liabReceiveDelete, "received")}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2835,12 +2835,12 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       <Dialog open={!!liabPayDelete} onOpenChange={() => setLiabPayDelete(null)}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">Confirm Delete</DialogTitle>
-            <DialogDescription>Are you sure you want to delete this liability pay entry?</DialogDescription>
+            <DialogTitle className="text-slate-900 dark:text-white">Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this liability pay entry?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLiabPayDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteLiab(liabPayDelete, "pay")}>Delete</Button>
+            <Button variant="destructive" onClick={() => deleteLiab(liabPayDelete, "pay")}>Deactivate</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

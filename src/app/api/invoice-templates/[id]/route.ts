@@ -6,7 +6,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, type UserRole } from '@/lib/api-security';
+import { withApiSecurity, type UserRole, stripHtml } from '@/lib/api-security';
 
 // Profit/cost placeholders that VAT Auditor must NOT see in bodyHtml
 const PROFIT_PLACEHOLDERS = ['{{cost', '{{profit', '{{margin', '{{writeoff', '{{costPrice', '{{wholesalePrice', '{{dealerPrice}}'];
@@ -98,10 +98,10 @@ export async function PUT(
 
     const updateData: Record<string, unknown> = {};
 
-    // Core fields
-    if (name !== undefined) updateData.name = name;
+    // Core fields — sanitize text fields to prevent XSS (NOT headerHtml/bodyHtml/footerHtml/cssStyles — those are intentional HTML)
+    if (name !== undefined) updateData.name = stripHtml(name);
     if (templateType !== undefined) updateData.templateType = templateType;
-    if (subject !== undefined) updateData.subject = subject;
+    if (subject !== undefined) updateData.subject = subject ? stripHtml(subject) : null;
     if (headerHtml !== undefined) updateData.headerHtml = headerHtml;
     if (bodyHtml !== undefined) updateData.bodyHtml = bodyHtml;
     if (footerHtml !== undefined) updateData.footerHtml = footerHtml;
@@ -118,10 +118,10 @@ export async function PUT(
       }
     }
 
-    // String nullable fields
+    // String nullable fields — sanitize text fields
     for (const field of STRING_NULL_FIELDS) {
       if (body[field] !== undefined) {
-        updateData[field] = body[field] === null ? null : String(body[field]);
+        updateData[field] = body[field] === null ? null : stripHtml(String(body[field]));
       }
     }
 

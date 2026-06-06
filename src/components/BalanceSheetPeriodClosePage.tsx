@@ -229,7 +229,8 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
 
   const exportPDF = (title: string, headers: string[], rows: string[][]) => {
     try {
-      exportToPDFSimple(title, headers, rows, "landscape");
+      const printedBy = user?.displayName || user?.name || "System";
+      exportToPDFSimple(title, headers, rows, "landscape", undefined, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
       toast({ title: "Exported", description: `${title} exported to PDF` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
