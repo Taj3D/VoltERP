@@ -23,6 +23,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logUserActivity } from '@/lib/activity-logger';
+import { withApiSecurity } from '@/lib/api-security';
 
 // ── Utility helpers ──────────────────────────────────────────
 
@@ -43,6 +44,12 @@ function padNum(n: number, width: number = 5): string {
 // ── POST handler ─────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SystemSettings', 'POST');
+  if (!security.authorized) return security.response;
+  if (security.user.role !== 'admin') {
+    return NextResponse.json({ error: 'Access denied: Admin only' }, { status: 403 });
+  }
+
   const startTime = Date.now();
   const { searchParams } = new URL(request.url);
   let companyId = searchParams.get('companyId');

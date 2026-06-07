@@ -7,6 +7,7 @@
 import { db } from '@/lib/db';
 import { computeSmsSegments, safeFinancialRound } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { dispatchSingleSms, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
 
 // ── Type Definitions ──────────────────────────────────────────
 
@@ -149,6 +150,35 @@ export async function triggerEventSms(
       recordLabel: `${eventType} → ${recipientPhone}`,
       details: `Auto-triggered SMS for event "${eventType}" to ${recipientPhone}. Segments: ${segmentCount}, Cost: ${formatCurrency(cost)}`,
     });
+
+    // Step 8: Try to dispatch through the SMS gateway (non-blocking)
+    // If the gateway dispatch fails, the SmsLog stays as "Pending"
+    // and will be picked up later by the /api/sms/dispatch-pending route.
+    if (smsSetting) {
+      try {
+        const gatewayConfig = buildGatewayConfig(smsSetting);
+        const dispatchResult = await dispatchSingleSms(gatewayConfig, {
+          smsLogId: log.id,
+          recipient: recipientPhone,
+          message,
+        });
+
+        // Update the SmsLog with the gateway result
+        await db.smsLog.update({
+          where: { id: log.id },
+          data: {
+            status: dispatchResult.status,
+            gatewayResponse: dispatchResult.gatewayResponse,
+            cost: dispatchResult.cost,
+            ...(dispatchResult.status === 'Sent' && { sentAt: new Date() }),
+          },
+        });
+      } catch (gatewayErr) {
+        // Gateway dispatch failed — SmsLog stays as "Pending"
+        // The /api/sms/dispatch-pending route can retry later
+        console.error('[triggerEventSms] Gateway dispatch failed (entry stays Pending):', gatewayErr);
+      }
+    }
 
     return { triggered: true, smsLogId: log.id };
   } catch (error) {

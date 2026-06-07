@@ -87,10 +87,22 @@ function StatCard({ label, value, icon: Icon, color, bg }: { label: string; valu
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
-export default function AccountManagementPage() {
+// Map sidebar keys to internal tab keys
+const mapInitialTab = (tab?: string): string => {
+  if (!tab) return "heads";
+  if (tab === "expense-income-heads") return "heads";
+  if (tab === "expenses") return "expenses";
+  if (tab === "incomes") return "incomes";
+  if (tab === "cash-collections") return "collections";
+  if (tab === "cash-deliveries") return "deliveries";
+  if (tab === "bank-transactions") return "bank";
+  return tab;
+};
+
+export default function AccountManagementPage({ initialTab }: { initialTab?: string } = {}) {
   const { toast } = useToast();
   const { user, isVatAuditor, isDealer, isSR, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState("heads");
+  const [activeTab, setActiveTab] = useState(mapInitialTab(initialTab));
 
   // ── Data states ──────────────────────────────────────────────
   const [heads, setHeads] = useState<any[]>([]);
@@ -159,6 +171,10 @@ export default function AccountManagementPage() {
   }, [toast]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // ── Date range filter ───────────────────────────────────────
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   // ── Current tab data ─────────────────────────────────────────
   const currentData = useMemo(() => {
@@ -460,10 +476,6 @@ export default function AccountManagementPage() {
   const canMutate = !isVatAuditor && !isDealer && !isSR; // SR cannot create/edit/import in Account Management
   const canCreate = canMutate;
   const canDelete = isAdmin;
-
-  // ── Date range filter ───────────────────────────────────────
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
 
   // ── Dealer restriction ───────────────────────────────────────
   if (isDealer) {

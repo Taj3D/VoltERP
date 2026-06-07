@@ -595,11 +595,9 @@ function StructureModuleTab({
         toast({ title: "Created", description: `${config.label} created successfully` });
       }
       setDialogOpen(false);
-      // Optimistic update
+      // Optimistic update (edits only; creates rely on loadData refresh)
       if (editingItem) {
         setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
-      } else {
-        setData(prev => [{ id: "temp-" + Date.now(), ...sanitizedData, isActive: true, createdAt: new Date().toISOString() }, ...prev]);
       }
       loadData();
       if (onGodownModified && config.key === "godowns") onGodownModified();
@@ -1145,10 +1143,14 @@ function StructureModuleTab({
 interface StructureModulePageProps {
   userRole: string;
   isVatAuditor: boolean;
+  activeModule?: string;
 }
 
-export default function StructureModulePage({ userRole, isVatAuditor }: StructureModulePageProps) {
-  const [activeTab, setActiveTab] = useState("departments");
+export default function StructureModulePage({ userRole, isVatAuditor, activeModule }: StructureModulePageProps) {
+  const [activeTab, setActiveTab] = useState(activeModule || "departments");
+  useEffect(() => {
+    if (activeModule) setActiveTab(activeModule);
+  }, [activeModule]);
   const [routingRefreshKey, setRoutingRefreshKey] = useState(0);
 
   const handleGodownModified = useCallback(() => {

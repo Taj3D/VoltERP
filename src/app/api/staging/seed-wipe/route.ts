@@ -18,9 +18,15 @@
 
 import { db } from '@/lib/db';
 import { logUserActivity } from '@/lib/activity-logger';
-import { NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SystemSettings', 'POST');
+  if (!security.authorized) return security.response;
+  if (security.user.role !== 'admin') {
+    return NextResponse.json({ error: 'Access denied: Admin only' }, { status: 403 });
+  }
   const startTime = Date.now();
   let totalDeleted = 0;
   const deletionLog: Record<string, number> = {};

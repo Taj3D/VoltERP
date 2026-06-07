@@ -460,8 +460,6 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       setDialogOpen(false);
       if (editingItem) {
         setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
-      } else {
-        setData(prev => [{ id: "temp-" + Date.now(), ...sanitizedData, isActive: true, createdAt: new Date().toISOString() }, ...prev]);
       }
       loadData();
     } catch (e: any) {
@@ -1145,8 +1143,6 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
       setDialogOpen(false);
       if (editingItem) {
         setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
-      } else {
-        setData(prev => [{ id: "temp-" + Date.now(), ...sanitizedData, isActive: true, createdAt: new Date().toISOString() }, ...prev]);
       }
       loadData();
     } catch (e: any) {
@@ -1560,8 +1556,6 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
       setDialogOpen(false);
       if (editingItem) {
         setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
-      } else {
-        setData(prev => [{ id: "temp-" + Date.now(), ...sanitizedData, isActive: true, createdAt: new Date().toISOString() }, ...prev]);
       }
       loadData();
     } catch (e: any) {
@@ -1987,8 +1981,6 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       setDialogOpen(false);
       if (editingItem) {
         setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
-      } else {
-        setData(prev => [{ id: "temp-" + Date.now(), ...sanitizedData, isActive: true, createdAt: new Date().toISOString() }, ...prev]);
       }
       loadData();
     } catch (e: any) {

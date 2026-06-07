@@ -760,12 +760,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         toast({ title: "Created", description: `${config.label} created successfully` });
       }
       setDialogOpen(false);
-      // Phase 7: Optimistic update — update client data instantly
+      // Phase 7: Optimistic update — update client data instantly (edits only; creates rely on loadData)
       if (editingItem) {
         setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
-      } else {
-        // Optimistic add (will be replaced by loadData)
-        setData(prev => [{ id: 'temp-' + Date.now(), ...sanitizedData, isActive: true, createdAt: new Date().toISOString() }, ...prev]);
       }
       loadData();
     } catch (e: any) {
@@ -1418,8 +1415,11 @@ export default function BasicModulesGroupPage({ activeModule }: { activeModule?:
   const isVatAuditor = auth.user?.role === "vat_auditor";
   const userRole = auth.user?.role || "admin";
 
-  // Determine active tab
+  // Determine active tab — update when activeModule prop changes (sidebar navigation)
   const [activeTab, setActiveTab] = useState(activeModule || "companies");
+  useEffect(() => {
+    if (activeModule) setActiveTab(activeModule);
+  }, [activeModule]);
 
   // Group modules by category
   const coreModules = MODULE_CONFIGS.filter(m => m.category === "core");

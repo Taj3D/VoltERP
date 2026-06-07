@@ -137,14 +137,6 @@ interface SidebarGroup {
 // RBAC AUTH ENGINE - 5 Roles with Permissions
 // ============================================================
 
-const ROLE_CREDENTIALS: Record<string, { password: string; role: UserRole; displayName: string }> = {
-  "emart.amit": { password: "Test_123", role: "admin", displayName: "Amit Sharma" },
-  "emart.manager": { password: "Manager_123", role: "manager", displayName: "Rakib Hasan" },
-  "emart.sr": { password: "SR_123", role: "sr", displayName: "Kamal Hossain" },
-  "emart.dealer": { password: "Dealer_123", role: "dealer", displayName: "Rahim Uddin" },
-  "emart.vat": { password: "VAT_123", role: "vat_auditor", displayName: "Kashem Miah" },
-};
-
 const ROLE_ACCESS: Record<UserRole, string[]> = {
   admin: ["*"],
   manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report", "system-settings"],
@@ -220,14 +212,13 @@ function useAuth() {
       if (!res.ok) return false;
       const serverUser = await res.json();
       // Map server response to client-side auth state
-      const cred = ROLE_CREDENTIALS[username];
-      const resolvedDisplayName = serverUser.displayName || serverUser.name || cred?.displayName || username;
+      const resolvedDisplayName = serverUser.displayName || serverUser.name || username;
       authState = {
         isAuthenticated: true,
         user: {
           name: resolvedDisplayName, // Always use display name, never raw username
           email: serverUser.email || username, // Use DB email for server-side RBAC lookup
-          role: (serverUser.role as UserRole) || cred?.role || "admin",
+          role: (serverUser.role as UserRole) || "admin",
           displayName: resolvedDisplayName,
         },
       };
@@ -235,17 +226,7 @@ function useAuth() {
       authListeners.forEach(l => l());
       return true;
     } catch {
-      // Fallback: client-side validation if server unreachable
-      const cred = ROLE_CREDENTIALS[username];
-      if (cred && cred.password === password) {
-        authState = {
-          isAuthenticated: true,
-          user: { name: cred.displayName, email: username, role: cred.role, displayName: cred.displayName },
-        };
-        localStorage.setItem("ems_auth", JSON.stringify(authState));
-        authListeners.forEach(l => l());
-        return true;
-      }
+      toast({ title: "Login Failed", description: "Unable to connect to server. Please check your connection.", variant: "destructive" });
       return false;
     }
   };
@@ -6169,13 +6150,13 @@ function AppLayout() {
     if (currentPage === "products") return <ProductsPage />;
     if (currentPage === "stock") return <StockPage />;
     if (currentPage === "stock-details") return <StockDetailsPage />;
-    if (currentPage === "send-sms") return <SMSAnalyticsPage initialTab="send" />;
-    if (currentPage === "send-bulk-sms") return <SMSAnalyticsPage initialTab="campaigns" />;
-    if (currentPage === "sms-inbox") return <SMSAnalyticsPage initialTab="inbox" />;
-    if (currentPage === "sms-bills") return <SMSAnalyticsPage initialTab="billing" />;
-    if (currentPage === "sms-report") return <SMSAnalyticsPage initialTab="dashboard" />;
-    if (currentPage === "sms-settings") return <SMSAnalyticsPage initialTab="settings" />;
-    if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage initialTab="billing" />;
+    if (currentPage === "send-sms") return <SMSAnalyticsPage key={currentPage} initialTab="send" />;
+    if (currentPage === "send-bulk-sms") return <SMSAnalyticsPage key={currentPage} initialTab="campaigns" />;
+    if (currentPage === "sms-inbox") return <SMSAnalyticsPage key={currentPage} initialTab="inbox" />;
+    if (currentPage === "sms-bills") return <SMSAnalyticsPage key={currentPage} initialTab="billing" />;
+    if (currentPage === "sms-report") return <SMSAnalyticsPage key={currentPage} initialTab="dashboard" />;
+    if (currentPage === "sms-settings") return <SMSAnalyticsPage key={currentPage} initialTab="settings" />;
+    if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage key={currentPage} initialTab="billing" />;
     if (currentPage === "change-password") return <ChangePasswordPage />;
     if (currentPage === "profile") return <ProfilePage />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
@@ -6189,19 +6170,19 @@ function AppLayout() {
     if (stockModuleKeys.has(currentPage)) return <StockModulePage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
     const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po"]);
     if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
-    if (["expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads"].includes(currentPage)) return <AccountManagementPage />;
+    if (["expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads"].includes(currentPage)) return <AccountManagementPage key={currentPage} initialTab={currentPage} />;
     if (currentPage === "chart-of-accounts") return <ChartOfAccountsLedgerPage />;
-    if (currentPage === "cash-in-hand") return <AccountingReportsPage initialTab="cash-in-hand" />;
-    if (currentPage === "trial-balance") return <AccountingReportsPage initialTab="trial-balance" />;
-    if (currentPage === "profit-loss") return <AccountingReportsPage initialTab="profit-loss" />;
-    if (currentPage === "balance-sheet") return <BalanceSheetPeriodClosePage initialTab="balance-sheet" />;
+    if (currentPage === "cash-in-hand") return <AccountingReportsPage key={currentPage} initialTab="cash-in-hand" />;
+    if (currentPage === "trial-balance") return <AccountingReportsPage key={currentPage} initialTab="trial-balance" />;
+    if (currentPage === "profit-loss") return <AccountingReportsPage key={currentPage} initialTab="profit-loss" />;
+    if (currentPage === "balance-sheet") return <BalanceSheetPeriodClosePage key={currentPage} initialTab="balance-sheet" />;
     // GROUP 1: Investment & Asset Balances — dedicated InvestmentGroupPage component
     const investmentGroupKeys = new Set(["investment-heads", "investment", "fixed-asset", "current-asset", "liability-receive", "liability-pay", "liability-report"]);
     if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage key={currentPage} initialTab={currentPage} />;
 
     // GROUP 2a: Structure Module — dedicated StructureModulePage with warehouse routing
     const structureKeys = new Set(["departments", "godowns", "segments", "capacities"]);
-    if (structureKeys.has(currentPage)) return <StructureModulePage userRole={userRole} isVatAuditor={isVatAuditor} />;
+    if (structureKeys.has(currentPage)) return <StructureModulePage key={currentPage} activeModule={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} />;
 
     // GROUP 2b: Interest Percentage Engine — dedicated InterestPercentageEnginePage
     if (currentPage === "interest-percentages") return <InterestPercentageEnginePage userRole={userRole} isVatAuditor={isVatAuditor} />;
@@ -6250,8 +6231,8 @@ function AppLayout() {
     // Customer & Supplier Ledger - dedicated page with aging buckets
     const customerLedgerKeys = new Set(["customer-ledger-report"]);
     const supplierLedgerKeys = new Set(["supplier-ledger-report"]);
-    if (customerLedgerKeys.has(currentPage)) return <CustomerSupplierLedgerPage initialTab="customer" />;
-    if (supplierLedgerKeys.has(currentPage)) return <CustomerSupplierLedgerPage initialTab="supplier" />;
+    if (customerLedgerKeys.has(currentPage)) return <CustomerSupplierLedgerPage key={currentPage} initialTab="customer" />;
+    if (supplierLedgerKeys.has(currentPage)) return <CustomerSupplierLedgerPage key={currentPage} initialTab="supplier" />;
 
     const config = currentPageConfig;
     if (!config) return <div className="text-center py-16 text-muted-foreground">Page not found</div>;
@@ -6267,7 +6248,7 @@ function AppLayout() {
       return <GenericModulePage title={config.label} apiPath={config.apiPath} columns={config.columns} formFields={config.formFields || config.columns.map(c => ({ key: c.key, label: c.label, type: c.type === "currency" || c.type === "number" ? "number" : c.type === "boolean" ? "checkbox" : c.type === "date" ? "date" : c.type === "select" ? "select" : "text", required: c.key !== "isActive" && c.key !== "description" && c.key !== "notes" }))} />;
     }
 
-    return <div className="text-center py-16 text-muted-foreground"><p className="text-lg font-medium">Coming Soon</p><p className="text-sm mt-1">{config.label} module is being developed</p></div>;
+    return <div className="text-center py-16 text-muted-foreground"><p className="text-lg font-medium">Page Not Available</p><p className="text-sm mt-1">{config.label} does not have a valid configuration</p></div>;
   };
 
   return (

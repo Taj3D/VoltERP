@@ -820,16 +820,6 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
     };
   }, [valData, isVatAuditor]);
 
-  const valTotals = useMemo(() => {
-    const data = isVatAuditor ? [] : valFiltered;
-    return {
-      totalValue: data.reduce((s, v) => s + safeNum(v.totalValue), 0),
-      saleValue: data.reduce((s, v) => s + safeNum(v.saleValue), 0),
-      potentialProfit: data.reduce((s, v) => s + safeNum(v.potentialProfit), 0),
-      avgMargin: data.length > 0 ? data.reduce((s, v) => s + safeNum(v.marginPercent), 0) / data.filter(v => safeNum(v.marginPercent) !== 0).length : 0,
-    };
-  }, [valFiltered, isVatAuditor]);
-
   const valFiltered = useMemo(() => {
     let data = valData;
     if (valSearch) {
@@ -841,6 +831,16 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
     }
     return data;
   }, [valData, valSearch]);
+
+  const valTotals = useMemo(() => {
+    const data = isVatAuditor ? [] : valFiltered;
+    return {
+      totalValue: data.reduce((s, v) => s + safeNum(v.totalValue), 0),
+      saleValue: data.reduce((s, v) => s + safeNum(v.saleValue), 0),
+      potentialProfit: data.reduce((s, v) => s + safeNum(v.potentialProfit), 0),
+      avgMargin: data.length > 0 ? data.reduce((s, v) => s + safeNum(v.marginPercent), 0) / data.filter(v => safeNum(v.marginPercent) !== 0).length : 0,
+    };
+  }, [valFiltered, isVatAuditor]);
 
   // ============================================================
   // INIT: Load data based on active tab

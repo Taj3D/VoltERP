@@ -8,6 +8,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { logUserActivity } from '@/lib/activity-logger';
+import { withApiSecurity } from '@/lib/api-security';
 
 // ── Types ──
 interface AssertionResult {
@@ -24,6 +25,12 @@ function safeRound(value: number): number {
 
 // ── POST /api/staging/test-bed ──
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SystemSettings', 'POST');
+  if (!security.authorized) return security.response;
+  if (security.user.role !== 'admin') {
+    return NextResponse.json({ error: 'Access denied: Admin only' }, { status: 403 });
+  }
+
   const startTime = Date.now();
   const assertions: AssertionResult[] = [];
 

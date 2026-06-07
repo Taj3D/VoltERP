@@ -829,12 +829,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     // Phase 8: Snapshot for optimistic rollback
     setPersonnelSnapshot([...data]);
 
-    // Phase 8: Optimistic mutation — immediately update local data
+    // Phase 8: Optimistic mutation — immediately update local data (edits only; creates rely on loadData)
     if (editingItem) {
       setData(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...formData } : item));
-    } else {
-      const tempItem = { id: `temp-${Date.now()}`, ...formData, isNew: true };
-      setData(prev => [tempItem, ...prev]);
     }
 
     setSaving(true);
@@ -2022,8 +2019,11 @@ export default function PersonnelCRMGroupPage({ activeModule }: { activeModule?:
   const isVatAuditor = auth.user?.role === "vat_auditor";
   const userRole = auth.user?.role || "admin";
 
-  // Determine active tab
+  // Determine active tab — update when activeModule prop changes (sidebar navigation)
   const [activeTab, setActiveTab] = useState(activeModule || "designations");
+  useEffect(() => {
+    if (activeModule) setActiveTab(activeModule);
+  }, [activeModule]);
 
   // Group modules by category
   const personnelModules = MODULE_CONFIGS.filter(m => m.category === "personnel");

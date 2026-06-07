@@ -1,68 +1,91 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+// ============================================================
+// USERS CHANGE PASSWORD API — Consolidated with auth/change-password
+// POST: Admin-only password change with withApiSecurity
+// Redirects logic to use secure authentication instead of X-User-Email
+// ============================================================
+
+import { NextRequest, NextResponse } from "next/server";
+import { withApiSecurity } from "@/lib/api-security";
+import { logUserActivity } from "@/lib/activity-logger";
+import { sanitizeError } from "@/lib/exception-sanitizer";
+import { db } from "@/lib/db";
+
+// Password complexity validation (matches auth/password route)
+function validatePasswordComplexity(password: string): string | null {
+  if (!password || typeof password !== "string") return "Password is required";
+  if (password.length < 6) return "Password must be at least 6 characters long";
+  if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter";
+  if (!/[0-9]/.test(password)) return "Password must contain at least one number";
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/\?]/.test(password)) return "Password must contain at least one special character";
+  return null;
+}
 
 // POST /api/users/change-password — Change user password (admin only)
 export async function POST(req: NextRequest) {
   try {
-    const userEmail = req.headers.get('X-User-Email');
-    if (!userEmail) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const security = await withApiSecurity(req, "AuditLogs", "POST");
+    if (!security.authorized) return security.response;
 
-    const body = await req.json();
-    const { currentPassword, newPassword } = body;
+    // ── RBAC INTERLOCK: Only ADMIN can change passwords ──
+    if (security.user.role !== "admin") {
+      await logUserActivity({
+        action: "SECURITY_OVERRIDE",
+        module: "Sys-Profile-Core",
+        recordId: security.user.id,
+        recordLabel: security.user.email,
+        userId: security.user.id,
+        userName: security.user.name,
+        details: JSON.stringify({
+          blockedAction: "PASSWORD_CHANGE_ATTEMPT",
+          attemptedByRole: security.user.role,
+          blockedAt: new Date().toISOString(),
+          reason: "Privilege escalation blocked — only ADMIN role can change passwords",
+        }),
+      }).catch(() => {});
 
-    if (!currentPassword || !newPassword) {
       return NextResponse.json(
-        { error: 'Current password and new password are required' },
-        { status: 400 }
-      );
-    }
-
-    // Look up the requesting user
-    const user = await db.user.findUnique({ where: { email: userEmail } });
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 401 });
-    }
-
-    // Verify current password
-    if (user.password !== currentPassword) {
-      return NextResponse.json(
-        { error: 'Current password is incorrect' },
-        { status: 400 }
-      );
-    }
-
-    // CRITICAL RBAC: Only administrators can change passwords
-    if (user.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Only administrators can change passwords' },
+        {
+          error: "403 Forbidden: Privilege Escalation Blocked",
+          errorCode: "PRIVILEGE_ESCALATION_BLOCKED",
+          message: `Role '${security.user.role}' is not authorized to change passwords. Only ADMIN role has this privilege.`,
+        },
         { status: 403 }
       );
     }
 
-    // Password complexity validation
-    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+    const body = await req.json();
+    const { currentPassword, newPassword, confirmPassword } = body;
+
+    if (!currentPassword || !newPassword) {
       return NextResponse.json(
-        { error: 'New password must be at least 6 characters long' },
+        { error: "Current password and new password are required" },
         { status: 400 }
       );
     }
-    if (!/[A-Z]/.test(newPassword)) {
+
+    // Fetch user to verify current password
+    const user = await db.user.findUnique({ where: { email: security.user.email } });
+    if (!user) {
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
+
+    if (user.password !== currentPassword) {
       return NextResponse.json(
-        { error: 'New password must contain at least one uppercase letter' },
-        { status: 400 }
+        { error: "Current password is incorrect" },
+        { status: 401 }
       );
     }
-    if (!/[0-9]/.test(newPassword)) {
-      return NextResponse.json(
-        { error: 'New password must contain at least one number' },
-        { status: 400 }
-      );
+
+    // Validate password complexity
+    const complexityError = validatePasswordComplexity(newPassword);
+    if (complexityError) {
+      return NextResponse.json({ error: complexityError }, { status: 400 });
     }
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/\?]/.test(newPassword)) {
+
+    // Verify confirmation if provided
+    if (confirmPassword && newPassword !== confirmPassword) {
       return NextResponse.json(
-        { error: 'New password must contain at least one special character' },
+        { error: "New password and confirmation do not match" },
         { status: 400 }
       );
     }
@@ -70,47 +93,29 @@ export async function POST(req: NextRequest) {
     // Update the password
     await db.user.update({
       where: { id: user.id },
-      data: {
-        password: newPassword,
-      },
+      data: { password: newPassword },
     });
 
-    // Create an AuditLog entry
-    try {
-      await db.auditLog.create({
-        data: {
-          action: 'UPDATE',
-          module: 'Auth',
-          recordId: user.id,
-          recordLabel: 'Password Change',
-          userId: user.id,
-          userName: user.name,
-        },
-      });
-    } catch {
-      // Audit log creation should not block the password change
-    }
+    // Audit the password change
+    await logUserActivity({
+      action: "UPDATE",
+      module: "Auth-Password",
+      recordId: user.id,
+      recordLabel: user.email,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        action: "SELF_PASSWORD_CHANGE_SUCCESS",
+        changedAt: new Date().toISOString(),
+      }),
+    });
 
-    // Log to user activity (using AuditLog as UserActivityLog model doesn't exist)
-    try {
-      await db.auditLog.create({
-        data: {
-          action: 'UPDATE',
-          module: 'Auth-Password',
-          recordId: user.id,
-          recordLabel: 'Password Change Activity',
-          userId: user.id,
-          userName: user.name,
-          details: 'Password changed successfully',
-        },
-      });
-    } catch {
-      // Activity log should not block the response
-    }
-
-    return NextResponse.json({ success: true, message: 'Password changed successfully' });
+    return NextResponse.json({ success: true, message: "Password changed successfully" });
   } catch (error) {
-    console.error('Change password error:', error);
-    return NextResponse.json({ error: 'Failed to change password' }, { status: 500 });
+    const sanitized = sanitizeError(error, "users-change-password");
+    return NextResponse.json(
+      { error: sanitized.userMessage, errorCode: sanitized.errorCode },
+      { status: sanitized.statusCode }
+    );
   }
 }

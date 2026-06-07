@@ -11,6 +11,7 @@
 import { computeSmsSegments, safeFinancialRound } from '@/lib/api-security';
 import { db } from '@/lib/db';
 import { logUserActivity } from '@/lib/activity-logger';
+import { dispatchSingleSms, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
 
 interface AutoSmsResult {
   dispatched: boolean;
@@ -319,6 +320,49 @@ async function executeDispatchInternal(params: {
       };
     });
 
+    // ─── Gateway Dispatch: Try to send through the SMS gateway (non-blocking) ───
+    // If the gateway dispatch fails, the SmsLog stays as "Pending"
+    // and will be picked up later by the /api/sms/dispatch-pending route.
+    if (result.dispatched && result.smsLogId) {
+      try {
+        // Fetch the active setting outside the transaction for gateway dispatch
+        const gatewaySetting = await db.smsSetting.findFirst({
+          where: { isActive: true, companyId },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (gatewaySetting) {
+          const gatewayConfig = buildGatewayConfig(gatewaySetting);
+          const dispatchResult = await dispatchSingleSms(gatewayConfig, {
+            smsLogId: result.smsLogId,
+            recipient: recipient,
+            message: message,
+          });
+
+          // Update the SmsLog with the gateway result
+          await db.smsLog.update({
+            where: { id: result.smsLogId },
+            data: {
+              status: dispatchResult.status,
+              gatewayResponse: dispatchResult.gatewayResponse,
+              cost: dispatchResult.cost,
+              ...(dispatchResult.status === 'Sent' && { sentAt: new Date() }),
+            },
+          });
+
+          // Update the result to reflect actual gateway status
+          (result as AutoSmsResult).status = dispatchResult.status;
+        } else {
+          // No gateway configured — SmsLog stays as "Pending"
+          console.warn('[dispatchAutoSms] No SMS gateway configured. SmsLog stays Pending.');
+        }
+      } catch (gatewayErr) {
+        // Gateway dispatch failed — SmsLog stays as "Pending"
+        // The /api/sms/dispatch-pending route can retry later
+        console.error('[dispatchAutoSms] Gateway dispatch failed (entry stays Pending):', gatewayErr);
+      }
+    }
+
     return result as AutoSmsResult;
   } catch (txError) {
     console.error('[dispatchAutoSms] Transaction error (absorbed):', txError);
@@ -383,17 +427,24 @@ export function buildStockReceiveSms(params: {
 
 /**
  * buildHrExamSms — TRIGGER D (Payload 1): Exam Candidate SMS
- * "Dear [Candidate], your selection exam is scheduled on [ExamDate] at [Time]. Venue: VoltERP HQ."
+ * "Dear [Candidate], your selection exam is scheduled on [ExamDate] at [Time]. Venue: Please contact HR for details."
+ *
+ * Note: The venue field is dynamically configurable. If a venue is provided,
+ * it will be used; otherwise, a generic "Please contact HR for details" is shown.
  */
 export function buildHrExamSms(params: {
   candidateName: string;
   examDate: string;
   time: string;
+  venue?: string;
 }): string {
   const name = sanitizeSmsVariable(truncateSummary(params.candidateName, 30));
   const examDate = sanitizeSmsVariable(params.examDate);
   const time = sanitizeSmsVariable(params.time);
-  return `Dear ${name}, your selection exam is scheduled on ${examDate} at ${time}. Venue: VoltERP HQ.`;
+  const venue = params.venue
+    ? sanitizeSmsVariable(truncateSummary(params.venue, 40))
+    : 'Please contact HR for details';
+  return `Dear ${name}, your selection exam is scheduled on ${examDate} at ${time}. Venue: ${venue}.`;
 }
 
 /**

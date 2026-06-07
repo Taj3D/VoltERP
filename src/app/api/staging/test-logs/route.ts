@@ -1,7 +1,14 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { withApiSecurity } from '@/lib/api-security';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SystemSettings', 'GET');
+  if (!security.authorized) return security.response;
+  if (security.user.role !== 'admin') {
+    return NextResponse.json({ error: 'Access denied: Admin only' }, { status: 403 });
+  }
+
   try {
     const logs = await db.stagingTestLog.findMany({
       orderBy: { createdAt: 'desc' },

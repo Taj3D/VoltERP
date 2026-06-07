@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
+import { dispatchSmsBatch, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
 
 // ============================================================
 // GSM 03.38 Detection Helper
@@ -19,8 +20,9 @@ function detectEncoding(message: string): { encoding: 'GSM' | 'Unicode'; charsPe
 export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'SmsCampaigns', 'POST');
   if (!security.authorized) return security.response;
+  let body: any;
   try {
-    const body = await request.json();
+    body = await request.json();
     const { campaignId } = body;
 
     if (!campaignId) {
@@ -64,12 +66,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Check credit balance limit
-    if (activeSetting.creditBalanceLimit > 0) {
+    if ((activeSetting as any).creditBalanceLimit > 0) {
       // Calculate estimated cost: count total SMS units that would be sent
-      const estimatedCost = campaign.totalSmsUnits || (campaign.recipientCount * campaign.smsUnitsPerMsg);
-      if (estimatedCost > activeSetting.creditBalanceLimit) {
+      const estimatedCost = (campaign as any).totalSmsUnits || (campaign.recipientCount * (campaign as any).smsUnitsPerMsg);
+      if (estimatedCost > (activeSetting as any).creditBalanceLimit) {
         return NextResponse.json(
-          { error: `Insufficient SMS API credits. Estimated cost: ${estimatedCost} units, available limit: ${activeSetting.creditBalanceLimit} units. Please top up your SMS credits.` },
+          { error: `Insufficient SMS API credits. Estimated cost: ${estimatedCost} units, available limit: ${(activeSetting as any).creditBalanceLimit} units. Please top up your SMS credits.` },
           { status: 400 }
         );
       }
@@ -86,17 +88,17 @@ export async function POST(request: NextRequest) {
     if (campaign.companyId) {
       customerWhere.OR = [{ companyId: campaign.companyId }, { companyId: null }];
     }
-    if (campaign.filterZone) {
-      customerWhere.area = campaign.filterZone;
+    if ((campaign as any).filterZone) {
+      customerWhere.area = (campaign as any).filterZone;
     }
-    if (campaign.filterCustType) {
-      customerWhere.customerType = campaign.filterCustType;
+    if ((campaign as any).filterCustType) {
+      customerWhere.customerType = (campaign as any).filterCustType;
     }
-    if (campaign.filterDueMin != null) {
-      customerWhere.openingBalance = { ...((customerWhere.openingBalance as Record<string, unknown>) || {}), gte: campaign.filterDueMin };
+    if ((campaign as any).filterDueMin != null) {
+      customerWhere.openingBalance = { ...((customerWhere.openingBalance as Record<string, unknown>) || {}), gte: (campaign as any).filterDueMin };
     }
-    if (campaign.filterDueMax != null) {
-      customerWhere.openingBalance = { ...((customerWhere.openingBalance as Record<string, unknown>) || {}), lte: campaign.filterDueMax };
+    if ((campaign as any).filterDueMax != null) {
+      customerWhere.openingBalance = { ...((customerWhere.openingBalance as Record<string, unknown>) || {}), lte: (campaign as any).filterDueMax };
     }
 
     // Fetch matching customers
@@ -112,6 +114,7 @@ export async function POST(request: NextRequest) {
     const dispatchResults: { recipient: string; customerName: string; status: string; error?: string }[] = [];
     let successCount = 0;
     let failCount = 0;
+    const createdSmsLogIds: string[] = [];
 
     await db.$transaction(async (tx) => {
       for (const customer of customers) {
@@ -137,6 +140,7 @@ export async function POST(request: NextRequest) {
             },
           });
 
+          createdSmsLogIds.push(log.id);
           dispatchResults.push({ recipient: customer.phone.trim(), customerName: customer.name || '', status: log.status });
           successCount++;
         } catch (err: any) {
@@ -165,12 +169,12 @@ export async function POST(request: NextRequest) {
           action: 'UPDATE',
           module: 'SmsCampaigns',
           recordId: campaignId,
-          recordLabel: campaign.campaignName,
+          recordLabel: campaign.name,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
           details: JSON.stringify({
             action: 'Dispatch',
-            campaignName: campaign.campaignName,
+            campaignName: campaign.name,
             totalRecipients: customers.length,
             successCount,
             failCount,
@@ -179,6 +183,84 @@ export async function POST(request: NextRequest) {
         },
       });
     });
+
+    // ─── Gateway Dispatch: Send Pending SmsLog entries through the SMS gateway ───
+    // This happens AFTER the transaction completes successfully.
+    // Each message is dispatched independently; failures are recorded per-message.
+    if (createdSmsLogIds.length > 0 && activeSetting) {
+      try {
+        // Fetch the created SmsLog entries that need dispatching
+        const pendingLogs = await db.smsLog.findMany({
+          where: {
+            id: { in: createdSmsLogIds },
+            status: 'Pending',
+          },
+          select: { id: true, recipient: true, message: true },
+        });
+
+        if (pendingLogs.length > 0) {
+          const gatewayConfig = buildGatewayConfig(activeSetting);
+
+          const batchResult = await dispatchSmsBatch(
+            gatewayConfig,
+            pendingLogs.map((log) => ({
+              smsLogId: log.id,
+              recipient: log.recipient,
+              message: log.message,
+            })),
+            { concurrency: 5, delayMs: 100 }
+          );
+
+          // Update each SmsLog with the gateway dispatch result
+          for (const result of batchResult.results) {
+            try {
+              await db.smsLog.update({
+                where: { id: result.smsLogId },
+                data: {
+                  status: result.status,
+                  gatewayResponse: result.gatewayResponse,
+                  cost: result.cost,
+                  ...(result.status === 'Sent' && { sentAt: new Date() }),
+                },
+              });
+            } catch (updateErr) {
+              console.error(`[sms-campaign-dispatch] Failed to update SmsLog ${result.smsLogId}:`, updateErr);
+            }
+          }
+
+          // Update dispatch results with actual gateway status
+          for (const result of batchResult.results) {
+            const existing = dispatchResults.find(
+              (dr) => dr.recipient === result.recipient
+            );
+            if (existing) {
+              existing.status = result.status;
+              if (result.error) {
+                existing.error = result.error;
+              }
+            }
+          }
+
+          // Recount based on actual gateway results
+          successCount = batchResult.sent;
+          failCount = batchResult.failed + batchResult.pending;
+
+          // Update campaign with actual dispatch stats
+          await db.smsCampaign.update({
+            where: { id: campaignId },
+            data: {
+              sentCount: batchResult.sent,
+              failedCount: batchResult.failed,
+              status: batchResult.failed === 0 && batchResult.pending === 0 ? 'Completed' : 'Completed',
+            },
+          });
+        }
+      } catch (gatewayErr) {
+        // Gateway dispatch failed — SmsLog entries remain Pending
+        // They can be picked up later by the /api/sms/dispatch-pending route
+        console.error('[sms-campaign-dispatch] Gateway dispatch error (entries remain Pending):', gatewayErr);
+      }
+    }
 
     return NextResponse.json({
       campaignId,
@@ -191,7 +273,7 @@ export async function POST(request: NextRequest) {
     console.error('Error dispatching SMS campaign:', error);
     // Try to mark the campaign as Failed
     try {
-      if (body.campaignId) {
+      if (body?.campaignId) {
         await db.smsCampaign.update({
           where: { id: body.campaignId },
           data: { status: 'Failed' },

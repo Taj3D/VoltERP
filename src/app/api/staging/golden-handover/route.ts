@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logUserActivity } from '@/lib/activity-logger';
+import { withApiSecurity } from '@/lib/api-security';
 
 // ── Types ──
 type OperationType = 'GLOBAL_OPTIMIZATION' | 'GOLDEN_HANDOVER' | 'BUILD_VALIDATION' | 'CERTIFICATION_EXPORT';
@@ -267,6 +268,12 @@ async function countSystemMetrics(companyId: string | null): Promise<{
 // MAIN POST HANDLER
 // ════════════════════════════════════════════════════════════════
 export async function POST(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SystemSettings', 'POST');
+  if (!security.authorized) return security.response;
+  if (security.user.role !== 'admin') {
+    return NextResponse.json({ error: 'Access denied: Admin only' }, { status: 403 });
+  }
+
   const startTime = Date.now();
 
   // ── Parse request body ──
