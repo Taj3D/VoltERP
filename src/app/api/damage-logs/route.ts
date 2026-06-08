@@ -211,12 +211,12 @@ export async function POST(request: NextRequest) {
     if (batchNumber && String(batchNumber).trim() !== '') {
       const batch = await db.batchMaster.findFirst({
         where: {
-          batchNumber: String(batchNumber).trim(),
+          batchCode: String(batchNumber).trim(),
           productId: String(productId),
           godownId: String(godownId),
           isActive: true,
         },
-        select: { id: true, quantity: true, totalCost: true, costPrice: true },
+        select: { id: true, quantityOnHand: true, costPricePerUnit: true },
       });
 
       if (!batch) {
@@ -226,11 +226,11 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      if (safeQuantity > batch.quantity) {
+      if (safeQuantity > batch.quantityOnHand) {
         return NextResponse.json(
           {
-            error: `Insufficient batch stock. Available batch quantity is ${batch.quantity}, but requested write-off quantity is ${safeQuantity}.`,
-            available: batch.quantity,
+            error: `Insufficient batch stock. Available batch quantity is ${batch.quantityOnHand}, but requested write-off quantity is ${safeQuantity}.`,
+            available: batch.quantityOnHand,
             requested: safeQuantity,
           },
           { status: 400 }
@@ -311,28 +311,25 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // STEP 4: If batchNumber provided, decrement BatchMaster.quantity and BatchMaster.totalCost
+      // STEP 4: If batchNumber provided, decrement BatchMaster.quantityOnHand
       if (cleanBatchNumber) {
         const batchRecord = await tx.batchMaster.findFirst({
           where: {
-            batchNumber: cleanBatchNumber,
+            batchCode: cleanBatchNumber,
             productId: String(productId),
             godownId: String(godownId),
             isActive: true,
           },
-          select: { id: true, quantity: true, totalCost: true, costPrice: true },
+          select: { id: true, quantityOnHand: true, costPricePerUnit: true },
         });
 
         if (batchRecord) {
-          const newBatchQuantity = safeFinancialSubtract(batchRecord.quantity, safeQuantity);
-          const batchLossCost = safeFinancialRound(safeQuantity * batchRecord.costPrice);
-          const newBatchTotalCost = safeFinancialSubtract(batchRecord.totalCost, batchLossCost);
+          const newBatchQuantity = safeFinancialSubtract(batchRecord.quantityOnHand, safeQuantity);
 
           await tx.batchMaster.update({
             where: { id: batchRecord.id },
             data: {
-              quantity: newBatchQuantity,
-              totalCost: newBatchTotalCost,
+              quantityOnHand: newBatchQuantity,
             },
           });
         }
@@ -346,7 +343,7 @@ export async function POST(request: NextRequest) {
           batchId: cleanBatchNumber
             ? (await tx.batchMaster.findFirst({
                 where: {
-                  batchNumber: cleanBatchNumber,
+                  batchCode: cleanBatchNumber,
                   productId: String(productId),
                   godownId: String(godownId),
                   isActive: true,
@@ -357,7 +354,6 @@ export async function POST(request: NextRequest) {
           type: 'OUT',
           quantity: safeQuantity,
           costPrice: safeLossCostPrice,
-          totalCost: safeTotalLossValue,
           reference: damageCode,
           referenceType: 'DamageLog',
           companyId: companyId || null,

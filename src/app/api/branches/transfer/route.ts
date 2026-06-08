@@ -16,7 +16,7 @@ import {
 import { logUserActivity } from '@/lib/activity-logger';
 
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Companies', 'GET');
+  const security = await withApiSecurity(request, 'BranchTransfers', 'GET');
   if (!security.authorized) return security.response;
 
   const companyId = security.user.companyId;
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'Companies', 'POST');
+  const security = await withApiSecurity(request, 'BranchTransfers', 'POST');
   if (!security.authorized) return security.response;
 
   const companyId = security.user.companyId;

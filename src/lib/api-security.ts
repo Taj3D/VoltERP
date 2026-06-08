@@ -51,6 +51,12 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   Stock: 'inventory',
   StockEntries: 'inventory',
   StockTransfers: 'inventory',
+  Batches: 'inventory',
+  BatchMaster: 'inventory',
+  Branches: 'basic-modules',
+  BranchTransfers: 'inventory',
+  DamageLogs: 'inventory',
+  ProductStock: 'inventory',
   // Account Management
   ExpenseIncomeHeads: 'account',
   Expenses: 'account',
@@ -58,6 +64,9 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   CashCollections: 'account',
   CashDeliveries: 'account',
   BankTransactions: 'account',
+  JournalVouchers: 'account',
+  Cheques: 'account',
+  FiscalYears: 'account',
   // SMS
   SmsSettings: 'sms',
   SmsLogs: 'sms',
@@ -107,7 +116,7 @@ const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
   manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'audit-integrity', 'system-config', 'report', 'user-profile'],
   sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile'],
   dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report', 'user-profile'],
-  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile'],
+  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'account', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile'],
 };
 
 // Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
@@ -115,7 +124,7 @@ const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
   sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SmsSettings'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'JournalVouchers', 'Cheques', 'FiscalYears', 'DamageLogs'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -124,7 +133,7 @@ const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
   sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'Designations', 'Employees', 'EmployeeLeaves'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'StockEntries', 'Stock', 'Batches', 'BatchMaster', 'Branches', 'BranchTransfers', 'DamageLogs', 'ProductStock'],
   vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
 };
 
@@ -735,6 +744,48 @@ export const ACCOUNTING_VAT_MASKED_FIELDS = [
   'cashOut',
   'bankIn',
   'bankOut',
+  // Balance Sheet specific (additional)
+  'customerAdvances',
+  'debtToEquity',
+  'value', // Chart composition arrays
+  'totalSales',
+  'totalHireSales',
+  'totalReturns',
+  'totalDeliveries',
+  'netWorth',
+  // Cash In Hand totals keys
+  'cashCollections',
+  'cashDeliveries',
+  'cashIncome',
+  'cashExpense',
+  // Collection Matrix specific
+  'totalInvoiced',
+  'totalCollected',
+  'totalReturned',
+  'collectionRate',
+  'overallCollectionRate',
+  'invoiced',
+  'collected',
+  'returned',
+  'days1to30', // Aging bucket amount
+  // Fraud Detection specific
+  'totalBookValue',
+  'totalMarketValue',
+  'valuationGap',
+  'bookValue',
+  'marketValue',
+  'totalPayable',
+  'totalPaid',
+  'overdueAmount',
+  'excessAmount',
+  'concentrationPercent',
+  'marginPercent',
+  'discrepancyPercent',
+  'totalLossValue',
+  'lossCostPrice',
+  'totalCost',
+  // Ledger integrity / unbalanced amounts
+  'difference',
 ];
 
 /**
@@ -799,7 +850,10 @@ export function maskAccountingReportForVatAuditor(
   if (role !== 'vat_auditor') return data;
 
   const masked = { ...data };
+  // Use combined field set for comprehensive coverage (same as maskDashboardForVatAuditor)
   const monetaryKeys = new Set(ACCOUNTING_VAT_MASKED_FIELDS);
+  AUDIT_INTEGRITY_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+  FINANCIAL_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
 
   function maskRecursive(obj: unknown): unknown {
     if (obj === null || obj === undefined) return obj;

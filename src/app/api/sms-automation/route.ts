@@ -113,37 +113,33 @@ export async function POST(request: NextRequest) {
     const smsAlertOnStockReceive = Boolean(body.smsAlertOnStockReceive ?? false);
     const smsAlertOnHrLifecycle = Boolean(body.smsAlertOnHrLifecycle ?? false);
 
-    const record = await db.$transaction(async (tx) => {
-      const created = await tx.smsAutomationConfig.create({
-        data: {
-          smsAlertOnPurchase,
-          smsAlertOnCollection,
-          smsAlertOnStockReceive,
-          smsAlertOnHrLifecycle,
-          isActive: true,
-          ...(companyId && { companyId }),
-        },
-      });
-
-      // Activity log with Comm-SMS-Marketing module token
-      await logUserActivity({
-        action: 'CREATE',
-        module: 'Comm-SMS-Marketing',
-        recordId: created.id,
-        recordLabel: `SMS Automation Config`,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          smsAlertOnPurchase: created.smsAlertOnPurchase,
-          smsAlertOnCollection: created.smsAlertOnCollection,
-          smsAlertOnStockReceive: created.smsAlertOnStockReceive,
-          smsAlertOnHrLifecycle: created.smsAlertOnHrLifecycle,
-          companyId: created.companyId,
-        }),
-      });
-
-      return created;
+    const record = await db.smsAutomationConfig.create({
+      data: {
+        smsAlertOnPurchase,
+        smsAlertOnCollection,
+        smsAlertOnStockReceive,
+        smsAlertOnHrLifecycle,
+        isActive: true,
+        ...(companyId && { companyId }),
+      },
     });
+
+    // Fire-and-forget activity log (outside transaction to avoid timeout)
+    logUserActivity({
+      action: 'CREATE',
+      module: 'Comm-SMS-Marketing',
+      recordId: record.id,
+      recordLabel: `SMS Automation Config`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        smsAlertOnPurchase: record.smsAlertOnPurchase,
+        smsAlertOnCollection: record.smsAlertOnCollection,
+        smsAlertOnStockReceive: record.smsAlertOnStockReceive,
+        smsAlertOnHrLifecycle: record.smsAlertOnHrLifecycle,
+        companyId: record.companyId,
+      }),
+    }).catch(() => {});
 
     // Apply VAT Auditor masking on response
     const masked = maskForVatAuditorSms(

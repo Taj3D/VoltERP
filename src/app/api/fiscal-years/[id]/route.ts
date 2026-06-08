@@ -106,25 +106,25 @@ export async function PUT(
         data: updateData,
       });
 
-      // Activity log
-      await logUserActivity({
-        action: 'UPDATE',
-        module: 'Fin-Statements-Core',
-        recordId: record.id,
-        recordLabel: record.name,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          previousName: existing.name,
-          newName: record.name,
-          previousNotes: existing.notes,
-          newNotes: record.notes,
-          companyId,
-        }),
-      });
-
       return record;
     });
+
+    // Fire-and-forget activity log (outside transaction to avoid SQLite timeout)
+    logUserActivity({
+      action: 'UPDATE',
+      module: 'Fin-Statements-Core',
+      recordId: item.id,
+      recordLabel: item.name,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        previousName: existing.name,
+        newName: item.name,
+        previousNotes: existing.notes,
+        newNotes: item.notes,
+        companyId,
+      }),
+    }).catch(() => {});
 
     return NextResponse.json(item);
   } catch (error) {
@@ -186,26 +186,26 @@ export async function DELETE(
         where: { id },
         data: { isActive: false },
       });
-
-      // Activity log
-      await logUserActivity({
-        action: 'DELETE',
-        module: 'Fin-Statements-Core',
-        recordId: existing.id,
-        recordLabel: existing.name,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          code: existing.code,
-          name: existing.name,
-          startDate: existing.startDate,
-          endDate: existing.endDate,
-          status: existing.status,
-          softDelete: true,
-          companyId,
-        }),
-      });
     });
+
+    // Fire-and-forget activity log (outside transaction to avoid SQLite timeout)
+    logUserActivity({
+      action: 'DELETE',
+      module: 'Fin-Statements-Core',
+      recordId: existing.id,
+      recordLabel: existing.name,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        code: existing.code,
+        name: existing.name,
+        startDate: existing.startDate,
+        endDate: existing.endDate,
+        status: existing.status,
+        softDelete: true,
+        companyId,
+      }),
+    }).catch(() => {});
 
     return NextResponse.json({ success: true, message: 'Fiscal year deleted successfully' });
   } catch (error) {

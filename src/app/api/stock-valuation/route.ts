@@ -133,7 +133,6 @@ export async function GET(request: NextRequest) {
         productId: true,
         quantity: true,
         costPrice: true,
-        totalCost: true,
         date: true,
         batchId: true,
       },
@@ -167,7 +166,6 @@ export async function GET(request: NextRequest) {
         id: string;
         quantity: number;
         costPrice: number;
-        totalCost: number;
         date: Date;
         batchId: string | null;
       }>
@@ -187,10 +185,10 @@ export async function GET(request: NextRequest) {
     if (batchIds.length > 0) {
       const batches = await db.batchMaster.findMany({
         where: { id: { in: batchIds } },
-        select: { id: true, batchNumber: true },
+        select: { id: true, batchCode: true },
       });
       for (const b of batches) {
-        batchMap.set(b.id, b.batchNumber);
+        batchMap.set(b.id, b.batchCode);
       }
     }
 
@@ -210,7 +208,7 @@ export async function GET(request: NextRequest) {
       let totalInCost = 0;
       for (const entry of inProductEntries) {
         totalInQty = safeFinancialAdd(totalInQty, entry.quantity);
-        totalInCost = safeFinancialAdd(totalInCost, entry.totalCost);
+        totalInCost = safeFinancialAdd(totalInCost, safeFinancialRound(entry.quantity * entry.costPrice));
       }
 
       // Net quantity

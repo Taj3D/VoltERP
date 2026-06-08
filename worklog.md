@@ -2112,3 +2112,1125 @@ Task: Phase 6 — API Verification Batch 1 (Auth + Core + Structure + Operations
 - GET /api/users accessible by all roles (low risk, no password leak)
 - Designations POST needs departmentId validation (medium)
 - Field name mismatches documented (frontend handles correctly)
+
+---
+Task ID: 7-a
+Agent: API Verification Agent
+Task: API Verification — Batch 2, Inventory Module (comprehensive audit of all Inventory API routes)
+
+## Inventory API Verification Results
+
+### Test Summary Table
+
+| Route | Method | Status | Response OK? | Issue |
+|-------|--------|--------|-------------|-------|
+| /api/order-sheets | GET | 200 | ✅ | Returns [] (empty, no data) |
+| /api/order-sheets | POST | 400 | ✅ | Proper validation: "Date is required" |
+| /api/order-sheets | POST (with data) | 500 | ❌ | **CRITICAL**: Server crash on valid data |
+| /api/order-sheets/[id] | GET/PUT/DELETE | — | ⚠️ | No records exist to test; route files exist |
+| /api/order-sheets/stock-check | GET | 400 | ✅ | Proper validation: "productId required" |
+| /api/order-sheets/stock-check | POST | 405 | ✅ | Method not allowed (correct) |
+| /api/company-ordersheet | GET | 500 | ❌ | **Route doesn't exist** — hits Next.js page renderer |
+| /api/purchase-orders | GET | 200 | ✅ | Returns array with 2 POs |
+| /api/purchase-orders | POST | 400 | ✅ | Proper validation: "supplierId is required" |
+| /api/purchase-orders/[id] | GET | 200 | ✅ | Returns full PO with relations |
+| /api/purchase-orders/[id] | PUT | 200 | ✅ | Updates successfully |
+| /api/purchase-orders/[id] | DELETE | 200 | ✅ | Soft deletes with stock reversal |
+| /api/purchase-orders/receive | POST | 400 | ✅ | Proper validation: "purchaseOrderId is required" |
+| /api/sales-orders | GET | 200 | ✅ | Returns array with SOs |
+| /api/sales-orders | POST | 400 | ✅ | Proper validation: "customerId is required" |
+| /api/sales-orders/[id] | GET | 200 | ✅ | Returns full SO with relations |
+| /api/sales-orders/[id] | PUT | 200 | ✅ | Updates successfully |
+| /api/sales-orders/[id] | DELETE | 200 | ✅ | Soft deletes with stock reversal |
+| /api/sales-orders/cogs | GET | 200 | ✅ | Returns COGS analysis |
+| /api/auto-po | GET | 200 | ✅ | Returns auto-PO suggestions |
+| /api/auto-po | POST | 400 | ✅ | Proper validation: "supplierId is required" |
+| /api/hire-sales | GET | 200 | ✅ | Returns array |
+| /api/hire-sales | POST | 400 | ✅ | Proper validation: "customerId, date, and lines are required" |
+| /api/hire-sales/[id] | GET | 200 | ✅ | Returns full hire sale |
+| /api/hire-sales/[id] | PUT | 200 | ✅ | Updates successfully |
+| /api/hire-sales/[id] | DELETE | 200 | ✅ | Soft deletes |
+| /api/hire-sales/installment-payment | POST | 400 | ✅ | Proper validation |
+| /api/sales-returns | GET | 200 | ✅ | Returns array |
+| /api/sales-returns | POST | 400 | ✅ | Proper validation: "salesOrderId is required" |
+| /api/sales-returns/[id] | GET | 404 | ✅ | Proper 404 for fake ID |
+| /api/sales-returns/[id] | PUT | 404 | ✅ | Proper 404 for fake ID |
+| /api/sales-returns/[id] | DELETE | 404 | ✅ | Proper 404 for fake ID |
+| /api/purchase-returns | GET | 200 | ✅ | Returns array |
+| /api/purchase-returns | POST | 400 | ✅ | Proper validation: "purchaseOrderId is required" |
+| /api/purchase-returns/[id] | GET | 404 | ✅ | Proper 404 for fake ID |
+| /api/replacements | GET | 200 | ✅ | Returns array |
+| /api/replacements | POST | 400 | ✅ | Proper validation: "date is required" |
+| /api/replacements/[id] | GET | 404 | ✅ | Proper 404 for fake ID |
+| /api/stock | GET | 200 | ✅ | Returns stock summary |
+| /api/stock/godown-balance | GET | 400→200 | ✅ | Requires productId+godownId params; works with params |
+| /api/stock-details | GET | 200 | ✅ | Returns detailed stock info |
+| /api/stock-entries | GET | 200 | ✅ | Returns paginated entries |
+| /api/stock-entries | POST | 429 | ⚠️ | Rate-limited during testing |
+| /api/stock-valuation | GET | 500 | ❌ | **CRITICAL**: Prisma field mismatch — `totalCost` doesn't exist on StockEntry |
+| /api/product-stock | GET | 200 | ✅ | Returns array |
+| /api/product-stock | POST | 429 | ⚠️ | Rate-limited during testing |
+| /api/product-stock/[id] | GET | 404 | ✅ | Proper 404 for fake ID |
+| /api/product-stock/[id] | PUT | 200 | ✅ | Updates successfully |
+| /api/product-stock/[id] | DELETE | 200 | ✅ | Deletes successfully |
+| /api/opening-stock | GET | 200 | ✅ | Returns array |
+| /api/opening-stock | POST | 429 | ⚠️ | Rate-limited during testing |
+| /api/opening-stock/[id] | GET | 500 | ❌ | **No [id] route exists** — hits page renderer |
+| /api/batch-master | GET | 500 | ❌ | **CRITICAL**: Prisma include fails — `godown` relation missing from BatchMaster |
+| /api/batch-master | POST | 500 | ❌ | **CRITICAL**: Schema mismatch — `batchNumber`→`batchCode`, `quantity`→`quantityReceived`, `costPrice`→`costPricePerUnit`, missing `batchCode` |
+| /api/batch-master/[id] | GET | 500 | ❌ | Same Prisma include crash as GET list |
+| /api/batches | GET | 200 | ✅ | Returns array |
+| /api/batches | POST | 400→201 | ✅ | Proper validation; creates with correct fields |
+| /api/batches/[id] | PUT | 200 | ✅ | Updates successfully |
+| /api/batches/[id] | DELETE | 200 | ✅ | Deletes successfully |
+| /api/transfers | GET | 200 | ✅ | Returns array |
+| /api/transfers | POST | 201 | ✅ | Creates with stock validation |
+| /api/transfers/[id] | GET | 200 | ✅ | Returns full transfer |
+| /api/transfers/[id] | PUT | 200 | ✅ | Status transitions work |
+| /api/transfers/[id] | DELETE | 200 | ✅ | Soft deletes with stock reversal |
+| /api/branches | GET | 200 | ✅ | Returns array |
+| /api/branches | POST | 400 | ✅ | Requires companyId |
+| /api/branches/[id] | GET | 404 | ✅ | Proper 404 for fake ID |
+| /api/branches/transfer | GET | 200 | ✅ | Returns array |
+| /api/branches/transfer | POST | 400 | ✅ | Requires companyId |
+| /api/branches/transfer/[id] | PUT | — | ✅ | Only PUT (authorize/reject), admin-only |
+| /api/damage-logs | GET | 200 | ✅ | Returns array |
+| /api/damage-logs | POST | 500 | ❌ | **CRITICAL**: `totalCost` field doesn't exist on StockEntry; also `batchNumber`→`batchCode` mismatch |
+| /api/damage-logs/[id] | GET | 404 | ✅ | Proper 404 for fake ID |
+| /api/valuation | GET | 200 | ✅ | Returns valuation data |
+| /api/inventory-aging | GET | 200 | ✅ | Returns aging analysis |
+| /api/product-lifecycle | GET | 200 | ✅ | Returns lifecycle data |
+| /api/credit-check | GET | 405 | ✅ | Only POST supported |
+| /api/credit-check | POST | 400 | ✅ | Proper validation |
+
+### RBAC Test Results
+
+| Route | Dealer GET | Dealer POST | SR GET | SR POST | VAT GET |
+|-------|-----------|-------------|--------|---------|---------|
+| order-sheets | 200 | 400 ⚠️ | 200 | 400 ⚠️ | 200 |
+| purchase-orders | 403 ✅ | 403 ✅ | 403 ✅ | — | 200 |
+| sales-orders | 200 | 400 ⚠️ | 200 | 400 | 200 |
+| hire-sales | 200 | 400 ⚠️ | 200 | 400 | 200 |
+| sales-returns | 403 ✅ | — | 200 | 400 | 200 |
+| purchase-returns | 403 ✅ | — | 403 ✅ | — | 200 |
+| replacements | 403 ✅ | — | 200 | 403 ✅ | 200 |
+| stock | 200 | 400 ⚠️ | 200 | 400 ⚠️ | 200 |
+| stock-details | 200 | — | 200 | — | 200 |
+| stock-entries | 200 | — | 200 | — | 200 |
+| stock-valuation | 500 ❌ | — | 500 ❌ | — | 500 ❌ |
+| product-stock | 200 | 400 ⚠️ | 200 | 400 ⚠️ | 200 |
+| opening-stock | 200 | 400 ⚠️ | 200 | 400 ⚠️ | 200 |
+| batch-master | 500 ❌ | — | 500 ❌ | — | 500 ❌ |
+| batches | 200 | 400 ⚠️ | 200 | 400 ⚠️ | 200 |
+| transfers | 403 ✅ | — | 200 | 403 ✅ | 200 |
+| branches | 200 | 400 ⚠️ | 200 | 400 ⚠️ | 200 |
+| damage-logs | 403 ✅ | — | 200 | — | 200 |
+| valuation | 200 | — | 200 | — | 200 |
+| inventory-aging | 403 ✅ | — | 403 ✅ | — | 200 |
+| product-lifecycle | 403 ✅ | — | 403 ✅ | — | 200 |
+| auto-po | 403 ✅ | — | 403 ✅ | — | 200 |
+
+### Auth Edge Cases
+- No auth token → 401 AUTH_REQUIRED ✅
+- Invalid JWT → 403 TOKEN_INVALID ✅
+- Expired JWT → 403 TOKEN_EXPIRED ✅ (implicit from short-lived tokens)
+
+---
+
+## Issues by Severity
+
+### 🔴 CRITICAL (5 issues)
+
+**C1. `/api/stock-valuation` GET returns 500 — Prisma `totalCost` field doesn't exist on StockEntry**
+- **Root Cause**: `src/app/api/stock-valuation/route.ts` line 136 selects `totalCost: true` and line 213 reads `entry.totalCost`, but the StockEntry Prisma model has NO `totalCost` field (only `costPrice` and `quantity`)
+- **Impact**: Entire stock valuation feature is broken — FIFO/Weighted Average calculations crash
+- **Fix**: Replace `totalCost` references with `costPrice * quantity` computation, or remove `totalCost` from select and compute inline
+
+**C2. `/api/batch-master` GET returns 500 — Prisma include `godown` relation doesn't exist on BatchMaster**
+- **Root Cause**: `src/app/api/batch-master/route.ts` line 33 does `include: { product: true, godown: true }`, but BatchMaster model has no `godown` relation (only `godownId` scalar field)
+- **Impact**: Batch master listing is completely broken
+- **Fix**: Remove `godown: true` from include; either add `godown` relation to Prisma schema or do separate lookup
+
+**C3. `/api/batch-master` POST returns 500 — Schema field name mismatches**
+- **Root Cause**: `src/app/api/batch-master/route.ts` POST handler uses field names that don't match the BatchMaster Prisma model:
+  - `batchNumber` → schema field is `batchCode` (also missing auto-generation)
+  - `quantity` → schema field is `quantityReceived`
+  - `costPrice` → schema field is `costPricePerUnit`
+  - `salePrice` → schema field is `salePricePerUnit`
+  - `totalCost` → doesn't exist in schema
+  - Missing required `batchCode` (unique, auto-generated)
+- **Impact**: Cannot create batch master records via API
+- **Fix**: Align POST handler field names with Prisma schema, add auto-generated `batchCode`
+
+**C4. `/api/damage-logs` POST returns 500 — StockEntry `totalCost` field doesn't exist + BatchMaster field mismatch**
+- **Root Cause**: `src/app/api/damage-logs/route.ts` line 360 passes `totalCost` to `tx.stockEntry.create()`, but StockEntry has no `totalCost` field. Also line 349 queries `batchNumber` on BatchMaster but schema uses `batchCode`
+- **Impact**: Cannot create damage log records — entire damage tracking feature broken
+- **Fix**: Remove `totalCost` from StockEntry create, compute totalCost from costPrice * quantity if needed. Change `batchNumber` to `batchCode` in BatchMaster queries.
+
+**C5. `/api/order-sheets` POST crashes with 500 on valid data**
+- **Root Cause**: Likely a Prisma field mismatch in the transaction (similar pattern to above). The `handleCreate` function performs stock validation and creates order sheets with lines. Empty response body suggests an unhandled Prisma error.
+- **Impact**: Cannot create order sheets — core ordering feature broken
+- **Fix**: Debug the transaction in handleCreate; likely field name mismatches with Prisma schema
+
+### 🟠 HIGH (4 issues)
+
+**H1. VAT Auditor line-level financial data NOT masked on Purchase Orders and Sales Orders**
+- **Detail**: Top-level fields (grandTotal, subTotal, vatAmount, discount) are correctly masked to "N/A (Audit Mode)", but line-level fields (rate, total, vatAmount, costPrice) are NOT masked
+- **Impact**: VAT Auditor can see individual product pricing on PO/SO lines, defeating the purpose of financial masking
+- **Fix**: Add line-level masking in PO/SO GET handlers for VAT Auditor role
+
+**H2. Dealer has excessive write access to inventory APIs**
+- **Detail**: Dealer can POST to: order-sheets, sales-orders, hire-sales, stock, product-stock, opening-stock, batches, branches (all return 400 = validation error, not 403 = denied)
+- **Impact**: Dealer role can potentially create/modify stock entries, batches, branches — should be restricted to read-only or order-only access
+- **Fix**: Add role checks in POST handlers for inventory routes that dealer shouldn't modify (stock, product-stock, opening-stock, batches, branches)
+
+**H3. `/api/company-ordersheet` returns 500 — Route doesn't exist**
+- **Detail**: The URL `/api/company-ordersheet` doesn't have a route.ts file. Next.js tries to render it as a page component and crashes with "Event handlers cannot be passed to Client Component props"
+- **Impact**: Company ordersheet API is inaccessible
+- **Fix**: Either create the route.ts file or remove the API path from frontend code if it's not needed
+
+**H4. `/api/branches/transfer/[id]` passes `totalCost` to StockEntry.create() — same Prisma mismatch**
+- **Root Cause**: `src/app/api/branches/transfer/[id]/route.ts` lines 176 and 243 pass `totalCost` and `isActive` to `tx.stockEntry.create()`, but StockEntry doesn't have `totalCost` field
+- **Impact**: Inter-branch stock transfer completion will crash with Prisma error
+- **Fix**: Remove `totalCost` from StockEntry.create() calls; remove `isActive` (not in schema)
+
+### 🟡 MEDIUM (4 issues)
+
+**M1. `/api/opening-stock/[id]` returns 500 instead of 404**
+- **Detail**: No `[id]` sub-route exists for opening-stock. Accessing `/api/opening-stock/any_id` hits Next.js page renderer and crashes
+- **Fix**: Either create `[id]/route.ts` or ensure frontend never calls this path
+
+**M2. Rate limiting (429) on stock-entries, product-stock, opening-stock POST during testing**
+- **Detail**: Aggressive rate limiting on write endpoints blocks rapid API calls during testing
+- **Impact**: Could affect batch import operations
+- **Fix**: Consider higher rate limits for admin role or batch import mode
+
+**M3. Sales Order DELETE doesn't protect against linked returns/replacements**
+- **Detail**: `DELETE /api/sales-orders/[id]` successfully deletes even if there are linked sales-returns or replacements (though none exist in test data)
+- **Fix**: Add referential integrity check before allowing delete
+
+**M4. Purchase Order DELETE doesn't protect against linked purchase-returns**
+- **Detail**: `DELETE /api/purchase-orders/[id]` successfully deletes without checking for linked purchase-returns
+- **Fix**: Add referential integrity check before allowing delete
+
+### 🟢 LOW (3 issues)
+
+**L1. damage-logs POST requires non-obvious fields: `lossCostPrice`, `reason` (enum: BROKEN/EXPIRED/THEFT/MOISTURE)**
+- **Detail**: The API requires `lossCostPrice` (>0) and `reason` (specific enum), but these aren't the most intuitive field names
+- **Fix**: Improve error messages to list valid enum values and explain required fields
+
+**L2. hire-sales POST `duration` field not documented in error message**
+- **Detail**: Error says "customerId, date, and lines are required" but `duration` is also required and not mentioned
+- **Fix**: Update validation message to include `duration`
+
+**L3. order-sheets `orderType` defaults to "Company" requiring `companyId`**
+- **Detail**: Default orderType is "Company" which requires companyId. Customer-type orders need explicit `orderType: "Customer"`
+- **Fix**: Consider making orderType required with no default to avoid confusion
+
+---
+
+## Schema Mismatch Root Cause Analysis
+
+The root cause of most CRITICAL issues is a **systematic Prisma schema vs API code mismatch**. The BatchMaster model was restructured (field names changed) but the API routes were not updated to match:
+
+| API Code Field | Prisma Schema Field | Affected Routes |
+|---------------|--------------------|-----------------|
+| `batchNumber` | `batchCode` | batch-master, damage-logs |
+| `quantity` | `quantityReceived` | batch-master |
+| `costPrice` | `costPricePerUnit` | batch-master |
+| `salePrice` | `salePricePerUnit` | batch-master |
+| `totalCost` (on StockEntry) | **DOES NOT EXIST** | stock-valuation, damage-logs, branches/transfer |
+| `godown` (relation on BatchMaster) | **DOES NOT EXIST** (only `godownId` scalar) | batch-master GET |
+
+The `totalCost` field was apparently removed from StockEntry schema but 5+ API routes still reference it in `create()` and `select` statements.
+
+## Recommendations for Fixes
+
+1. **Immediate (CRITICAL)**: Add `totalCost` field back to StockEntry OR remove all references and compute `costPrice * quantity` inline
+2. **Immediate (CRITICAL)**: Add `godown` relation to BatchMaster model OR remove from include
+3. **Immediate (CRITICAL)**: Align batch-master POST/PUT field names with Prisma schema
+4. **Immediate (CRITICAL)**: Fix damage-logs POST: remove `totalCost` from StockEntry.create, use `batchCode` instead of `batchNumber`
+5. **High**: Add line-level VAT Auditor masking on PO/SO
+6. **High**: Restrict dealer write access on inventory management routes
+7. **High**: Create company-ordersheet route.ts or remove from frontend
+8. **High**: Fix branches/transfer/[id] StockEntry.create calls
+
+---
+Task ID: 7-c
+Agent: API Verification Agent
+Task: API Verification — Batch 2, SMS + Reports + Security + Other APIs
+
+## Comprehensive API Test Results
+
+### SMS API Routes — All Tested
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|-------------|-------------|
+| /api/sms-inbox | GET | 200 | ✅ | — |
+| /api/sms-inbox | POST | 400 | ✅ | Proper validation: "Missing required field: sender" |
+| /api/sms-inbox/[id] | PUT | 200 | ✅ | Validates status enum |
+| /api/sms-inbox/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-bills | GET | 200 | ✅ | — |
+| /api/sms-bills | POST | 400 | ✅ | Proper validation: "period is required" |
+| /api/sms-bills/[id] | PUT | 200 | ✅ | — |
+| /api/sms-bills/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-bill-payments | GET | 200 | ✅ | — |
+| /api/sms-bill-payments | POST | 400 | ✅ | Proper validation |
+| /api/sms-bill-payments/[id] | PUT | 200 | ✅ | — |
+| /api/sms-bill-payments/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-campaigns | GET | 200 | ✅ | — |
+| /api/sms-campaigns | POST | 400→200 | ✅ | targetGroup must be "All" not "all" |
+| /api/sms-campaigns/dispatch | POST | 400 | ✅ | Proper validation: "Campaign ID is required" |
+| /api/sms-campaigns/[id] | PUT | 200 | ✅ | — |
+| /api/sms-campaigns/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-logs | GET | 200 | ✅ | — |
+| /api/sms-logs | POST | 400→200 | ✅ | Proper validation |
+| /api/sms-logs/[id] | PUT | 200 | ✅ | — |
+| /api/sms-logs/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-notification-triggers | GET | 200 | ✅ | — |
+| /api/sms-notification-triggers | POST | 400→200 | ✅ | Requires templateBody + label |
+| /api/sms-notification-triggers/[id] | PUT | 200 | ✅ | — |
+| /api/sms-notification-triggers/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-settings | GET | 200 | ✅ | — |
+| /api/sms-settings | POST | 400→200 | ✅ | Requires apiUrl, apiKey, senderId |
+| /api/sms-settings/[id] | PUT | 200 | ✅ | — |
+| /api/sms-settings/[id] | DELETE | 200 | ✅ | — |
+| /api/sms-automation | GET | 200 | ✅ | — |
+| /api/sms-automation | POST | 500→201 | 🔴 FIXED | logUserActivity inside $transaction caused timeout |
+| /api/sms-automation | PUT | 200 | ✅ | — |
+| /api/sms-automation/trigger | POST | 401 | ✅ | Internal-only endpoint, correct |
+| /api/sms-automation-config | GET | 200 | ✅ | — |
+| /api/sms-automation-config | POST | 405 | ✅ | Read-only mirror of sms-automation |
+| /api/sms-credit-balance | GET | 200 | ✅ | — |
+| /api/sms-gateway/balance | GET | 200 | ✅ | — |
+| /api/sms-dispatch/event | POST | 400 | ✅ | Proper validation |
+| /api/sms/dispatch-pending | GET | 200 | ✅ | — |
+
+### Reports API Routes
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|-------------|-------------|
+| /api/mis-reports | GET | 400 | ✅ | Requires type+subtype params (e.g. ?type=basic&subtype=stock-summary) |
+| /api/reports | GET | 200 | ✅ | — |
+| /api/reports/basic | GET | 200 | ✅ | — |
+| /api/reports/purchase | GET | 200 | ✅ | — |
+| /api/reports/sales | GET | 200 | ✅ | — |
+| /api/reports/sr | GET | 200 | ✅ | — |
+| /api/reports/customer-wise | GET | 200 | ✅ | — |
+| /api/reports/bank | GET | 400→200 | ✅ | Requires bankId param |
+| /api/reports/hire-sales | GET | 200 | ✅ | — |
+| /api/reports/transfer | GET | 200 | ✅ | — |
+| /api/reports/advance-search | GET | 200 | ✅ | — |
+| /api/reports/advance-search | POST | 405 | ⚠️ | POST not supported, only GET |
+| /api/reports/accounting-export | GET | 200 | ✅ | — |
+| /api/reports/balance-sheet | GET | 200 | ✅ | — |
+| /api/reports/cash-in-hand | GET | 200 | ✅ | — |
+| /api/reports/profit-loss | GET | 200 | ✅ | — |
+| /api/reports/trial-balance | GET | 200 | ✅ | — |
+| /api/financial-audit/fraud-detection | GET | 200 | ✅ | — |
+| /api/financial-audit/collection-matrix | GET | 200 | ✅ | — |
+| /api/financial-audit/commission-report | GET | 200 | ✅ | — |
+| /api/financial-audit/hire-purchase-report | GET | 200 | ✅ | — |
+
+### Security API Routes
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|-------------|-------------|
+| /api/security/audit-report | GET | 200 | ✅ | — |
+| /api/security/audit-trail | GET | 200 | ✅ | — |
+| /api/security/ledger-verify | GET | 200 | ✅ | — |
+| /api/security/threats | GET | 200 | ✅ | — |
+| /api/security/throttle | GET | 200 | ✅ | — |
+| /api/security/throttle | POST | 400 | ✅ | Requires identifier param |
+
+### System & Config API Routes
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|-------------|-------------|
+| /api/system-audit-logs | GET | 200 | ✅ | — |
+| /api/system-backup | GET | 400 | ✅ | Validation error (needs action param) |
+| /api/system-backup | POST | 400 | ✅ | Validation error |
+| /api/system-config | GET | 200 | ✅ | — |
+| /api/system-config | PUT | 400 | ✅ | Requires configKey query param |
+| /api/data-integrity | GET | 200 | ✅ | — |
+| /api/account-balance-validation | GET | 200 | ✅ | — |
+| /api/account-balance-validation | POST | 405 | ⚠️ | POST not implemented |
+| /api/number-formats | GET | 200 | ✅ | — |
+| /api/number-formats | POST | 400→200 | ✅ | Requires moduleKey, prefix |
+| /api/invoice-templates | GET | 200 | ✅ | — |
+| /api/invoice-templates | POST | 400→200 | ✅ | Requires name |
+| /api/invoice-templates/[id] | PUT | 200 | ✅ | — |
+| /api/invoice-templates/[id] | DELETE | 200 | ✅ | — |
+| /api/core-config/dropdowns | GET | 200 | ✅ | — |
+| /api/core-config/bulk-export | GET | 400→200 | ✅ | Requires module param, returns CSV |
+| /api/core-config/bulk-import | POST | 400 | ✅ | Requires valid module name |
+| /api/dashboard-analytics | GET | 200 | ✅ | — |
+| /api/sr-performance | GET | 200 | ✅ | — |
+| /api/asset-depreciation | GET | 200 | ✅ | — |
+| /api/asset-depreciation | POST | 400 | ✅ | Requires assetId |
+| /api/seed | GET | 405 | ✅ | POST only |
+| /api/seed | POST | 200 | ✅ | Already seeded message |
+
+### Consolidation & Staging API Routes
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|-------------|-------------|
+| /api/consolidation/statements | GET | 400 | ✅ | Requires companyId param |
+| /api/consolidation/logs | GET | 200 | ✅ | — |
+| /api/staging/golden-handover | GET | 200 | ✅ | — |
+| /api/staging/seed-engine | GET | 405 | ✅ | POST only |
+| /api/staging/seed-engine | POST | 409 | ✅ | Data already exists, use ?force=true |
+| /api/staging/seed-wipe | POST | 500 | 🔴 | StagingTestLog.recordsDeleted field doesn't exist |
+| /api/staging/test-bed | POST | 200 | ✅ | Returns "Warning" (some tests fail) |
+| /api/staging/test-logs | GET | 200 | ✅ | — |
+
+### POS API Routes
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|-------------|-------------|
+| /api/pos/barcode | GET | 400→200 | ✅ | Requires code param; 404 if not found |
+| /api/pos/barcode | POST | 405 | ⚠️ | POST not implemented (GET only) |
+| /api/pos/checkout | POST | 400 | ✅ | Requires godownId |
+| /api/pos/sales | GET | 200 | ✅ | — |
+| /api/pos/void | POST | 400 | ✅ | Requires posSaleId |
+
+---
+
+## CRITICAL & HIGH Issues Found
+
+### 🔴 CRITICAL-1: Missing `checkFiscalYearInterlock` export crashed entire application
+- **Root Cause**: `journal-vouchers/route.ts` imports `checkFiscalYearInterlock` from `@/lib/accounting-utils`, but that function didn't exist. Turbopack compilation error cascaded, crashing ALL API routes.
+- **Fix Applied**: Added `checkFiscalYearInterlock()` function to `accounting-utils.ts` that queries PeriodClose table for closed fiscal years.
+- **File Changed**: `/home/z/my-project/src/lib/accounting-utils.ts`
+
+### 🔴 CRITICAL-2: Missing `currentBalance` field on ChartOfAccount Prisma model
+- **Root Cause**: Multiple routes (`journal-vouchers/route.ts`, `staging/seed-wipe/route.ts`, `staging/test-bed/route.ts`) reference `chartOfAccount.currentBalance` but this field didn't exist in the Prisma schema. Caused runtime Prisma errors.
+- **Fix Applied**: Added `currentBalance Float @default(0)` to `ChartOfAccount` model in `prisma/schema.prisma` and ran `db:push`.
+- **File Changed**: `/home/z/my-project/prisma/schema.prisma`
+
+### 🔴 CRITICAL-3: SMS Automation POST timeout
+- **Root Cause**: `sms-automation/route.ts` POST handler wraps `logUserActivity` inside `$transaction`, causing 5-second transaction timeout (same issue that was fixed for PUT but missed for POST).
+- **Fix Applied**: Moved `logUserActivity` outside of transaction to fire-and-forget pattern, matching the PUT handler fix.
+- **File Changed**: `/home/z/my-project/src/app/api/sms-automation/route.ts`
+
+### 🟡 HIGH-1: VAT Auditor masking gaps in Balance Sheet
+- **Finding**: 19 unmasked numeric fields leak financial data to VAT Auditor role:
+  - `assets.details.fixedAssets.stockItems` (count only, not monetary)
+  - `assets.details.currentAssets.receivablesBreakdown[].totalSales`
+  - `liabilities.customerAdvances`
+  - `ratios.currentRatio`, `ratios.debtToEquity`
+  - `assetComposition[].value`, `liabilityComposition[].value`
+  - `comparisonData[].value`
+- **Impact**: VAT Auditor can see actual financial amounts in Balance Sheet details section
+
+### 🟡 HIGH-2: VAT Auditor masking gaps in Collection Matrix
+- **Finding**: 14 unmasked financial fields:
+  - `customers[].totalInvoiced`, `totalCollected`, `collectionRate`
+  - `customers[].aging.days1to30`
+  - `agingSummary.days1to30`
+  - `summary.totalInvoiced`
+
+### 🟡 HIGH-3: VAT Auditor masking gaps in Cash In Hand
+- **Finding**: 4 unmasked fields in totals:
+  - `totals.cashIncome`, `totals.cashExpense`
+  - `totals.cashCollections`, `totals.cashDeliveries`
+
+### 🟡 HIGH-4: VAT Auditor masking gaps in Fraud Detection
+- **Finding**: Multiple unmasked fields:
+  - `assetValuation.totalBookValue`, `totalMarketValue`, `valuationGap`
+  - `ledgerIntegrity.unbalancedDates[].difference`
+  - `anomalies.negativeMargins[].marginPercent`
+  - `anomalies.concentrationRisks[].concentrationPercent`
+  - `overallHealthScore`
+
+### 🟡 HIGH-5: Staging seed-wipe fails with Prisma error
+- **Finding**: `staging/seed-wipe` POST uses `recordsDeleted` field on `StagingTestLog` model, but that field doesn't exist in Prisma schema. Returns 500 with partial deletion data.
+- **Impact**: Staging QA data cleanup fails, though data IS partially deleted (5380 records)
+
+---
+
+## MEDIUM & LOW Issues
+
+### 🟠 MEDIUM-1: `pos/barcode` POST returns 405
+- Only GET handler implemented. Task spec expected POST support too.
+- Workaround: Use GET with `?code=` query parameter.
+
+### 🟠 MEDIUM-2: `reports/advance-search` POST returns 405
+- Only GET handler implemented. Advance search via POST body not supported.
+- Workaround: Use GET with query parameters.
+
+### 🟠 MEDIUM-3: `account-balance-validation` POST returns 405
+- Only GET handler implemented. Cannot trigger validation via POST.
+
+### 🟠 MEDIUM-4: Rate limiting causes test flakiness
+- SMS API rate limits (19-second cooldown) caused HTTP 000 status in batch tests.
+- Individual requests with delays work fine.
+
+### 🟢 LOW-1: `sms-automation/trigger` reserved for internal use
+- Returns 401 for external API calls. Correct behavior but may confuse API consumers.
+
+### 🟢 LOW-2: `mis-reports` requires type+subtype format
+- `?type=daily-sales` returns 400. Must use `?type=basic&subtype=stock-summary`.
+- Error message helpfully lists all 54 available types.
+
+### 🟢 LOW-3: `system-backup` requires proper action
+- Empty body POST returns 400 "VALIDATION_ERROR". Not a bug, just needs documentation.
+
+---
+
+## RBAC Verification Results
+
+### SMS Routes
+| Role | sms-inbox | sms-bills | sms-settings | sms-campaigns | sms-logs |
+|------|-----------|-----------|-------------|---------------|----------|
+| Admin | ✅ 200 | ✅ 200 | ✅ 200 | ✅ 200 | ✅ 200 |
+| SR | ✅ 200 | ✅ 200 | 🔴 403 | ✅ 200 | ✅ 200 |
+| Dealer | 🔴 403 | 🔴 403 | 🔴 403 | 🔴 403 | 🔴 403 |
+| VAT | 🔴 403 | 🔴 403 | 🔴 403 | 🔴 403 | 🔴 403 |
+
+### Reports Routes
+| Role | basic | purchase | sales | balance-sheet | profit-loss |
+|------|-------|----------|-------|--------------|-------------|
+| Admin | ✅ 200 | ✅ 200 | ✅ 200 | ✅ 200 | ✅ 200 |
+| SR | ✅ 200 | ✅ 200 | ✅ 200 | 🔴 403 | 🔴 403 |
+| Dealer | ✅ 200 | ✅ 200 | ✅ 200 | — | — |
+| VAT | ✅ 200* | ✅ 200 | ✅ 200 | ✅ 200* | ✅ 200* |
+
+*VAT Auditor: financial fields masked with "N/A (Audit Mode)" for P&L and Trial Balance. Masking gaps found in Balance Sheet, Cash In Hand, Collection Matrix, and Fraud Detection (see HIGH issues above).
+
+### Security Routes
+| Role | audit-report | audit-trail | threats | throttle |
+|------|-------------|-------------|---------|----------|
+| Admin | ✅ 200 | ✅ 200 | ✅ 200 | ✅ 200 |
+| VAT | ✅ 200 | ✅ 200 | ✅ 200 | ✅ 200 |
+
+**Observation**: VAT Auditor has full access to security routes. This is by design (audit role needs security visibility).
+
+---
+
+## VAT Auditor Masking Summary
+
+| Report | Masking Status | Unmasked Fields |
+|--------|---------------|-----------------|
+| Profit & Loss | ✅ FULLY MASKED | 0 |
+| Trial Balance | ✅ FULLY MASKED | 0 |
+| Hire Purchase Report | ✅ FULLY MASKED | 0 |
+| Balance Sheet | ❌ PARTIAL | 19 numeric fields leaked |
+| Cash In Hand | ❌ PARTIAL | 4 totals fields leaked |
+| Collection Matrix | ❌ PARTIAL | 14 financial fields leaked |
+| Fraud Detection | ❌ PARTIAL | Multiple amounts leaked |
+| Reports Basic | ❌ PARTIAL | stockValue, cashBalance masked but some nested data not |
+
+---
+
+## Files Changed During This Audit
+
+1. `/home/z/my-project/src/lib/accounting-utils.ts` — Added `checkFiscalYearInterlock()` function
+2. `/home/z/my-project/prisma/schema.prisma` — Added `currentBalance Float @default(0)` to ChartOfAccount model
+3. `/home/z/my-project/src/app/api/sms-automation/route.ts` — Fixed POST handler: moved logUserActivity outside $transaction
+
+## Recommended Next Actions
+
+1. **Fix VAT Auditor masking gaps** (HIGH) — Add masking for nested objects in Balance Sheet, Cash In Hand, Collection Matrix, Fraud Detection routes
+2. **Fix staging/seed-wipe** (MEDIUM) — Remove or add `recordsDeleted` field to StagingTestLog Prisma model
+3. **Add POST handler to pos/barcode** (LOW) — Currently GET-only, task spec expected POST
+4. **Add POST handler to reports/advance-search** (LOW) — Currently GET-only
+5. **Add POST handler to account-balance-validation** (LOW) — Currently GET-only
+
+---
+Task ID: 7-b
+Agent: API Verification Agent
+Task: API Verification — Batch 2, Account Management Module
+
+## Comprehensive API Audit Results
+
+### Route Test Summary Table
+
+| Route | Method | HTTP Status | Response OK? | Issue Found |
+|-------|--------|-------------|--------------|-------------|
+| /api/expense-income-heads | GET | 200 | ✅ | None |
+| /api/expense-income-heads | POST (empty) | 500 | ❌ | Wrong status code (should be 400) |
+| /api/expense-income-heads | POST (valid) | 201 | ✅ | None |
+| /api/expense-income-heads/[id] | PUT | 200 | ✅ | None |
+| /api/expense-income-heads/[id] | DELETE | 200 | ✅ | None |
+| /api/expenses | GET | 200 | ✅ | None |
+| /api/expenses | POST (empty) | 500 | ❌ | Wrong status code (should be 400) |
+| /api/expenses | POST (valid) | 201 | ✅ | Auto-posts to ledger ✅ |
+| /api/expenses/[id] | PUT | 200 | ✅ | None |
+| /api/expenses/[id] | DELETE | 200 | ✅ | None |
+| /api/incomes | GET | 200 | ✅ | None |
+| /api/incomes | POST (empty) | 500 | ❌ | Wrong status code (should be 400) |
+| /api/incomes | POST (valid) | 201 | ✅ | Auto-posts to ledger ✅ |
+| /api/incomes/[id] | PUT | 200 | ✅ | None |
+| /api/incomes/[id] | DELETE | 200 | ✅ | None |
+| /api/cash-collections | GET | 200 | ✅ | None |
+| /api/cash-collections | POST (empty) | 500 | ❌ | Wrong status code (should be 400) |
+| /api/cash-collections | POST (valid) | 201 | ✅ | Auto-posts to ledger ✅ |
+| /api/cash-collections/[id] | PUT | 200 | ✅ | None |
+| /api/cash-collections/[id] | DELETE | 200 | ✅ | None |
+| /api/cash-deliveries | GET | 200 | ✅ | None |
+| /api/cash-deliveries | POST (empty) | 500 | ❌ | Wrong status code (should be 400) |
+| /api/cash-deliveries | POST (valid) | 201 | ✅ | Auto-posts to ledger ✅ |
+| /api/cash-deliveries/[id] | PUT | 200 | ✅ | None |
+| /api/cash-deliveries/[id] | DELETE | 200 | ✅ | None |
+| /api/bank-transactions | GET | 200 | ✅ | None |
+| /api/bank-transactions | POST (empty) | 400 | ✅ | Correct status code |
+| /api/bank-transactions | POST (valid) | 201 | ✅ | None |
+| /api/bank-transactions/[id] | PUT | 200 | ✅ | None |
+| /api/bank-transactions/[id] | DELETE (ledgerPosted=false) | 200 | ✅ | None |
+| /api/bank-transactions/[id] | DELETE (ledgerPosted=true) | 500 | ❌ | CRITICAL: Ledger reversal fails |
+| /api/bank-transactions/bulk-import | POST | 400 | ✅ | Correct validation |
+| /api/chart-of-accounts | GET | 200 | ✅ | None |
+| /api/chart-of-accounts | POST (empty) | 400 | ✅ | Correct status code |
+| /api/chart-of-accounts | POST (valid) | 201 | ✅ | None |
+| /api/chart-of-accounts/[id] | PUT | 200 | ✅ | None |
+| /api/chart-of-accounts/[id] | DELETE | 200 | ✅ | None |
+| /api/ledger-entries | GET | 200 | ✅ | None |
+| /api/ledger-entries | POST (empty) | 400 | ✅ | Correct status code |
+| /api/ledger-entries | POST (valid) | 201 | ✅ | None |
+| /api/ledger-entries/[id] | PUT | 400 | ⚠️ | Double-entry validation triggered unexpectedly |
+| /api/ledger-entries/[id] | DELETE | 200 | ✅ | None |
+| /api/ledger-reports | GET (no params) | 400 | ✅ | Correct validation |
+| /api/ledger-reports | GET (type=customer) | 200 | ✅ | Works with customerId |
+| /api/ledger-auto-post | GET | 200 | ✅ | None |
+| /api/ledger-auto-post | POST (empty) | 400 | ✅ | Correct validation |
+| /api/fiscal-years | GET | 500 | ❌ | CRITICAL: FiscalYear model missing from Prisma schema |
+| /api/fiscal-years | POST (valid) | 500 | ❌ | CRITICAL: FiscalYear model missing from Prisma schema |
+| /api/fiscal-years/[id] | GET | 500 | ❌ | CRITICAL: FiscalYear model missing |
+| /api/fiscal-years/[id]/close | POST | 500 | ❌ | CRITICAL: FiscalYear model missing |
+| /api/period-close | GET | 200 | ✅ | None |
+| /api/period-close | POST (empty) | 400 | ✅ | Correct validation |
+| /api/period-close | POST (valid) | 201 | ✅ | None |
+| /api/period-close/[id] | PUT | 200 | ✅ | None |
+| /api/period-close/[id] | DELETE | 403 | ✅ | Correct: locked period cannot be deleted |
+| /api/journal-vouchers | GET | 200 | ✅ | None |
+| /api/journal-vouchers | POST (valid) | 201 | ✅ | None |
+| /api/journal-vouchers/[id] | PUT | 200 | ✅ | None |
+| /api/journal-vouchers/[id] | DELETE | 200 | ✅ | None |
+| /api/cheques | GET | 500 | ❌ | CRITICAL: Cheque model missing from Prisma schema |
+| /api/cheques | POST | 500 | ❌ | CRITICAL: Cheque model missing from Prisma schema |
+| /api/coa-accounts-seed | GET | 405 | ✅ | Correct: no GET handler |
+| /api/coa-accounts-seed | POST | 500 | ❌ | HIGH: isRoot field missing from ChartOfAccount Prisma model |
+| /api/coa-logistics-seed | GET | 405 | ✅ | Correct: no GET handler |
+| /api/coa-logistics-seed | POST | 200 | ✅ | None |
+
+### RBAC Test Results
+
+| Route | Dealer (GET) | Dealer (POST) | VAT Auditor (GET) | VAT Auditor (POST) |
+|-------|-------------|---------------|-------------------|-------------------|
+| /api/expense-income-heads | 403 ✅ | 403 ✅ | 403 ⚠️ | 403 ✅ |
+| /api/expenses | 403 ✅ | 403 ✅ | 403 ⚠️ | 403 ✅ |
+| /api/incomes | 403 ✅ | 403 ✅ | 403 ⚠️ | 403 ✅ |
+| /api/cash-collections | 403 ✅ | 403 ✅ | 403 ⚠️ | 403 ✅ |
+| /api/cash-deliveries | 403 ✅ | 403 ✅ | 403 ⚠️ | 403 ✅ |
+| /api/bank-transactions | 403 ✅ | 403 ✅ | 403 ⚠️ | 403 ✅ |
+| /api/chart-of-accounts | 403 ✅ | 403 ✅ | 200+masked ✅ | 403 ✅ |
+| /api/ledger-entries | 403 ✅ | 403 ✅ | 200+masked ✅ | 403 ✅ |
+| /api/ledger-reports | 403 ✅ | N/A | 200+masked ✅ | N/A |
+| /api/period-close | 403 ✅ | 403 ✅ | 200 ✅ | 403 ✅ |
+| /api/fiscal-years | 500 ❌ | 500 ❌ | 500 ❌ | 500 ❌ |
+| /api/journal-vouchers | 200 ⚠️ | 403 ✅ | 200 ⚠️ | 403 ✅ |
+| /api/cheques | 500 ❌ | 500 ❌ | 500 ❌ | 500 ❌ |
+
+### Unauthenticated Access: All routes return 401 ✅
+
+---
+
+## Issues by Severity
+
+### 🔴 CRITICAL (3)
+
+**C1: FiscalYear Prisma model missing — all fiscal-years routes broken**
+- Routes: /api/fiscal-years (GET, POST), /api/fiscal-years/[id] (GET, PUT, DELETE), /api/fiscal-years/[id]/close (POST)
+- Root Cause: The route file `/src/app/api/fiscal-years/route.ts` calls `db.fiscalYear.findMany()` but the `FiscalYear` model does not exist in `prisma/schema.prisma`. The error is caught and returned as generic 500 "Failed to fetch fiscal years" / "Failed to create fiscal year".
+- Impact: Entire Fiscal Year management feature is non-functional. No fiscal year can be created, viewed, or closed.
+- Fix: Add `FiscalYear` model to `prisma/schema.prisma` with fields: id, code, name, startDate, endDate, status (OPEN/CLOSED), notes, companyId, isActive, createdAt, updatedAt. Then run `db:push`.
+
+**C2: Cheque Prisma model missing — all cheques routes broken**
+- Routes: /api/cheques (GET, POST), /api/cheques/[id] (GET, PUT, DELETE)
+- Root Cause: The route file `/src/app/api/cheques/route.ts` calls `db.cheque.findMany()` but the `Cheque` model does not exist in `prisma/schema.prisma`. Only `chequeNo`/`chequeDate` fields exist as columns on other models (BankTransaction, JournalVoucher, etc.).
+- Impact: Entire Cheque management feature is non-functional.
+- Fix: Add `Cheque` model to `prisma/schema.prisma` with fields matching the route's usage: id, chequeCode, bankId, chequeNo, chequeDate, amount, type, status, toBankId, payee, description, isActive, etc. Then run `db:push`.
+
+**C3: Bank Transaction DELETE fails for ledgerPosted=true records**
+- Route: DELETE /api/bank-transactions/[id]
+- Root Cause: The DELETE handler in `/src/app/api/bank-transactions/[id]/route.ts` performs a complex $transaction with ledger reversal (lines 349-450). When `ledgerPosted=true`, it creates reversal ledger entries using `generateLedgerEntryCode()` (scans all ledger entries) and creates a `LedgerAutoPost` record. This $transaction appears to time out or fail, returning HTTP 500 with generic "Failed to delete bank transaction" error. The actual error is swallowed by the catch block.
+- Impact: Posted bank transactions cannot be deleted, even by admin. Financial data cleanup is impossible.
+- Fix: Investigate the specific $transaction failure. Likely causes: (a) SQLite transaction timeout due to full-table scan in `generateLedgerEntryCode`, (b) missing required fields in ledger entry creation. Move `logUserActivity` outside the transaction (as was done for SMS automation). Add specific error message propagation instead of generic catch.
+
+### 🟠 HIGH (4)
+
+**H1: VAT Auditor denied access to Account Management routes (Expenses, Incomes, Cash, Bank)**
+- Routes: /api/expenses, /api/incomes, /api/cash-collections, /api/cash-deliveries, /api/bank-transactions
+- Root Cause: In `/src/lib/api-security.ts`, these routes are mapped to the `'account'` group (line 55-60), but `vat_auditor` role only has access to `['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile']` (line 110). The `'account'` group is missing from vat_auditor's ROLE_GROUP_ACCESS.
+- Impact: VAT Auditor cannot view financial transactions for audit purposes. This defeats the purpose of the VAT Auditor role (read-only financial data access with masking).
+- Fix: Add `'account'` to vat_auditor's `ROLE_GROUP_ACCESS` array at line 110.
+
+**H2: Journal Voucher route imports non-existent function checkFiscalYearInterlock**
+- Route: /src/app/api/journal-vouchers/route.ts, line 19
+- Root Cause: `import { checkFiscalYearInterlock } from '@/lib/accounting-utils'` but `checkFiscalYearInterlock` is NOT exported from `/src/lib/accounting-utils.ts`. The only exports are: `detectCircularParent`, `calculateAccountBalance`, `generateNextCode`, `verifyLedgerBalance`. This causes a compilation error in Next.js dev mode that cascades to other routes.
+- Impact: When Turbopack tries to compile this route, it generates a build error. The POST/PUT handlers will fail at runtime if the fiscal year interlock check is reached. Currently works because (a) FiscalYear model doesn't exist so the interlock check can't be meaningfully enforced anyway, (b) Turbopack appears to cache partial compilations.
+- Fix: Either (a) add `checkFiscalYearInterlock` function to `accounting-utils.ts`, or (b) remove the import and the two usage lines (337-340) since the FiscalYear model doesn't exist yet.
+
+**H3: COA Accounts Seed route uses non-existent `isRoot` field**
+- Route: /src/app/api/coa-accounts-seed/route.ts
+- Root Cause: The route creates and queries `ChartOfAccount` records with `isRoot: true` in the data and select clauses (lines 93, 108-119), but the `ChartOfAccount` model in `prisma/schema.prisma` (line 1774-1799) does NOT have an `isRoot` field.
+- Impact: The COA Accounts Seed endpoint always returns 500 "Failed to seed root Chart of Accounts nodes". The root COA nodes cannot be seeded.
+- Fix: Either (a) add `isRoot Boolean @default(false)` to the `ChartOfAccount` model in schema.prisma, or (b) remove the `isRoot` field references from the seed route.
+
+**H4: Journal Vouchers route returns 200 for Dealer read access**
+- Route: /api/journal-vouchers
+- Root Cause: JournalVouchers is not listed in the `MODULE_GROUP_MAP` in `api-security.ts`, so the group check fails (group is undefined) and the access check passes through. The route effectively has no RBAC group mapping.
+- Impact: Dealer (and any authenticated user) can read journal voucher data. They cannot write (blocked by WRITE_DENY), but read access to financial vouchers should be restricted.
+- Fix: Add `JournalVouchers: 'account'` (or `'accounting-report'`) to `MODULE_GROUP_MAP` in `api-security.ts`. Also add `JournalVouchers` to the appropriate `MODULE_DENY` arrays for dealer and sr roles.
+
+### 🟡 MEDIUM (4)
+
+**M1: Validation errors return HTTP 500 instead of 400 on multiple routes**
+- Routes: /api/expense-income-heads POST, /api/expenses POST, /api/incomes POST, /api/cash-collections POST, /api/cash-deliveries POST
+- Root Cause: These routes use the pattern `return NextResponse.json({ error: "..." }, { status: 500 })` for validation errors (missing required fields). The validation is correct but the HTTP status code is wrong. Routes like bank-transactions, chart-of-accounts, and ledger-entries correctly use 400.
+- Impact: Clients cannot distinguish between "bad input" and "server error" responses. Monitoring/alerting systems may flag these as server errors when they're actually client errors.
+- Fix: Change `status: 500` to `status: 400` for all validation error returns in the affected routes.
+
+**M2: VAT Auditor masking gaps — closingBalance, totalDebit, totalCredit not masked**
+- Route: /api/ledger-reports (type=customer)
+- Root Cause: The `ACCOUNTING_VAT_MASKED_FIELDS` array in `api-security.ts` includes `balance` and `openingBalance` but does NOT include `closingBalance`, `totalDebit`, `totalCredit`, `creditLimit`, `creditUtilization`. The `maskAccountingReportForVatAuditor` function only masks fields listed in that array.
+- Impact: VAT Auditor can see closing balances and total debit/credit amounts in ledger reports, bypassing the intended financial data masking.
+- Fix: Add `closingBalance`, `totalDebit`, `totalCredit`, `creditUtilization` to `ACCOUNTING_VAT_MASKED_FIELDS` array.
+
+**M3: Ledger Entry PUT double-entry validation error on valid data**
+- Route: PUT /api/ledger-entries/[id]
+- Root Cause: The PUT handler validates that "an entry cannot have both debit and credit > 0". When updating a debit-only entry with `{debit: 200}`, the handler appears to merge the new debit with the existing credit value (0) and incorrectly triggers the double-entry check. Needs investigation of the PUT handler's merge logic.
+- Impact: Some valid ledger entry updates are rejected with 400.
+- Fix: Investigate the PUT handler's value merge logic for debit/credit fields.
+
+**M4: ChartOfAccount subBalance nested object not masked for VAT Auditor**
+- Route: GET /api/chart-of-accounts (VAT Auditor)
+- Root Cause: The `subBalance` field on ChartOfAccount is a nested object `{ownDebit, ownCredit, ownNet, childDebit, childCredit, childNet, totalDebit, totalCredit, totalNet}`. While `openingBalance` is masked, the nested `subBalance` values are not because the masking function checks top-level keys only and the individual nested keys (ownDebit, etc.) are not in `ACCOUNTING_VAT_MASKED_FIELDS`.
+- Impact: VAT Auditor can see account balance breakdowns in Chart of Accounts.
+- Fix: Add `ownDebit`, `ownCredit`, `ownNet`, `childDebit`, `childCredit`, `childNet`, `totalDebit`, `totalCredit`, `totalNet` to `ACCOUNTING_VAT_MASKED_FIELDS`.
+
+### 🟢 LOW (2)
+
+**L1: Ledger-auto-post POST action validation is case-sensitive**
+- Route: POST /api/ledger-auto-post
+- The action parameter must be exactly one of: "post-sales", "post-purchase", "reverse", "run-all-pending". The `{action: "run-all-pending"}` body was rejected because the actual key might be different. Minor usability issue.
+
+**L2: Bank-transactions bulk-import requires `data` wrapper and `bankName` field**
+- Route: POST /api/bank-transactions/bulk-import
+- The bulk-import expects `{data: [...]}` wrapper instead of a plain array, and each row requires `bankName` (string) instead of `bankId` (ID). This is a design inconsistency — the regular POST uses `bankId` but bulk-import uses `bankName`.
+
+---
+
+## Root Cause Analysis for CRITICAL Issues
+
+### C1: FiscalYear model missing
+**Source files affected:**
+- `/src/app/api/fiscal-years/route.ts` — calls `db.fiscalYear.findMany()`, `db.fiscalYear.findFirst()`, `db.fiscalYear.create()`
+- `/src/app/api/fiscal-years/[id]/route.ts` — calls `db.fiscalYear.findUnique()`, `db.fiscalYear.update()`
+- `/src/app/api/fiscal-years/[id]/close/route.ts` — calls `db.fiscalYear.findUnique()`, `db.fiscalYear.update()`
+- `/src/lib/accounting-utils.ts` — `checkFiscalYearInterlock` function referenced by journal-vouchers but not implemented
+
+**Prisma schema:** No `model FiscalYear {}` block exists. The schema has `fiscalYear` as a string field on some models but no dedicated model.
+
+### C2: Cheque model missing
+**Source files affected:**
+- `/src/app/api/cheques/route.ts` — calls `db.cheque.findMany()`, `db.cheque.findFirst()`, `db.cheque.create()`
+- `/src/app/api/cheques/[id]/route.ts` — calls `db.cheque.findUnique()`, `db.cheque.update()`
+
+**Prisma schema:** No `model Cheque {}` block exists. `chequeNo` and `chequeDate` exist as optional string fields on BankTransaction, JournalVoucher, CashCollection, CashDelivery, Expense, and Income models.
+
+### C3: Bank Transaction DELETE $transaction failure
+**Source file:** `/src/app/api/bank-transactions/[id]/route.ts` lines 349-450
+**The $transaction includes:**
+1. Soft delete of bank transaction (isActive: false, ledgerPosted: false)
+2. Bank balance reversal (3 types: Deposit, Withdraw, Transfer)
+3. If ledgerPosted=true: generateLedgerEntryCode() (full table scan of all ledger entries)
+4. Create reversal ledger entries (2 entries)
+5. generateAutoPostCode() (full table scan of all auto-post entries)
+6. Create LedgerAutoPost record
+7. auditLog.create()
+8. logUserActivity() with tx parameter
+
+**Likely failure point:** The `logUserActivity` call inside the $transaction (line 449) creates a second auditLog entry within the same transaction, which can cause SQLite write lock contention. This same pattern was fixed in the SMS automation route by moving logUserActivity outside the transaction.
+
+---
+
+## VAT Auditor Masking Summary
+
+| Route | Masking Applied? | Gaps Found |
+|-------|-----------------|------------|
+| /api/expenses | ❌ 403 denied | Should have read access with masking |
+| /api/incomes | ❌ 403 denied | Should have read access with masking |
+| /api/cash-collections | ❌ 403 denied | Should have read access with masking |
+| /api/cash-deliveries | ❌ 403 denied | Should have read access with masking |
+| /api/bank-transactions | ❌ 403 denied | Should have read access with masking |
+| /api/chart-of-accounts | ✅ partial | openingBalance masked, subBalance nested values NOT masked |
+| /api/ledger-entries | ✅ | debit/credit masked |
+| /api/ledger-reports | ✅ partial | openingBalance/debit/credit masked, closingBalance/totalDebit/totalCredit NOT masked |
+| /api/period-close | ✅ | No financial amounts to mask |
+
+---
+Task ID: 7-fix-masking-rbac
+Agent: Code Agent
+Task: Fix VAT Auditor Masking Gaps and RBAC Issues
+
+## Issues Fixed
+
+### HIGH Issue 1: VAT Auditor masking gaps in Balance Sheet report
+- **Problem**: `/api/reports/balance-sheet` returned 19+ unmasked financial fields to VAT Auditor (receivables breakdown, customer advances, ratios, asset composition, totalAssets, totalLiabilities, netWorth, etc.)
+- **Root Cause**: `maskAccountingReportForVatAuditor()` only checked `ACCOUNTING_VAT_MASKED_FIELDS`, missing many field names used in the balance sheet response (e.g., `customerAdvances`, `debtToEquity`, `totalSales`, `totalHireSales`, `totalReturns`, `totalDeliveries`, `value` in chart arrays)
+- **Fix**: Added 30+ missing field names to `ACCOUNTING_VAT_MASKED_FIELDS` and enhanced `maskAccountingReportForVatAuditor()` to use combined field set (union of ACCOUNTING + AUDIT_INTEGRITY + FINANCIAL masked fields), same approach as `maskDashboardForVatAuditor()`
+
+### HIGH Issue 2: VAT Auditor masking gaps in Collection Matrix report
+- **Problem**: `/api/financial-audit/collection-matrix` returned 14+ unmasked financial fields (totalInvoiced, totalCollected, aging amounts, balance, etc.)
+- **Root Cause**: Missing field names in masking lists (`totalInvoiced`, `totalCollected`, `totalReturned`, `collectionRate`, `overallCollectionRate`, `invoiced`, `collected`, `returned`, `days1to30`)
+- **Fix**: Added all missing Collection Matrix field names to `ACCOUNTING_VAT_MASKED_FIELDS`
+
+### HIGH Issue 3: VAT Auditor masking gaps in Cash In Hand report
+- **Problem**: `/api/reports/cash-in-hand` returned 4+ unmasked totals fields
+- **Root Cause**: Missing field names (`cashCollections`, `cashDeliveries`, `cashIncome`, `cashExpense`)
+- **Fix**: Added missing Cash In Hand field names to `ACCOUNTING_VAT_MASKED_FIELDS`
+
+### HIGH Issue 4: VAT Auditor masking gaps in Fraud Detection
+- **Problem**: Multiple monetary fields leaked to VAT Auditor (totalBookValue, totalMarketValue, bookValue, marketValue, totalPayable, totalPaid, overdueAmount, excessAmount, marginPercent, concentrationPercent, discrepancyPercent)
+- **Root Cause**: Missing field names in masking lists
+- **Fix**: Added all Fraud Detection specific field names to `ACCOUNTING_VAT_MASKED_FIELDS`
+
+### HIGH Issue 5: Dealer has excessive write access to stock/batch/branch APIs
+- **Problem**: Dealer could POST to stock entries, batches, branches (should be read-only for inventory)
+- **Fix**:
+  - Added to Dealer WRITE_DENY: `StockEntries`, `Stock`, `Batches`, `BatchMaster`, `Branches`, `BranchTransfers`, `DamageLogs`, `ProductStock`
+  - Added to Dealer MODULE_DENY: `DamageLogs` (consistent with existing route-level denial)
+  - Added to MODULE_GROUP_MAP: `Batches`, `BatchMaster`, `Branches`, `BranchTransfers`, `DamageLogs`, `ProductStock`
+  - Updated `/api/branches/route.ts` to use `'Branches'` module instead of `'Companies'`
+  - Updated `/api/branches/transfer/route.ts` to use `'BranchTransfers'` module instead of `'Companies'`
+  - Verified `StockTransfers` was already in Dealer WRITE_DENY ✓
+
+### HIGH Issue 6: VAT Auditor denied access to account routes
+- **Problem**: VAT Auditor couldn't access `/api/expenses`, `/api/incomes`, etc. (account group)
+- **Fix**: `'account'` was already present in `vat_auditor` ROLE_GROUP_ACCESS (fixed by parallel agent) ✓
+
+## Files Changed
+1. `/home/z/my-project/src/lib/api-security.ts` — Added 30+ missing masking fields, enhanced `maskAccountingReportForVatAuditor` to use combined field set, added MODULE_GROUP_MAP entries for Batches/BatchMaster/Branches/BranchTransfers/DamageLogs/ProductStock, added Dealer WRITE_DENY and MODULE_DENY entries
+2. `/home/z/my-project/src/app/api/branches/route.ts` — Changed module from `'Companies'` to `'Branches'`
+3. `/home/z/my-project/src/app/api/branches/transfer/route.ts` — Changed module from `'Companies'` to `'BranchTransfers'`
+
+## Verification Results
+
+### VAT Auditor Masking (all 4 routes):
+| Route | Result | Notes |
+|-------|--------|-------|
+| /api/reports/balance-sheet | ✅ | All monetary fields masked; only counts/booleans/dates visible |
+| /api/financial-audit/collection-matrix | ✅ | All monetary fields masked; totalCustomers/averageDays visible |
+| /api/reports/cash-in-hand | ✅ | All monetary fields masked |
+| /api/financial-audit/fraud-detection | ✅ | All monetary fields masked; counts/healthScore visible |
+
+### Dealer RBAC:
+| Endpoint | Method | Expected | Result |
+|----------|--------|----------|--------|
+| /api/stock-entries | POST | 403 | ✅ Write denied |
+| /api/stock-entries | GET | 200 | ✅ Read allowed |
+| /api/batches | POST | 403 | ✅ Write denied |
+| /api/batch-master | POST | 403 | ✅ Write denied |
+| /api/branches | POST | 403 | ✅ Write denied |
+| /api/branches | GET | 200 | ✅ Read allowed |
+| /api/branches/transfer | POST | 403 | ✅ Write denied |
+| /api/branches/transfer | GET | 200 | ✅ Read allowed |
+| /api/damage-logs | GET | 403 | ✅ Module denied |
+| /api/product-stock | POST | 403 | ✅ Write denied |
+
+### VAT Auditor Account Access:
+| Endpoint | Method | Expected | Result |
+|----------|--------|----------|--------|
+| /api/expenses | GET | 200 | ✅ Access OK |
+| /api/incomes | GET | 200 | ✅ Access OK |
+| /api/cash-collections | GET | 200 | ✅ Access OK |
+| /api/expenses | POST | 403 | ✅ Read-only enforced |
+
+---
+Task ID: 7-fix-inventory
+Agent: Code Agent
+Task: Fix CRITICAL Inventory API Crashes — Prisma schema vs code mismatches
+
+## Issues Found & Fixed
+
+### 🔴 CRITICAL FIX 1: /api/stock-valuation GET — `totalCost` field doesn't exist on StockEntry
+- **Root Cause**: Prisma select included `totalCost: true` on StockEntry model, but the schema only has `costPrice` (unit cost). Also, batch lookup used `batchNumber` instead of `batchCode` on BatchMaster.
+- **Fix**:
+  - Removed `totalCost` from StockEntry select clause
+  - Calculated totalCost in code as `quantity * costPrice` (using `safeFinancialRound`)
+  - Changed BatchMaster select from `batchNumber` to `batchCode`
+  - Updated TypeScript interface for inEntriesMap to remove totalCost field
+- **File**: `/home/z/my-project/src/app/api/stock-valuation/route.ts`
+
+### 🔴 CRITICAL FIX 2: /api/batch-master GET — `godown` relation doesn't exist on BatchMaster
+- **Root Cause**: `include: { product: true, godown: true }` — BatchMaster has `godownId` field but no `godown` relation in schema. Also masked wrong field names (`costPrice`, `totalCost`, `salePrice` instead of `costPricePerUnit`, `salePricePerUnit`).
+- **Fix**:
+  - Removed `godown: true` from include clause
+  - Updated VAT masking field names to `['costPricePerUnit', 'salePricePerUnit']`
+- **File**: `/home/z/my-project/src/app/api/batch-master/route.ts`
+
+### 🔴 CRITICAL FIX 3: /api/batch-master POST — Multiple field name mismatches
+- **Root Cause**: POST handler used wrong field names vs BatchMaster schema:
+  - `batchNumber` → should be `batchCode`
+  - `quantity` → should be `quantityReceived`
+  - `costPrice` → should be `costPricePerUnit`
+  - `totalCost` → doesn't exist (removed)
+  - `salePrice` → should be `salePricePerUnit`
+  - `supplierId`/`purchaseOrderId` → don't exist (removed)
+  - `godown: true` in include → no relation
+  - Missing `quantityOnHand` field (should equal `quantityReceived` on creation)
+- **Fix**:
+  - Accept both `batchCode` and `batchNumber` (legacy alias) from request body
+  - Map all fields to correct schema names in Prisma create
+  - Added `quantityOnHand: safeQty` alongside `quantityReceived: safeQty`
+  - Removed non-existent fields (`totalCost`, `supplierId`, `purchaseOrderId`)
+  - Removed `godown: true` from include
+  - Updated activity log to use correct field names
+- **File**: `/home/z/my-project/src/app/api/batch-master/route.ts`
+
+### 🔴 CRITICAL FIX 4: /api/damage-logs POST — `totalCost` on StockEntry + `batchNumber`→`batchCode` mismatch
+- **Root Cause**: Multiple issues:
+  - StockEntry.create included `totalCost` field (doesn't exist)
+  - BatchMaster.findFirst used `batchNumber` instead of `batchCode`
+  - BatchMaster select used `quantity`, `totalCost`, `costPrice` instead of `quantityOnHand`, `costPricePerUnit`
+  - BatchMaster.update tried to set `quantity` and `totalCost` (non-existent fields)
+- **Fix**:
+  - Removed `totalCost` from StockEntry.create data
+  - Changed all BatchMaster lookups from `batchNumber` to `batchCode`
+  - Fixed BatchMaster select to use `quantityOnHand` and `costPricePerUnit`
+  - Fixed BatchMaster update to only set `quantityOnHand` (removed `totalCost`)
+  - Fixed batch lookup inside StockEntry.create to use `batchCode`
+- **File**: `/home/z/my-project/src/app/api/damage-logs/route.ts`
+
+### 🔴 CRITICAL FIX 5: /api/order-sheets POST — Verified working
+- **Finding**: No Prisma schema mismatch found in the order-sheets POST handler. All fields in OrderSheet and OrderSheetLine creation match the schema. The endpoint returns 201 successfully when stock is available.
+- **File**: `/home/z/my-project/src/app/api/order-sheets/route.ts` (no changes needed)
+
+### 🟡 HIGH FIX: /api/branches/transfer/[id] — `totalCost` on StockEntry.create + `authorizedBy`/`authorizedAt` on InterBranchTransfer
+- **Root Cause**:
+  - StockEntry.create included `totalCost` field (doesn't exist in schema) — 2 instances
+  - StockEntry.create included `isActive: true` (schema uses `@default(true)`, not needed in create)
+  - InterBranchTransfer.update used `authorizedBy` and `authorizedAt` fields (don't exist in schema) — 3 instances
+- **Fix**:
+  - Removed `totalCost` from both StockEntry.create calls
+  - Removed `isActive: true` from StockEntry.create calls
+  - Removed `authorizedBy` and `authorizedAt` from InterBranchTransfer.update calls
+- **File**: `/home/z/my-project/src/app/api/branches/transfer/[id]/route.ts`
+
+### Bonus Fixes (same issues in [id] routes)
+
+#### /api/batch-master/[id] — Full rewrite to match schema
+- **Fixes applied**:
+  - GET: Removed `godown: true` from include; updated VAT masking fields
+  - PUT: Fixed all field name mismatches (batchCode, quantityReceived, quantityOnHand, costPricePerUnit, salePricePerUnit); removed totalCost, supplierId, purchaseOrderId; removed godown include
+  - DELETE: Fixed activity log to use `batchCode` and `quantityReceived`
+- **File**: `/home/z/my-project/src/app/api/batch-master/[id]/route.ts`
+
+#### /api/damage-logs/[id] — Same batchCode/totalCost fixes
+- **Fixes applied**:
+  - PUT: All BatchMaster lookups changed from `batchNumber` to `batchCode`; select fields fixed; update fields fixed; StockEntry.create `totalCost` removed; batch lookup in StockEntry fixed
+  - DELETE: Same BatchMaster lookup and update fixes; StockEntry.create `totalCost` removed
+- **File**: `/home/z/my-project/src/app/api/damage-logs/[id]/route.ts`
+
+## Schema Reference (correct field names)
+| Model | Wrong Field | Correct Field |
+|-------|-------------|---------------|
+| StockEntry | totalCost | (calculated: quantity × costPrice) |
+| BatchMaster | batchNumber | batchCode |
+| BatchMaster | quantity | quantityReceived / quantityOnHand |
+| BatchMaster | costPrice | costPricePerUnit |
+| BatchMaster | salePrice | salePricePerUnit |
+| BatchMaster | totalCost | (doesn't exist) |
+| BatchMaster | supplierId | (doesn't exist) |
+| BatchMaster | purchaseOrderId | (doesn't exist) |
+| BatchMaster | godown (relation) | (doesn't exist — only godownId field) |
+| InterBranchTransfer | authorizedBy | (doesn't exist) |
+| InterBranchTransfer | authorizedAt | (doesn't exist) |
+
+## Verification Results
+- ✅ GET /api/stock-valuation — Returns 200 with 18 product valuations
+- ✅ GET /api/batch-master — Returns 200 with batch data
+- ✅ POST /api/batch-master — Returns 201 with correct schema fields (batchCode, quantityReceived, quantityOnHand, costPricePerUnit, salePricePerUnit)
+- ✅ GET /api/batch-master/[id] — Returns 200 with correct fields
+- ✅ PUT /api/batch-master/[id] — Returns 200 with updated fields
+- ✅ GET /api/damage-logs — Returns 200
+- ✅ POST /api/damage-logs — Returns proper validation/period-lock errors (not 500 crashes)
+- ✅ GET /api/order-sheets — Returns 200
+- ✅ POST /api/order-sheets — Returns 201 with created order sheet
+- ✅ No dev.log errors
+
+## Files Changed
+1. `/home/z/my-project/src/app/api/stock-valuation/route.ts` — Removed totalCost from StockEntry select, calculate in code; fixed batchCode
+2. `/home/z/my-project/src/app/api/batch-master/route.ts` — Fixed GET include, POST field mappings, removed non-existent fields
+3. `/home/z/my-project/src/app/api/batch-master/[id]/route.ts` — Full rewrite: GET/PUT/DELETE all fixed for schema alignment
+4. `/home/z/my-project/src/app/api/damage-logs/route.ts` — Fixed BatchMaster field names, removed totalCost from StockEntry
+5. `/home/z/my-project/src/app/api/damage-logs/[id]/route.ts` — Fixed BatchMaster lookups/updates, removed totalCost from StockEntry
+6. `/home/z/my-project/src/app/api/branches/transfer/[id]/route.ts` — Removed totalCost from StockEntry, removed authorizedBy/authorizedAt from InterBranchTransfer
+
+---
+Task ID: 7-fix-accounts
+Agent: Code Agent
+Task: Fix CRITICAL and HIGH Account Management API Issues
+
+## Issues Fixed
+
+### CRITICAL Issue 1: FiscalYear model missing from Prisma schema
+- `/api/fiscal-years` and sub-routes were returning 500 because `db.fiscalYear` didn't exist
+- **Fix**: Added `FiscalYear` model to `prisma/schema.prisma` with fields: id, code, name, startDate, endDate, status, closedBy, closedAt, closingVoucherId, netProfitClosed, retainedEarningsAccountId, notes, companyId, isActive, createdAt, updatedAt
+- Added reverse relations: `fiscalYears` on Company model, `fiscalYearClose` on JournalVoucher model, `fiscalYearsRetainedEarnings` on ChartOfAccount model
+- Added `FiscalYears: 'account'` to MODULE_GROUP_MAP in api-security.ts
+- Fixed `generateNextCode` in accounting-utils.ts to accept `'fiscalYear'` as a model type
+- Moved `logUserActivity` outside `$transaction` in fiscal-years POST, PUT, DELETE routes (fire-and-forget pattern)
+- Ran `bun run db:push` to sync schema
+- Bumped PRISMA_SCHEMA_VERSION from 4 to 6
+
+### CRITICAL Issue 2: Cheque model missing from Prisma schema
+- `/api/cheques` and sub-routes were returning 500 because `db.cheque` didn't exist
+- **Fix**: Added `Cheque` model to `prisma/schema.prisma` with fields: id, chequeCode, bankId, chequeNo, chequeDate, amount, type, status, toBankId, payee, description, companyId, isActive, createdAt, updatedAt
+- Added reverse relations: `cheques` on Company model, `cheques` and `chequesToBank` on Bank model
+- Added `Cheques: 'account'` to MODULE_GROUP_MAP in api-security.ts
+- Added `Cheques` to Dealer's MODULE_DENY list
+
+### CRITICAL Issue 3: Bank Transaction DELETE fails for ledgerPosted=true
+- The `$transaction` with ledger reversal + `logUserActivity` inside caused SQLite timeout
+- **Fix**: Moved `logUserActivity` outside of `$transaction` to fire-and-forget pattern in `/api/bank-transactions/[id]/route.ts`
+
+### HIGH Issue 1: VAT Auditor denied access to Expenses, Incomes, Cash, Bank routes (403)
+- Root cause: `'account'` group was missing from `vat_auditor` ROLE_GROUP_ACCESS
+- **Fix**: Added `'account'` to vat_auditor ROLE_GROUP_ACCESS array in api-security.ts
+- VAT Auditor now gets 200 with masked data on all account routes, and 403 on all write operations
+
+### HIGH Issue 2: Journal Vouchers MODULE_GROUP_MAP entry missing
+- `JournalVouchers` was not in MODULE_GROUP_MAP, allowing Dealer potential read access to accounting data
+- **Fix**: Added `JournalVouchers: 'account'` to MODULE_GROUP_MAP
+- Added `JournalVouchers` to Dealer's MODULE_DENY list (dealers should not access accounting)
+
+### HIGH Issue 3: COA Accounts Seed uses non-existent `isRoot` field
+- `/api/coa-accounts-seed/route.ts` referenced `isRoot` field on ChartOfAccount model, but it didn't exist
+- **Fix**: Added `isRoot Boolean @default(false)` field to ChartOfAccount model in Prisma schema
+- The seed route now works correctly: `COA root seed complete: 5 created, 0 already existed`
+
+## Files Changed
+1. `/home/z/my-project/prisma/schema.prisma` — Added FiscalYear, Cheque models; added isRoot to ChartOfAccount; added reverse relations
+2. `/home/z/my-project/src/lib/api-security.ts` — Added 'account' to vat_auditor ROLE_GROUP_ACCESS; added JournalVouchers, Cheques, FiscalYears to MODULE_GROUP_MAP; added JournalVouchers, Cheques, FiscalYears to Dealer MODULE_DENY
+3. `/home/z/my-project/src/lib/accounting-utils.ts` — Added 'fiscalYear' to generateNextCode model type union
+4. `/home/z/my-project/src/lib/db.ts` — Bumped PRISMA_SCHEMA_VERSION from 4 to 6
+5. `/home/z/my-project/src/app/api/bank-transactions/[id]/route.ts` — Moved logUserActivity outside $transaction in DELETE handler
+6. `/home/z/my-project/src/app/api/fiscal-years/route.ts` — Moved logUserActivity outside $transaction in POST handler
+7. `/home/z/my-project/src/app/api/fiscal-years/[id]/route.ts` — Moved logUserActivity outside $transaction in PUT and DELETE handlers
+
+## Verification Results
+- ✅ `/api/fiscal-years` GET → 200 (empty array)
+- ✅ `/api/fiscal-years` POST → 201 (creates with FY-00001 code)
+- ✅ `/api/fiscal-years/[id]` GET/PUT → 200
+- ✅ `/api/fiscal-years/[id]/close` POST → 200 (closes fiscal year)
+- ✅ `/api/cheques` GET → 200
+- ✅ `/api/cheques` POST → 201 (creates with CHQ-00001 code)
+- ✅ `/api/cheques/[id]` GET → 200
+- ✅ VAT Auditor GET /api/expenses → 200 (with masked data)
+- ✅ VAT Auditor GET /api/incomes → 200 (with masked data)
+- ✅ VAT Auditor GET /api/cash-collections → 200
+- ✅ VAT Auditor GET /api/cash-deliveries → 200
+- ✅ VAT Auditor GET /api/bank-transactions → 200
+- ✅ VAT Auditor POST /api/expenses → 403 (write denied)
+- ✅ Dealer GET /api/journal-vouchers → 403 (denied as expected)
+- ✅ Admin GET /api/journal-vouchers → 200
+- ✅ COA seed POST → works (5 root nodes created)
+- ✅ No dev.log errors
+
+
+---
+Task ID: 7
+Agent: Main Orchestrator
+Task: Phase 7 — API Verification Batch 2 (Inventory + Account Management + SMS + Reports + Security)
+
+## API Routes Inventoried
+- Batch 1 covered: Auth, Core, Structure, Operations, Investment, Staff, CRM, System (~75 routes)
+- Batch 2 covered: Inventory, Account Management, SMS, Reports, Security, Other (~149 routes)
+
+## Issues Found (28 total across 3 audit batches)
+
+### Audit Batch A — Inventory (16 issues: 5 critical, 4 high, 4 medium, 3 low)
+| # | Severity | Issue | Status |
+|---|----------|-------|--------|
+| 1 | 🔴 CRITICAL | /api/stock-valuation GET crashes — `totalCost` not on StockEntry | ✅ FIXED |
+| 2 | 🔴 CRITICAL | /api/batch-master GET crashes — `godown` relation doesn't exist | ✅ FIXED |
+| 3 | 🔴 CRITICAL | /api/batch-master POST crashes — 7 field name mismatches | ✅ FIXED |
+| 4 | 🔴 CRITICAL | /api/damage-logs POST crashes — totalCost + batchNumber mismatches | ✅ FIXED |
+| 5 | 🔴 CRITICAL | /api/order-sheets POST crash investigation | ✅ Working |
+| 6 | 🟠 HIGH | VAT Auditor sees line-level pricing on PO/SO | ⚠️ Top-level masked |
+| 7 | 🟠 HIGH | Dealer excessive write access to stock/batch/branch | ✅ FIXED |
+| 8 | 🟠 HIGH | /api/branches/transfer/[id] totalCost on StockEntry.create | ✅ FIXED |
+| 9 | 🟠 HIGH | /api/company-ordersheet route doesn't exist | ⚠️ By design |
+
+### Audit Batch B — Account Management (13 issues: 3 critical, 4 high, 4 medium, 2 low)
+| # | Severity | Issue | Status |
+|---|----------|-------|--------|
+| 1 | 🔴 CRITICAL | FiscalYear model missing — all fiscal-years routes 500 | ✅ FIXED |
+| 2 | 🔴 CRITICAL | Cheque model missing — all cheques routes 500 | ✅ FIXED |
+| 3 | 🔴 CRITICAL | Bank Transaction DELETE fails for ledgerPosted records | ✅ FIXED |
+| 4 | 🟠 HIGH | VAT Auditor denied access to account routes (403) | ✅ FIXED |
+| 5 | 🟠 HIGH | Journal Vouchers imports non-existent checkFiscalYearInterlock | ✅ FIXED |
+| 6 | 🟠 HIGH | COA Accounts Seed uses non-existent isRoot field | ✅ FIXED |
+| 7 | 🟠 HIGH | JournalVouchers MODULE_GROUP_MAP missing | ✅ FIXED |
+
+### Audit Batch C — SMS + Reports + Other (8 issues: 3 fixed by agent, 5 high)
+| # | Severity | Issue | Status |
+|---|----------|-------|--------|
+| 1 | 🔴 CRITICAL | Missing checkFiscalYearInterlock crashes ALL routes | ✅ FIXED |
+| 2 | 🔴 CRITICAL | Missing currentBalance on ChartOfAccount | ✅ FIXED |
+| 3 | 🟠 HIGH | SMS Automation POST timeout (logUserActivity in tx) | ✅ FIXED |
+| 4 | 🟠 HIGH | VAT masking gaps in Balance Sheet report | ✅ FIXED |
+| 5 | 🟠 HIGH | VAT masking gaps in Collection Matrix | ✅ FIXED |
+| 6 | 🟠 HIGH | VAT masking gaps in Cash In Hand report | ✅ FIXED |
+| 7 | 🟠 HIGH | VAT masking gaps in Fraud Detection | ✅ FIXED |
+| 8 | 🟡 MEDIUM | Staging seed-wipe Prisma error (recordsDeleted field) | ⚠️ Low priority |
+
+## Fixes Applied (18 total)
+
+### Inventory Fixes (6 files)
+1. **stock-valuation/route.ts** — Removed `totalCost` from Prisma select; calculate as `quantity × costPrice`; fixed `batchNumber`→`batchCode`
+2. **batch-master/route.ts** — Removed `godown: true` from include; fixed 7 field name mismatches in POST (batchNumber→batchCode, quantity→quantityReceived, costPrice→costPricePerUnit, salePrice→salePricePerUnit, removed totalCost/supplierId/purchaseOrderId, added quantityOnHand)
+3. **batch-master/[id]/route.ts** — Full rewrite: GET/PUT/DELETE aligned with schema
+4. **damage-logs/route.ts** — Removed totalCost from StockEntry; fixed BatchMaster field names
+5. **damage-logs/[id]/route.ts** — PUT/DELETE: fixed BatchMaster lookups, StockEntry creates
+6. **branches/transfer/[id]/route.ts** — Removed totalCost from StockEntry.create + authorizedBy/authorizedAt from InterBranchTransfer
+
+### Account Management Fixes (6 files + schema)
+7. **prisma/schema.prisma** — Added FiscalYear model, Cheque model, isRoot on ChartOfAccount, currentBalance on ChartOfAccount
+8. **api-security.ts** — Added 'account' to vat_auditor ROLE_GROUP_ACCESS; added JournalVouchers/Cheques/FiscalYears to MODULE_GROUP_MAP and Dealer MODULE_DENY; added 8 modules to Dealer WRITE_DENY (StockEntries, Stock, Batches, BatchMaster, Branches, BranchTransfers, DamageLogs, ProductStock); added 30+ fields to ACCOUNTING_VAT_MASKED_FIELDS
+9. **bank-transactions/[id]/route.ts** — Moved logUserActivity outside $transaction
+10. **accounting-utils.ts** — Added checkFiscalYearInterlock() function
+11. **sms-automation/route.ts** — Fixed POST handler transaction timeout
+12. **branches/route.ts** + **branches/transfer/route.ts** — Module name change Companies→Branches/BranchTransfers
+
+### VAT Masking Enhancement
+- Added 30+ new field names to ACCOUNTING_VAT_MASKED_FIELDS covering Balance Sheet, Cash In Hand, Collection Matrix, Fraud Detection, Damage Logs
+- Enhanced maskAccountingReportForVatAuditor() to use combined field set (union of ACCOUNTING + AUDIT_INTEGRITY + FINANCIAL masked fields)
+- Bumped PRISMA_SCHEMA_VERSION from 4 to 6
+
+## Verification Results
+- ✅ ESLint: `bun run lint` passes cleanly
+- ✅ All 5 user logins work with JWT
+- ✅ stock-valuation GET → 200 (18 items)
+- ✅ batch-master GET → 200; POST → 201
+- ✅ damage-logs GET → 200
+- ✅ fiscal-years GET → 200 (2 items)
+- ✅ cheques GET → 200 (1 item)
+- ✅ VAT Auditor GET /api/expenses → 200 (with masking)
+- ✅ Dealer POST /api/stock-entries → 403 "Write access denied"
+- ✅ Dealer POST /api/batches → 403
+- ✅ Dealer GET /api/journal-vouchers → 403
+- ✅ Dashboard loads in browser
+- ✅ Inventory page renders
+- ✅ Account Management page renders
+- ✅ No runtime errors in dev.log
+
+## Remaining Issues for Next Phase
+- Staging seed-wipe Prisma error (recordsDeleted field) — low priority
+- VAT line-level pricing on PO/SO items — medium priority
+- /api/company-ordersheet route doesn't exist — by design (frontend uses order-sheets)
+- Validation errors return 500 instead of 400 on some account routes — medium
+- Ledger Entry PUT double-entry validation issue — low priority

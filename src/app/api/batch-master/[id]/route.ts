@@ -24,7 +24,6 @@ export async function GET(
       where: { id, isActive: true },
       include: {
         product: true,
-        godown: true,
       },
     });
 
@@ -47,7 +46,7 @@ export async function GET(
     const masked = maskForVatAuditor(
       batch as Record<string, unknown>,
       role,
-      ['costPrice', 'totalCost', 'salePrice']
+      ['costPricePerUnit', 'salePricePerUnit']
     );
 
     return NextResponse.json(masked);
@@ -94,17 +93,18 @@ export async function PUT(
 
     const body = await request.json();
     const {
-      batchNumber,
+      batchCode,
+      batchNumber, // Legacy alias for batchCode
       quantity,
       costPrice,
       salePrice,
       expiryDate,
       manufacturingDate,
       godownId,
-      supplierId,
-      purchaseOrderId,
       status,
     } = body;
+
+    const resolvedBatchCode = batchCode || batchNumber;
 
     // ── XSS sanitization on string inputs ──
     const sanitize = (val: unknown): string | null => {
@@ -113,8 +113,8 @@ export async function PUT(
     };
 
     // ── Numeric integrity if quantity or costPrice provided ──
-    let safeQty = existing.quantity;
-    let safeCost = existing.costPrice;
+    let safeQty = existing.quantityReceived;
+    let safeCost = existing.costPricePerUnit;
 
     if (quantity !== undefined && quantity !== null) {
       const parsedQty = parseFloat(String(quantity));
@@ -138,11 +138,9 @@ export async function PUT(
       safeCost = safeFinancialRound(parsedCost);
     }
 
-    // Recalculate totalCost if quantity or costPrice changes
-    const totalCost = safeFinancialRound(safeQty * safeCost);
     const safeSalePrice = salePrice !== undefined && salePrice !== null
       ? safeFinancialRound(parseFloat(String(salePrice)))
-      : existing.salePrice;
+      : existing.salePricePerUnit;
 
     // ── Godown SUSPENDED check if changing godownId ──
     const effectiveGodownId = godownId ? String(godownId) : existing.godownId;
@@ -159,26 +157,23 @@ export async function PUT(
       }
     }
 
-    const cleanBatchNumber = batchNumber ? sanitize(batchNumber) : existing.batchNumber;
+    const cleanBatchCode = resolvedBatchCode ? sanitize(resolvedBatchCode) : existing.batchCode;
 
     const updated = await db.batchMaster.update({
       where: { id },
       data: {
-        batchNumber: cleanBatchNumber || existing.batchNumber,
-        quantity: safeQty,
-        costPrice: safeCost,
-        totalCost,
-        salePrice: safeSalePrice,
+        batchCode: cleanBatchCode || existing.batchCode,
+        quantityReceived: safeQty,
+        quantityOnHand: safeQty,
+        costPricePerUnit: safeCost,
+        salePricePerUnit: safeSalePrice,
         expiryDate: expiryDate !== undefined ? (expiryDate ? new Date(expiryDate as string) : null) : existing.expiryDate,
         manufacturingDate: manufacturingDate !== undefined ? (manufacturingDate ? new Date(manufacturingDate as string) : null) : existing.manufacturingDate,
         godownId: effectiveGodownId,
-        supplierId: supplierId !== undefined ? (supplierId ? String(supplierId) : null) : existing.supplierId,
-        purchaseOrderId: purchaseOrderId !== undefined ? (purchaseOrderId ? String(purchaseOrderId) : null) : existing.purchaseOrderId,
         status: status ? String(status) : existing.status,
       },
       include: {
         product: true,
-        godown: true,
       },
     });
 
@@ -187,14 +182,13 @@ export async function PUT(
       action: 'UPDATE',
       module: 'Inv-Stock-Core',
       recordId: updated.id,
-      recordLabel: updated.batchNumber,
+      recordLabel: updated.batchCode,
       userId,
       userName,
       details: JSON.stringify({
-        batchNumber: updated.batchNumber,
-        quantity: safeQty,
-        costPrice: safeCost,
-        totalCost,
+        batchCode: updated.batchCode,
+        quantityReceived: safeQty,
+        costPricePerUnit: safeCost,
         companyId: companyId || null,
       }),
     });
@@ -266,13 +260,13 @@ export async function DELETE(
       action: 'DELETE',
       module: 'Inv-Stock-Core',
       recordId: id,
-      recordLabel: existing.batchNumber,
+      recordLabel: existing.batchCode,
       userId,
       userName,
       details: JSON.stringify({
-        batchNumber: existing.batchNumber,
+        batchCode: existing.batchCode,
         productId: existing.productId,
-        quantity: existing.quantity,
+        quantityReceived: existing.quantityReceived,
         companyId: companyId || null,
       }),
     });

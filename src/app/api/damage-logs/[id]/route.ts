@@ -275,12 +275,12 @@ export async function PUT(
       if (newBatchNumber) {
         const batchRecord = await db.batchMaster.findFirst({
           where: {
-            batchNumber: newBatchNumber,
+            batchCode: newBatchNumber,
             productId: newProductId,
             godownId: newGodownId,
             isActive: true,
           },
-          select: { id: true, quantity: true, totalCost: true, costPrice: true },
+          select: { id: true, quantityOnHand: true, costPricePerUnit: true },
         });
 
         if (!batchRecord) {
@@ -291,9 +291,9 @@ export async function PUT(
         }
 
         // Available batch after reversal (only if old batch matches)
-        let batchAvailableAfterReversal = batchRecord.quantity;
+        let batchAvailableAfterReversal = batchRecord.quantityOnHand;
         if (existing.batchNumber && existing.batchNumber === newBatchNumber && existing.godownId === newGodownId) {
-          batchAvailableAfterReversal = safeFinancialAdd(batchRecord.quantity, safeOldQuantity);
+          batchAvailableAfterReversal = safeFinancialAdd(batchRecord.quantityOnHand, safeOldQuantity);
         }
 
         if (safeNewQuantity > batchAvailableAfterReversal) {
@@ -342,24 +342,21 @@ export async function PUT(
       if (existing.batchNumber) {
         const oldBatch = await tx.batchMaster.findFirst({
           where: {
-            batchNumber: existing.batchNumber,
+            batchCode: existing.batchNumber,
             productId: existing.productId,
             godownId: existing.godownId,
             isActive: true,
           },
-          select: { id: true, quantity: true, totalCost: true, costPrice: true },
+          select: { id: true, quantityOnHand: true, costPricePerUnit: true },
         });
 
         if (oldBatch) {
-          const reversedBatchQty = safeFinancialAdd(oldBatch.quantity, safeOldQuantity);
-          const batchLossCost = safeFinancialRound(safeOldQuantity * oldBatch.costPrice);
-          const reversedBatchTotalCost = safeFinancialAdd(oldBatch.totalCost, batchLossCost);
+          const reversedBatchQty = safeFinancialAdd(oldBatch.quantityOnHand, safeOldQuantity);
 
           await tx.batchMaster.update({
             where: { id: oldBatch.id },
             data: {
-              quantity: reversedBatchQty,
-              totalCost: reversedBatchTotalCost,
+              quantityOnHand: reversedBatchQty,
             },
           });
         }
@@ -393,24 +390,21 @@ export async function PUT(
       if (newBatchNumber) {
         const newBatch = await tx.batchMaster.findFirst({
           where: {
-            batchNumber: newBatchNumber,
+            batchCode: newBatchNumber,
             productId: newProductId,
             godownId: newGodownId,
             isActive: true,
           },
-          select: { id: true, quantity: true, totalCost: true, costPrice: true },
+          select: { id: true, quantityOnHand: true, costPricePerUnit: true },
         });
 
         if (newBatch) {
-          const newBatchQty = safeFinancialSubtract(newBatch.quantity, safeNewQuantity);
-          const newBatchLossCost = safeFinancialRound(safeNewQuantity * newBatch.costPrice);
-          const newBatchTotalCost = safeFinancialSubtract(newBatch.totalCost, newBatchLossCost);
+          const newBatchQty = safeFinancialSubtract(newBatch.quantityOnHand, safeNewQuantity);
 
           await tx.batchMaster.update({
             where: { id: newBatch.id },
             data: {
-              quantity: newBatchQty,
-              totalCost: newBatchTotalCost,
+              quantityOnHand: newBatchQty,
             },
           });
         }
@@ -424,7 +418,6 @@ export async function PUT(
           type: 'IN',
           quantity: safeOldQuantity,
           costPrice: existing.lossCostPrice,
-          totalCost: safeOldTotalLossValue,
           reference: existing.damageCode,
           referenceType: 'DamageLog',
           companyId: companyId || null,
@@ -437,7 +430,7 @@ export async function PUT(
       const batchEntryId = newBatchNumber
         ? (await tx.batchMaster.findFirst({
             where: {
-              batchNumber: newBatchNumber,
+              batchCode: newBatchNumber,
               productId: newProductId,
               godownId: newGodownId,
               isActive: true,
@@ -454,7 +447,6 @@ export async function PUT(
           type: 'OUT',
           quantity: safeNewQuantity,
           costPrice: safeNewLossCostPrice,
-          totalCost: safeNewTotalLossValue,
           reference: existing.damageCode,
           referenceType: 'DamageLog',
           companyId: companyId || null,
@@ -770,24 +762,21 @@ export async function DELETE(
       if (existing.batchNumber) {
         const batchRecord = await tx.batchMaster.findFirst({
           where: {
-            batchNumber: existing.batchNumber,
+            batchCode: existing.batchNumber,
             productId: existing.productId,
             godownId: existing.godownId,
             isActive: true,
           },
-          select: { id: true, quantity: true, totalCost: true, costPrice: true },
+          select: { id: true, quantityOnHand: true, costPricePerUnit: true },
         });
 
         if (batchRecord) {
-          const reversedBatchQty = safeFinancialAdd(batchRecord.quantity, safeOldQuantity);
-          const batchLossCost = safeFinancialRound(safeOldQuantity * batchRecord.costPrice);
-          const reversedBatchTotalCost = safeFinancialAdd(batchRecord.totalCost, batchLossCost);
+          const reversedBatchQty = safeFinancialAdd(batchRecord.quantityOnHand, safeOldQuantity);
 
           await tx.batchMaster.update({
             where: { id: batchRecord.id },
             data: {
-              quantity: reversedBatchQty,
-              totalCost: reversedBatchTotalCost,
+              quantityOnHand: reversedBatchQty,
             },
           });
         }
@@ -801,7 +790,6 @@ export async function DELETE(
           type: 'IN',
           quantity: safeOldQuantity,
           costPrice: existing.lossCostPrice,
-          totalCost: safeOldTotalLossValue,
           reference: existing.damageCode,
           referenceType: 'DamageLog',
           companyId: companyId || null,

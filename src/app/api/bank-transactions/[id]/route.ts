@@ -445,9 +445,10 @@ export async function DELETE(
           }),
         },
       });
-
-      await logUserActivity({ tx: tx, action: 'DELETE', module: 'Fin-Bank-Settlement', recordId: id, recordLabel: existing.transactionCode, userId, userName, details: `Soft-deleted bank transaction ${existing.transactionCode}` });
     });
+
+    // Fire-and-forget activity log (outside transaction to avoid SQLite timeout)
+    logUserActivity({ action: 'DELETE', module: 'Fin-Bank-Settlement', recordId: id, recordLabel: existing.transactionCode, userId, userName, details: `Soft-deleted bank transaction ${existing.transactionCode}` }).catch(() => {});
 
     return NextResponse.json({ message: 'Bank transaction deleted successfully' });
   } catch (error) {

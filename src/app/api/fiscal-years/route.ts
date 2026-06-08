@@ -115,26 +115,26 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Activity log
-      await logUserActivity({
-        action: 'CREATE',
-        module: 'Fin-Statements-Core',
-        recordId: record.id,
-        recordLabel: record.name,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          code: record.code,
-          name: record.name,
-          startDate: record.startDate,
-          endDate: record.endDate,
-          status: record.status,
-          companyId,
-        }),
-      });
-
       return record;
     });
+
+    // Fire-and-forget activity log (outside transaction to avoid SQLite timeout)
+    logUserActivity({
+      action: 'CREATE',
+      module: 'Fin-Statements-Core',
+      recordId: result.id,
+      recordLabel: result.name,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        code: result.code,
+        name: result.name,
+        startDate: result.startDate,
+        endDate: result.endDate,
+        status: result.status,
+        companyId,
+      }),
+    }).catch(() => {});
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

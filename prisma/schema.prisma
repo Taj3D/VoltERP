@@ -218,6 +218,8 @@ model Company {
   systemAuditLogs         SystemAuditLog[]
   rateLimitAttempts       RateLimitAttempt[]
   branches                Branch[]
+  fiscalYears             FiscalYear[]
+  cheques                 Cheque[]
 }
 
 model Category {
@@ -275,6 +277,8 @@ model Bank {
   cashCollections        CashCollection[]
   cashDeliveries         CashDelivery[]
   journalVouchers        JournalVoucher[]
+  cheques                Cheque[]
+  chequesToBank          Cheque[]            @relation("ChequeToBank")
 
   @@index([companyId])
   @@index([chartOfAccountId])
@@ -1779,6 +1783,8 @@ model ChartOfAccount {
   parentAccountId    String?
   openingBalance     Float               @default(0)
   openingBalanceType String              @default("Dr") // "Dr" or "Cr"
+  currentBalance     Float               @default(0) // Running balance updated by ledger postings
+  isRoot             Boolean             @default(false) // True for top-level root COA nodes (Assets, Liabilities, Equity, Revenue, Expenses)
   companyId          String? // Multi-tenant isolation
   isActive           Boolean             @default(true)
   createdAt          DateTime            @default(now())
@@ -1794,6 +1800,7 @@ model ChartOfAccount {
   cashCollections    CashCollection[] // Cash collections linked to this CoA node
   cashDeliveries     CashDelivery[] // Cash deliveries linked to this CoA node
   customers          Customer[]
+  fiscalYearsRetainedEarnings FiscalYear[] @relation("RetainedEarningsAccount")
 
   @@index([companyId])
 }
@@ -2234,6 +2241,7 @@ model JournalVoucher {
   bank        Bank?         @relation(fields: [bankId], references: [id])
   company     Company?      @relation(fields: [companyId], references: [id])
   lines       VoucherLine[]
+  fiscalYearClose FiscalYear[]   @relation("FiscalYearClosingVoucher")
 
   @@index([companyId])
   @@index([date])
@@ -2602,4 +2610,67 @@ model RateLimitAttempt {
   @@index([endpoint])
   @@index([isLocked])
   @@index([windowStart])
+}
+
+// ============================================================
+// FISCAL YEAR — Accounting period management
+// ============================================================
+
+model FiscalYear {
+  id                        String   @id @default(cuid())
+  code                      String   @unique // FY-XXXXX auto-generated
+  name                      String
+  startDate                 DateTime
+  endDate                   DateTime
+  status                    String    @default("OPEN") // "OPEN" or "CLOSED"
+  closedBy                  String?   // User ID who closed the fiscal year
+  closedAt                  DateTime? // When the fiscal year was closed
+  closingVoucherId          String?   // JournalVoucher ID for the year-end closing entry
+  netProfitClosed           Float     @default(0) // Net profit/loss amount transferred to Retained Earnings
+  retainedEarningsAccountId String?   // COA account ID for Retained Earnings
+  notes                     String?
+  companyId                 String?   // Multi-tenant isolation
+  isActive                  Boolean   @default(true)
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  company                   Company?  @relation(fields: [companyId], references: [id])
+  closingVoucher            JournalVoucher?  @relation("FiscalYearClosingVoucher", fields: [closingVoucherId], references: [id])
+  retainedEarningsAccount   ChartOfAccount?  @relation("RetainedEarningsAccount", fields: [retainedEarningsAccountId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+// ============================================================
+// CHEQUE — Cheque management with bank relations
+// ============================================================
+
+model Cheque {
+  id          String   @id @default(cuid())
+  chequeCode  String   @unique // CHQ-XXXXX auto-generated
+  bankId      String   // Source bank
+  chequeNo    String   // Cheque number from the cheque book
+  chequeDate  DateTime // Date on the cheque
+  amount      Float    // Cheque amount
+  type        String   // "Incoming" or "Outgoing"
+  status      String   @default("Pending") // "Pending", "Cleared", "Bounced", "Cancelled"
+  toBankId    String?  // Destination bank (for inter-bank transfers)
+  payee       String?  // Payee name
+  description String?
+  companyId   String?  // Multi-tenant isolation
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  bank        Bank     @relation(fields: [bankId], references: [id])
+  toBank      Bank?    @relation("ChequeToBank", fields: [toBankId], references: [id])
+  company     Company? @relation(fields: [companyId], references: [id])
+
+  @@index([bankId])
+  @@index([toBankId])
+  @@index([companyId])
+  @@index([status])
+  @@index([type])
+  @@index([chequeDate])
 }

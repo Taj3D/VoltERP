@@ -161,7 +161,7 @@ export async function calculateAccountBalance(
  * @returns The next sequential code string
  */
 export async function generateNextCode(
-  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose',
+  model: 'chartOfAccount' | 'ledgerEntry' | 'periodClose' | 'fiscalYear',
   prefix: string
 ): Promise<string> {
   // LedgerEntry uses 'entryCode' instead of 'code'
@@ -193,6 +193,35 @@ export async function generateNextCode(
  * @param filters - Optional date range and reference filters
  * @returns Verification result with debit total, credit total, and balance status
  */
+/**
+ * FY-001: Fiscal Year Immutable Period Interlock
+ * Checks whether a given date falls within a closed/finalized fiscal year.
+ * Returns an error message string if the period is locked, or null if allowed.
+ */
+export async function checkFiscalYearInterlock(
+  date: Date,
+  companyId?: string | null
+): Promise<string | null> {
+  try {
+    const year = date.getFullYear();
+    // Check if a PeriodClose record exists for this year
+    const periodClose = await db.periodClose.findFirst({
+      where: {
+        period: String(year),
+        status: 'Closed',
+        ...(companyId ? { companyId } : {}),
+      },
+    });
+    if (periodClose) {
+      return `Fiscal year ${year} is closed. No modifications allowed for closed periods.`;
+    }
+    return null;
+  } catch {
+    // If periodClose table doesn't exist or query fails, allow the operation
+    return null;
+  }
+}
+
 export async function verifyLedgerBalance(filters?: {
   from?: string;
   to?: string;

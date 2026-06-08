@@ -30,16 +30,15 @@ export async function GET(request: NextRequest) {
       },
       include: {
         product: true,
-        godown: true,
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // Apply VAT Auditor masking on costPrice, totalCost, salePrice fields
+    // Apply VAT Auditor masking on costPricePerUnit, salePricePerUnit fields
     const masked = maskFinancialArray(
       batches as Record<string, unknown>[],
       role,
-      ['costPrice', 'totalCost', 'salePrice']
+      ['costPricePerUnit', 'salePricePerUnit']
     );
 
     return NextResponse.json(masked);
@@ -62,7 +61,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      batchNumber,
+      batchCode,
+      batchNumber, // Legacy alias for batchCode
       productId,
       quantity,
       costPrice,
@@ -70,15 +70,16 @@ export async function POST(request: NextRequest) {
       expiryDate,
       manufacturingDate,
       godownId,
-      supplierId,
-      purchaseOrderId,
       status,
     } = body;
 
+    // batchCode is the canonical field; batchNumber is accepted as a legacy alias
+    const resolvedBatchCode = batchCode || batchNumber;
+
     // ── Required field validation ──
-    if (!batchNumber || !productId || quantity === undefined || quantity === null || costPrice === undefined || costPrice === null) {
+    if (!resolvedBatchCode || !productId || quantity === undefined || quantity === null || costPrice === undefined || costPrice === null) {
       return NextResponse.json(
-        { error: 'batchNumber, productId, quantity, and costPrice are required' },
+        { error: 'batchCode, productId, quantity, and costPrice are required' },
         { status: 400 }
       );
     }
@@ -103,7 +104,6 @@ export async function POST(request: NextRequest) {
 
     const safeQty = safeFinancialRound(parsedQty);
     const safeCost = safeFinancialRound(parsedCost);
-    const totalCost = safeFinancialRound(safeQty * safeCost);
     const safeSalePrice = salePrice ? safeFinancialRound(parseFloat(String(salePrice))) : 0;
 
     // ── XSS sanitization on batchNumber string ──
@@ -112,10 +112,10 @@ export async function POST(request: NextRequest) {
       return val.replace(/<[^>]*>/g, '').trim() || null;
     };
 
-    const cleanBatchNumber = sanitize(batchNumber);
-    if (!cleanBatchNumber) {
+    const cleanBatchCode = sanitize(resolvedBatchCode);
+    if (!cleanBatchCode) {
       return NextResponse.json(
-        { error: 'batchNumber is required after sanitization' },
+        { error: 'batchCode is required after sanitization' },
         { status: 400 }
       );
     }
@@ -137,23 +137,20 @@ export async function POST(request: NextRequest) {
     // ── Create batch master ──
     const batch = await db.batchMaster.create({
       data: {
-        batchNumber: cleanBatchNumber,
+        batchCode: cleanBatchCode,
         productId: String(productId),
         godownId: godownId ? String(godownId) : null,
-        quantity: safeQty,
-        costPrice: safeCost,
-        totalCost,
-        salePrice: safeSalePrice,
+        quantityReceived: safeQty,
+        quantityOnHand: safeQty,
+        costPricePerUnit: safeCost,
+        salePricePerUnit: safeSalePrice,
         expiryDate: expiryDate ? new Date(expiryDate as string) : null,
         manufacturingDate: manufacturingDate ? new Date(manufacturingDate as string) : null,
-        supplierId: supplierId ? String(supplierId) : null,
-        purchaseOrderId: purchaseOrderId ? String(purchaseOrderId) : null,
         status: status ? String(status) : 'Active',
         companyId: companyId || null,
       },
       include: {
         product: true,
-        godown: true,
       },
     });
 
@@ -162,15 +159,14 @@ export async function POST(request: NextRequest) {
       action: 'CREATE',
       module: 'Inv-Stock-Core',
       recordId: batch.id,
-      recordLabel: cleanBatchNumber,
+      recordLabel: cleanBatchCode,
       userId,
       userName,
       details: JSON.stringify({
-        batchNumber: cleanBatchNumber,
+        batchCode: cleanBatchCode,
         productId: String(productId),
-        quantity: safeQty,
-        costPrice: safeCost,
-        totalCost,
+        quantityReceived: safeQty,
+        costPricePerUnit: safeCost,
         godownId: godownId ? String(godownId) : null,
         companyId: companyId || null,
       }),

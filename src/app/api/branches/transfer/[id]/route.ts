@@ -75,8 +75,6 @@ export async function PUT(
           where: { id },
           data: {
             status: newStatus,
-            authorizedBy: security.user.id,
-            authorizedAt: new Date(),
           },
         });
 
@@ -173,13 +171,11 @@ export async function PUT(
                   type: 'OUT',
                   quantity: deductQty,
                   costPrice: stock.costPrice,
-                  totalCost: safeFinancialRound(deductQty * stock.costPrice),
                   reference: existing.transferNo,
                   referenceType: 'InterBranchTransfer',
                   companyId: existing.companyId,
                   date: new Date(),
                   notes: `Inter-branch transfer to ${existing.toBranch.name}`,
-                  isActive: true,
                 },
               });
 
@@ -240,13 +236,11 @@ export async function PUT(
                 type: 'IN',
                 quantity: existing.quantity,
                 costPrice: existing.unitCost,
-                totalCost: existing.totalValue,
                 reference: existing.transferNo,
                 referenceType: 'InterBranchTransfer',
                 companyId: existing.companyId,
                 date: new Date(),
                 notes: `Inter-branch transfer from ${existing.fromBranch.name}`,
-                isActive: true,
               },
             });
           }
@@ -256,8 +250,6 @@ export async function PUT(
             where: { id },
             data: {
               status: newStatus,
-              authorizedBy: security.user.id,
-              authorizedAt: new Date(),
             },
           });
 
@@ -356,8 +348,6 @@ export async function PUT(
             where: { id },
             data: {
               status: newStatus,
-              authorizedBy: security.user.id,
-              authorizedAt: new Date(),
             },
           });
 
