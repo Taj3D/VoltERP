@@ -25,6 +25,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -43,69 +45,9 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) =>
   d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 // ============================================================
 // Auth Hook
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-let authState = { isAuthenticated: false, user: null as AuthUser | null };
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => {
-      authListeners = authListeners.filter((l) => l !== listener);
-    };
-  }, []);
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach((l) => l());
-      } catch {}
-    }
-  }, []);
-  return {
-    ...authState,
-    isVatAuditor: authState.user?.role === "vat_auditor",
-    isSR: authState.user?.role === "sr",
-    isDealer: authState.user?.role === "dealer",
-    user: authState.user,
-  };
-}
 
 // ============================================================
 // CONSTANTS

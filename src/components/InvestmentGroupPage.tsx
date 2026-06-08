@@ -32,6 +32,8 @@ import {
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+import { apiFetch, authState } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -63,78 +65,9 @@ const fmtPct = (v: any) => {
   return `${Number(v).toFixed(2)}%`;
 };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {
-    console.warn('InvestmentGroupPage: Failed to parse auth token');
-  }
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 // ============================================================
 // AUTH
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-let authState = {
-  isAuthenticated: false,
-  user: null as AuthUser | null,
-};
-
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => {
-      authListeners = authListeners.filter((l) => l !== listener);
-    };
-  }, []);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach((l) => l());
-      } catch {
-        console.warn('InvestmentGroupPage: Failed to parse stored auth state');
-      }
-    }
-  }, []);
-
-  const isVatAuditor = authState.user?.role === "vat_auditor";
-  const isSR = authState.user?.role === "sr";
-  const isDealer = authState.user?.role === "dealer";
-
-  return { ...authState, isVatAuditor, isSR, isDealer, user: authState.user };
-}
 
 // ============================================================
 // BADGE STYLES

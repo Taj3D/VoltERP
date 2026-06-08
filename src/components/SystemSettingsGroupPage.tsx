@@ -35,6 +35,8 @@ import {
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+import { apiFetch, type UserRole, authState } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -52,23 +54,6 @@ const fmt = (v: any, type?: string) => {
   return String(v);
 };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 /** Validate Bangladesh phone number with +880 prefix */
 function validateBDPhone(phone: string): { valid: boolean; message: string } {
@@ -92,33 +77,6 @@ function fileToBase64(file: File): Promise<string> {
 
 // ============================================================
 // AUTH
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser { name: string; email: string; role: UserRole; displayName: string; }
-
-let authState = { isAuthenticated: false, user: null as AuthUser | null };
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => { authListeners = authListeners.filter(l => l !== listener); };
-  }, []);
-  const loadAuth = useCallback(() => {
-    try {
-      const stored = localStorage.getItem("ems_auth");
-      if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
-      else { authState = { isAuthenticated: false, user: null }; }
-    } catch { authState = { isAuthenticated: false, user: null }; }
-    authListeners.forEach(l => l());
-  }, []);
-  useEffect(() => { loadAuth(); }, [loadAuth]);
-  return authState;
-}
 
 // ============================================================
 // TYPES

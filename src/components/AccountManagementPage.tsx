@@ -20,9 +20,10 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import type { CompanyProfile, ColumnDef } from "@/lib/export-utils";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ── Utility Functions ──────────────────────────────────────────────
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
 const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtCurrency = (v: any): string => { if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return `৳${bdCurrencyFmt.format(n)}`; };
@@ -49,30 +50,6 @@ const typeBadge = (type: string) => {
   }
 };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try { const stored = localStorage.getItem("ems_auth"); if (stored) { const parsed = JSON.parse(stored); if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; } } } catch { console.warn('AccountManagementPage: Failed to parse auth token'); }
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) { if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); } const err = await res.json().catch(() => ({ error: res.statusText })); throw new Error(err.error || "Request failed"); }
-  return res.json();
-}
-
-function useAuth() {
-  const getStored = (): { user: { name: string; email: string; role: UserRole; displayName: string } | null; isAuthenticated: boolean } => {
-    if (typeof window === "undefined") return { user: null, isAuthenticated: false };
-    try { const s = localStorage.getItem("ems_auth"); if (s) return JSON.parse(s); } catch { console.warn('AccountManagementPage: Failed to parse auth state'); }
-    return { user: null, isAuthenticated: false };
-  };
-  const [auth, setAuth] = useState(getStored);
-  const [, force] = useState({});
-  useEffect(() => {
-    const l = () => { const s = localStorage.getItem("ems_auth"); if (s) try { setAuth(JSON.parse(s)); } catch { console.warn('AccountManagementPage: Failed to parse auth state on event'); } force({}); };
-    window.addEventListener("storage", l); window.addEventListener("auth-change", l);
-    return () => { window.removeEventListener("storage", l); window.removeEventListener("auth-change", l); };
-  }, []);
-  const user = auth.user;
-  return { user, isVatAuditor: user?.role === "vat_auditor", isDealer: user?.role === "dealer", isSR: user?.role === "sr", isAdmin: user?.role === "admin" };
-}
 
 // ── Stat Card Component ────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color, bg }: { label: string; value: any; icon: any; color: string; bg: string }) {

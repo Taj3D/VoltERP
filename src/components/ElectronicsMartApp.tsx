@@ -41,6 +41,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
 import ErrorBoundary from "@/components/erp/ui/ErrorBoundary";
+import ModuleErrorBoundary from "@/components/ModuleErrorBoundary";
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 
 // ─── Lazy-loaded page components for performance ───
@@ -128,15 +129,9 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptio
 // TYPES & INTERFACES
 // ============================================================
 
-import { ROLES, ROLE_COLORS, ROLE_LABELS, type Role } from "@/lib/constants";
-type UserRole = Role;
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
+import { ROLES, ROLE_COLORS, ROLE_LABELS } from "@/lib/constants";
+import { apiFetch, type UserRole, type AuthUser, authState, setAuthState, clearAuthState } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 interface ColumnDef {
   key: string;
@@ -203,224 +198,8 @@ function hasItemAccess(role: UserRole, itemKey: string): boolean {
   return !denied.includes(itemKey);
 }
 
-let authState = {
-  isAuthenticated: false,
-  user: null as AuthUser | null,
-  accessToken: null as string | null,
-  refreshToken: null as string | null,
-  tokenExpiry: null as number | null, // epoch ms when access token expires
-};
-
-let authListeners: Array<() => void> = [];
-
-// ── JWT Token Auto-Refresh ──
-// Proactively refreshes the access token 5 minutes before expiry
-// Prevents unexpected logouts during active sessions
-let refreshTimerRef: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleTokenRefresh() {
-  // Clear any existing refresh timer
-  if (refreshTimerRef) {
-    clearTimeout(refreshTimerRef);
-    refreshTimerRef = null;
-  }
-
-  if (!authState.refreshToken || !authState.tokenExpiry) return;
-
-  const now = Date.now();
-  const expiresAt = authState.tokenExpiry;
-  const refreshThreshold = 5 * 60 * 1000; // 5 minutes before expiry
-
-  const timeUntilRefresh = expiresAt - now - refreshThreshold;
-
-  if (timeUntilRefresh <= 0) {
-    // Token already within refresh window or expired — refresh immediately
-    performTokenRefresh();
-    return;
-  }
-
-  // Schedule refresh for 5 minutes before expiry
-  refreshTimerRef = setTimeout(() => {
-    performTokenRefresh();
-  }, timeUntilRefresh);
-}
-
-async function performTokenRefresh() {
-  if (!authState.refreshToken) return;
-
-  try {
-    const res = await fetch("/api/auth/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: authState.refreshToken }),
-    });
-
-    if (!res.ok) {
-      // Refresh token expired — force re-login
-      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-      localStorage.removeItem("ems_auth");
-      authListeners.forEach(l => l());
-      return;
-    }
-
-    const data = await res.json();
-
-    // Decode new access token to get expiry
-    let tokenExpiry: number | null = null;
-    try {
-      const payload = JSON.parse(atob(data.accessToken.split(".")[1]));
-      tokenExpiry = payload.exp * 1000;
-    } catch {}
-
-    authState = {
-      ...authState,
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken || authState.refreshToken,
-      tokenExpiry,
-    };
-    localStorage.setItem("ems_auth", JSON.stringify(authState));
-    authListeners.forEach(l => l());
-
-    // Schedule next refresh
-    scheduleTokenRefresh();
-  } catch {
-    // Network error — don't force logout, just skip this refresh cycle
-    // Will retry on next scheduled interval or on next API call
-  }
-}
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => { authListeners = authListeners.filter(l => l !== listener); };
-  }, []);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-
-        // ── Stale Session Migration ──
-        // If the stored session has no JWT access token (pre-Phase 3 session),
-        // force a clean re-login instead of proceeding with broken auth
-        if (parsed.isAuthenticated && !parsed.accessToken) {
-          // Clear stale session — user must re-login to get JWT tokens
-          authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-          localStorage.removeItem("ems_auth");
-          authListeners.forEach(l => l());
-          return;
-        }
-
-        // ── Expired Token Check ──
-        // If the access token has already expired and no refresh token, force re-login
-        if (parsed.tokenExpiry && parsed.tokenExpiry < Date.now() && !parsed.refreshToken) {
-          authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-          localStorage.removeItem("ems_auth");
-          authListeners.forEach(l => l());
-          return;
-        }
-
-        authState = parsed;
-
-        // If token is expired but we have a refresh token, try refreshing immediately
-        if (parsed.tokenExpiry && parsed.tokenExpiry < Date.now() && parsed.refreshToken) {
-          performTokenRefresh();
-        } else {
-          // Schedule proactive refresh for valid token
-          scheduleTokenRefresh();
-        }
-
-        authListeners.forEach(l => l());
-      } catch {
-        // Corrupted localStorage — clear and force re-login
-        authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-        localStorage.removeItem("ems_auth");
-        authListeners.forEach(l => l());
-      }
-    }
-  }, []);
-
-  const login = async (username: string, password: string): Promise<boolean> => {
-    // Server-side auth: validates against DB, auto-seeds all 5 role users
-    try {
-      const res = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: username, password }),
-      });
-      if (!res.ok) return false;
-      const serverUser = await res.json();
-      // Map server response to client-side auth state
-      const resolvedDisplayName = serverUser.displayName || serverUser.name || username;
-
-      // Decode access token to get expiry timestamp
-      let tokenExpiry: number | null = null;
-      try {
-        const payload = JSON.parse(atob(serverUser.accessToken.split(".")[1]));
-        tokenExpiry = payload.exp * 1000;
-      } catch {}
-
-      authState = {
-        isAuthenticated: true,
-        user: {
-          name: resolvedDisplayName, // Always use display name, never raw username
-          email: serverUser.email || username, // Use DB email for server-side RBAC lookup
-          role: (serverUser.role as UserRole) || "admin",
-          displayName: resolvedDisplayName,
-        },
-        accessToken: serverUser.accessToken || null,
-        refreshToken: serverUser.refreshToken || null,
-        tokenExpiry,
-      };
-      localStorage.setItem("ems_auth", JSON.stringify(authState));
-      authListeners.forEach(l => l());
-
-      // Schedule proactive token refresh
-      scheduleTokenRefresh();
-
-      return true;
-    } catch {
-      // Network error — return false so the login form shows its error message
-      return false;
-    }
-  };
-
-  const logout = () => {
-    // Revoke the JWT token on the server (fire-and-forget)
-    if (authState.accessToken) {
-      fetch("/api/auth/logout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${authState.accessToken}`,
-        },
-        body: JSON.stringify({ refreshToken: authState.refreshToken }),
-      }).catch((e) => { console.warn("Token refresh failed (non-blocking):", e); });
-    }
-    // Clear refresh timer
-    if (refreshTimerRef) {
-      clearTimeout(refreshTimerRef);
-      refreshTimerRef = null;
-    }
-    authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-    localStorage.removeItem("ems_auth");
-    authListeners.forEach(l => l());
-  };
-
-  const hasAccess = (groupKey: string): boolean => {
-    if (!authState.user) return false;
-    const access = ROLE_ACCESS[authState.user.role];
-    if (!access) return false;
-    return access.includes("*") || access.includes(groupKey);
-  };
-
-  const isVatAuditor = authState.user?.role === ROLES.VAT_AUDITOR;
-
-  return { ...authState, login, logout, hasAccess, isVatAuditor };
-}
+// authState, authListeners, scheduleTokenRefresh, apiFetch now imported from @/lib/api-client
+// useAuth now imported from @/hooks/useAuth
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -438,69 +217,7 @@ const fmt = (v: any, type?: string) => {
 
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  // Server-side RBAC: send JWT Bearer token in Authorization header
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  if (authState.accessToken) {
-    authHeaders["Authorization"] = `Bearer ${authState.accessToken}`;
-  }
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    // If 401 with expired token, try to refresh once before forcing logout
-    if (res.status === 401 && authState.refreshToken && err.expired) {
-      try {
-        const refreshRes = await fetch("/api/auth/refresh", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken: authState.refreshToken }),
-        });
-        if (refreshRes.ok) {
-          const data = await refreshRes.json();
-          let tokenExpiry: number | null = null;
-          try {
-            const payload = JSON.parse(atob(data.accessToken.split(".")[1]));
-            tokenExpiry = payload.exp * 1000;
-          } catch {}
-          authState = {
-            ...authState,
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken || authState.refreshToken,
-            tokenExpiry,
-          };
-          localStorage.setItem("ems_auth", JSON.stringify(authState));
-          authListeners.forEach(l => l());
-          scheduleTokenRefresh();
-
-          // Retry the original request with new token
-          const retryHeaders: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${data.accessToken}` };
-          const retryRes = await fetch(path, { headers: { ...retryHeaders, ...opts?.headers }, ...opts });
-          if (!retryRes.ok) {
-            const retryErr = await retryRes.json().catch(() => ({ error: retryRes.statusText }));
-            if (retryRes.status === 401) {
-              // Even after refresh, still 401 — force logout
-              authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-              localStorage.removeItem("ems_auth");
-              authListeners.forEach(l => l());
-            }
-            throw new Error(retryErr.error || "Request failed");
-          }
-          return retryRes.json();
-        }
-      } catch (retryError) {
-        // Refresh failed — fall through to logout
-      }
-    }
-    // If 401 without refresh possibility, force logout (session expired)
-    if (res.status === 401) {
-      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
-      localStorage.removeItem("ems_auth");
-      authListeners.forEach(l => l());
-    }
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+// apiFetch is now imported from @/lib/api-client
 
 // ============================================================
 // SIDEBAR CONFIGURATION - Complete Navigation
@@ -1494,7 +1211,7 @@ function ProductsPage() {
         ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue))}` }]),
       ];
       const summaryRows = summaryRowsData.map(r => ({ cells: [r.label, r.value] }));
-      const user = authState.user;
+      const { user } = useAuth();
       exportToPDF({
         title: "Product Master List",
         subtitle: `Total: ${totalProducts} | In Stock: ${inStock} | Low: ${lowStock} | Out: ${outOfStock}`,
@@ -2368,8 +2085,7 @@ function ProfilePage() {
             if (parsed.user) {
               parsed.user.displayName = profileData.name;
               localStorage.setItem("ems_auth", JSON.stringify(parsed));
-              authState = parsed;
-              authListeners.forEach(l => l());
+              setAuthState(parsed);
             }
           } catch { /* silent */ }
         }
@@ -6371,7 +6087,7 @@ function AppLayout() {
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { logout, user, isVatAuditor, hasAccess } = useAuth();
+  const { logout, user, isVatAuditor, hasAccess, accessToken, tokenExpiry } = useAuth();
   const userRole = user?.role || "admin";
   const { theme, setTheme } = useTheme();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -6429,67 +6145,67 @@ function AppLayout() {
 
   // Render current page content
   const renderPage = () => {
-    if (currentPage === "dashboard") return <DashboardAnalyticsPage onNavigate={(page) => setCurrentPage(page)} />;
+    if (currentPage === "dashboard") return <ModuleErrorBoundary moduleName="Dashboard"><React.Suspense fallback={<LazyFallback />}><DashboardAnalyticsPage onNavigate={(page) => setCurrentPage(page)} /></React.Suspense></ModuleErrorBoundary>;
     if (currentPage === "products") return <ProductsPage />;
     if (currentPage === "stock") return <StockPage />;
     if (currentPage === "stock-details") return <StockDetailsPage />;
-    if (currentPage === "send-sms") return <SMSAnalyticsPage key={currentPage} initialTab="send" />;
-    if (currentPage === "send-bulk-sms") return <SMSAnalyticsPage key={currentPage} initialTab="campaigns" />;
-    if (currentPage === "sms-inbox") return <SMSAnalyticsPage key={currentPage} initialTab="inbox" />;
-    if (currentPage === "sms-bills") return <SMSAnalyticsPage key={currentPage} initialTab="billing" />;
-    if (currentPage === "sms-report") return <SMSAnalyticsPage key={currentPage} initialTab="dashboard" />;
-    if (currentPage === "sms-settings") return <SMSAnalyticsPage key={currentPage} initialTab="settings" />;
-    if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage key={currentPage} initialTab="billing" />;
+    if (currentPage === "send-sms") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="send" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "send-bulk-sms") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="campaigns" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "sms-inbox") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="inbox" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "sms-bills") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="billing" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "sms-report") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="dashboard" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "sms-settings") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="settings" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "sms-bill-payments") return <ModuleErrorBoundary moduleName="SMS"><React.Suspense fallback={<LazyFallback />}><SMSAnalyticsPage key={currentPage} initialTab="billing" /></React.Suspense></ModuleErrorBoundary>;
     if (currentPage === "change-password") return <ChangePasswordPage />;
-    if (currentPage === "profile") return <ProfileCenter />;
+    if (currentPage === "profile") return <ModuleErrorBoundary moduleName="Profile"><React.Suspense fallback={<LazyFallback />}><ProfileCenter /></React.Suspense></ModuleErrorBoundary>;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
     // Core Sales Module — dedicated SalesModulePage component (COGS, AR, Hire Installment Engine)
     const salesModuleKeys = new Set(["sales-orders", "hire-sales", "sales-returns"]);
-    if (salesModuleKeys.has(currentPage)) return <SalesModulePage currentPage={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} />;
+    if (salesModuleKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Sales"><React.Suspense fallback={<LazyFallback />}><SalesModulePage currentPage={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} /></React.Suspense></ModuleErrorBoundary>;
     // Return & Replacement Module — dedicated ReturnReplacementModulePage (AP, COGS reversal, Financial Adjustment)
     const returnReplacementKeys = new Set(["purchase-returns", "replacements"]);
-    if (returnReplacementKeys.has(currentPage)) return <ReturnReplacementModulePage currentPage={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} />;
+    if (returnReplacementKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Returns & Replacements"><React.Suspense fallback={<LazyFallback />}><ReturnReplacementModulePage currentPage={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} /></React.Suspense></ModuleErrorBoundary>;
     const stockModuleKeys = new Set(["stock", "stock-details", "stock-transfers", "opening-stock", "batch-master", "valuation"]);
-    if (stockModuleKeys.has(currentPage)) return <StockModulePage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
+    if (stockModuleKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Stock"><React.Suspense fallback={<LazyFallback />}><StockModulePage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} /></React.Suspense></ModuleErrorBoundary>;
     const inventoryGroupKeys = new Set(["company-ordersheet", "customer-ordersheet", "ordersheet-report", "purchase-orders", "auto-po"]);
-    if (inventoryGroupKeys.has(currentPage)) return <InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
-    if (["expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads"].includes(currentPage)) return <AccountManagementPage key={currentPage} initialTab={currentPage} />;
-    if (currentPage === "chart-of-accounts") return <ChartOfAccountsLedgerPage />;
-    if (currentPage === "cash-in-hand") return <AccountingReportsPage key={currentPage} initialTab="cash-in-hand" />;
-    if (currentPage === "trial-balance") return <AccountingReportsPage key={currentPage} initialTab="trial-balance" />;
-    if (currentPage === "profit-loss") return <AccountingReportsPage key={currentPage} initialTab="profit-loss" />;
-    if (currentPage === "balance-sheet") return <BalanceSheetPeriodClosePage key={currentPage} initialTab="balance-sheet" />;
+    if (inventoryGroupKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Inventory"><React.Suspense fallback={<LazyFallback />}><InventoryGroupPage currentPage={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} /></React.Suspense></ModuleErrorBoundary>;
+    if (["expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads"].includes(currentPage)) return <ModuleErrorBoundary moduleName="Account Management"><React.Suspense fallback={<LazyFallback />}><AccountManagementPage key={currentPage} initialTab={currentPage} /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "chart-of-accounts") return <ModuleErrorBoundary moduleName="Chart of Accounts"><React.Suspense fallback={<LazyFallback />}><ChartOfAccountsLedgerPage /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "cash-in-hand") return <ModuleErrorBoundary moduleName="Accounting Reports"><React.Suspense fallback={<LazyFallback />}><AccountingReportsPage key={currentPage} initialTab="cash-in-hand" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "trial-balance") return <ModuleErrorBoundary moduleName="Accounting Reports"><React.Suspense fallback={<LazyFallback />}><AccountingReportsPage key={currentPage} initialTab="trial-balance" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "profit-loss") return <ModuleErrorBoundary moduleName="Accounting Reports"><React.Suspense fallback={<LazyFallback />}><AccountingReportsPage key={currentPage} initialTab="profit-loss" /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "balance-sheet") return <ModuleErrorBoundary moduleName="Balance Sheet"><React.Suspense fallback={<LazyFallback />}><BalanceSheetPeriodClosePage key={currentPage} initialTab="balance-sheet" /></React.Suspense></ModuleErrorBoundary>;
     // GROUP 1: Investment & Asset Balances — dedicated InvestmentGroupPage component
     const investmentGroupKeys = new Set(["investment-heads", "investment", "fixed-asset", "current-asset", "liability-receive", "liability-pay", "liability-report"]);
-    if (investmentGroupKeys.has(currentPage)) return <InvestmentGroupPage key={currentPage} initialTab={currentPage} />;
+    if (investmentGroupKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Investment"><React.Suspense fallback={<LazyFallback />}><InvestmentGroupPage key={currentPage} initialTab={currentPage} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 2a: Structure Module — dedicated StructureModulePage with warehouse routing
     const structureKeys = new Set(["departments", "godowns", "segments", "capacities"]);
-    if (structureKeys.has(currentPage)) return <StructureModulePage key={currentPage} activeModule={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} />;
+    if (structureKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Structure"><React.Suspense fallback={<LazyFallback />}><StructureModulePage key={currentPage} activeModule={currentPage} userRole={userRole} isVatAuditor={isVatAuditor} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 2b: Interest Percentage Engine — dedicated InterestPercentageEnginePage
-    if (currentPage === "interest-percentages") return <InterestPercentageEnginePage userRole={userRole} isVatAuditor={isVatAuditor} />;
+    if (currentPage === "interest-percentages") return <ModuleErrorBoundary moduleName="Interest Engine"><React.Suspense fallback={<LazyFallback />}><InterestPercentageEnginePage userRole={userRole} isVatAuditor={isVatAuditor} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 2c: Basic Foundation Modules — dedicated BasicModulesGroupPage component (Core Config only)
     const basicModuleKeys = new Set(["companies", "categories", "colors", "brands", "units", "products", "banks"]);
-    if (basicModuleKeys.has(currentPage)) return <BasicModulesGroupPage activeModule={currentPage} />;
+    if (basicModuleKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Basic Modules"><React.Suspense fallback={<LazyFallback />}><BasicModulesGroupPage activeModule={currentPage} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 2d: Operations Module — dedicated OperationsModulePage with Live Target Tracking, Payment Channel Mapping, Branded PDF/CSV
     const operationsModuleKeys = new Set(["sr-targets", "payment-options", "card-types", "card-type-setup"]);
-    if (operationsModuleKeys.has(currentPage)) return <OperationsModulePage activeModule={currentPage} />;
+    if (operationsModuleKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Operations"><React.Suspense fallback={<LazyFallback />}><OperationsModulePage activeModule={currentPage} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 3: Personnel & CRM Ecosystem — dedicated PersonnelCRMGroupPage component
     const personnelCRMKeys = new Set(["designations", "employees", "employee-leaves", "customers", "suppliers"]);
-    if (personnelCRMKeys.has(currentPage)) return <PersonnelCRMGroupPage activeModule={currentPage} />;
+    if (personnelCRMKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Personnel & CRM"><React.Suspense fallback={<LazyFallback />}><PersonnelCRMGroupPage activeModule={currentPage} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 5: Financial Auditing, Automated Ledgers & Data Integrity — dedicated FinancialAuditGroupPage component
     const financialAuditKeys = new Set(["dashboard-kpi", "fraud-detection", "ledger-auto-post", "inventory-aging", "product-lifecycle", "specialized-reports", "notifications-integrity"]);
-    if (financialAuditKeys.has(currentPage)) return <FinancialAuditGroupPage key={currentPage} initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} />;
+    if (financialAuditKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Financial Audit"><React.Suspense fallback={<LazyFallback />}><FinancialAuditGroupPage key={currentPage} initialTab={currentPage} isVatAuditor={isVatAuditor} userRole={userRole} /></React.Suspense></ModuleErrorBoundary>;
 
     // GROUP 6: Core Performance Configurations & System Settings — dedicated components
     const systemSettingsKeys = new Set(["company-settings", "invoice-templates", "number-formats", "performance-cache"]);
-    if (systemSettingsKeys.has(currentPage)) return <SystemSettingsGroupPage key={currentPage} initialTab={currentPage} />;
-    if (currentPage === "audit-trail") return <AuditTrailViewer />;
+    if (systemSettingsKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="System Settings"><React.Suspense fallback={<LazyFallback />}><SystemSettingsGroupPage key={currentPage} initialTab={currentPage} /></React.Suspense></ModuleErrorBoundary>;
+    if (currentPage === "audit-trail") return <ModuleErrorBoundary moduleName="Audit Trail"><React.Suspense fallback={<LazyFallback />}><AuditTrailViewer /></React.Suspense></ModuleErrorBoundary>;
 
     if (currentPage === "audit-logs") return <GenericModulePage title="Audit Logs" apiPath="/api/audit-logs" columns={[{ key: "action", label: "Action", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "recordLabel", label: "Record", type: "text" }, { key: "userName", label: "User", type: "text" }, { key: "createdAt", label: "Date", type: "date" }]} formFields={[]} />;
 
@@ -6509,13 +6225,13 @@ function AppLayout() {
       "product-wise-benefit", "income-report", "adjustment-report", "transaction-summary",
       "monthly-transaction", "showroom-analysis", "bank-ledger-report", "transfer-report",
     ]);
-    if (misReportKeys.has(currentPage)) return <MISReportEngine key={currentPage} initialReport={currentPage} />;
+    if (misReportKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="MIS Reports"><React.Suspense fallback={<LazyFallback />}><MISReportEngine key={currentPage} initialReport={currentPage} /></React.Suspense></ModuleErrorBoundary>;
 
     // Customer & Supplier Ledger - dedicated page with aging buckets
     const customerLedgerKeys = new Set(["customer-ledger-report"]);
     const supplierLedgerKeys = new Set(["supplier-ledger-report"]);
-    if (customerLedgerKeys.has(currentPage)) return <CustomerSupplierLedgerPage key={currentPage} initialTab="customer" />;
-    if (supplierLedgerKeys.has(currentPage)) return <CustomerSupplierLedgerPage key={currentPage} initialTab="supplier" />;
+    if (customerLedgerKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Customer/Supplier Ledger"><React.Suspense fallback={<LazyFallback />}><CustomerSupplierLedgerPage key={currentPage} initialTab="customer" /></React.Suspense></ModuleErrorBoundary>;
+    if (supplierLedgerKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="Customer/Supplier Ledger"><React.Suspense fallback={<LazyFallback />}><CustomerSupplierLedgerPage key={currentPage} initialTab="supplier" /></React.Suspense></ModuleErrorBoundary>;
 
     const config = currentPageConfig;
     if (!config) return <div className="text-center py-16 text-muted-foreground">Page not found</div>;
@@ -6545,8 +6261,8 @@ function AppLayout() {
         currentPageLabel={currentPageConfig?.label || ""}
         sidebarCollapsed={sidebarCollapsed}
         theme={theme || "light"}
-        accessToken={authState.accessToken}
-        tokenExpiry={authState.tokenExpiry}
+        accessToken={accessToken}
+        tokenExpiry={tokenExpiry}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         onNavigate={navigate}
         onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}

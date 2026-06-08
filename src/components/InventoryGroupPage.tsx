@@ -32,6 +32,8 @@ import {
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
+import { apiFetch, type UserRole } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -56,57 +58,9 @@ const fmtCurrency = (v: any) => {
   return `৳${_bdCurrencyFmt.format(Number(v))}`;
 };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {
-    console.warn('InventoryGroupPage: Failed to parse auth token');
-  }
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 // ============================================================
 // AUTH
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser { name: string; email: string; role: UserRole; displayName: string; }
-
-let authState = { isAuthenticated: false, user: null as AuthUser | null };
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => { authListeners = authListeners.filter(l => l !== listener); };
-  }, []);
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("ems_auth");
-      if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
-      else { authState = { isAuthenticated: false, user: null }; }
-    } catch {
-      console.warn('InventoryGroupPage: Failed to parse stored auth state');
-      authState = { isAuthenticated: false, user: null };
-    }
-    authListeners.forEach(l => l());
-  }, []);
-  return authState;
-}
 
 // ============================================================
 // BADGE STYLES

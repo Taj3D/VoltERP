@@ -39,6 +39,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import { apiFetch, type UserRole } from "@/lib/api-client";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -70,23 +71,6 @@ const safeNum = (v: any, fallback = 0) => {
 const _bdNumFmt = new Intl.NumberFormat("en-US");
 const fmtNum = (v: any) => _bdNumFmt.format(safeNum(v));
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 function vatMask(val: any, isVatAuditor: boolean) {
   if (isVatAuditor) return "N/A (Audit Mode)";
@@ -213,9 +197,6 @@ function EmptyState({ icon: Icon, message }: { icon: React.ElementType; message:
 
 // ============================================================
 // PROPS
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
 interface StockModulePageProps {
   currentPage: string;

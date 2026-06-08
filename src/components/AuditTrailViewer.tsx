@@ -37,6 +37,8 @@ import {
   exportToCSV, exportAuditReportPDF, getVatMaskedKeys,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-utils";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -71,39 +73,9 @@ const fmtTime = (d: string | Date) =>
       })
     : "\u2014";
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 // ============================================================
 // AUTH TYPES
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
 
 // ============================================================
 // ACTION COLOR / BADGE HELPERS
@@ -236,23 +208,8 @@ export default function AuditTrailViewer() {
   const { toast } = useToast();
   const { resolvedTheme } = useTheme();
 
-  // ─── Auth State ───
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const isVatAuditor = authUser?.role === "vat_auditor";
-  const isSR = authUser?.role === "sr";
-  const isDealer = authUser?.role === "dealer";
-  const isAdmin = authUser?.role === "admin";
-  const isManager = authUser?.role === "manager";
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("ems_auth");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.user) setAuthUser(parsed.user);
-      }
-    } catch (e) { console.warn("Failed to parse stored auth state:", e); }
-  }, []);
+  // ─── Auth State (shared hook) ───
+  const { user: authUser, isVatAuditor, isSR, isDealer, isAdmin, isManager } = useAuth();
 
   // ─── Company Profile (for PDF export) ───
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);

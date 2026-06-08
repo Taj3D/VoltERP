@@ -29,6 +29,8 @@ import {
   exportToPDF, exportToCSV, importFromCSV,
 } from '@/lib/export-utils';
 import type { ColumnDef, FieldDef, CompanyProfile } from '@/lib/export-utils';
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // PROPS
@@ -91,69 +93,9 @@ function sanitizeXSS(input: string): string {
     .trim();
 }
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-  try {
-    const stored = localStorage.getItem('ems_auth');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders['Authorization'] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch { /* silent */ }
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem('ems_auth');
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || 'Request failed');
-  }
-  return res.json();
-}
 
 // ============================================================
 // AUTH HOOK (local copy)
-// ============================================================
-
-type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-let authState = {
-  isAuthenticated: false,
-  user: null as AuthUser | null,
-};
-
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => { authListeners = authListeners.filter(l => l !== listener); };
-  }, []);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('ems_auth');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach(l => l());
-      } catch { /* silent */ }
-    }
-  }, []);
-
-  const isVatAuditor = authState.user?.role === 'vat_auditor';
-  return { ...authState, isVatAuditor, user: authState.user };
-}
 
 // ============================================================
 // FORM DATA DEFAULTS

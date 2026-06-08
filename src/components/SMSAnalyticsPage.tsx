@@ -31,6 +31,8 @@ import {
   importFromCSV,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -73,41 +75,9 @@ const computeClientSmsSegments = (message: string) => {
   return { charCount, isUnicode, segmentCount, charsPerSegment };
 };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {
-    console.warn('SMSAnalyticsPage: Failed to parse auth token');
-  }
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
 
 // ============================================================
 // AUTH TYPES
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
 
 // ============================================================
 // SMS ANALYTICS PAGE COMPONENT
@@ -118,24 +88,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  // Auth state
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const isVatAuditor = authUser?.role === "vat_auditor";
-  const isAdmin = authUser?.role === "admin";
-  const isSR = authUser?.role === "sr";
-  const isDealer = authUser?.role === "dealer";
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("ems_auth");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.user) setAuthUser(parsed.user);
-      }
-    } catch {
-      console.warn('SMSAnalyticsPage: Failed to parse stored auth state');
-    }
-  }, []);
+  // Auth state (shared hook)
+  const { user: authUser, isVatAuditor, isAdmin, isSR, isDealer } = useAuth();
 
   // Tab state
   const [activeTab, setActiveTab] = useState(initialTab || "dashboard");
