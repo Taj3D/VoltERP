@@ -6,7 +6,7 @@
 
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, safeFinancialRound, safeFinancialAdd, safeFinancialSubtract, maskFinancialArray } from '@/lib/api-security';
+import { withApiSecurity, safeFinancialRound, safeFinancialAdd, safeFinancialSubtract, maskFinancialArray, maskForVatAuditor, UserRole } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
 interface CustomerBalanceResult {
@@ -198,9 +198,25 @@ export async function computeAllCustomerBalances(
   return results;
 }
 
+// Balance fields that must be masked for non-admin/manager roles
+const CUSTOMER_BALANCE_SENSITIVE_FIELDS = [
+  'openingBalance', 'openingBalanceType',
+  'totalSalesOrders', 'totalHireSales', 'totalCashCollections', 'totalSalesReturns',
+  'currentBalance', 'currentBalanceType',
+  'creditLimit', 'creditUtilization', 'creditStatus',
+];
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Customers', 'GET');
   if (!security.authorized) return security.response;
+
+  // Dealer: 403 — customer balances are restricted entirely
+  if (security.user.role === 'dealer') {
+    return NextResponse.json(
+      { error: 'Access denied. Dealer role cannot access customer balance information.' },
+      { status: 403 }
+    );
+  }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -253,8 +269,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Apply VAT Auditor masking
-    const maskedBalances = maskFinancialArray(balances, security.user.role, ['creditUtilization']);
+    // Apply role-based masking
+    let maskedBalances: CustomerBalanceResult[];
+    const role = security.user.role as UserRole;
+
+    if (role === 'sr') {
+      // SR: mask all financial/balance fields — only see customerId, customerCode, name
+      maskedBalances = balances.map(b =>
+        maskForVatAuditor(b as unknown as Record<string, unknown>, role, CUSTOMER_BALANCE_SENSITIVE_FIELDS) as unknown as CustomerBalanceResult
+      );
+    } else {
+      // VAT Auditor + admin/manager: use financial masking with balance-specific extra fields
+      maskedBalances = maskFinancialArray(balances as unknown as Record<string, unknown>[], role, CUSTOMER_BALANCE_SENSITIVE_FIELDS) as unknown as CustomerBalanceResult[];
+    }
 
     return NextResponse.json({
       data: maskedBalances,

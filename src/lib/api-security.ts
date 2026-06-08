@@ -123,7 +123,7 @@ const MODULE_DENY: Record<UserRole, string[]> = {
 const WRITE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'Designations', 'Employees', 'EmployeeLeaves'],
   dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs'],
   vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
 };
@@ -447,6 +447,27 @@ export const FINANCIAL_VAT_MASKED_FIELDS = [
   'discountAmount',
   'creditLimit',
   'openingBalanceType',
+  // Balance aggregation totals (AR/AP)
+  'totalSalesOrders',
+  'totalCashCollections',
+  'totalHireSales',
+  'totalSalesReturns',
+  'totalPurchaseOrders',
+  'totalCashDeliveries',
+  'totalPurchaseReturns',
+  'totalInvoices',
+  'totalPayments',
+  'totalCredit',
+  'totalDebit',
+  // Balance metadata
+  'currentBalanceType',
+  'creditUtilization',
+  'creditStatus',
+  // Additional monetary fields
+  'balance',
+  'totalAmount',
+  'paidAmount',
+  'dueAmount',
 ];
 
 /**

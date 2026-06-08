@@ -198,6 +198,20 @@ export async function POST(request: NextRequest) {
     const accountNo = stripHtml(String(body.accountNo || ''));
     const accountHolder = stripHtml(String(body.accountHolder || ''));
 
+    // ── Required Field Validation ──
+    if (!bankName) {
+      return NextResponse.json(
+        { error: 'bankName is required and cannot be empty' },
+        { status: 400 }
+      );
+    }
+    if (!accountNo) {
+      return NextResponse.json(
+        { error: 'accountNo is required and cannot be empty' },
+        { status: 400 }
+      );
+    }
+
     // ── Bank Type Validation ──
     const bankType: BankType = body.bankType || 'Bank';
     if (!VALID_BANK_TYPES.includes(bankType)) {

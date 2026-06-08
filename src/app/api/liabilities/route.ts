@@ -299,6 +299,17 @@ export async function POST(request: NextRequest) {
     }
 
     // ──────────────────────────────────────────────────────────
+    // Pre-transaction validation for single create
+    // ──────────────────────────────────────────────────────────
+    const VALID_LIABILITY_TYPES = ['received', 'pay'] as const;
+    if (body.type !== undefined && !VALID_LIABILITY_TYPES.includes(body.type as any)) {
+      return NextResponse.json(
+        { error: `Invalid type "${body.type}". Must be one of: ${VALID_LIABILITY_TYPES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
+    // ──────────────────────────────────────────────────────────
     // Single create — wrapped in transaction
     // ──────────────────────────────────────────────────────────
     const result = await db.$transaction(async (tx) => {
@@ -363,11 +374,17 @@ async function createSingleLiability(
     description,
   } = body;
 
+  const VALID_LIABILITY_TYPES = ['received', 'pay'] as const;
   const liabilityTypeValue = (type as string) || 'received';
 
   // ──────────────────────────────────────────────────────────
   // Validations
   // ──────────────────────────────────────────────────────────
+
+  // Validate type field — must be "received" or "pay"
+  if (type !== undefined && !VALID_LIABILITY_TYPES.includes(type as any)) {
+    throw new Error(`Invalid type "${type}". Must be one of: ${VALID_LIABILITY_TYPES.join(', ')}`);
+  }
 
   if (!investmentHeadId) {
     throw new Error('Investment Head is required');

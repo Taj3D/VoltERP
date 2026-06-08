@@ -9,6 +9,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, safeFinancialRound, safeFinancialAdd, safeFinancialSubtract, maskFinancialArray } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+// Balance fields that must be masked for VAT Auditor on supplier balances
+const SUPPLIER_BALANCE_SENSITIVE_FIELDS = [
+  'openingBalance', 'openingBalanceType',
+  'totalPurchaseOrders', 'totalCashDeliveries', 'totalPurchaseReturns',
+  'currentBalance', 'currentBalanceType',
+  'creditLimit', 'creditUtilization', 'creditStatus',
+];
+
 interface SupplierBalanceResult {
   supplierId: string;
   supplierCode: string;
@@ -237,8 +245,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Apply VAT Auditor masking
-    const maskedBalances = maskFinancialArray(balances, security.user.role, ['creditUtilization']);
+    // Apply VAT Auditor masking with balance-specific fields
+    const maskedBalances = maskFinancialArray(balances as unknown as Record<string, unknown>[], security.user.role, SUPPLIER_BALANCE_SENSITIVE_FIELDS) as unknown as SupplierBalanceResult[];
 
     return NextResponse.json({
       data: maskedBalances,

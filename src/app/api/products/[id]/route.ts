@@ -276,7 +276,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.name !== undefined) updateData.name = body.name;
       if (body.sku !== undefined) updateData.sku = body.sku?.trim() || null;
       if (body.barcode !== undefined) updateData.barcode = body.barcode?.trim() || null;
-      if (body.categoryId !== undefined) updateData.categoryId = body.categoryId;
+      if (body.categoryId !== undefined) updateData.categoryId = body.categoryId || null;
       if (body.brandId !== undefined) updateData.brandId = body.brandId || null;
       if (body.colorId !== undefined) updateData.colorId = body.colorId || null;
       if (body.unit !== undefined) updateData.unit = body.unit || null;

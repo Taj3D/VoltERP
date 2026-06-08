@@ -69,6 +69,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+    // Map `rate` → `chargePercentage` for convenience (common alias used by callers)
+    if (body.rate !== undefined && body.chargePercentage === undefined) {
+      body.chargePercentage = body.rate;
+    }
     const { paymentOptionId, cardTypeId, chargePercentage, bankServiceCharge, customerConvFee, isActive } = body;
 
     // Validate required fields
@@ -83,6 +87,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'cardTypeId is required' },
         { status: 400 }
+      );
+    }
+
+    if (chargePercentage === undefined || chargePercentage === null) {
+      return NextResponse.json(
+        { error: 'chargePercentage is required (alternatively, use "rate" field which maps to chargePercentage)' },
+        { status: 400 }
+      );
+    }
+
+    // ── Duplicate paymentOptionId+cardTypeId check within company ──
+    const existingSetup = await db.cardTypeSetup.findFirst({
+      where: {
+        paymentOptionId,
+        cardTypeId,
+        ...(companyId ? { companyId } : {}),
+        isActive: true,
+      },
+    });
+    if (existingSetup) {
+      return NextResponse.json(
+        { error: `A card type setup with paymentOptionId "${paymentOptionId}" and cardTypeId "${cardTypeId}" already exists in this company.` },
+        { status: 409 }
       );
     }
 
