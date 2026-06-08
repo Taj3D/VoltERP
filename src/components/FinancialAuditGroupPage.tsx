@@ -79,7 +79,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('FinancialAuditGroupPage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -124,7 +126,9 @@ function useAuth() {
         const parsed = JSON.parse(stored);
         authState = parsed;
         authListeners.forEach((l) => l());
-      } catch {}
+      } catch {
+        console.warn('FinancialAuditGroupPage: Failed to parse stored auth state');
+      }
     }
   }, []);
 
@@ -451,7 +455,9 @@ export default function FinancialAuditGroupPage({
       if (eRes) setEmployees(Array.isArray(eRes) ? eRes : eRes.data || []);
       if (custRes) setCustomers(Array.isArray(custRes) ? custRes : custRes.data || []);
       if (brandRes) { setFraudData(brandRes); if (brandRes.overallHealthScore !== undefined) setHealthScore(brandRes.overallHealthScore); }
-    } catch {}
+    } catch (err) {
+      console.error('Error loading dropdown data:', err);
+    }
   }, []);
 
   // ============================================================
@@ -1905,7 +1911,9 @@ export default function FinancialAuditGroupPage({
       try {
         await apiFetch("/api/notifications", { method: "PUT", body: JSON.stringify({ id, action: "mark-read" }) });
         loadNotifications();
-      } catch (e: any) {}
+      } catch (err) {
+        console.warn('Error marking notification as read:', err);
+      }
     };
 
     const generateNotifs = async () => {

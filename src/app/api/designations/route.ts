@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
       if (duplicate && duplicate.name.trim().toLowerCase() === normalizedName) {
         return NextResponse.json(
           { error: `Corporate Entity Collision: Designation name "${body.name.trim()}" already exists (case-insensitive match).` },
-          { status: 400 }
+          { status: 409 }
         );
       }
     }

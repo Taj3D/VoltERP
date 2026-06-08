@@ -81,7 +81,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('SMSAnalyticsPage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) {
@@ -130,7 +132,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         const parsed = JSON.parse(stored);
         if (parsed.user) setAuthUser(parsed.user);
       }
-    } catch {}
+    } catch {
+      console.warn('SMSAnalyticsPage: Failed to parse stored auth state');
+    }
   }, []);
 
   // Tab state
@@ -257,8 +261,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       try {
         const autoConfig = await apiFetch("/api/sms-automation");
         setAutomationConfig(autoConfig);
-      } catch {
-        // defaults will apply
+      } catch (err) {
+        console.warn('Error loading SMS automation config, using defaults:', err);
       }
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -271,7 +275,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
     try {
       const res = await apiFetch(`/api/reports?type=sms&from=${reportFrom}&to=${reportTo}`).catch(() => []);
       setSmsReport(Array.isArray(res) ? res : res?.data || []);
-    } catch {
+    } catch (err) {
+      console.error('Error loading SMS report:', err);
       setSmsReport([]);
     }
   }, [reportFrom, reportTo]);

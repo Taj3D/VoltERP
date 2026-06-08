@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('DUPLICATE_NAME')) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 409 });
     }
     console.error('Error creating category:', error);
     return NextResponse.json(

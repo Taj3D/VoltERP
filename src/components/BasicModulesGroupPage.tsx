@@ -62,7 +62,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('BasicModulesGroupPage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -95,7 +97,10 @@ function useAuth() {
       const stored = localStorage.getItem("ems_auth");
       if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
       else { authState = { isAuthenticated: false, user: null }; }
-    } catch { authState = { isAuthenticated: false, user: null }; }
+    } catch {
+      console.warn('BasicModulesGroupPage: Failed to parse stored auth state');
+      authState = { isAuthenticated: false, user: null };
+    }
     authListeners.forEach(l => l());
   }, []);
   useEffect(() => { loadAuth(); }, [loadAuth]);
@@ -536,7 +541,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           const items = await apiFetch(apiPath);
           opts[field.key] = Array.isArray(items) ? items : [];
         }
-      } catch { opts[field.key] = []; }
+      } catch (err) {
+        console.error(`Error loading options for ${field.key}:`, err);
+        opts[field.key] = [];
+      }
     }
     setDynamicOptions(opts);
   }, [config.formFields]);
@@ -550,7 +558,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       try {
         const profile = await apiFetch("/api/company-branding");
         setCompanyProfile(profile.company || profile);
-      } catch {}
+      } catch (err) {
+        console.error('Error loading company branding:', err);
+      }
     };
     loadCompanyProfile();
   }, []);

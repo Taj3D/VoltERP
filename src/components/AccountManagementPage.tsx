@@ -51,7 +51,7 @@ const typeBadge = (type: string) => {
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try { const stored = localStorage.getItem("ems_auth"); if (stored) { const parsed = JSON.parse(stored); if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; } } } catch {}
+  try { const stored = localStorage.getItem("ems_auth"); if (stored) { const parsed = JSON.parse(stored); if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; } } } catch { console.warn('AccountManagementPage: Failed to parse auth token'); }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) { if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); } const err = await res.json().catch(() => ({ error: res.statusText })); throw new Error(err.error || "Request failed"); }
   return res.json();
@@ -60,13 +60,13 @@ async function apiFetch(path: string, opts?: RequestInit) {
 function useAuth() {
   const getStored = (): { user: { name: string; email: string; role: UserRole; displayName: string } | null; isAuthenticated: boolean } => {
     if (typeof window === "undefined") return { user: null, isAuthenticated: false };
-    try { const s = localStorage.getItem("ems_auth"); if (s) return JSON.parse(s); } catch {}
+    try { const s = localStorage.getItem("ems_auth"); if (s) return JSON.parse(s); } catch { console.warn('AccountManagementPage: Failed to parse auth state'); }
     return { user: null, isAuthenticated: false };
   };
   const [auth, setAuth] = useState(getStored);
   const [, force] = useState({});
   useEffect(() => {
-    const l = () => { const s = localStorage.getItem("ems_auth"); if (s) try { setAuth(JSON.parse(s)); } catch {} force({}); };
+    const l = () => { const s = localStorage.getItem("ems_auth"); if (s) try { setAuth(JSON.parse(s)); } catch { console.warn('AccountManagementPage: Failed to parse auth state on event'); } force({}); };
     window.addEventListener("storage", l); window.addEventListener("auth-change", l);
     return () => { window.removeEventListener("storage", l); window.removeEventListener("auth-change", l); };
   }, []);
@@ -352,6 +352,8 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
       };
       const apiBase = apiBaseMap[formContext];
       const payload: Record<string, any> = { ...formData, amount: formData.amount ? Number(formData.amount) : undefined };
+      // Remove UI-only field that should not be sent to API
+      delete payload.type_head;
       // Clean null fields
       for (const key of ["chequeNo", "voucherNo", "description", "paymentOptionId", "bankId", "toBankId", "chartOfAccountId", "referenceNo", "depositorName"]) {
         if (!payload[key]) payload[key] = null;

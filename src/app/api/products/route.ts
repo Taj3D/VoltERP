@@ -360,6 +360,16 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
+    // ---- SINGLE MODE required-field validation ----
+    if (!body.batchMode) {
+      if (!body.name || !String(body.name).trim()) {
+        return NextResponse.json({ error: "Product name is required" }, { status: 400 });
+      }
+      if (!body.sku || !String(body.sku).trim()) {
+        return NextResponse.json({ error: "Product SKU is required" }, { status: 400 });
+      }
+    }
+
     // ---- BATCH MODE ----
     if (body.batchMode && Array.isArray(body.data)) {
       const batchData = body.data;

@@ -74,7 +74,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch { /* ignore */ }
+  } catch {
+    console.warn('OperationsModulePage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -107,7 +109,10 @@ function useAuth() {
       const stored = localStorage.getItem("ems_auth");
       if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
       else { authState = { isAuthenticated: false, user: null }; }
-    } catch { authState = { isAuthenticated: false, user: null }; }
+    } catch {
+      console.warn('OperationsModulePage: Failed to parse stored auth state');
+      authState = { isAuthenticated: false, user: null };
+    }
     authListeners.forEach(l => l());
   }, []);
   useEffect(() => { loadAuth(); }, [loadAuth]);
@@ -278,7 +283,10 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
     try {
       const result = await apiFetch("/api/employees");
       setEmployees(Array.isArray(result) ? result : []);
-    } catch { setEmployees([]); }
+    } catch (err) {
+      console.error('Error loading employees:', err);
+      setEmployees([]);
+    }
   }, []);
 
   // Load company profile
@@ -287,7 +295,9 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       try {
         const profile = await apiFetch("/api/company-branding");
         setCompanyProfile(profile);
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.error('Error loading company branding:', err);
+      }
     };
     loadProfile();
   }, []);
@@ -315,7 +325,8 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             };
           }
         }
-      } catch {
+      } catch (err) {
+        console.warn('Error loading SR performance data, using defaults:', err);
         // Performance API may not be available yet; set default zero values
         for (const target of data) {
           const key = `${target.employeeId}-${target.month}-${target.year}`;
@@ -508,7 +519,8 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
         });
       }
       setPerformanceDialogData(monthlyData);
-    } catch {
+    } catch (err) {
+      console.error('Error loading performance detail:', err);
       setPerformanceDialogData([]);
     }
   };
@@ -1023,7 +1035,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
   // Load company profile
   useEffect(() => {
     const loadProfile = async () => {
-      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch { /* ignore */ }
+      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
     };
     loadProfile();
   }, []);
@@ -1474,7 +1486,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
 
   useEffect(() => {
     const loadProfile = async () => {
-      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch { /* ignore */ }
+      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
     };
     loadProfile();
   }, []);
@@ -1848,7 +1860,8 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       ]);
       setPaymentOptions(Array.isArray(poResult) ? poResult : []);
       setCardTypes(Array.isArray(ctResult) ? ctResult : []);
-    } catch {
+    } catch (err) {
+      console.error('Error loading payment options and card types:', err);
       setPaymentOptions([]);
       setCardTypes([]);
     }
@@ -1859,7 +1872,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
 
   useEffect(() => {
     const loadProfile = async () => {
-      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch { /* ignore */ }
+      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
     };
     loadProfile();
   }, []);

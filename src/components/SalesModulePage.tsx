@@ -74,7 +74,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('SalesModulePage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -179,18 +181,20 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
   const [salesOrdersForReturn, setSalesOrdersForReturn] = useState<any[]>([]);
 
   const loadDropdowns = useCallback(async () => {
-    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/payment-options"); setPaymentOptions(Array.isArray(r) ? r : []); } catch {}
+    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading companies:', e); }
+    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading customers:', e); }
+    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading products:', e); }
+    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading godowns:', e); }
+    try { const r = await apiFetch("/api/payment-options"); setPaymentOptions(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading payment options:', e); }
     try {
       const r = await apiFetch("/api/employees");
       const emps = Array.isArray(r) ? r : [];
       setEmployees(emps.filter((e: any) =>
         e.designation?.name?.includes("SR") || e.designation?.name?.includes("Sales") || e.designation?.name?.includes("sr") || e.designation?.name?.includes("sales")
       ));
-    } catch {}
+    } catch (e) {
+      console.error('Error loading employees:', e);
+    }
   }, []);
 
   useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
@@ -673,7 +677,9 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     try {
       const res = await apiFetch("/api/sales-orders?status=Confirmed");
       setSalesOrdersForReturn(Array.isArray(res) ? res.filter((o: any) => o.status !== "Cancelled" && o.status !== "Draft") : []);
-    } catch {}
+    } catch (err) {
+      console.error('Error loading sales orders for return:', err);
+    }
     setSrDialog(true);
   }, []);
 
@@ -789,7 +795,9 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
           logo: comps[0].logo || undefined,
         };
       }
-    } catch {}
+    } catch (err) {
+      console.error('Error loading company info for invoice:', err);
+    }
     return undefined;
   }, [companies]);
 

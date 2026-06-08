@@ -213,7 +213,7 @@ export default function BalanceSheetPeriodClosePage({ initialTab }: { initialTab
     const totalLiabilities = bsData.liabilities?.totalLiabilities;
     return {
       currentRatio: currentLiabilities > 0 ? (currentAssets / currentLiabilities).toFixed(2) : "∞",
-      debtToEquity: equity > 0 ? (totalLiabilities / Math.max(equity, 1)).toFixed(2) : "∞",
+      debtToEquity: equity > 0 ? (totalLiabilities / equity).toFixed(2) : "N/A",
     };
   }, [bsData, isVatAuditor]);
 

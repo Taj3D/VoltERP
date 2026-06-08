@@ -63,7 +63,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('PersonnelCRMGroupPage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -96,7 +98,10 @@ function useAuth() {
       const stored = localStorage.getItem("ems_auth");
       if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
       else { authState = { isAuthenticated: false, user: null }; }
-    } catch { authState = { isAuthenticated: false, user: null }; }
+    } catch {
+      console.warn('PersonnelCRMGroupPage: Failed to parse stored auth state');
+      authState = { isAuthenticated: false, user: null };
+    }
     authListeners.forEach(l => l());
   }, []);
   useEffect(() => { loadAuth(); }, [loadAuth]);
@@ -528,8 +533,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       if (result && typeof result === "object") {
         setCompanyProfile(result as CompanyProfile);
       }
-    } catch {
-      // Silently fail — PDF export will use defaults
+    } catch (err) {
+      console.error('Error loading company branding:', err);
+      // PDF export will use defaults
     }
   }, []);
 
@@ -560,7 +566,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           const items = await apiFetch(apiPath);
           opts[field.key] = Array.isArray(items) ? items : [];
         }
-      } catch { opts[field.key] = []; }
+      } catch (err) {
+        console.error(`Error loading options for ${field.key}:`, err);
+        opts[field.key] = [];
+      }
     }
     setDynamicOptions(opts);
   }, [config.formFields]);
@@ -582,8 +591,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       try {
         const allocResult = await apiFetch(`/api/leave-allocations?employeeId=${employeeId}`);
         allocations = Array.isArray(allocResult) ? allocResult : [];
-      } catch {
-        // Fallback to computation from employee-leaves
+      } catch (err) {
+        console.warn('Error loading leave allocations, falling back to computation:', err);
       }
 
       if (allocations.length > 0) {
@@ -622,7 +631,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         }
         setLeaveBalances(balances);
       }
-    } catch {
+    } catch (err) {
+      console.error('Error calculating leave balances:', err);
       setLeaveBalances({});
     }
   }, []);
@@ -976,7 +986,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           userName = parsed.user?.displayName || parsed.user?.name || "";
           userEmail = parsed.user?.email || "";
         }
-      } catch {}
+      } catch (err) {
+        console.warn('Error parsing auth for PDF export:', err);
+      }
 
       exportToPDF({
         title: config.label,

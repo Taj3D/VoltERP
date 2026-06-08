@@ -32,6 +32,9 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+    if (!body.name || !body.name.trim()) {
+      return NextResponse.json({ error: "Investment head name is required" }, { status: 400 });
+    }
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {

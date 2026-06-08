@@ -64,7 +64,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('InventoryGroupPage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -97,7 +99,10 @@ function useAuth() {
       const stored = localStorage.getItem("ems_auth");
       if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
       else { authState = { isAuthenticated: false, user: null }; }
-    } catch { authState = { isAuthenticated: false, user: null }; }
+    } catch {
+      console.warn('InventoryGroupPage: Failed to parse stored auth state');
+      authState = { isAuthenticated: false, user: null };
+    }
     authListeners.forEach(l => l());
   }, []);
   return authState;
@@ -256,12 +261,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
 
   const loadDropdowns = useCallback(async () => {
-    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/payment-options"); setPaymentOptions(Array.isArray(r) ? r : []); } catch {}
+    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading companies:', e); }
+    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading customers:', e); }
+    try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading suppliers:', e); }
+    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading products:', e); }
+    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading godowns:', e); }
+    try { const r = await apiFetch("/api/payment-options"); setPaymentOptions(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading payment options:', e); }
   }, []);
 
   useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
@@ -794,7 +799,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       if (quantity) params.set("requestedQuantity", String(quantity));
       const res = await apiFetch(`/api/order-sheets/stock-check?${params.toString()}`);
       setter(prev => ({ ...prev, [productId]: res }));
-    } catch { /* silently ignore */ }
+    } catch (err) {
+      console.warn('Stock check failed for product:', productId, err);
+    }
   };
 
   // ============================================================
@@ -942,7 +949,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           toast({ title: "Insufficient Stock", description: insufficientItems, variant: "destructive" });
           return;
         }
-      } catch {}
+      } catch {
+        // Error message was not JSON, fall through to generic toast
+      }
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
     finally { setCoSaving(false); }
@@ -1368,7 +1377,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           toast({ title: "Insufficient Stock", description: insufficientItems, variant: "destructive" });
           return;
         }
-      } catch {}
+      } catch {
+        // Error message was not JSON, fall through to generic toast
+      }
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }
     finally { setCustOSaving(false); }
@@ -3123,7 +3134,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       })).filter((l: any) => l.maxQty > 0);
       setSrAvailableProducts(available);
       setSrLines(available.map((l: any) => ({ productId: l.productId, quantity: 1, rate: l.rate || 0, discountPercent: l.discountPercent || 0, maxQty: l.maxQty })));
-    } catch { setSrAvailableProducts([]); }
+    } catch (err) {
+      console.error('Error loading available products for sales return:', err);
+      setSrAvailableProducts([]);
+    }
   };
 
   const openSrCreate = () => {
@@ -3334,7 +3348,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       })).filter((l: any) => l.maxQty > 0);
       setPrAvailableProducts(available);
       setPrLines(available.map((l: any) => ({ productId: l.productId, quantity: 1, rate: l.rate || 0, discountPercent: l.discountPercent || 0, maxQty: l.maxQty })));
-    } catch { setPrAvailableProducts([]); }
+    } catch (err) {
+      console.error('Error loading available products for purchase return:', err);
+      setPrAvailableProducts([]);
+    }
   };
 
   const openPrCreate = () => {

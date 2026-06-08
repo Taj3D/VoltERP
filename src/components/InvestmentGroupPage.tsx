@@ -71,7 +71,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch {}
+  } catch {
+    console.warn('InvestmentGroupPage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) {
@@ -121,7 +123,9 @@ function useAuth() {
         const parsed = JSON.parse(stored);
         authState = parsed;
         authListeners.forEach((l) => l());
-      } catch {}
+      } catch {
+        console.warn('InvestmentGroupPage: Failed to parse stored auth state');
+      }
     }
   }, []);
 
@@ -313,7 +317,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     try {
       const res = await apiFetch("/api/investment-heads?includeInactive=true");
       setHeadOptions(Array.isArray(res) ? res : res.data || []);
-    } catch {}
+    } catch (err) {
+      console.error('Error loading investment head options:', err);
+      toast({ title: 'Error', description: 'Failed to load investment head options.', variant: 'destructive' });
+    }
   }, []);
 
   const loadInvestments = useCallback(async () => {
@@ -381,14 +388,19 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     try {
       const res = await apiFetch("/api/banks");
       setBanks(Array.isArray(res) ? res : []);
-    } catch {}
+    } catch (err) {
+      console.error('Error loading banks:', err);
+      toast({ title: 'Error', description: 'Failed to load banks list.', variant: 'destructive' });
+    }
   }, []);
 
   const loadCompanyBranding = useCallback(async () => {
     try {
       const res = await apiFetch("/api/company-branding");
       setCompanyBranding(res.company || null);
-    } catch {}
+    } catch (err) {
+      console.error('Error loading company branding:', err);
+    }
   }, []);
 
   // ─── Enhancement: Load Depreciation Schedule ───
@@ -398,7 +410,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     try {
       const res = await apiFetch(`/api/asset-depreciation?assetId=${assetId}`);
       setDepreciationData(Array.isArray(res) ? res : []);
-    } catch {
+    } catch (err) {
+      console.error('Error loading depreciation schedule:', err);
       setDepreciationData([]);
     } finally {
       setDepreciationLoading(false);
@@ -411,7 +424,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     try {
       const res = await apiFetch("/api/audit-logs?module=InvestmentHeads&module=Assets&module=Fin-Liability-Core&module=Inv-Asset-Ledger&limit=20");
       setActivityLog(Array.isArray(res) ? res.slice(0, 20) : (res.data || []).slice(0, 20));
-    } catch {
+    } catch (err) {
+      console.error('Error loading activity log:', err);
       setActivityLog([]);
     } finally {
       setActivityLogLoading(false);

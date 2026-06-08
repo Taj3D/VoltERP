@@ -115,8 +115,14 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     });
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error?.message === 'Not found') {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+    }
     if (error?.message?.startsWith('Cannot delete')) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error?.code === 'P2025') {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
   }

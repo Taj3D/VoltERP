@@ -55,7 +55,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
       const parsed = JSON.parse(stored);
       if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
-  } catch { /* ignore */ }
+  } catch {
+    console.warn('StructureModulePage: Failed to parse auth token');
+  }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); }
@@ -88,7 +90,10 @@ function useAuth() {
       const stored = localStorage.getItem("ems_auth");
       if (stored) { const parsed = JSON.parse(stored); authState = { isAuthenticated: true, user: parsed.user }; }
       else { authState = { isAuthenticated: false, user: null }; }
-    } catch { authState = { isAuthenticated: false, user: null }; }
+    } catch {
+      console.warn('StructureModulePage: Failed to parse stored auth state');
+      authState = { isAuthenticated: false, user: null };
+    }
     authListeners.forEach(l => l());
   }, []);
   useEffect(() => { loadAuth(); }, [loadAuth]);
@@ -424,7 +429,9 @@ function StructureModuleTab({
       try {
         const profile = await apiFetch("/api/company-branding");
         setCompanyProfile(profile);
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.error('Error loading company branding:', err);
+      }
     };
     loadProfile();
   }, []);
