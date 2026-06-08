@@ -220,7 +220,7 @@ export default function FinancialStatementsPage({
   useEffect(() => {
     apiFetch("/api/company-branding")
       .then(setCompanyProfile)
-      .catch(() => {});
+      .catch((e) => { console.warn("Failed to load company branding:", e); });
   }, []);
 
   // ── Load Fiscal Years ──

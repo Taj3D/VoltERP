@@ -50,11 +50,12 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, Cell
 } from "recharts";
+import { ROLES, ROLE_COLORS as SHARED_ROLE_COLORS, ROLE_LABELS_FULL, ROLE_BADGE_COLORS, type Role } from "@/lib/constants";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
 // ────────────────────────────────────────────────────────────
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+type UserRole = Role;
 
 interface ProfileUser {
   id: string;
@@ -124,29 +125,9 @@ interface ActionTrackingSummary {
 // ────────────────────────────────────────────────────────────
 // CONSTANTS
 // ────────────────────────────────────────────────────────────
-const ROLE_COLORS: Record<UserRole, string> = {
-  admin: "bg-blue-500",
-  manager: "bg-green-500",
-  sr: "bg-yellow-500",
-  dealer: "bg-purple-500",
-  vat_auditor: "bg-amber-500",
-};
-
-const ROLE_BADGE_COLORS: Record<UserRole, string> = {
-  admin: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800",
-  manager: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800",
-  sr: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800",
-  dealer: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800",
-  vat_auditor: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800",
-};
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Administrator",
-  manager: "Manager",
-  sr: "Sales Representative",
-  dealer: "Dealer",
-  vat_auditor: "VAT Auditor",
-};
+const ROLE_COLORS = SHARED_ROLE_COLORS;
+// ROLE_BADGE_COLORS imported from @/lib/constants
+const ROLE_LABELS = ROLE_LABELS_FULL;
 
 const ACTION_TYPE_OPTIONS = [
   { value: "ALL", label: "All Activities" },
@@ -665,7 +646,7 @@ export default function ProfileCenter() {
   };
 
   useEffect(() => {
-    if (user?.role === "admin") {
+    if (user?.role === ROLES.ADMIN) {
       loadAllUsers();
       loadPasswordActivity();
     }
@@ -1414,7 +1395,7 @@ export default function ProfileCenter() {
                 )}
               </CardTitle>
               <CardDescription>
-                {user.role === "admin"
+                {user.role === ROLES.ADMIN
                   ? "Update your account password. All changes are audited."
                   : "Only users with the ADMIN role can change passwords. This route is protected by a server-side RBAC interlock."}
               </CardDescription>
@@ -1991,7 +1972,7 @@ export default function ProfileCenter() {
             </CardContent>
           </Card>
 
-          {user.role === "admin" ? (
+          {user.role === ROLES.ADMIN ? (
             <>
               {/* Admin: All Users List with Reset Password */}
               <Card className="border-0 shadow-md border-l-4 border-l-[#2563eb]">

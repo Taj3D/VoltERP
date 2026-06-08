@@ -251,7 +251,7 @@ export default function AuditTrailViewer() {
         const parsed = JSON.parse(stored);
         if (parsed.user) setAuthUser(parsed.user);
       }
-    } catch {}
+    } catch (e) { console.warn("Failed to parse stored auth state:", e); }
   }, []);
 
   // ─── Company Profile (for PDF export) ───
@@ -263,7 +263,7 @@ export default function AuditTrailViewer() {
         .then((res) => {
           if (res.company) setCompanyProfile(res.company);
         })
-        .catch(() => {});
+        .catch((e) => { console.warn("Failed to load company branding for PDF:", e); });
     }
   }, [isSR, isDealer]);
 
@@ -383,10 +383,10 @@ export default function AuditTrailViewer() {
       const res = await apiFetch("/api/audit-logs?limit=1&offset=0");
       if (res.modules) setAvailableModules(res.modules);
       if (res.actions) setAvailableActions(res.actions);
-    } catch {}
-  }, []);
+    } catch (e) { console.error("Failed to load audit log filter options:", e); }
+  }, [apiFetch]);
 
-  // Initial load + reload on filter change
+  // reload on filter change
   useEffect(() => {
     loadEntries(true);
   }, [appliedFilters]);

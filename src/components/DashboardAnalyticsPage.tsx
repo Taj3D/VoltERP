@@ -16,11 +16,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell
-} from "recharts";
+import { useAuth } from "@/hooks/useAuth";
+import { apiFetch } from "@/lib/api-client";
 import { exportToPDFSimple, exportToCSVSimple } from "@/lib/export-utils";
+import { ROLES, ROLE_COLORS_WITH_TEXT, ROLE_LABELS, type Role } from "@/lib/constants";
 
 // ============================================================
 // SAFE CURRENCY FORMATTER (prevents Bengali digit output)
@@ -40,68 +39,12 @@ const fmt = (v: any, type?: string) => {
 
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell
+} from "recharts";
 
-// ============================================================
-// AUTH HOOK
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-let authState = { isAuthenticated: false, user: null as AuthUser | null };
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => { authListeners = authListeners.filter(l => l !== listener); };
-  }, []);
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach(l => l());
-      } catch { /* ignore parse errors */ }
-    }
-  }, []);
-  return {
-    ...authState,
-    isVatAuditor: authState.user?.role === "vat_auditor",
-    isSR: authState.user?.role === "sr",
-    isDealer: authState.user?.role === "dealer",
-    user: authState.user,
-  };
-}
+// (apiFetch and useAuth imported from shared modules)
 
 // ============================================================
 // CONSTANTS
@@ -109,21 +52,8 @@ function useAuth() {
 
 const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  sr: "SR",
-  dealer: "Dealer",
-  vat_auditor: "VAT Auditor",
-};
-
-const ROLE_COLORS: Record<UserRole, string> = {
-  admin: "bg-blue-500 text-white",
-  manager: "bg-green-500 text-white",
-  sr: "bg-yellow-500 text-black",
-  dealer: "bg-purple-500 text-white",
-  vat_auditor: "bg-amber-500 text-black",
-};
+// ROLE_LABELS and ROLE_COLORS imported from @/lib/constants
+const ROLE_COLORS = ROLE_COLORS_WITH_TEXT;
 
 // ============================================================
 // ANIMATED COUNTER HOOK

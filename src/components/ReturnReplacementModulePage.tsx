@@ -167,13 +167,13 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
 
   const loadDropdowns = useCallback(async () => {
-    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/purchase-orders"); setPurchaseOrders(Array.isArray(r) ? r : []); } catch {}
-    try { const r = await apiFetch("/api/sales-orders"); setSalesOrders(Array.isArray(r) ? r : []); } catch {}
+    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load companies:", e); }
+    try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load suppliers:", e); }
+    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load customers:", e); }
+    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load products:", e); }
+    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load godowns:", e); }
+    try { const r = await apiFetch("/api/purchase-orders"); setPurchaseOrders(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load purchase orders:", e); }
+    try { const r = await apiFetch("/api/sales-orders"); setSalesOrders(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load sales orders:", e); }
   }, []);
 
   useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
@@ -568,7 +568,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
           logo: comps[0].logo || undefined,
         };
       }
-    } catch {}
+    } catch (e) { console.warn("Failed to load company branding for PDF:", e); }
     return undefined;
   }, [companies]);
 

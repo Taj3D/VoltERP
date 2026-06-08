@@ -185,7 +185,7 @@ export default function SecurityAuditCenter() {
       try {
         const data = await apiFetch("/api/company-branding");
         setCompanyProfile(data.profile || data || null);
-      } catch {}
+      } catch (e) { console.warn("Failed to load company branding:", e); }
     })();
   }, []);
 

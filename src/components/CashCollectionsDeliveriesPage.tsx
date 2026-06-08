@@ -18,14 +18,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { apiFetch } from "@/lib/api-client";
 import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import type { ColumnDef } from "@/lib/export-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS (self-contained)
 // ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
 
 /** Intl.NumberFormat('en-US') for ALL financial/numeric figures */
 const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
@@ -55,35 +55,9 @@ const displayField = (v: any): string => {
 
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+// (apiFetch imported from @/lib/api-client)
 
-function getAuthState() {
-  if (typeof window === "undefined") return { isAuthenticated: false, user: null as any };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return { isAuthenticated: false, user: null as any };
-}
+// (useAuth imported from @/hooks/useAuth)
 
 // ============================================================
 // CASH COLLECTIONS & DELIVERIES PAGE COMPONENT
@@ -91,13 +65,7 @@ function getAuthState() {
 
 export default function CashCollectionsDeliveriesPage() {
   const { toast } = useToast();
-  const auth = getAuthState();
-  const user = auth.user as { name: string; email: string; role: UserRole; displayName: string } | null;
-
-  const isDealer = user?.role === "dealer";
-  const isSR = user?.role === "sr";
-  const isVatAuditor = user?.role === "vat_auditor";
-  const isAdmin = user?.role === "admin";
+  const { isVatAuditor, isSR, isDealer, isAdmin, user } = useAuth();
 
   // ---- Shared State ----
   const [activeTab, setActiveTab] = useState("collections");
@@ -179,7 +147,7 @@ export default function CashCollectionsDeliveriesPage() {
       setSuppliers(Array.isArray(sRes) ? sRes : sRes.data || []);
       setPaymentOptions(Array.isArray(poRes) ? poRes : poRes.data || []);
       setBanks(Array.isArray(bRes) ? bRes : bRes.data || []);
-    } catch { /* silent */ }
+    } catch (e) { console.error("Failed to load dropdown data:", e); }
   }, []);
 
   // ---- Customer Outstanding Balance ----
@@ -200,7 +168,7 @@ export default function CashCollectionsDeliveriesPage() {
         const customer = customers.find((c: any) => c.id === customerId);
         setCustomerOutstanding(customer?.computedCurrentBalance ?? customer?.currentBalance ?? null);
       }
-    } catch { setCustomerOutstanding(null); }
+    } catch (e) { console.warn("Failed to load customer outstanding balance:", e); setCustomerOutstanding(null); }
   }, []);
 
   // ---- Supplier Accounts Payable ----
@@ -221,7 +189,7 @@ export default function CashCollectionsDeliveriesPage() {
         const supplier = suppliers.find((s: any) => s.id === supplierId);
         setSupplierPayable(supplier?.computedCurrentBalance ?? supplier?.currentBalance ?? null);
       }
-    } catch { setSupplierPayable(null); }
+    } catch (e) { console.warn("Failed to load supplier payable balance:", e); setSupplierPayable(null); }
   }, []);
 
   // ---- Filtered Data ----

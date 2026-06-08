@@ -441,7 +441,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
       try {
         const brandingRes = await apiFetch("/api/company-profile");
         companyProfile = brandingRes.profile || undefined;
-      } catch {}
+      } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
       const columns: ExportColumnDef[] = [
         { key: "configKey", label: "Key", type: "text" },
         { key: "configValue", label: "Value", type: "text" },
@@ -1215,7 +1215,7 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
   const handleExportPDF = async () => {
     try {
       let companyProfile: CompanyProfile | undefined;
-      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch {}
+      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
       const columns: ExportColumnDef[] = [
         { key: "code", label: "Code", type: "text" },
         { key: "name", label: "Name", type: "text" },
@@ -1712,7 +1712,7 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
   const handleExportPDF = async () => {
     try {
       let companyProfile: CompanyProfile | undefined;
-      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch {}
+      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
       const columns: ExportColumnDef[] = [
         { key: "code", label: "Code", type: "text" },
         { key: "moduleKey", label: "Module", type: "text" },
@@ -2044,7 +2044,7 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
       const res = await apiFetch("/api/audit-logs?limit=1&offset=0");
       if (res.modules) setAvailableModules(res.modules);
       if (res.actions) setAvailableActions(res.actions);
-    } catch {}
+    } catch (e) { console.error("Failed to load audit log filter options:", e); }
   }, []);
 
   useEffect(() => { loadEntries(); }, [appliedFilters, loadEntries]);
@@ -2115,7 +2115,7 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
   const handleExportPDF = async () => {
     try {
       let companyProfile: CompanyProfile | undefined;
-      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch {}
+      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
       const columns: ExportColumnDef[] = [
         { key: "action", label: "Action", type: "text" },
         { key: "module", label: "Module", type: "text" },
@@ -2438,7 +2438,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
   const handleExportPDF = async () => {
     try {
       let companyProfile: CompanyProfile | undefined;
-      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch {}
+      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
       const columns: ExportColumnDef[] = [
         { key: "category", label: "Category", type: "text" },
         { key: "count", label: "Config Count", type: "number" },

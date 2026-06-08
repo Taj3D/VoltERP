@@ -128,7 +128,8 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptio
 // TYPES & INTERFACES
 // ============================================================
 
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+import { ROLES, ROLE_COLORS, ROLE_LABELS, type Role } from "@/lib/constants";
+type UserRole = Role;
 
 interface AuthUser {
   name: string;
@@ -186,21 +187,7 @@ const ROLE_ACCESS: Record<UserRole, string[]> = {
   vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report", "system-settings"],
 };
 
-const ROLE_COLORS: Record<UserRole, string> = {
-  admin: "bg-blue-500",
-  manager: "bg-green-500",
-  sr: "bg-yellow-500",
-  dealer: "bg-purple-500",
-  vat_auditor: "bg-amber-500",
-};
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  sr: "SR",
-  dealer: "Dealer",
-  vat_auditor: "VAT Auditor",
-};
+// ROLE_COLORS and ROLE_LABELS imported from @/lib/constants
 
 // Item-level RBAC: restrict specific sidebar items per role
 const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
@@ -411,7 +398,7 @@ function useAuth() {
           "Authorization": `Bearer ${authState.accessToken}`,
         },
         body: JSON.stringify({ refreshToken: authState.refreshToken }),
-      }).catch(() => {}); // Non-blocking
+      }).catch((e) => { console.warn("Token refresh failed (non-blocking):", e); });
     }
     // Clear refresh timer
     if (refreshTimerRef) {
@@ -430,7 +417,7 @@ function useAuth() {
     return access.includes("*") || access.includes(groupKey);
   };
 
-  const isVatAuditor = authState.user?.role === "vat_auditor";
+  const isVatAuditor = authState.user?.role === ROLES.VAT_AUDITOR;
 
   return { ...authState, login, logout, hasAccess, isVatAuditor };
 }
@@ -1270,7 +1257,7 @@ function ProductsPage() {
       try {
         const profile = await apiFetch("/api/company-branding");
         setCompanyProfile(profile);
-      } catch {}
+      } catch (e) { console.warn("Failed to load company profile:", e); }
     };
     loadCompanyProfile();
   }, []);
@@ -3161,7 +3148,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   const [lines, setLines] = useState<any[]>([{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
 
   // Dealer restriction
-  const isDealer = user?.role === "dealer";
+  const isDealer = user?.role === ROLES.DEALER;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3660,7 +3647,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
   const [lines, setLines] = useState<any[]>([{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
 
   // SR role check
-  const isSR = user?.role === "sr";
+  const isSR = user?.role === ROLES.SR;
 
   // Selected customer info for credit limit
   const selectedCustomer = useMemo(() => {
@@ -4197,7 +4184,7 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
   const [lines, setLines] = useState<any[]>([{ productId: "", qty: 1, rate: 0, discPercent: 0, discAmt: 0, vatAmt: 0, total: 0 }]);
 
   // SR role check
-  const isSR = user?.role === "sr";
+  const isSR = user?.role === ROLES.SR;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4794,7 +4781,7 @@ function SalesReturnsPage({ onNavigate }: { onNavigate?: (page: string) => void 
   const [qtyErrors, setQtyErrors] = useState<string[]>([]);
 
   // RBAC
-  const isDealer = user?.role === "dealer";
+  const isDealer = user?.role === ROLES.DEALER;
 
   // Selected SO info
   const selectedSO = useMemo(() => {
@@ -5357,8 +5344,8 @@ function PurchaseReturnsPage({ onNavigate }: { onNavigate?: (page: string) => vo
   const [qtyErrors, setQtyErrors] = useState<string[]>([]);
 
   // RBAC
-  const isDealer = user?.role === "dealer";
-  const isSR = user?.role === "sr";
+  const isDealer = user?.role === ROLES.DEALER;
+  const isSR = user?.role === ROLES.SR;
 
   // Selected PO info
   const selectedPO = useMemo(() => {
@@ -5923,8 +5910,8 @@ function StockTransfersPage() {
   const [lines, setLines] = useState<any[]>([{ productId: "", quantity: 1 }]);
 
   // RBAC
-  const isDealer = user?.role === "dealer";
-  const isSR = user?.role === "sr";
+  const isDealer = user?.role === ROLES.DEALER;
+  const isSR = user?.role === ROLES.SR;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -6413,7 +6400,7 @@ function AppLayout() {
     }
     items.push({ key: "dashboard", label: "Dashboard", group: "Home" });
     items.push({ key: "profile", label: "My Profile", group: "Account" });
-    if (user?.role === "admin") {
+    if (user?.role === ROLES.ADMIN) {
       items.push({ key: "change-password", label: "Change Password", group: "Account" });
     }
     items.push({ key: "audit-logs", label: "Audit Logs", group: "System" });

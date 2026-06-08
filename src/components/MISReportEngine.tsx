@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Lock, Search, RefreshCw, Download, FileDown, Upload, BarChart3, Filter,
   ArrowUpDown, ChevronDown, ChevronUp, ChevronRight, Calendar, TrendingUp,
-  PieChart as PieChartIcon, FileSpreadsheet, Eye
+  PieChart as PieChartIcon, FileSpreadsheet, Eye, FileText, ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { apiFetch } from "@/lib/api-client";
 import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -217,57 +219,7 @@ const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype:
   "advance-search": { category: "advance-search", subtype: "advance-search" },
 };
 
-// ============================================================
-// AUTH HOOK
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-let authState = {
-  isAuthenticated: false,
-  user: null as AuthUser | null,
-};
-
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => {
-      authListeners = authListeners.filter((l) => l !== listener);
-    };
-  }, []);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach((l) => l());
-      } catch {
-        /* ignore */
-      }
-    }
-  }, []);
-
-  return {
-    ...authState,
-    isVatAuditor: authState.user?.role === "vat_auditor",
-    isSR: authState.user?.role === "sr",
-    isDealer: authState.user?.role === "dealer",
-    user: authState.user,
-  };
-}
+// (useAuth imported from @/hooks/useAuth)
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -331,26 +283,7 @@ const detectColumnType = (key: string): string => {
   return "text";
 };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+// (apiFetch imported from @/lib/api-client)
 
 // ============================================================
 // COMPONENT
@@ -451,7 +384,8 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
             name: String(e.name || e.bankName || e.customerName || e.supplierName || e.employeeName || e.id),
           }))
         );
-      } catch {
+      } catch (e) {
+        console.warn("Failed to load entity options:", e);
         setEntityOptions([]);
       }
     };
@@ -1068,7 +1002,17 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
                 {/* Determine chart type: if all items have just name+value → Pie; otherwise → Bar */}
                 {(() => {
                   const cd = reportData.chartData;
-                  if (!cd || cd.length === 0) return null;
+                  if (!cd || cd.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                        <div className="mb-3 w-14 h-14 rounded-full bg-muted/50 flex items-center justify-center">
+                          <FileText className="w-7 h-7 opacity-50" />
+                        </div>
+                        <p className="text-sm font-medium">No chart data available</p>
+                        <p className="text-xs mt-1">Try adjusting filters or check back later</p>
+                      </div>
+                    );
+                  }
                   const keys = Object.keys(cd[0]).filter(
                     (k) => k !== "name" && k !== "color"
                   );
@@ -1202,11 +1146,14 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
                       <TableRow>
                         <TableCell
                           colSpan={reportData.columns.length + 1}
-                          className="h-24 text-center text-muted-foreground"
+                          className="h-32 text-center"
                         >
-                          <div className="flex flex-col items-center gap-2">
-                            <Eye className="w-8 h-8 opacity-30" />
-                            No data found for the selected filters
+                          <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                            <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-1">
+                              <ClipboardList className="w-6 h-6 opacity-50" />
+                            </div>
+                            <p className="text-sm font-medium">No data available for this report</p>
+                            <p className="text-xs">Try adjusting filters or check back later</p>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1307,18 +1254,21 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
 
       {/* ============ EMPTY STATE (no report generated yet) ============ */}
       {!reportData && !loading && (
-        <Card>
+        <Card className="border-dashed">
           <CardContent className="p-12 text-center">
             <div className="mx-auto mb-4 w-20 h-20 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
-              <BarChart3 className="w-10 h-10 text-[#2563eb]" />
+              <FileText className="w-10 h-10 text-[#2563eb]" />
             </div>
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-              Generate a Report
+              No data available for this report
             </h3>
-            <p className="text-muted-foreground max-w-md mx-auto">
+            <p className="text-muted-foreground max-w-md mx-auto mb-1">
               Select a report category, choose a sub-report type, set your date
               range and filters, then click &quot;Generate Report&quot; to view
               the data.
+            </p>
+            <p className="text-sm text-muted-foreground/70 max-w-md mx-auto">
+              Try adjusting filters or check back later
             </p>
           </CardContent>
         </Card>

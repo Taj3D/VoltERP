@@ -186,7 +186,7 @@ export default function CustomerSupplierLedgerPage({
         const res = await apiFetch("/api/customers");
         const list = Array.isArray(res) ? res : res.data || [];
         setCustList(list);
-      } catch {}
+      } catch (e) { console.error("Failed to load customer list:", e); }
     })();
   }, []);
 
@@ -197,7 +197,7 @@ export default function CustomerSupplierLedgerPage({
         const res = await apiFetch("/api/suppliers");
         const list = Array.isArray(res) ? res : res.data || [];
         setSupList(list);
-      } catch {}
+      } catch (e) { console.error("Failed to load supplier list:", e); }
     })();
   }, []);
 

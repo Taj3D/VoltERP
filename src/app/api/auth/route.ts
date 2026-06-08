@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
           recordLabel: user.email,
         },
       });
-    } catch {}
+    } catch (e) { console.warn("Failed to log user activity:", e); }
 
     // ── Issue JWT tokens ──
     const accessToken = signAccessToken({

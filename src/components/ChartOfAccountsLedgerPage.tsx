@@ -204,7 +204,7 @@ export default function ChartOfAccountsLedgerPage() {
       const res = await apiFetch("/api/period-close");
       const data = Array.isArray(res) ? res : res.data || [];
       setLockedPeriods(data.filter((p: any) => p.isLocked));
-    } catch {}
+    } catch (e) { console.error("Failed to load locked periods:", e); }
   }, []);
 
   useEffect(() => { loadCOA(); loadLockedPeriods(); }, [loadCOA, loadLockedPeriods]);

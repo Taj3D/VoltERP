@@ -168,7 +168,7 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
     try {
       const res = await apiFetch("/api/banks");
       setBanks(Array.isArray(res) ? res : res.data || []);
-    } catch {}
+    } catch (e) { console.error("Failed to load banks:", e); }
   }, []);
 
   const loadVouchers = useCallback(async () => {

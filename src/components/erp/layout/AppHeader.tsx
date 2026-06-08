@@ -17,11 +17,12 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { ROLES, ROLE_COLORS, ROLE_LABELS, type Role } from "@/lib/constants";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
 // ────────────────────────────────────────────────────────────
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+type UserRole = Role;
 
 interface NotificationItem {
   id: string;
@@ -67,21 +68,7 @@ interface AppHeaderProps {
 // ────────────────────────────────────────────────────────────
 // ROLE STYLING CONSTANTS
 // ────────────────────────────────────────────────────────────
-const ROLE_COLORS: Record<UserRole, string> = {
-  admin: "bg-blue-500",
-  manager: "bg-green-500",
-  sr: "bg-yellow-500",
-  dealer: "bg-purple-500",
-  vat_auditor: "bg-amber-500",
-};
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  admin: "Admin",
-  manager: "Manager",
-  sr: "SR",
-  dealer: "Dealer",
-  vat_auditor: "VAT Auditor",
-};
+// ROLE_COLORS and ROLE_LABELS imported from @/lib/constants
 
 // ────────────────────────────────────────────────────────────
 // RELATIVE TIME FORMATTER
@@ -743,7 +730,7 @@ export default function AppHeader({
                   <User className="w-4 h-4" />
                   Profile
                 </button>
-                {user?.role === "admin" && (
+                {user?.role === ROLES.ADMIN && (
                   <button
                     onClick={() => {
                       setUserMenuOpen(false);
