@@ -183,7 +183,25 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(item, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
+    // Handle Prisma-specific errors with proper HTTP status codes
+    if (error?.code === 'P2002') {
+      return NextResponse.json({ error: 'Duplicate entry: a designation with this unique field already exists' }, { status: 409 });
+    }
+    if (error?.code === 'P2003') {
+      return NextResponse.json({ error: 'Referenced record not found: the specified department does not exist' }, { status: 400 });
+    }
+    if (error?.code === 'P2012') {
+      return NextResponse.json({ error: 'Missing required field: please provide all mandatory fields' }, { status: 400 });
+    }
+    if (error?.code === 'P2025') {
+      return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+    }
+    // Prisma client validation error (missing required field like departmentId)
+    if (error?.message?.includes('is missing') || error?.message?.includes('Argument')) {
+      return NextResponse.json({ error: 'Missing required field: departmentId is required' }, { status: 400 });
+    }
+    console.error('[Designations] POST error:', error);
     return NextResponse.json({ error: 'Failed to create designation' }, { status: 500 });
   }
 }

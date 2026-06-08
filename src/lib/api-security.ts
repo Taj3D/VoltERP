@@ -493,6 +493,59 @@ export function maskForVatAuditorFinancial<T extends Record<string, unknown>>(
 }
 
 /**
+ * Line-item monetary fields that VAT Auditor must NOT see on PO/SO line items.
+ * Covers per-unit pricing, discounts, VAT, totals, COGS, and profit margins.
+ */
+const ORDER_LINE_VAT_MASKED_FIELDS = [
+  'rate',
+  'unitPrice',
+  'discount',
+  'discountAmount',
+  'vatAmount',
+  'total',
+  'netAmount',
+  'costPrice',
+  'cogsAmount',
+  'grossProfit',
+  'profitMargin',
+  'availableStock',
+];
+
+/**
+ * maskOrderWithLinesForVatAuditor - Masks a PO/SO record AND its nested `lines`
+ * array for the VAT Auditor role. The standard `maskForVatAuditorFinancial` only
+ * does shallow masking, so line-item pricing fields remain visible.
+ * This function applies deep masking to every line item's monetary fields.
+ */
+export function maskOrderWithLinesForVatAuditor<T extends Record<string, unknown>>(
+  order: T,
+  role: UserRole
+): T {
+  if (role !== 'vat_auditor') return order;
+
+  // First apply standard top-level financial masking
+  let masked = maskForVatAuditorFinancial(order, role);
+
+  // Then mask each line item in the `lines` array
+  const lines = (masked as Record<string, unknown>).lines;
+  if (Array.isArray(lines)) {
+    const maskedLines = lines.map((line: unknown) => {
+      if (line && typeof line === 'object') {
+        return maskForVatAuditor(
+          line as Record<string, unknown>,
+          role,
+          ORDER_LINE_VAT_MASKED_FIELDS
+        );
+      }
+      return line;
+    });
+    masked = { ...masked, lines: maskedLines };
+  }
+
+  return masked;
+}
+
+/**
  * maskFinancialArray - Apply VAT Auditor masking to an array of financial records,
  * including nested relation objects (bank, customer, supplier).
  */

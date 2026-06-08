@@ -188,6 +188,11 @@ export async function POST(request: NextRequest) {
       deletionLog.EmployeeLeave = employeeLeaves.count;
       totalDeleted += employeeLeaves.count;
 
+      // LeaveAllocation references Employee — must delete before Employee
+      const leaveAllocations = await tx.leaveAllocation.deleteMany();
+      deletionLog.LeaveAllocation = leaveAllocations.count;
+      totalDeleted += leaveAllocations.count;
+
       // SRTargetSetup references Employee — must delete before Employee
       const srTargetSetups = await tx.sRTargetSetup.deleteMany();
       deletionLog.SRTargetSetup = srTargetSetups.count;
@@ -316,12 +321,12 @@ export async function POST(request: NextRequest) {
           status: 'Passed',
           moduleUnderTest: 'All Commercial Modules',
           executionTimeMs,
-          recordsDeleted: totalDeleted,
-          recordsCreated: 0,
           moduleToken: 'Sys-Staging-QA-Vault',
           details: JSON.stringify({
             operation: 'SEED_WIPE',
             tablesWiped: Object.keys(deletionLog).length,
+            recordsDeleted: totalDeleted,
+            recordsCreated: 0,
             deletionBreakdown: deletionLog,
             preservedTables: [
               'Company', 'Branch', 'Category', 'Color', 'Brand', 'Unit',
@@ -410,12 +415,12 @@ export async function POST(request: NextRequest) {
           status: 'Failed',
           moduleUnderTest: 'All Commercial Modules',
           executionTimeMs,
-          recordsDeleted: totalDeleted,
-          recordsCreated: 0,
           moduleToken: 'Sys-Staging-QA-Vault',
           errorMessage,
           details: JSON.stringify({
             operation: 'SEED_WIPE',
+            recordsDeleted: totalDeleted,
+            recordsCreated: 0,
             partialDeletionBreakdown: deletionLog,
             totalRecordsDeletedBeforeFailure: totalDeleted,
           }),

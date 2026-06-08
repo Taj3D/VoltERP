@@ -354,6 +354,24 @@ export async function POST(request: NextRequest) {
     if (error?.message?.includes('minimum age') || error?.message?.includes('must be strictly after')) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    // Handle Prisma-specific errors with proper HTTP status codes
+    if (error?.code === 'P2002') {
+      return NextResponse.json({ error: 'Duplicate entry: an employee with this unique field already exists' }, { status: 409 });
+    }
+    if (error?.code === 'P2003') {
+      return NextResponse.json({ error: 'Referenced record not found: the specified designation or department does not exist' }, { status: 400 });
+    }
+    if (error?.code === 'P2012') {
+      return NextResponse.json({ error: 'Missing required field: please provide all mandatory fields (designationId, name, etc.)' }, { status: 400 });
+    }
+    if (error?.code === 'P2025') {
+      return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+    }
+    // Prisma client validation error (missing required field like designationId)
+    if (error?.message?.includes('is missing') || error?.message?.includes('Argument')) {
+      return NextResponse.json({ error: 'Missing required field: designationId and departmentId are required' }, { status: 400 });
+    }
+    console.error('[Employees] POST error:', error);
     return NextResponse.json({ error: 'Failed to create employee' }, { status: 500 });
   }
 }

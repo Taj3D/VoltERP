@@ -120,7 +120,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ created: results, errors }, { status: 201 });
     }
 
-    // Single mode: Validate allocatedDays > 0
+    // Single mode: Validate required fields
+    if (!body.employeeId) {
+      return NextResponse.json({ error: 'employeeId is required' }, { status: 400 });
+    }
+    if (!body.leaveType) {
+      return NextResponse.json({ error: 'leaveType is required (e.g. Casual, Sick, Annual, Maternity)' }, { status: 400 });
+    }
+    if (!body.year) {
+      return NextResponse.json({ error: 'year is required' }, { status: 400 });
+    }
     if (!body.allocatedDays || Number(body.allocatedDays) <= 0) {
       return NextResponse.json(
         { error: 'allocatedDays must be greater than 0' },

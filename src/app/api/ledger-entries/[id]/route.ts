@@ -147,13 +147,31 @@ export async function PUT(
       }
     }
 
-    // Double-entry validation on update: compute the final debit/credit values
-    const finalDebit =
-      debit !== undefined ? safeFinancialRound(Number(debit)) : existing.debit;
-    const finalCredit =
-      credit !== undefined
-        ? safeFinancialRound(Number(credit))
-        : existing.credit;
+    // Double-entry validation on update: compute the final debit/credit values.
+    // In double-entry bookkeeping, a single entry can only have one side:
+    //   - If user explicitly provides `debit`, zero out credit (switch sides)
+    //   - If user explicitly provides `credit`, zero out debit (switch sides)
+    //   - If neither is provided, keep existing values
+    let finalDebit: number;
+    let finalCredit: number;
+
+    if (debit !== undefined && credit === undefined) {
+      // User set debit only → zero out credit side
+      finalDebit = safeFinancialRound(Number(debit));
+      finalCredit = 0;
+    } else if (credit !== undefined && debit === undefined) {
+      // User set credit only → zero out debit side
+      finalDebit = 0;
+      finalCredit = safeFinancialRound(Number(credit));
+    } else if (debit !== undefined && credit !== undefined) {
+      // User set both → use as-is (validation below will catch both > 0)
+      finalDebit = safeFinancialRound(Number(debit));
+      finalCredit = safeFinancialRound(Number(credit));
+    } else {
+      // Neither provided → keep existing values
+      finalDebit = existing.debit;
+      finalCredit = existing.credit;
+    }
 
     if (finalDebit > 0 && finalCredit > 0) {
       return NextResponse.json(
@@ -194,11 +212,12 @@ export async function PUT(
       if (date !== undefined) updateData.date = new Date(date);
       if (account !== undefined) updateData.account = account;
       if (particulars !== undefined) updateData.particulars = particulars;
-      // STAGE 12: Safe math — use safeFinancialRound instead of parseFloat
-      if (debit !== undefined)
-        updateData.debit = safeFinancialRound(Number(debit));
-      if (credit !== undefined)
-        updateData.credit = safeFinancialRound(Number(credit));
+      // Use finalDebit/finalCredit (which auto-zero the opposite side)
+      // instead of raw debit/credit from the request body
+      if (debit !== undefined || credit !== undefined) {
+        updateData.debit = finalDebit;
+        updateData.credit = finalCredit;
+      }
       if (reference !== undefined) updateData.reference = reference;
       if (referenceType !== undefined)
         updateData.referenceType = referenceType;

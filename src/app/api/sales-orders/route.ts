@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import {
   withApiSecurity,
   checkPeriodClose,
-  maskForVatAuditorFinancial,
+  maskOrderWithLinesForVatAuditor,
   safeFinancialRound,
   safeFinancialAdd,
   safeFinancialSubtract,
@@ -304,9 +304,9 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Apply VAT Auditor masking for financial fields
+    // Apply VAT Auditor masking for financial fields (including line items)
     const maskedOrders = salesOrders.map((order) =>
-      maskForVatAuditorFinancial(order as Record<string, unknown>, security.user.role)
+      maskOrderWithLinesForVatAuditor(order as Record<string, unknown>, security.user.role)
     );
 
     return NextResponse.json(maskedOrders);

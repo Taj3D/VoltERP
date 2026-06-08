@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import {
   withApiSecurity,
   checkPeriodClose,
-  maskForVatAuditorFinancial,
+  maskOrderWithLinesForVatAuditor,
   safeFinancialRound,
   safeFinancialAdd,
   safeFinancialSubtract,
@@ -193,8 +193,8 @@ export async function GET(
       );
     }
 
-    // VAT Auditor masking
-    const masked = maskForVatAuditorFinancial(
+    // VAT Auditor masking (including line items)
+    const masked = maskOrderWithLinesForVatAuditor(
       purchaseOrder as Record<string, unknown>,
       security.user.role
     );

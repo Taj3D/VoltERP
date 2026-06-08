@@ -27,6 +27,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const body = await request.json();
 
+    // Check existence first
+    const existing = await db.asset.findUnique({ where: { id } });
+    if (!existing) return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+
     // Period close check
     if (body.date) {
       const periodLock = await checkPeriodClose(body.date);
@@ -75,7 +79,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return record;
     });
     return NextResponse.json(item);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'P2025') return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 });
   }
 }
@@ -112,7 +117,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return record;
     });
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message === 'Not found') return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    if (error?.code === 'P2025') return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 });
   }
 }
