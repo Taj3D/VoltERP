@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { checkApiRateLimit, getClientIp } from '@/lib/rate-limiter';
 
 export type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
 
@@ -160,6 +161,30 @@ export async function withApiSecurity(
     return {
       authorized: true,
       user: { id: 'system', email: 'system@ems.local', name: 'System', role: 'admin', companyId: null, displayName: 'System' },
+    };
+  }
+
+  // ── Rate Limiting: Check before any processing ──
+  const clientIp = getClientIp(request);
+  const rateLimitResult = checkApiRateLimit(clientIp, method);
+
+  if (!rateLimitResult.allowed) {
+    return {
+      authorized: false,
+      response: NextResponse.json(
+        {
+          error: `Rate limit exceeded. Please try again in ${rateLimitResult.retryAfterSeconds} seconds.`,
+          retryAfter: rateLimitResult.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimitResult.retryAfterSeconds),
+            'X-RateLimit-Limit': String(rateLimitResult.limit),
+            'X-RateLimit-Remaining': '0',
+          },
+        }
+      ),
     };
   }
 

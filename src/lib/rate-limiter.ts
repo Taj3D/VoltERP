@@ -1,173 +1,204 @@
 // ============================================================
-// IN-MEMORY RATE LIMITER - Sliding window rate limiting
-// Domain 20: System Audit Logs, Backups & Security Overhaul
-// Prevents brute-force attacks by limiting failed authentication
-// attempts per IP per endpoint within a sliding time window.
+// RATE LIMITER — Multi-tier in-memory rate limiting
 //
-// Uses an in-memory Map (not database) for performance.
+// Two tiers:
+// 1. FAILED AUTH RATE LIMIT — Strict (5 fails / 60s per IP per endpoint)
+//    For login, password change, and other auth-sensitive endpoints.
+//    Tracks FAILED attempts only — resets on success.
+//
+// 2. GENERAL API RATE LIMIT — Permissive (100 requests / 60s per IP)
+//    For all API endpoints via withApiSecurity().
+//    Tracks ALL requests — prevents abuse, scraping, DDoS.
+//    Write operations (POST/PUT/DELETE) get a lower limit (30/60s).
+//
+// Uses in-memory Map (not database) for performance.
 // State is lost on server restart — acceptable for rate limiting.
+// Periodic cleanup every 5 minutes prevents memory leaks.
 // ============================================================
+
+// ─────────────────────────────────────────────────────────────
+// TIER 1: FAILED AUTH RATE LIMIT (existing, unchanged)
+// ─────────────────────────────────────────────────────────────
 
 interface RateLimitEntry {
   attempts: number;
   windowStart: number; // Unix timestamp in milliseconds
 }
 
-/** In-memory store for rate limit tracking. Key format: `${ipAddress}:${endpoint}` */
-const rateLimitStore = new Map<string, RateLimitEntry>();
+const authRateLimitStore = new Map<string, RateLimitEntry>();
 
-/** Sliding window duration in milliseconds (60 seconds) */
-const WINDOW_DURATION_MS = 60_000;
+/** Auth rate limit: 60-second sliding window, max 5 failed attempts */
+const AUTH_WINDOW_MS = 60_000;
+const AUTH_MAX_ATTEMPTS = 5;
 
-/** Maximum failed attempts per IP per endpoint within the window */
-const MAX_FAILED_ATTEMPTS = 5;
-
-/**
- * checkRateLimit - Checks whether a request from the given IP to the
- * given endpoint is allowed under the rate limit policy.
- *
- * Sliding window of 60 seconds, max 5 failed attempts per IP per endpoint.
- *
- * @param ipAddress - Client IP address
- * @param endpoint - Target endpoint path (e.g., "/api/auth/login")
- * @returns Object with allowed flag, remaining attempts, and retry-after info
- */
 export function checkRateLimit(
   ipAddress: string,
   endpoint: string
 ): { allowed: boolean; remainingAttempts: number; retryAfterSeconds: number } {
-  const key = `${ipAddress}:${endpoint}`;
+  const key = `auth:${ipAddress}:${endpoint}`;
   const now = Date.now();
+  const entry = authRateLimitStore.get(key);
 
-  const entry = rateLimitStore.get(key);
-
-  // No entry exists — request is allowed
   if (!entry) {
-    return {
-      allowed: true,
-      remainingAttempts: MAX_FAILED_ATTEMPTS,
-      retryAfterSeconds: 0,
-    };
+    return { allowed: true, remainingAttempts: AUTH_MAX_ATTEMPTS, retryAfterSeconds: 0 };
   }
 
-  // Window has expired — reset and allow
-  if (now - entry.windowStart >= WINDOW_DURATION_MS) {
-    rateLimitStore.delete(key);
-    return {
-      allowed: true,
-      remainingAttempts: MAX_FAILED_ATTEMPTS,
-      retryAfterSeconds: 0,
-    };
+  if (now - entry.windowStart >= AUTH_WINDOW_MS) {
+    authRateLimitStore.delete(key);
+    return { allowed: true, remainingAttempts: AUTH_MAX_ATTEMPTS, retryAfterSeconds: 0 };
   }
 
-  // Within window — check attempt count
-  if (entry.attempts >= MAX_FAILED_ATTEMPTS) {
-    const elapsedMs = now - entry.windowStart;
-    const remainingMs = WINDOW_DURATION_MS - elapsedMs;
-    const retryAfterSeconds = Math.ceil(remainingMs / 1000);
-
-    return {
-      allowed: false,
-      remainingAttempts: 0,
-      retryAfterSeconds,
-    };
+  if (entry.attempts >= AUTH_MAX_ATTEMPTS) {
+    const remainingMs = AUTH_WINDOW_MS - (now - entry.windowStart);
+    return { allowed: false, remainingAttempts: 0, retryAfterSeconds: Math.ceil(remainingMs / 1000) };
   }
 
-  // Under the limit — allowed
-  return {
-    allowed: true,
-    remainingAttempts: MAX_FAILED_ATTEMPTS - entry.attempts,
-    retryAfterSeconds: 0,
-  };
+  return { allowed: true, remainingAttempts: AUTH_MAX_ATTEMPTS - entry.attempts, retryAfterSeconds: 0 };
 }
 
-/**
- * recordFailedAttempt - Increments the failed attempt counter for the
- * given IP+endpoint key. Creates the key if it doesn't exist.
- *
- * Should be called AFTER a failed authentication attempt.
- *
- * @param ipAddress - Client IP address
- * @param endpoint - Target endpoint path
- */
 export function recordFailedAttempt(ipAddress: string, endpoint: string): void {
-  const key = `${ipAddress}:${endpoint}`;
+  const key = `auth:${ipAddress}:${endpoint}`;
   const now = Date.now();
+  const entry = authRateLimitStore.get(key);
 
-  const entry = rateLimitStore.get(key);
-
-  if (!entry) {
-    // Create new entry
-    rateLimitStore.set(key, { attempts: 1, windowStart: now });
+  if (!entry || now - entry.windowStart >= AUTH_WINDOW_MS) {
+    authRateLimitStore.set(key, { attempts: 1, windowStart: now });
   } else {
-    // Check if window has expired — if so, reset
-    if (now - entry.windowStart >= WINDOW_DURATION_MS) {
-      rateLimitStore.set(key, { attempts: 1, windowStart: now });
-    } else {
-      // Increment within current window
-      entry.attempts += 1;
-    }
+    entry.attempts += 1;
   }
 }
 
-/**
- * resetRateLimit - Clears the rate limit for a successful authentication.
- * Should be called AFTER a successful login to reset the counter.
- *
- * @param ipAddress - Client IP address
- * @param endpoint - Target endpoint path
- */
 export function resetRateLimit(ipAddress: string, endpoint: string): void {
-  const key = `${ipAddress}:${endpoint}`;
-  rateLimitStore.delete(key);
+  authRateLimitStore.delete(`auth:${ipAddress}:${endpoint}`);
 }
 
-/**
- * getRateLimitStatus - Returns current rate limit status for UI countdown
- * display. Provides the attempt count, window start time, and locked status.
- *
- * @param ipAddress - Client IP address
- * @param endpoint - Target endpoint path
- * @returns Object with attempts, windowStart, and isLocked flag
- */
 export function getRateLimitStatus(
   ipAddress: string,
   endpoint: string
 ): { attempts: number; windowStart: number; isLocked: boolean; retryAfterSeconds: number } {
-  const key = `${ipAddress}:${endpoint}`;
+  const key = `auth:${ipAddress}:${endpoint}`;
+  const now = Date.now();
+  const entry = authRateLimitStore.get(key);
+
+  if (!entry || now - entry.windowStart >= AUTH_WINDOW_MS) {
+    if (entry) authRateLimitStore.delete(key);
+    return { attempts: 0, windowStart: 0, isLocked: false, retryAfterSeconds: 0 };
+  }
+
+  const isLocked = entry.attempts >= AUTH_MAX_ATTEMPTS;
+  const retryAfterSeconds = isLocked ? Math.ceil((AUTH_WINDOW_MS - (now - entry.windowStart)) / 1000) : 0;
+
+  return { attempts: entry.attempts, windowStart: entry.windowStart, isLocked, retryAfterSeconds };
+}
+
+// ─────────────────────────────────────────────────────────────
+// TIER 2: GENERAL API RATE LIMIT (new)
+// ─────────────────────────────────────────────────────────────
+
+interface ApiRateLimitEntry {
+  count: number;
+  windowStart: number;
+}
+
+const apiRateLimitStore = new Map<string, ApiRateLimitEntry>();
+
+/** General API rate limits per HTTP method */
+const API_RATE_CONFIGS = {
+  GET:    { windowMs: 60_000, maxRequests: 100 },  // 100 reads per minute
+  POST:   { windowMs: 60_000, maxRequests: 30 },   // 30 creates per minute
+  PUT:    { windowMs: 60_000, maxRequests: 30 },    // 30 updates per minute
+  DELETE: { windowMs: 60_000, maxRequests: 15 },    // 15 deletes per minute
+} as const;
+
+/**
+ * checkApiRateLimit — Checks general API rate limit for a given IP + method.
+ * Returns { allowed, retryAfterSeconds } — if not allowed, returns 429 info.
+ *
+ * @param ipAddress - Client IP address
+ * @param method - HTTP method (GET, POST, PUT, DELETE)
+ * @returns Whether the request is allowed and retry info if not
+ */
+export function checkApiRateLimit(
+  ipAddress: string,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+): { allowed: boolean; retryAfterSeconds: number; limit: number; remaining: number } {
+  const config = API_RATE_CONFIGS[method] || API_RATE_CONFIGS.GET;
+  const key = `api:${ipAddress}:${method}`;
   const now = Date.now();
 
-  const entry = rateLimitStore.get(key);
+  let entry = apiRateLimitStore.get(key);
 
-  if (!entry) {
-    return {
-      attempts: 0,
-      windowStart: 0,
-      isLocked: false,
-      retryAfterSeconds: 0,
-    };
+  // No entry or expired window — create new
+  if (!entry || now - entry.windowStart >= config.windowMs) {
+    entry = { count: 1, windowStart: now };
+    apiRateLimitStore.set(key, entry);
+    return { allowed: true, retryAfterSeconds: 0, limit: config.maxRequests, remaining: config.maxRequests - 1 };
   }
 
-  // Check if window has expired
-  if (now - entry.windowStart >= WINDOW_DURATION_MS) {
-    rateLimitStore.delete(key);
+  // Within window — check count
+  entry.count += 1;
+
+  if (entry.count > config.maxRequests) {
+    const remainingMs = config.windowMs - (now - entry.windowStart);
     return {
-      attempts: 0,
-      windowStart: 0,
-      isLocked: false,
-      retryAfterSeconds: 0,
+      allowed: false,
+      retryAfterSeconds: Math.ceil(remainingMs / 1000),
+      limit: config.maxRequests,
+      remaining: 0,
     };
   }
-
-  const isLocked = entry.attempts >= MAX_FAILED_ATTEMPTS;
-  const elapsedMs = now - entry.windowStart;
-  const remainingMs = WINDOW_DURATION_MS - elapsedMs;
-  const retryAfterSeconds = isLocked ? Math.ceil(remainingMs / 1000) : 0;
 
   return {
-    attempts: entry.attempts,
-    windowStart: entry.windowStart,
-    isLocked,
-    retryAfterSeconds,
+    allowed: true,
+    retryAfterSeconds: 0,
+    limit: config.maxRequests,
+    remaining: config.maxRequests - entry.count,
   };
+}
+
+/**
+ * getClientIp — Extracts client IP from request headers.
+ * Handles proxy headers (x-forwarded-for, x-real-ip) for reverse proxy setups.
+ */
+export function getClientIp(request: { headers: { get: (name: string) => string | null } }): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// PERIODIC CLEANUP — Prevent memory leaks from stale entries
+// Runs every 5 minutes, removes entries older than 10 minutes
+// ─────────────────────────────────────────────────────────────
+
+const CLEANUP_INTERVAL_MS = 5 * 60_000; // 5 minutes
+const MAX_AGE_MS = 10 * 60_000; // 10 minutes
+
+let lastCleanup = Date.now();
+
+function cleanupStaleEntries() {
+  const now = Date.now();
+  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
+  lastCleanup = now;
+
+  // Clean auth store
+  for (const [key, entry] of authRateLimitStore.entries()) {
+    if (now - entry.windowStart > MAX_AGE_MS) {
+      authRateLimitStore.delete(key);
+    }
+  }
+
+  // Clean API store
+  for (const [key, entry] of apiRateLimitStore.entries()) {
+    if (now - entry.windowStart > MAX_AGE_MS) {
+      apiRateLimitStore.delete(key);
+    }
+  }
+}
+
+// Run cleanup on import (lazy — only when rate limiter is actually used)
+if (typeof setInterval !== 'undefined') {
+  setInterval(cleanupStaleEntries, CLEANUP_INTERVAL_MS).unref?.(); // Don't prevent process exit
 }

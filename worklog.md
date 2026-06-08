@@ -792,3 +792,43 @@ Task: ধাপ ১ — Password Hashing (bcrypt) ইমপ্লিমেন্
 - ✅ ESLint পাস
 - ✅ কোনো console error নেই
 - ✅ কোডবেস ভাঙেনি
+
+---
+Task ID: phase-2
+Agent: Main Orchestrator
+Task: ধাপ ২ — Rate Limiting সকল API এন্ডপয়েন্টে
+
+## পরিবর্তন সারাংশ
+
+### পরিবর্তিত ফাইল (২টি)
+1. `/home/z/my-project/src/lib/rate-limiter.ts` — সম্প্রসারিত
+   - **Tier 1** (বিদ্যমান): Failed Auth Rate Limit — ৫ ব্যর্থ চেষ্টা / ৬০ সেকেন্ড / IP / endpoint
+   - **Tier 2** (নতুন): General API Rate Limit — সব API endpoint-এ
+     - GET: ১০০ requests/min
+     - POST: ৩০ requests/min
+     - PUT: ৩০ requests/min
+     - DELETE: ১৫ requests/min
+   - `getClientIp()` — Proxy headers সাপোর্ট (x-forwarded-for, x-real-ip)
+   - Periodic cleanup (৫ মিনিটে) — memory leak প্রতিরোধ
+   - `setInterval().unref()` — process exit ব্লক করে না
+
+2. `/home/z/my-project/src/lib/api-security.ts` — Rate Limiting ইন্টিগ্রেশন
+   - `checkApiRateLimit()` কল `withApiSecurity()` এর শুরুতে
+   - AUTH_EXEMPT modules (Auth, Seed) রেট লিমিট থেকে মুক্ত
+   - 429 response এ `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` headers
+
+### কিভাবে কাজ করে
+- সব ১৩৫+ API route `withApiSecurity()` ব্যবহার করে
+- `withApiSecurity()` এ রেট লিমিট চেক যোগ করায় স্বয়ংক্রিয়ভাবে সব API-তে প্রযোজ্য
+- কোনো ব্যক্তিগত API route ফাইল পরিবর্তন করা হয়নি
+
+### টেস্ট ফলাফল
+- ✅ GET rate limit: ১০০ request-এর পর 429 (ঠিক সময়ে)
+- ✅ POST rate limit: ৩০ request-এর পর 429
+- ✅ Rate limit headers: Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining
+- ✅ Window expiry: ৬০ সেকেন্ড পর আবার request গ্রহণ
+- ✅ ৫টি রোল লগইন সফল
+- ✅ Login rate limit (Tier 1) এখনও কাজ করছে
+- ✅ Browser — কোনো error নেই
+- ✅ ESLint পাস
+- ✅ কোডবেস ভাঙেনি
