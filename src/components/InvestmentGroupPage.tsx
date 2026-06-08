@@ -69,7 +69,7 @@ async function apiFetch(path: string, opts?: RequestInit) {
     const stored = localStorage.getItem("ems_auth");
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; } else if (parsed.user?.email) { authHeaders["X-User-Email"] = parsed.user.email; }
+      if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; }
     }
   } catch {}
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });

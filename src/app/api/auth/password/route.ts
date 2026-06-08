@@ -25,7 +25,7 @@ function validatePasswordComplexity(password: string): string | null {
 
 export async function PUT(req: NextRequest) {
   try {
-    const security = await withApiSecurity(req, "AuditLogs", "PUT");
+    const security = await withApiSecurity(req, "UserProfile", "PUT");
     if (!security.authorized) return security.response;
 
     // ── RBAC INTERLOCK: Only ADMIN can change passwords ──

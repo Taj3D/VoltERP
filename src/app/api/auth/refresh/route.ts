@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify the refresh token
-    const tokenResult = verifyToken(refreshToken, "refresh");
+    const tokenResult = await verifyToken(refreshToken, "refresh");
 
     if (!tokenResult.valid) {
       return NextResponse.json(

@@ -92,8 +92,9 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   SystemConfig: 'system-config',
   InvoiceTemplates: 'system-config',
   NumberFormats: 'system-config',
-  // Auth
+  // Auth & Profile
   Auth: 'auth',
+  UserProfile: 'user-profile', // Profile + password change — all authenticated roles
   AuditLogs: 'audit',
   AuditTrail: 'audit',
   Reports: 'report',
@@ -103,17 +104,17 @@ const MODULE_GROUP_MAP: Record<string, string> = {
 // Group-level access per role (mirrors frontend ROLE_ACCESS)
 const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
   admin: ['*'],
-  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'audit-integrity', 'system-config', 'report'],
-  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report'],
-  dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report'],
-  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report'],
+  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'audit-integrity', 'system-config', 'report', 'user-profile'],
+  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile'],
+  dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report', 'user-profile'],
+  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile'],
 };
 
 // Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SmsSettings'],
   dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
@@ -196,7 +197,7 @@ export async function withApiSecurity(
 
   if (bearerToken) {
     // JWT path: Verify the token and extract user info from claims
-    const tokenResult = verifyToken(bearerToken, 'access');
+    const tokenResult = await verifyToken(bearerToken, 'access');
 
     if (!tokenResult.valid) {
       return {
@@ -289,93 +290,13 @@ export async function withApiSecurity(
     };
   }
 
-  // ── LEGACY FALLBACK: x-user-email header (backward compatibility) ──
-  // This path will be removed in a future version once all clients use JWT
-  const userEmail = request.headers.get('x-user-email');
-
-  if (!userEmail) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { error: 'Authentication required. Please log in.', errorCode: 'AUTH_REQUIRED' },
-        { status: 401 }
-      ),
-    };
-  }
-
-  // Look up user in database
-  const user = await db.user.findUnique({
-    where: { email: userEmail },
-    select: { id: true, email: true, name: true, role: true, isActive: true, companyId: true },
-  });
-
-  if (!user || !user.isActive) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { error: 'Invalid or inactive user account.' },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const role = user.role as UserRole;
-
-  // Step 1: Group-level access check
-  const group = MODULE_GROUP_MAP[module];
-  const groupAccess = ROLE_GROUP_ACCESS[role] || [];
-
-  if (!groupAccess.includes('*') && group && !groupAccess.includes(group)) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { error: `Access denied. Your role (${role}) does not have access to ${module}.` },
-        { status: 403 }
-      ),
-    };
-  }
-
-  // Step 2: Module-level deny check
-  const moduleDenied = MODULE_DENY[role] || [];
-  if (moduleDenied.includes(module)) {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { error: `Access denied. Your role (${role}) is restricted from ${module}.` },
-        { status: 403 }
-      ),
-    };
-  }
-
-  // Step 3: Write operation check (POST/PUT/DELETE)
-  if (method !== 'GET') {
-    // VAT Auditor: ALL writes are denied (read-only role)
-    if (role === 'vat_auditor') {
-      return {
-        authorized: false,
-        response: NextResponse.json(
-          { error: 'Write access denied. VAT Auditor has read-only access to all modules.' },
-          { status: 403 }
-        ),
-      };
-    }
-
-    const writeDenied = WRITE_DENY[role] || [];
-    if (writeDenied.includes(module)) {
-      return {
-        authorized: false,
-        response: NextResponse.json(
-          { error: `Write access denied. Your role (${role}) cannot create, update, or delete records in ${module}.` },
-          { status: 403 }
-        ),
-      };
-    }
-  }
-
-  // All checks passed
+  // ── No JWT token found — reject with 401 ──
   return {
-    authorized: true,
-    user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId, displayName: user.name },
+    authorized: false,
+    response: NextResponse.json(
+      { error: 'Authentication required. Please log in.', errorCode: 'AUTH_REQUIRED' },
+      { status: 401 }
+    ),
   };
 }
 

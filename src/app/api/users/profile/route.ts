@@ -2,24 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { verifyToken, extractBearerToken } from "@/lib/jwt-utils";
 
-// Helper: Resolve user from either JWT token or x-user-email header
+// Helper: Resolve user from JWT token only (x-user-email removed for security)
 async function resolveUser(req: NextRequest): Promise<{ id: string; email: string } | null> {
-  // Primary: JWT Bearer token
   const authHeader = req.headers.get("authorization");
   const bearerToken = extractBearerToken(authHeader);
 
   if (bearerToken) {
-    const tokenResult = verifyToken(bearerToken, "access");
+    const tokenResult = await verifyToken(bearerToken, "access");
     if (tokenResult.valid) {
       return { id: tokenResult.payload.userId, email: tokenResult.payload.email };
     }
-  }
-
-  // Legacy fallback: x-user-email header
-  const userEmail = req.headers.get("x-user-email");
-  if (userEmail) {
-    const user = await db.user.findUnique({ where: { email: userEmail }, select: { id: true, email: true } });
-    return user;
   }
 
   return null;

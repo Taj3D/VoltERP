@@ -22,7 +22,7 @@ export function proxy(request: NextRequest) {
   if (isAllowedOrigin) {
     response.headers.set("Access-Control-Allow-Origin", origin);
     response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    response.headers.set("Access-Control-Allow-Headers", "Content-Type, x-user-email, Authorization");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     response.headers.set("Access-Control-Allow-Credentials", "true");
     response.headers.set("X-Frame-Options", "ALLOWALL");
   }
@@ -34,7 +34,7 @@ export function proxy(request: NextRequest) {
       headers: {
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, x-user-email, Authorization",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Max-Age": "86400",
       },

@@ -156,8 +156,6 @@ function getAuthHeaders(): Record<string, string> {
         const parsed = JSON.parse(stored);
         if (parsed.accessToken) {
           headers["Authorization"] = `Bearer ${parsed.accessToken}`;
-        } else if (parsed?.user?.email) {
-          headers["X-User-Email"] = parsed.user.email;
         }
       }
     } catch {

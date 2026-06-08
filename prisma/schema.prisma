@@ -1869,6 +1869,21 @@ model AuditLog {
 }
 
 // ============================================================
+// JWT TOKEN REVOCATION (Logout / Security)
+// Stores revoked JWT IDs so tokens can't be reused after logout
+// ============================================================
+model RevokedToken {
+  id        String   @id @default(cuid())
+  jti       String   @unique // JWT ID claim — unique per token
+  userId    String   // Which user's token was revoked
+  expiresAt DateTime // When the token naturally expires (for cleanup)
+  createdAt DateTime @default(now())
+
+  @@index([jti])
+  @@index([expiresAt])
+}
+
+// ============================================================
 // GROUP 5: FINANCIAL AUDITING, AUTOMATED LEDGERS & DATA INTEGRITY
 // ============================================================
 

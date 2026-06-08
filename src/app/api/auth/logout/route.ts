@@ -14,14 +14,14 @@ export async function POST(req: NextRequest) {
     const bearerToken = extractBearerToken(authHeader);
 
     if (bearerToken) {
-      revokeToken(bearerToken);
+      await revokeToken(bearerToken);
     }
 
     // Also revoke refresh token if provided in body
     try {
       const body = await req.json();
       if (body.refreshToken) {
-        revokeToken(body.refreshToken);
+        await revokeToken(body.refreshToken);
       }
     } catch {
       // Body may be empty — that's fine

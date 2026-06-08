@@ -453,14 +453,9 @@ const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB"
 
 async function apiFetch(path: string, opts?: RequestInit) {
   // Server-side RBAC: send JWT Bearer token in Authorization header
-  // Falls back to X-User-Email for backward compatibility
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
   if (authState.accessToken) {
     authHeaders["Authorization"] = `Bearer ${authState.accessToken}`;
-  }
-  if (authState.user?.email && !authState.accessToken) {
-    // Legacy fallback: send email header if no JWT token
-    authHeaders["X-User-Email"] = authState.user.email;
   }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {

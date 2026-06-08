@@ -154,17 +154,11 @@ function TypeIcon({ type }: { type: string }) {
 
 // ────────────────────────────────────────────────────────────
 // API FETCH HELPER — sends JWT Bearer token for RBAC
-// Falls back to x-user-email for backward compatibility
 // ────────────────────────────────────────────────────────────
-async function notifFetch(path: string, opts?: RequestInit, userEmail?: string, accessToken?: string) {
+async function notifFetch(path: string, opts?: RequestInit, _userEmail?: string, accessToken?: string) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  // Primary: JWT Bearer token
   if (accessToken) {
     headers["Authorization"] = `Bearer ${accessToken}`;
-  }
-  // Legacy fallback: email header
-  if (userEmail && !accessToken) {
-    headers["X-User-Email"] = userEmail;
   }
   const res = await fetch(path, { headers: { ...headers, ...(opts?.headers as Record<string, string>) }, ...opts });
   if (!res.ok) {

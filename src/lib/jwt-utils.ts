@@ -5,12 +5,13 @@
 // SECURITY:
 // - HS256 algorithm (HMAC-SHA256)
 // - Configurable expiry (default: 8h for access, 7d for refresh)
-// - Secret from JWT_SECRET env var (fallback: dev-only key)
-// - Token blacklisting support for logout
-// - Backward compatible with x-user-email header during migration
+// - Secret from JWT_SECRET env var (FAILS in production if not set)
+// - Token blacklisting via database (RevokedToken model)
+// - No x-user-email fallback — JWT only
 // ============================================================
 
 import jwt from "jsonwebtoken";
+import { db } from "@/lib/db";
 
 // ── Configuration ──
 
@@ -24,6 +25,14 @@ const REFRESH_TOKEN_EXPIRY = "7d";
 const JWT_ISSUER = "volt-erp";
 /** JWT audience */
 const JWT_AUDIENCE = "volt-erp-users";
+
+// ── Production Check ──
+if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+  throw new Error(
+    "FATAL: JWT_SECRET environment variable must be set in production. " +
+    "Set it before starting the application."
+  );
+}
 
 // ── Types ──
 
@@ -54,25 +63,6 @@ export interface InvalidToken {
 }
 
 export type TokenVerificationResult = VerifiedToken | InvalidToken;
-
-// ── In-memory token blacklist (for logout) ──
-
-/** Set of revoked JWT IDs (JTI) — persists for server lifetime */
-const revokedTokens = new Set<string>();
-
-/** Map of JTI → expiry timestamp for cleanup */
-const tokenExpiryMap = new Map<string, number>();
-
-/** Clean up expired tokens from blacklist every 10 minutes */
-setInterval(() => {
-  const now = Date.now();
-  for (const [jti, expiry] of tokenExpiryMap.entries()) {
-    if (now > expiry) {
-      revokedTokens.delete(jti);
-      tokenExpiryMap.delete(jti);
-    }
-  }
-}, 10 * 60 * 1000);
 
 // ── Core Functions ──
 
@@ -130,16 +120,16 @@ export function signRefreshToken(payload: Omit<JwtPayload, "tokenType">): string
 
 /**
  * verifyToken — Verifies a JWT token and returns the decoded payload.
- * Checks signature, expiry, issuer, audience, and blacklist.
+ * Checks signature, expiry, issuer, audience, and database blacklist.
  *
  * @param token - The JWT string to verify
  * @param expectedType - Expected token type ('access' or 'refresh')
  * @returns Verification result with payload or error details
  */
-export function verifyToken(
+export async function verifyToken(
   token: string,
   expectedType: "access" | "refresh" = "access"
-): TokenVerificationResult {
+): Promise<TokenVerificationResult> {
   try {
     const decoded = jwt.verify(token, JWT_SECRET, {
       issuer: JWT_ISSUER,
@@ -155,12 +145,18 @@ export function verifyToken(
       };
     }
 
-    // Check if token has been revoked (blacklisted)
-    if (decoded.jti && revokedTokens.has(decoded.jti)) {
-      return {
-        valid: false,
-        error: "Token has been revoked. Please log in again.",
-      };
+    // Check if token has been revoked (database-backed blacklist)
+    if (decoded.jti) {
+      const revoked = await db.revokedToken.findUnique({
+        where: { jti: decoded.jti },
+        select: { id: true },
+      });
+      if (revoked) {
+        return {
+          valid: false,
+          error: "Token has been revoked. Please log in again.",
+        };
+      }
     }
 
     return {
@@ -196,19 +192,36 @@ export function verifyToken(
 }
 
 /**
- * revokeToken — Adds a token to the blacklist by its JTI.
+ * revokeToken — Adds a token to the database-backed blacklist by its JTI.
  * Used during logout to prevent reuse of the token even before expiry.
+ * Also cleans up expired tokens older than 1 day to keep the table small.
  *
  * @param token - The JWT string to revoke
  */
-export function revokeToken(token: string): void {
+export async function revokeToken(token: string): Promise<void> {
   try {
-    const decoded = jwt.decode(token) as jwt.JwtPayload & { jti?: string } | null;
+    const decoded = jwt.decode(token) as jwt.JwtPayload & { jti?: string; userId?: string } | null;
     if (decoded?.jti) {
-      revokedTokens.add(decoded.jti);
-      // Store expiry for cleanup (convert exp to ms timestamp)
-      const expiryMs = (decoded.exp || 0) * 1000;
-      tokenExpiryMap.set(decoded.jti, expiryMs);
+      const expiresAt = decoded.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      await db.revokedToken.upsert({
+        where: { jti: decoded.jti },
+        create: {
+          jti: decoded.jti,
+          userId: decoded.userId || "unknown",
+          expiresAt,
+        },
+        update: {}, // Already revoked — no-op
+      });
+
+      // Clean up expired tokens (older than 1 day past expiry)
+      try {
+        await db.revokedToken.deleteMany({
+          where: { expiresAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        });
+      } catch {
+        // Non-critical cleanup
+      }
     }
   } catch {
     // Silently ignore — token may already be invalid
@@ -218,7 +231,6 @@ export function revokeToken(token: string): void {
 /**
  * extractBearerToken — Extracts the JWT token from an Authorization header.
  * Supports both "Bearer <token>" and raw token formats.
- * Also supports the legacy "x-user-email" header for backward compatibility.
  *
  * @param authHeader - The Authorization header value
  * @returns The extracted token string, or null if not found

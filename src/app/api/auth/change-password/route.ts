@@ -14,8 +14,8 @@ import { verifyPassword, hashPassword } from "@/lib/password-utils";
 
 export async function POST(request: NextRequest) {
   try {
-    // Use "AuditLogs" module (not "Auth" which is exempt and returns system user)
-    const security = await withApiSecurity(request, "AuditLogs", "POST");
+    // Use "UserProfile" module (accessible by all authenticated users, admin check below)
+    const security = await withApiSecurity(request, "UserProfile", "POST");
     if (!security.authorized) return security.response;
 
     // ── RBAC INTERLOCK: Only ADMIN can change passwords ──
