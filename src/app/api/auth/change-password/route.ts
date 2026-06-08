@@ -10,6 +10,7 @@ import { withApiSecurity } from "@/lib/api-security";
 import { logUserActivity } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
+import { verifyPassword, hashPassword } from "@/lib/password-utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -85,8 +86,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify current password
-    if (user.password !== currentPassword) {
+    // ── Secure password verification (supports both hashed & legacy plain-text) ──
+    const currentPasswordValid = await verifyPassword(currentPassword, user.password);
+    if (!currentPasswordValid) {
       // Audit failed password verification
       await logUserActivity({
         action: "UPDATE",
@@ -108,10 +110,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Hash the new password before storing
+    const hashedNewPassword = await hashPassword(newPassword);
+
     // Update the password
     await db.user.update({
       where: { id: user.id },
-      data: { password: newPassword },
+      data: { password: hashedNewPassword },
     });
 
     // Audit the successful password change

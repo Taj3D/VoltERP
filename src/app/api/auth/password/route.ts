@@ -11,6 +11,7 @@ import { withApiSecurity } from "@/lib/api-security";
 import { logUserActivity } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
+import { verifyPassword, hashPassword } from "@/lib/password-utils";
 
 // Password complexity validation
 function validatePasswordComplexity(password: string): string | null {
@@ -80,7 +81,9 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: "User not found." }, { status: 404 });
       }
 
-      if (user.password !== currentPassword) {
+      // ── Secure password verification (supports both hashed & legacy plain-text) ──
+      const currentPasswordValid = await verifyPassword(currentPassword, user.password);
+      if (!currentPasswordValid) {
         return NextResponse.json(
           { error: "Current password is incorrect." },
           { status: 401 }
@@ -93,9 +96,12 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: complexityError }, { status: 400 });
       }
 
+      // Hash the new password before storing
+      const hashedNewPassword = await hashPassword(newPassword);
+
       await db.user.update({
         where: { id: user.id },
-        data: { password: newPassword },
+        data: { password: hashedNewPassword },
       });
 
       await logUserActivity({
@@ -137,9 +143,12 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: "Target user not found." }, { status: 404 });
       }
 
+      // Hash the new password before storing
+      const hashedNewPassword = await hashPassword(newPassword);
+
       await db.user.update({
         where: { id: targetUserId },
-        data: { password: newPassword },
+        data: { password: hashedNewPassword },
       });
 
       await logUserActivity({

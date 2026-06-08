@@ -737,3 +737,58 @@ Task: Fix ESLint config, verify roles, improve skeleton/login/error-boundary, ve
 - ✅ ESLint passes cleanly (`bun run lint` exits 0)
 - ✅ All 5 roles can login
 - ✅ Password change flow verified end-to-end
+
+---
+Task ID: phase-1
+Agent: Main Orchestrator
+Task: ধাপ ১ — Password Hashing (bcrypt) ইমপ্লিমেন্টেশন
+
+## পরিবর্তন সারাংশ
+
+### নতুন ফাইল তৈরি
+1. `/home/z/my-project/src/lib/password-utils.ts` — কেন্দ্রীভূত পাসওয়ার্ড ইউটিলিটি
+   - `hashPassword()` — bcrypt.hash with 10 salt rounds
+   - `verifyPassword()` — bcrypt.compare + লিগেসি প্লেইন-টেক্সট সাপোর্ট
+   - `isHashed()` — bcrypt hash শনাক্তকরণ
+   - `needsRehash()` — মাইগ্রেশন প্রয়োজনীয়তা চেক
+
+### পরিবর্তিত ফাইল (৫টি)
+1. `/home/z/my-project/src/app/api/auth/route.ts` (Login API)
+   - `verifyPassword()` দিয়ে প্লেইন-টেক্সট তুলনা প্রতিস্থাপন
+   - অটো-মাইগ্রেশন: লগইন সফল হলে প্লেইন-টেক্সট পাসওয়ার্ড bcrypt hash-এ রূপান্তর
+   - Rate limiting ইন্টিগ্রেশন (`checkRateLimit`, `recordFailedAttempt`, `resetRateLimit`)
+   - ডিফল্ট ইউজার সিডিং এ হ্যাশড পাসওয়ার্ড সেভ
+
+2. `/home/z/my-project/src/app/api/auth/password/route.ts`
+   - `verifyPassword()` দিয়ে current password ভেরিফিকেশন
+   - `hashPassword()` দিয়ে নতুন পাসওয়ার্ড হ্যাশিং (self-change + admin reset)
+
+3. `/home/z/my-project/src/app/api/auth/change-password/route.ts`
+   - `verifyPassword()` + `hashPassword()` ইন্টিগ্রেশন
+
+4. `/home/z/my-project/src/app/api/auth/reset-password/route.ts`
+   - `hashPassword()` দিয়ে admin reset পাসওয়ার্ড হ্যাশিং
+
+5. `/home/z/my-project/src/app/api/users/change-password/route.ts`
+   - `verifyPassword()` + `hashPassword()` ইন্টিগ্রেশন
+
+### মাইগ্রেশন
+- বিদ্যমান ৬ জন ইউজারের প্লেইন-টেক্সট পাসওয়ার্ড bcrypt hash-এ রূপান্তরিত
+- অটো-মাইগ্রেশন: লগইনের সময় পুরনো প্লেইন-টেক্সট পাসওয়ার্ড স্বয়ংক্রিয়ভাবে হ্যাশ হয়ে যাবে
+
+### টেস্ট ফলাফল
+- ✅ Admin লগইন (emart.amit/Test_123) — সফল
+- ✅ Manager লগইন (emart.manager/Manager_123) — সফল
+- ✅ SR লগইন (emart.sr/SR_123) — সফল
+- ✅ Dealer লগইন (emart.dealer/Dealer_123) — সফল
+- ✅ VAT Auditor লগইন (emart.vat/VAT_123) — সফল
+- ✅ ভুল পাসওয়ার্ড — "Invalid credentials" রিটার্ন
+- ✅ Rate limiting — ৫ বার ভুল চেষ্টার পর ৪২৯ রিটার্ন
+- ✅ Password change API — নতুন পাসওয়ার্ড bcrypt hash-এ সেভ হচ্ছে
+- ✅ নতুন পাসওয়ার্ড দিয়ে লগইন — সফল
+- ✅ পুরনো পাসওয়ার্ড দিয়ে লগইন — ব্লক
+- ✅ Browser login — সফল
+- ✅ Browser VAT Auditor login — সফল
+- ✅ ESLint পাস
+- ✅ কোনো console error নেই
+- ✅ কোডবেস ভাঙেনি

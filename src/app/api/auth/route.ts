@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { verifyPassword, hashPassword, needsRehash } from "@/lib/password-utils";
+import { checkRateLimit, recordFailedAttempt, resetRateLimit } from "@/lib/rate-limiter";
 
 // Default credentials for all 5 RBAC roles
 const DEFAULT_USERS = [
@@ -20,12 +22,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
     }
 
+    // ── Rate limiting: Check before processing ──
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      || req.headers.get("x-real-ip")
+      || "unknown";
+    const rateLimitResult = checkRateLimit(clientIp, "/api/auth/login");
+
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        {
+          error: `Too many failed attempts. Please try again in ${rateLimitResult.retryAfterSeconds} seconds.`,
+          retryAfter: rateLimitResult.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimitResult.retryAfterSeconds) },
+        }
+      );
+    }
+
     // Auto-seed all default users if they don't exist
     for (const userData of DEFAULT_USERS) {
       const existing = await db.user.findUnique({ where: { email: userData.email } });
       if (!existing) {
         try {
-          await db.user.create({ data: userData });
+          // Hash the default password before storing
+          const hashedPassword = await hashPassword(userData.password);
+          await db.user.create({
+            data: {
+              email: userData.email,
+              name: userData.name,
+              password: hashedPassword,
+              role: userData.role,
+              isActive: userData.isActive,
+            },
+          });
         } catch (e) {
           console.error(`Auto-seed user ${userData.email} failed:`, e);
         }
@@ -36,13 +67,35 @@ export async function POST(req: NextRequest) {
     const user = await db.user.findUnique({ where: { email } });
 
     if (!user || !user.isActive) {
+      recordFailedAttempt(clientIp, "/api/auth/login");
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    // Simple password check (in production, use bcrypt)
-    if (user.password !== password) {
+    // ── Secure password verification (supports both hashed & legacy plain-text) ──
+    const passwordValid = await verifyPassword(password, user.password);
+
+    if (!passwordValid) {
+      recordFailedAttempt(clientIp, "/api/auth/login");
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
+
+    // ── Auto-migration: Re-hash plain-text passwords on successful login ──
+    // This gradually migrates all passwords to bcrypt without any disruption
+    if (needsRehash(user.password)) {
+      try {
+        const hashedPassword = await hashPassword(password);
+        await db.user.update({
+          where: { id: user.id },
+          data: { password: hashedPassword },
+        });
+      } catch (rehashError) {
+        // Non-critical: log but don't block login
+        console.warn(`Failed to re-hash password for ${user.email}:`, rehashError);
+      }
+    }
+
+    // Reset rate limit on successful login
+    resetRateLimit(clientIp, "/api/auth/login");
 
     // Log the login
     try {
@@ -61,7 +114,7 @@ export async function POST(req: NextRequest) {
       id: user.id,
       email: user.email,
       name: user.name,
-      displayName: user.name, // Explicit displayName so clients never fall back to email
+      displayName: user.name,
       role: user.role,
     });
   } catch (error) {

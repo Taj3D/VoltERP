@@ -10,6 +10,7 @@ import { withApiSecurity } from "@/lib/api-security";
 import { logUserActivity } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
+import { hashPassword } from "@/lib/password-utils";
 
 export async function POST(request: NextRequest) {
   try {
@@ -94,10 +95,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Hash the new password before storing
+    const hashedNewPassword = await hashPassword(newPassword);
+
     // Update the password
     await db.user.update({
       where: { id: targetUser.id },
-      data: { password: newPassword },
+      data: { password: hashedNewPassword },
     });
 
     // Create audit log entry
