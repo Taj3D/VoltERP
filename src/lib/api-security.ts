@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { checkApiRateLimit, getClientIp } from '@/lib/rate-limiter';
+import { verifyToken, extractBearerToken } from '@/lib/jwt-utils';
 
 export type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
 
@@ -188,14 +189,115 @@ export async function withApiSecurity(
     };
   }
 
-  // Read user identifier from header (sent by frontend apiFetch)
+  // ── JWT Authentication: Verify Bearer token from Authorization header ──
+  // Falls back to x-user-email header for backward compatibility during migration
+  const authHeader = request.headers.get('authorization');
+  const bearerToken = extractBearerToken(authHeader);
+
+  if (bearerToken) {
+    // JWT path: Verify the token and extract user info from claims
+    const tokenResult = verifyToken(bearerToken, 'access');
+
+    if (!tokenResult.valid) {
+      return {
+        authorized: false,
+        response: NextResponse.json(
+          {
+            error: tokenResult.error,
+            errorCode: 'TOKEN_INVALID',
+            expired: tokenResult.expired || false,
+          },
+          { status: tokenResult.expired ? 401 : 403 }
+        ),
+      };
+    }
+
+    // Verify user still exists and is active in the database
+    const user = await db.user.findUnique({
+      where: { id: tokenResult.payload.userId },
+      select: { id: true, email: true, name: true, role: true, isActive: true, companyId: true },
+    });
+
+    if (!user || !user.isActive) {
+      return {
+        authorized: false,
+        response: NextResponse.json(
+          { error: 'User account is inactive or has been deactivated.' },
+          { status: 401 }
+        ),
+      };
+    }
+
+    // Use the database user (source of truth) but verify role matches token
+    const role = user.role as UserRole;
+
+    // Step 1: Group-level access check
+    const group = MODULE_GROUP_MAP[module];
+    const groupAccess = ROLE_GROUP_ACCESS[role] || [];
+
+    if (!groupAccess.includes('*') && group && !groupAccess.includes(group)) {
+      return {
+        authorized: false,
+        response: NextResponse.json(
+          { error: `Access denied. Your role (${role}) does not have access to ${module}.` },
+          { status: 403 }
+        ),
+      };
+    }
+
+    // Step 2: Module-level deny check
+    const moduleDenied = MODULE_DENY[role] || [];
+    if (moduleDenied.includes(module)) {
+      return {
+        authorized: false,
+        response: NextResponse.json(
+          { error: `Access denied. Your role (${role}) is restricted from ${module}.` },
+          { status: 403 }
+        ),
+      };
+    }
+
+    // Step 3: Write operation check (POST/PUT/DELETE)
+    if (method !== 'GET') {
+      // VAT Auditor: ALL writes are denied (read-only role)
+      if (role === 'vat_auditor') {
+        return {
+          authorized: false,
+          response: NextResponse.json(
+            { error: 'Write access denied. VAT Auditor has read-only access to all modules.' },
+            { status: 403 }
+          ),
+        };
+      }
+
+      const writeDenied = WRITE_DENY[role] || [];
+      if (writeDenied.includes(module)) {
+        return {
+          authorized: false,
+          response: NextResponse.json(
+            { error: `Write access denied. Your role (${role}) cannot create, update, or delete records in ${module}.` },
+            { status: 403 }
+          ),
+        };
+      }
+    }
+
+    // All checks passed — JWT authenticated
+    return {
+      authorized: true,
+      user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId, displayName: user.name },
+    };
+  }
+
+  // ── LEGACY FALLBACK: x-user-email header (backward compatibility) ──
+  // This path will be removed in a future version once all clients use JWT
   const userEmail = request.headers.get('x-user-email');
 
   if (!userEmail) {
     return {
       authorized: false,
       response: NextResponse.json(
-        { error: 'Authentication required. Please log in.' },
+        { error: 'Authentication required. Please log in.', errorCode: 'AUTH_REQUIRED' },
         { status: 401 }
       ),
     };

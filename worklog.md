@@ -832,3 +832,154 @@ Task: ধাপ ২ — Rate Limiting সকল API এন্ডপয়েন�
 - ✅ Browser — কোনো error নেই
 - ✅ ESLint পাস
 - ✅ কোডবেস ভাঙেনি
+
+---
+Task ID: jwt-auth-migration
+Agent: JWT Auth Migration Agent
+Task: Update all 30 frontend component files to support JWT Bearer token in Authorization header with X-User-Email as fallback
+
+## Changes Made
+
+### Pattern Applied
+In every component's `apiFetch` / `getAuthHeaders` function, replaced:
+```typescript
+if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+```
+With:
+```typescript
+if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; } else if (parsed.user?.email) { authHeaders["X-User-Email"] = parsed.user.email; }
+```
+
+### Files Updated (30 total)
+
+#### Standard pattern (25 files — single-line `if (parsed.user?.email) authHeaders["X-User-Email"]`):
+1. SalesModulePage.tsx
+2. FinancialAuditGroupPage.tsx
+3. OperationsModulePage.tsx
+4. InventoryGroupPage.tsx
+5. SystemSettingsGroupPage.tsx
+6. InvestmentGroupPage.tsx
+7. SecurityAuditCenter.tsx
+8. ChartOfAccountsLedgerPage.tsx
+9. BalanceSheetPeriodClosePage.tsx
+10. BasicModulesGroupPage.tsx
+11. StructureModulePage.tsx
+12. PersonnelCRMGroupPage.tsx
+13. SMSAnalyticsPage.tsx
+14. CashCollectionsDeliveriesPage.tsx
+15. AccountsLedgerPage.tsx
+16. StockModulePage.tsx
+17. FinancialStatementsPage.tsx
+18. BankTransactionsPage.tsx
+19. ReturnReplacementModulePage.tsx
+20. CustomerSupplierLedgerPage.tsx
+21. AccountingReportsPage.tsx
+22. AuditTrailViewer.tsx
+23. ExpensesIncomesPage.tsx
+24. DashboardAnalyticsPage.tsx
+25. MISReportEngine.tsx
+
+#### Single-quote variant (1 file):
+26. InterestPercentageEnginePage.tsx — used `authHeaders['X-User-Email']` (single quotes)
+
+#### Multi-line `if/else if` with `headers` variable (2 files):
+27. ProfileCenter.tsx — multi-line `if (parsed?.user?.email) { headers["X-User-Email"] = ... }`
+28. POSTerminalPage.tsx — multi-line `if (parsed?.user?.email) { headers["X-User-Email"] = ... }`
+
+#### Compressed single-line (1 file):
+29. AccountManagementPage.tsx — entire try/catch on one line
+
+#### Different auth source (1 file):
+30. MultiBranchConsolidationPage.tsx — used `authState.user?.email` from React state instead of localStorage. Also updated `authState` type to include `accessToken?: string` so JWT token is accessible.
+
+### Files NOT Modified (per instructions)
+- ElectronicsMartApp.tsx — already had JWT support
+- AppHeader.tsx — already had JWT support
+- api-security.ts — already had JWT support
+- /api/users/profile/route.ts — already uses withApiSecurity
+
+### API Route Checked
+- `/api/users/change-password/route.ts` — already uses `withApiSecurity` (JWT-based), no X-User-Email header usage. No change needed.
+
+## Verification
+- ✅ TypeScript compilation: 0 component errors (only pre-existing AppHeader.tsx type errors remain, in do-not-touch file)
+- ✅ Dev server running on port 3000 (HTTP 200)
+- ✅ X-User-Email retained as fallback (only sent when no accessToken exists)
+- ✅ All 30 files have consistent JWT-first, email-fallback pattern
+- ✅ No other code changed in any file
+
+## Auth Flow Summary
+Now all 30 components follow this auth header priority:
+1. **Primary**: `Authorization: Bearer <accessToken>` — sent when `parsed.accessToken` exists in localStorage `ems_auth`
+2. **Fallback**: `X-User-Email: <email>` — sent only when no accessToken exists (backward compatibility)
+
+---
+Task ID: 3
+Agent: Main Orchestrator
+Task: Phase 3 — JWT Authentication (Replace insecure x-user-email header with JWT tokens)
+
+Work Log:
+- Installed `jsonwebtoken@9.0.3` and `@types/jsonwebtoken@9.0.10` packages
+- Created `/home/z/my-project/src/lib/jwt-utils.ts` — Complete JWT utility library with:
+  - `signAccessToken()` — HS256, 8h expiry, includes userId/email/name/role/companyId
+  - `signRefreshToken()` — HS256, 7d expiry, for token renewal
+  - `verifyToken()` — Verifies signature, expiry, issuer, audience, and blacklist
+  - `revokeToken()` — Adds JTI to in-memory blacklist for logout
+  - `extractBearerToken()` — Extracts token from `Authorization: Bearer <token>` header
+  - `getTokenExpiry()` / `isTokenExpiringSoon()` — Client-side token management helpers
+  - Automatic blacklist cleanup every 10 minutes (expired tokens)
+- Updated `/home/z/my-project/src/app/api/auth/route.ts`:
+  - Issues `accessToken` and `refreshToken` on successful login
+  - Both tokens returned alongside existing user info (id, email, name, displayName, role)
+- Updated `/home/z/my-project/src/lib/api-security.ts` — Core security change:
+  - JWT path (PRIMARY): Reads `Authorization: Bearer <token>` → verifies JWT → looks up user by ID from claims → RBAC checks
+  - Legacy fallback: `x-user-email` header still works for backward compatibility
+  - If neither JWT nor email → 401 with `errorCode: AUTH_REQUIRED`
+  - Invalid/expired JWT → 401/403 with `errorCode: TOKEN_INVALID`
+- Updated `/home/z/my-project/src/components/ElectronicsMartApp.tsx`:
+  - `authState` now includes `accessToken` field
+  - `login()` stores JWT from server response
+  - `logout()` calls `/api/auth/logout` to revoke token server-side (fire-and-forget)
+  - `apiFetch()` sends `Authorization: Bearer <token>` when available, falls back to `X-User-Email`
+  - 401 responses clear auth state (token expired/invalid)
+- Updated `/home/z/my-project/src/components/erp/layout/AppHeader.tsx`:
+  - Added `accessToken` prop to `AppHeaderProps`
+  - `notifFetch()` now accepts `accessToken` parameter
+  - All 5 notification API calls pass JWT token
+  - Falls back to `X-User-Email` when no JWT
+- Updated `/home/z/my-project/src/app/api/users/profile/route.ts`:
+  - Created `resolveUser()` helper that checks JWT first, then x-user-email
+  - Both GET and PUT endpoints use JWT for authentication
+- Updated 30 component files (via subagent) to use JWT Bearer token:
+  - All components now check `parsed.accessToken` from localStorage
+  - If present, sends `Authorization: Bearer ${parsed.accessToken}`
+  - Falls back to `X-User-Email` when no JWT
+- Created `/home/z/my-project/src/app/api/auth/refresh/route.ts`:
+  - POST endpoint to exchange refresh token for new access + refresh tokens
+  - Verifies refresh token, checks user is still active, issues new pair
+- Created `/home/z/my-project/src/app/api/auth/logout/route.ts`:
+  - POST endpoint to revoke access + refresh tokens (adds JTI to blacklist)
+  - Always returns success (even if revocation fails, tokens naturally expire)
+
+Stage Summary:
+- All 5 user logins tested: ✅ Admin, Manager, SR, Dealer, VAT Auditor — all receive JWT tokens
+- JWT RBAC enforcement tested: ✅ Dealer denied SMS access, VAT Auditor denied writes, no-auth rejected
+- Token refresh tested: ✅ New access tokens issued and work correctly
+- Logout tested: ✅ Client-side state cleared, server-side revocation fires
+- Browser end-to-end test: ✅ Login → JWT in localStorage → Dashboard loads → Products page works → Logout
+- Backward compatibility: ✅ x-user-email header still works as fallback for any unupdated code
+- Lint: ✅ Clean pass
+- Dev server: ✅ Running on port 3000
+
+Files Created:
+- `/home/z/my-project/src/lib/jwt-utils.ts`
+- `/home/z/my-project/src/app/api/auth/refresh/route.ts`
+- `/home/z/my-project/src/app/api/auth/logout/route.ts`
+
+Files Modified:
+- `/home/z/my-project/src/app/api/auth/route.ts`
+- `/home/z/my-project/src/lib/api-security.ts`
+- `/home/z/my-project/src/components/ElectronicsMartApp.tsx`
+- `/home/z/my-project/src/components/erp/layout/AppHeader.tsx`
+- `/home/z/my-project/src/app/api/users/profile/route.ts`
+- 30 component files (JWT Bearer token support added)

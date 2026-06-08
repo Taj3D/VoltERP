@@ -154,7 +154,9 @@ function getAuthHeaders(): Record<string, string> {
       const stored = localStorage.getItem("ems_auth");
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed?.user?.email) {
+        if (parsed.accessToken) {
+          headers["Authorization"] = `Bearer ${parsed.accessToken}`;
+        } else if (parsed?.user?.email) {
           headers["X-User-Email"] = parsed.user.email;
         }
       }

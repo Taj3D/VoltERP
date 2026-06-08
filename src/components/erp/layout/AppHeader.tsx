@@ -52,6 +52,7 @@ interface AppHeaderProps {
   currentPageLabel: string;
   sidebarCollapsed: boolean;
   theme: string;
+  accessToken?: string | null;
   onToggleTheme: () => void;
   onNavigate: (page: string) => void;
   onToggleSidebar?: () => void;
@@ -151,11 +152,19 @@ function TypeIcon({ type }: { type: string }) {
 }
 
 // ────────────────────────────────────────────────────────────
-// API FETCH HELPER — sends x-user-email for RBAC
+// API FETCH HELPER — sends JWT Bearer token for RBAC
+// Falls back to x-user-email for backward compatibility
 // ────────────────────────────────────────────────────────────
-async function notifFetch(path: string, opts?: RequestInit, userEmail?: string) {
+async function notifFetch(path: string, opts?: RequestInit, userEmail?: string, accessToken?: string) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (userEmail) headers["X-User-Email"] = userEmail;
+  // Primary: JWT Bearer token
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+  // Legacy fallback: email header
+  if (userEmail && !accessToken) {
+    headers["X-User-Email"] = userEmail;
+  }
   const res = await fetch(path, { headers: { ...headers, ...(opts?.headers as Record<string, string>) }, ...opts });
   if (!res.ok) {
     // Silently handle expected auth/routing errors (401, 403, 404) during polling
@@ -182,6 +191,7 @@ export default function AppHeader({
   currentPageLabel,
   sidebarCollapsed,
   theme,
+  accessToken,
   onToggleTheme,
   onNavigate,
   onToggleMobileMenu,
@@ -215,12 +225,13 @@ export default function AppHeader({
         await notifFetch("/api/notifications", {
           method: "POST",
           body: JSON.stringify({ action: "generate" }),
-        }, user.email);
+        }, user.email, accessToken);
       }
       const res = await notifFetch(
         `/api/notifications?limit=50&isRead=false`,
         undefined,
-        user.email
+        user.email,
+        accessToken
       );
       if (res.success) {
         setNotifications(res.data || []);
@@ -271,7 +282,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ id, action: "mark-read" }),
-      }, user.email);
+      }, user.email, accessToken);
       // Optimistic update
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
@@ -290,7 +301,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ action: "mark-all-read" }),
-      }, user.email);
+      }, user.email, accessToken);
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch (err) {
@@ -307,7 +318,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ id, action: "dismiss" }),
-      }, user.email);
+      }, user.email, accessToken);
       setNotifications(prev => prev.filter(n => n.id !== id));
       setUnreadCount(prev => {
         const dismissed = notifications.find(n => n.id === id);

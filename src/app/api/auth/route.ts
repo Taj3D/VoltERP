@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { verifyPassword, hashPassword, needsRehash } from "@/lib/password-utils";
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from "@/lib/rate-limiter";
+import { signAccessToken, signRefreshToken } from "@/lib/jwt-utils";
 
 // Default credentials for all 5 RBAC roles
 const DEFAULT_USERS = [
@@ -110,12 +111,31 @@ export async function POST(req: NextRequest) {
       });
     } catch {}
 
+    // ── Issue JWT tokens ──
+    const accessToken = signAccessToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      companyId: user.companyId,
+    });
+
+    const refreshToken = signRefreshToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      companyId: user.companyId,
+    });
+
     return NextResponse.json({
       id: user.id,
       email: user.email,
       name: user.name,
       displayName: user.name,
       role: user.role,
+      accessToken,
+      refreshToken,
     });
   } catch (error) {
     console.error("Login error:", error);

@@ -252,7 +252,7 @@ export default function MultiBranchConsolidationPage({
   const [activeTab, setActiveTab] = useState("branches");
 
   // Auth state
-  const [authState, setAuthState] = useState<{ user?: { id?: string; email?: string; role?: string; companyId?: string; name?: string } }>({});
+  const [authState, setAuthState] = useState<{ accessToken?: string; user?: { id?: string; email?: string; role?: string; companyId?: string; name?: string } }>({});
 
   // Branch Management
   const [branches, setBranches] = useState<BranchRecord[]>([]);
@@ -346,7 +346,7 @@ export default function MultiBranchConsolidationPage({
   const apiFetch = useCallback(
     async (path: string, opts?: RequestInit) => {
       const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-      if (user?.email) authHeaders["X-User-Email"] = user.email;
+      if (authState.accessToken) { authHeaders["Authorization"] = `Bearer ${authState.accessToken}`; } else if (user?.email) { authHeaders["X-User-Email"] = user.email; }
       const res = await fetch(path, {
         headers: { ...authHeaders, ...opts?.headers },
         ...opts,

@@ -219,6 +219,7 @@ function hasItemAccess(role: UserRole, itemKey: string): boolean {
 let authState = {
   isAuthenticated: false,
   user: null as AuthUser | null,
+  accessToken: null as string | null,
 };
 
 let authListeners: Array<() => void> = [];
@@ -262,6 +263,7 @@ function useAuth() {
           role: (serverUser.role as UserRole) || "admin",
           displayName: resolvedDisplayName,
         },
+        accessToken: serverUser.accessToken || null,
       };
       localStorage.setItem("ems_auth", JSON.stringify(authState));
       authListeners.forEach(l => l());
@@ -273,7 +275,17 @@ function useAuth() {
   };
 
   const logout = () => {
-    authState = { isAuthenticated: false, user: null };
+    // Revoke the JWT token on the server (fire-and-forget)
+    if (authState.accessToken) {
+      fetch("/api/auth/logout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authState.accessToken}`,
+        },
+      }).catch(() => {}); // Non-blocking
+    }
+    authState = { isAuthenticated: false, user: null, accessToken: null };
     localStorage.removeItem("ems_auth");
     authListeners.forEach(l => l());
   };
@@ -307,17 +319,22 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 async function apiFetch(path: string, opts?: RequestInit) {
-  // Server-side RBAC: send authenticated user email as X-User-Email header
+  // Server-side RBAC: send JWT Bearer token in Authorization header
+  // Falls back to X-User-Email for backward compatibility
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  if (authState.user?.email) {
+  if (authState.accessToken) {
+    authHeaders["Authorization"] = `Bearer ${authState.accessToken}`;
+  }
+  if (authState.user?.email && !authState.accessToken) {
+    // Legacy fallback: send email header if no JWT token
     authHeaders["X-User-Email"] = authState.user.email;
   }
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    // If 401, force logout (session expired)
+    // If 401, force logout (session expired / token invalid)
     if (res.status === 401) {
-      authState = { isAuthenticated: false, user: null };
+      authState = { isAuthenticated: false, user: null, accessToken: null };
       localStorage.removeItem("ems_auth");
       authListeners.forEach(l => l());
     }
@@ -6341,6 +6358,7 @@ function AppLayout() {
         currentPageLabel={currentPageConfig?.label || ""}
         sidebarCollapsed={sidebarCollapsed}
         theme={theme || "light"}
+        accessToken={authState.accessToken}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         onNavigate={navigate}
         onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}

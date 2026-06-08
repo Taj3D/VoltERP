@@ -51,7 +51,7 @@ const typeBadge = (type: string) => {
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try { const stored = localStorage.getItem("ems_auth"); if (stored) { const parsed = JSON.parse(stored); if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email; } } catch {}
+  try { const stored = localStorage.getItem("ems_auth"); if (stored) { const parsed = JSON.parse(stored); if (parsed.accessToken) { authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`; } else if (parsed.user?.email) { authHeaders["X-User-Email"] = parsed.user.email; } } } catch {}
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) { if (res.status === 401) { localStorage.removeItem("ems_auth"); window.location.reload(); } const err = await res.json().catch(() => ({ error: res.statusText })); throw new Error(err.error || "Request failed"); }
   return res.json();

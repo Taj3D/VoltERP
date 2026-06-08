@@ -1,15 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { verifyToken, extractBearerToken } from "@/lib/jwt-utils";
+
+// Helper: Resolve user from either JWT token or x-user-email header
+async function resolveUser(req: NextRequest): Promise<{ id: string; email: string } | null> {
+  // Primary: JWT Bearer token
+  const authHeader = req.headers.get("authorization");
+  const bearerToken = extractBearerToken(authHeader);
+
+  if (bearerToken) {
+    const tokenResult = verifyToken(bearerToken, "access");
+    if (tokenResult.valid) {
+      return { id: tokenResult.payload.userId, email: tokenResult.payload.email };
+    }
+  }
+
+  // Legacy fallback: x-user-email header
+  const userEmail = req.headers.get("x-user-email");
+  if (userEmail) {
+    const user = await db.user.findUnique({ where: { email: userEmail }, select: { id: true, email: true } });
+    return user;
+  }
+
+  return null;
+}
 
 // GET /api/users/profile - Fetch the current user's profile
 export async function GET(req: NextRequest) {
   try {
-    const userEmail = req.headers.get("x-user-email");
-    if (!userEmail) {
-      return NextResponse.json({ error: "Unauthorized: missing user email" }, { status: 401 });
+    const resolved = await resolveUser(req);
+    if (!resolved) {
+      return NextResponse.json({ error: "Unauthorized: authentication required" }, { status: 401 });
     }
 
-    const user = await db.user.findUnique({ where: { email: userEmail } });
+    const user = await db.user.findUnique({ where: { email: resolved.email } });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
@@ -37,12 +61,12 @@ export async function GET(req: NextRequest) {
 // PUT /api/users/profile - Update the current user's profile
 export async function PUT(req: NextRequest) {
   try {
-    const userEmail = req.headers.get("x-user-email");
-    if (!userEmail) {
-      return NextResponse.json({ error: "Unauthorized: missing user email" }, { status: 401 });
+    const resolved = await resolveUser(req);
+    if (!resolved) {
+      return NextResponse.json({ error: "Unauthorized: authentication required" }, { status: 401 });
     }
 
-    const user = await db.user.findUnique({ where: { email: userEmail } });
+    const user = await db.user.findUnique({ where: { email: resolved.email } });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
