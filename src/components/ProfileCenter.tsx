@@ -63,9 +63,9 @@ interface ProfileUser {
   role: UserRole;
   displayName: string;
   companyId: string | null;
-  profileImage?: string | null;
+  photo?: string | null;  // Maps to User.photo in Prisma
   phone?: string | null;
-  designation?: string | null;
+  designation?: string | null;  // Derived from Employee.designation, not stored on User
 }
 
 interface ActivityLog {
@@ -201,7 +201,7 @@ function getAuthUser(): ProfileUser | null {
           role: parsed.user.role,
           displayName: parsed.user.displayName || parsed.user.name,
           companyId: parsed.user.companyId || null,
-          profileImage: parsed.user.profileImage || null,
+          photo: parsed.user.photo || null,
           phone: parsed.user.phone || null,
           designation: parsed.user.designation || null,
         };
@@ -367,7 +367,7 @@ export default function ProfileCenter() {
       setEditName(getSafeDisplayName(authUser.displayName || authUser.name));
       setEditPhone(authUser.phone || "");
       setEditDesignation(authUser.designation || "");
-      setEditProfileImage(authUser.profileImage || null);
+      setEditProfileImage(authUser.photo || null);
       loadCompanyAndEmployee(authUser);
       loadProfileFromServer();
     }
@@ -415,15 +415,15 @@ export default function ProfileCenter() {
           role: serverProfile.role,
           displayName: safeName,
           companyId: serverProfile.companyId,
-          profileImage: serverProfile.profileImage,
+          photo: serverProfile.photo || null,
           phone: serverProfile.phone,
-          designation: serverProfile.designation,
+          designation: serverProfile.designation || null,
         };
         setUser(updatedUser);
         setEditName(safeName);
         setEditPhone(updatedUser.phone || "");
         setEditDesignation(updatedUser.designation || "");
-        setEditProfileImage(updatedUser.profileImage || null);
+        setEditProfileImage(updatedUser.photo || null);
 
         // Update localStorage auth state
         try {
@@ -433,7 +433,7 @@ export default function ProfileCenter() {
             if (parsed?.user) {
               parsed.user.name = safeName;
               parsed.user.displayName = safeName;
-              parsed.user.profileImage = serverProfile.profileImage;
+              parsed.user.photo = serverProfile.photo;
               parsed.user.phone = serverProfile.phone;
               parsed.user.designation = serverProfile.designation;
               localStorage.setItem("ems_auth", JSON.stringify(parsed));
@@ -774,7 +774,7 @@ export default function ProfileCenter() {
         headers,
         body: JSON.stringify({
           name: editName.trim(),
-          profileImage: editProfileImage,
+          photo: editProfileImage,
           phone: editPhone.trim() || null,
           designation: editDesignation.trim() || null,
         }),
@@ -794,7 +794,7 @@ export default function ProfileCenter() {
           ...user,
           name: data.user.name,
           displayName: safeName,
-          profileImage: data.user.profileImage,
+          photo: data.user.photo,
           phone: data.user.phone,
           designation: data.user.designation,
         };
@@ -809,7 +809,7 @@ export default function ProfileCenter() {
           if (parsed?.user) {
             parsed.user.name = safeName;
             parsed.user.displayName = safeName;
-            parsed.user.profileImage = data.user.profileImage;
+            parsed.user.photo = data.user.photo;
             parsed.user.phone = data.user.phone;
             parsed.user.designation = data.user.designation;
             localStorage.setItem("ems_auth", JSON.stringify(parsed));
@@ -931,8 +931,8 @@ export default function ProfileCenter() {
   const totalPages = Math.ceil(activityTotal / activityPageSize);
 
   const getDesignation = (): string => {
-    if (user?.designation) return user.designation;
     if (employeeInfo?.designation?.name) return employeeInfo.designation.name;
+    if (user?.designation) return user.designation;
     if (user?.role) return ROLE_LABELS[user.role];
     return "N/A";
   };
@@ -1040,7 +1040,7 @@ export default function ProfileCenter() {
                 setEditName(safeDisplayName);
                 setEditPhone(user.phone || "");
                 setEditDesignation(user.designation || "");
-                setEditProfileImage(user.profileImage || null);
+                setEditProfileImage(user.photo || null);
               }}>
                 <X className="w-4 h-4 mr-2" />
                 Cancel
@@ -1122,9 +1122,9 @@ export default function ProfileCenter() {
                           onChange={handleImageUpload}
                         />
                       </div>
-                    ) : user.profileImage ? (
+                    ) : user.photo ? (
                       <img
-                        src={user.profileImage}
+                        src={user.photo}
                         alt={safeDisplayName}
                         className="w-24 h-24 rounded-full object-cover border-4 border-white/20 shadow-lg"
                       />
@@ -1211,7 +1211,7 @@ export default function ProfileCenter() {
                     ) : (
                       <div className="flex items-center gap-2 text-sm">
                         <User className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span className="text-muted-foreground">{user.designation || getDesignation()}</span>
+                        <span className="text-muted-foreground">{getDesignation()}</span>
                       </div>
                     )}
 
