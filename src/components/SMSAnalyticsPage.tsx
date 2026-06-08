@@ -171,6 +171,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const [triggerForm, setTriggerForm] = useState({ eventType: "SalesConfirmation", label: "", description: "", isEnabled: true, recipientType: "Customer", templateBody: "" });
   const [triggerSaving, setTriggerSaving] = useState(false);
 
+  // Automation Config state
+  const [automationConfig, setAutomationConfig] = useState<any>(null);
+  const [automationSaving, setAutomationSaving] = useState(false);
+
   // Log trigger type filter
   const [logTriggerTypeFilter, setLogTriggerTypeFilter] = useState("all");
 
@@ -248,6 +252,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       setSmsInbox(Array.isArray(inboxRes) ? inboxRes : inboxRes?.items || inboxRes?.data || []);
       setSmsCampaigns(Array.isArray(campaignsRes) ? campaignsRes : campaignsRes?.items || campaignsRes?.data || []);
       setSmsTriggers(Array.isArray(triggersRes) ? triggersRes : triggersRes?.data || []);
+
+      // Load automation config
+      try {
+        const autoConfig = await apiFetch("/api/sms-automation");
+        setAutomationConfig(autoConfig);
+      } catch {
+        // defaults will apply
+      }
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
@@ -2735,6 +2747,90 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </div>
             </CardContent>
           </Card>
+
+          {/* ── SMS Automation Master Toggles ── */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-500" />
+                Auto SMS Toggles / স্বয়ংক্রিয় এসএমএস নিয়ন্ত্রণ
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                { key: "smsAlertOnPurchase", label: "Sales Purchase / ক্রয় বিক্রয়", desc: "Auto-SMS on purchase/sales confirmation", icon: ShoppingCart, color: "blue" },
+                { key: "smsAlertOnCollection", label: "Payment Collection / পেমেন্ট সংগ্রহ", desc: "Auto-SMS on payment receipt", icon: DollarSign, color: "green" },
+                { key: "smsAlertOnStockReceive", label: "Godown Receive / গুডাম গ্রহণ", desc: "Auto-SMS when inventory received at godown", icon: Package, color: "orange" },
+                { key: "smsAlertOnHrLifecycle", label: "HR Lifecycle / কর্মী জীবনচক্র", desc: "Auto-SMS on employee joining/events", icon: Users, color: "purple" },
+              ].map((toggle) => {
+                const isEnabled = automationConfig?.[toggle.key] ?? false;
+                return (
+                  <Card key={toggle.key} className={`border-l-4 ${toggle.color === "blue" ? "border-l-blue-500" : toggle.color === "green" ? "border-l-emerald-500" : toggle.color === "orange" ? "border-l-orange-500" : "border-l-purple-500"}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${toggle.color === "blue" ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600" : toggle.color === "green" ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : toggle.color === "orange" ? "bg-orange-50 dark:bg-orange-900/30 text-orange-600" : "bg-purple-50 dark:bg-purple-900/30 text-purple-600"}`}>
+                            <toggle.icon className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-sm text-slate-900 dark:text-white">{toggle.label}</h4>
+                            <p className="text-xs text-muted-foreground">{toggle.desc}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-medium ${isEnabled ? "text-emerald-600" : "text-slate-400"}`}>
+                            {isEnabled ? "ON / চালু" : "OFF / বন্ধ"}
+                          </span>
+                          {isAdmin ? (
+                            <Switch
+                              checked={isEnabled}
+                              onCheckedChange={async (checked: boolean) => {
+                                setAutomationSaving(true);
+                                try {
+                                  const updated = { ...automationConfig, [toggle.key]: checked };
+                                  await apiFetch("/api/sms-automation", {
+                                    method: "PUT",
+                                    body: JSON.stringify({
+                                      smsAlertOnPurchase: updated.smsAlertOnPurchase ?? false,
+                                      smsAlertOnCollection: updated.smsAlertOnCollection ?? false,
+                                      smsAlertOnStockReceive: updated.smsAlertOnStockReceive ?? false,
+                                      smsAlertOnHrLifecycle: updated.smsAlertOnHrLifecycle ?? false,
+                                    }),
+                                  });
+                                  setAutomationConfig((prev: any) => ({ ...prev, [toggle.key]: checked }));
+                                  toast({ title: checked ? "Enabled / চালু" : "Disabled / বন্ধ", description: `${toggle.label} ${checked ? "enabled" : "disabled"}` });
+                                } catch (e: any) {
+                                  toast({ title: "Error", description: e.message, variant: "destructive" });
+                                } finally {
+                                  setAutomationSaving(false);
+                                }
+                              }}
+                              disabled={automationSaving}
+                            />
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>
+                                  <Switch checked={isEnabled} disabled />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Only administrators can modify automation toggles</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              These are master switches. Even if Notification Triggers are enabled, SMS will NOT be sent when the corresponding master toggle is OFF.
+            </p>
+          </div>
 
           {/* ── Notification Triggers ── */}
           <div className="mt-6">

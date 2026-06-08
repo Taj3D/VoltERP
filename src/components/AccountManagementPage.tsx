@@ -621,7 +621,7 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
 
   // ── MAIN RENDER ──────────────────────────────────────────────
   return (
-    <div className="page-enter flex flex-col min-h-screen">
+    <div className="page-enter flex flex-col">
       <div className="flex-1 space-y-4">
         {/* VAT Auditor Badge */}
         {isVatAuditor && (

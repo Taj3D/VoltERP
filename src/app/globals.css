@@ -141,6 +141,12 @@
   html, body {
     height: 100%;
   }
+  /* Fallback for browsers without dvh support — ensures layout still works */
+  @supports not (height: 100dvh) {
+    .h-dvh {
+      height: 100vh;
+    }
+  }
 }
 
 /* ============================================================

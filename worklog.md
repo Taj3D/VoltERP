@@ -338,6 +338,167 @@ Task: Final Integration Test — Browser Verification
 2. Add Import CSV to AccountingReports + FinancialAudit pages
 3. Fix VAT Auditor masking gaps in Cash In Hand table
 4. Consolidate duplicate inventory page implementations
-5. Make DB health check real in Performance tab
+5. Make DB health check real in Performance tab ✅ DONE
 6. Add real cache invalidation endpoint
 
+---
+Task ID: post-fix
+Agent: Main Orchestrator
+Task: Post-implementation fixes — Prisma cache, API errors, TypeScript fixes
+
+Work Log:
+- Fixed Prisma client cache: Bumped `PRISMA_SCHEMA_VERSION` from 3 to 4 in `src/lib/db.ts` to force cache invalidation after adding SmsAutomationConfig model
+- Fixed `db.smsAutomationConfig` undefined error: Cleaned `.next` cache, regenerated Prisma client, restarted dev server
+- Downgraded Prisma from 7.8.0 to 6.19.3 (v7 breaking changes incompatible with existing schema)
+- Fixed SMS automation PUT API timeout: Moved `logUserActivity` outside of `$transaction` to fire-and-forget pattern, avoiding 5s transaction timeout
+- Fixed SMS automation PUT variable reference: Changed `{ ...record }` to `{ ...result }` after refactoring out of transaction
+- Added `SmsAutomation`, `SmsNotificationTriggers`, `SmsCampaigns`, `SmsInbox` to `MODULE_GROUP_MAP` in `api-security.ts` mapping to 'sms' group
+- Added error detail to SMS automation API error responses for easier debugging
+- Fixed TypeScript errors:
+  - `api-security.ts`: Added missing `displayName: 'System'` to AUTH_EXEMPT_MODULES return object
+  - `FinancialAuditGroupPage.tsx`: Changed `type: "percent"` to `type: "number"` in 5 formField definitions
+  - `AccountingReportsPage.tsx`: Fixed `subtitle` parameter type from `string` to `string | undefined`
+- Verified all 5 features working:
+  1. SMS Settings automation toggles (4 switches with ON/OFF state + bilingual labels) ✅
+  2. AccountingReports Import CSV (5 tabs) + FinancialAudit Import CSV (3 tabs) ✅
+  3. Cash In Hand VAT Auditor masking (20 new fields added, charts show mask overlay) ✅
+  4. Performance tab real DB health (3.11 MB, 88 tables, integrity ok, WAL mode, key records) ✅
+  5. Sidebar collapse/expand (ChevronsRight icon, 44px touch target) + page scrolling (h-dvh fix) ✅
+
+Stage Summary:
+- All 5 user-requested features implemented and verified
+- SMS automation toggles fully functional (API + UI + DB)
+- Real DB health diagnostics replace hardcoded values
+- Sidebar and scrolling issues resolved
+- TypeScript clean for all modified files
+
+---
+Task ID: 1
+Agent: Code Agent
+Task: SMS Settings tab — Add automation toggle UI for 4 SMS events
+
+Work Log:
+- Added `SmsAutomationConfig` model to `prisma/schema.prisma` after `SmsNotificationTrigger` model (line 1678-1696)
+- Added `smsAutomationConfigs SmsAutomationConfig[]` relation to `Company` model (line 174)
+- Ran `bun run db:push` successfully to sync the new model to the database
+- Added `automationConfig` and `automationSaving` state variables to `SMSAnalyticsPage.tsx` (after triggerSaving state, line 174-176)
+- Added automation config fetch inside `loadData` function, loading from `/api/sms-automation` endpoint (line 256-262)
+- Added full Automation Master Toggles Card UI before the Notification Triggers section in the Settings tab (line 2751-2833)
+  - 4 toggle cards: Sales Purchase, Payment Collection, Godown Receive, HR Lifecycle
+  - Each card has colored left border, icon, bilingual label, ON/OFF status, and Switch toggle
+  - Admin-only toggle control with disabled+tooltip for non-admin users
+  - Warning note about master switches gating all SMS
+  - PUT to `/api/sms-automation` on toggle change with optimistic UI update
+
+Stage Summary:
+- SmsAutomationConfig Prisma model created and synced to DB
+- SMS Settings tab now shows 4 automation toggle cards above Notification Triggers
+- Toggles call existing `/api/sms-automation` PUT endpoint (was already implemented)
+- Non-admin users see disabled toggles with "Only administrators can modify" tooltip
+- TypeScript compilation passes with no errors in modified files
+
+
+---
+Task ID: 2
+Agent: Code Agent
+Task: AccountingReports + FinancialAudit pages — Add Import CSV functionality
+
+Work Log:
+- Read AccountingReportsPage.tsx — identified 5 tabs (COA, Cash In Hand, Trial Balance, P&L, Balance Sheet) each with only Export PDF/CSV buttons
+- Read FinancialAuditGroupPage.tsx — identified 7 sub-tabs, Upload icon already imported but unused
+- Read reference implementation in AccountManagementPage.tsx to understand the importFromCSV pattern
+- Read export-utils.ts to understand importFromCSV function signature (ImportCSVOpts with apiPath + formFields)
+- Added `Upload` icon import to AccountingReportsPage.tsx (was not imported)
+- Added `importFromCSV` import to AccountingReportsPage.tsx
+- Added Import CSV button to all 5 tabs in AccountingReportsPage:
+  - Chart of Accounts → /api/chart-of-accounts (fields: name, classification, openingBalance, openingBalanceType)
+  - Cash In Hand → /api/expenses (fields: headId, amount, date, description)
+  - Trial Balance → /api/chart-of-accounts (same CoA fields)
+  - Profit & Loss → /api/expenses (same expense fields)
+  - Balance Sheet → /api/chart-of-accounts (same CoA fields)
+- All Import CSV buttons include VAT Auditor guard (toast "Access Denied")
+- Each import calls appropriate loadData function on success
+- `importFromCSV` was already imported in FinancialAuditGroupPage.tsx
+- Added Import CSV button to 3 tabs in FinancialAuditGroupPage:
+  - Ledger Auto-Post → /api/ledger-auto-post (fields: accountName, amount, date, description, entryType)
+  - Inventory Aging → /api/products (fields: name, sku, category, costPrice, sellPrice, quantity, godownId)
+  - Product Lifecycle → /api/products (same product fields)
+- Import buttons are role-guarded with `(isAdmin || isManager)` check
+- Each import calls appropriate loadData function on success (loadLedger, loadAging, loadLifecycle)
+- Dev server running on port 3000 with HTTP 200 response
+
+Stage Summary:
+- AccountingReportsPage.tsx: 5 Import CSV buttons added (one per tab)
+- FinancialAuditGroupPage.tsx: 3 Import CSV buttons added (Ledger Auto-Post, Inventory Aging, Product Lifecycle)
+- All buttons follow project standard pattern using importFromCSV from @/lib/export-utils
+- VAT Auditor and role guards applied consistently with existing code
+- No existing code broken — only additive changes
+
+---
+Task ID: 3+4
+Agent: Code Agent
+Task: Cash In Hand VAT masking + Real DB health check API
+
+Work Log:
+- Added 20 missing financial field names to `ACCOUNTING_VAT_MASKED_FIELDS` array in `/home/z/my-project/src/lib/api-security.ts` (lines 644-664):
+  - Cash flow daily: inflow, outflow, net, netCash, netFlow
+  - Cash In Hand specific: totalCollections, totalDeliveries, totalIncome, totalExpense, totalDeposits, totalWithdrawals, openingCash, closingCash
+  - Recent transactions: transactionAmount, cashIn, cashOut, bankIn, bankOut
+- Updated Cash Flow Trend chart in AccountingReportsPage.tsx: Added VAT Auditor conditional — shows Lock icon + AUDIT_MASK message instead of Recharts chart (which would break with string-masked data)
+- Updated Income vs Expense Bar chart in AccountingReportsPage.tsx: Same VAT Auditor conditional with Lock icon + AUDIT_MASK
+- Bank-by-Bank breakdown table: Already uses `fmt()` which handles AUDIT_MASK strings, and `b.expense` already had explicit isVatAuditor check — no changes needed
+- Recent Transactions table: Uses `fmt(t.amount, "currency")` which already handles AUDIT_MASK — no changes needed
+- Created `/home/z/my-project/src/app/api/system-health/route.ts` — real SQLite health check API:
+  - Queries sqlite_master for table count (excluding sqlite_% and _prisma_migrations)
+  - Gets DB size via pragma_page_count * pragma_page_size
+  - Runs PRAGMA integrity_check
+  - Checks PRAGMA journal_mode (WAL status)
+  - Checks PRAGMA busy_timeout
+  - Counts active records in 6 key tables (products, customers, suppliers, salesOrders, purchaseOrders, employees)
+  - Returns comprehensive JSON with status, size, integrity, journal mode, key records, and timestamp
+- Updated PerformanceCacheTab in SystemSettingsGroupPage.tsx:
+  - Expanded dbHealth state type to include dbType, dbSizeMB, tableCount, integrity, journalMode, keyRecords, checkedAt
+  - Replaced hardcoded setDbHealth with real API call to /api/system-health
+  - Replaced 3-column grid with 4-column grid (Status, Size, Tables, Integrity)
+  - Added "Key Record Counts (Active)" section with 6-column grid showing products/customers/suppliers/salesOrders/purchaseOrders/employees
+  - Added Journal mode + last checked timestamp footer
+
+Stage Summary:
+- VAT Auditor masking now covers all Cash In Hand financial fields (inflow/outflow/net/etc.)
+- Cash In Hand charts show proper audit mask overlay instead of broken Recharts rendering
+- Real DB health check API replaces hardcoded values with live SQLite diagnostics
+- Performance tab shows actual database size, table count, integrity status, journal mode, and key record counts
+- No TypeScript errors introduced in modified files
+
+---
+Task ID: 5
+Agent: Responsive Design Agent
+Task: Fix Sidebar Collapse/Expand and Module Page Scrolling issues for responsive design
+
+Work Log:
+- Investigated sidebar component in ElectronicsMartApp.tsx (lines 2754-2875): Found expand button used `Package` icon (logo icon) instead of a clear directional indicator, and was only 32px × 32px (below 44px minimum touch target)
+- Investigated main layout structure: Found root cause of scrolling issue — `min-h-dvh` on outer flex container allows it to grow beyond viewport, preventing `flex-1 min-h-0 overflow-y-auto` on `<main>` from creating a scrollable area
+- Investigated globals.css: Confirmed `body { overflow-y: hidden }` is intentional (main handles scroll)
+- Found 7 module pages using `min-h-screen` which compounded the scrolling issue by creating 100vh-tall containers inside the scrollable main area
+- Fixed sidebar expand button: Replaced `Package` icon with `ChevronsRight` (clear directional indicator), increased size to 44px (w-11 h-11), added `aria-label`, `cursor-pointer`, and `active:scale-95` press feedback
+- Fixed sidebar collapse button: Added `title` and `aria-label` attributes, increased to 32px (h-8 w-8)
+- Fixed scrolling root cause: Changed `min-h-dvh` to `h-dvh` on outer layout container — this gives the flex container a fixed height, properly constraining `flex-1` children and enabling `overflow-y-auto` on `<main>` to work
+- Removed `min-h-screen` from 7 module pages that render inside the scrollable `<main>`:
+  - SalesModulePage.tsx → `page-enter flex flex-col`
+  - StockModulePage.tsx → `page-enter flex flex-col`
+  - ReturnReplacementModulePage.tsx → `page-enter flex flex-col`
+  - AccountManagementPage.tsx → `page-enter flex flex-col`
+  - AuditTrailViewer.tsx → `page-enter space-y-4` (also removed redundant `overflow-y-auto`)
+  - StagingQAPage.tsx → `page-enter flex flex-col`
+  - SecurityAuditCenter.tsx → `page-enter flex flex-col`
+  - GoldenHandoverPage.tsx → `page-enter ... flex flex-col`
+- Changed `transition-all` to `transition-[margin]` on `<main>` and `<footer>` to prevent unintended property transitions (overflow, padding, etc.)
+- Added CSS fallback in globals.css for `h-dvh` in browsers without `dvh` unit support
+- Login page and loading screen `min-h-screen` left unchanged (they're standalone full-page layouts, not inside scrollable `<main>`)
+
+Stage Summary:
+- Sidebar expand now uses clear `ChevronsRight` icon with 44px touch target and visual press feedback
+- Module page scrolling fixed by changing outer container from `min-h-dvh` to `h-dvh` (key CSS flexbox fix)
+- 7 module pages no longer force 100vh height, allowing proper scroll within `<main>`
+- Footer properly sticks to bottom of viewport via `h-dvh flex flex-col mt-auto` pattern
+- More specific CSS transitions prevent layout glitches during sidebar toggle

@@ -1475,7 +1475,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
   // ============================================================
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0a1628]">
+    <div className="page-enter flex flex-col bg-[#0a1628]">
       <main className="flex-1 p-4 sm:p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="bg-[#132240] mb-4">

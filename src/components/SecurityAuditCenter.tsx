@@ -587,7 +587,7 @@ export default function SecurityAuditCenter() {
   // ============================================================
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900">
+    <div className="page-enter flex flex-col bg-slate-50 dark:bg-slate-900">
       {/* NAVY HEADER BAR */}
       <div className="bg-[#0a1628] text-white px-4 sm:px-6 py-4 flex items-center gap-3 shrink-0">
         <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-red-500 to-amber-500 flex items-center justify-center">

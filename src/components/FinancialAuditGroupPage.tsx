@@ -40,7 +40,7 @@ import {
   PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
 import {
-  exportToPDF, exportToCSV, getVatMaskedKeys, exportAuditReportPDF,
+  exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys, exportAuditReportPDF,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
 
@@ -813,7 +813,7 @@ export default function FinancialAuditGroupPage({
       { key: "name", label: "Product", type: "text" },
       { key: "bookValue", label: "Book Value", type: "currency" },
       { key: "marketValue", label: "Market Value", type: "currency" },
-      { key: "discrepancy", label: "Discrepancy %", type: "percent" },
+      { key: "discrepancy", label: "Discrepancy %", type: "number" },
       { key: "riskType", label: "Risk Type", type: "text" },
     ];
 
@@ -1149,6 +1149,23 @@ export default function FinancialAuditGroupPage({
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, ["amount"])}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, "landscape", ["amount"])}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
+          {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+            importFromCSV({
+              apiPath: "/api/ledger-auto-post",
+              formFields: [
+                { key: "accountName", label: "Account Name", type: "text", required: true },
+                { key: "amount", label: "Amount", type: "number", required: true },
+                { key: "date", label: "Date", type: "date", required: true },
+                { key: "description", label: "Description", type: "text" },
+                { key: "entryType", label: "Entry Type", type: "select", options: [{ value: "Debit", label: "Debit" }, { value: "Credit", label: "Credit" }] },
+              ],
+            }).then(result => {
+              toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+              loadLedger();
+            }).catch((e: any) => {
+              toast({ title: "Import Error", description: e.message, variant: "destructive" });
+            });
+          }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
         </div>
 
         {/* Double-Entry Verification */}
@@ -1269,6 +1286,25 @@ export default function FinancialAuditGroupPage({
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => doExportAuditPDF("Inventory Aging Report", agingExportColumns, agingData, agingSummary?.averageAge)}><FileDown className="w-3.5 h-3.5 mr-1" /> Audit PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Aging", agingExportColumns, agingData)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+          {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+            importFromCSV({
+              apiPath: "/api/products",
+              formFields: [
+                { key: "name", label: "Product Name", type: "text", required: true },
+                { key: "sku", label: "SKU", type: "text" },
+                { key: "category", label: "Category", type: "text" },
+                { key: "costPrice", label: "Cost Price", type: "number" },
+                { key: "sellPrice", label: "Sell Price", type: "number" },
+                { key: "quantity", label: "Quantity", type: "number" },
+                { key: "godownId", label: "Godown ID", type: "text" },
+              ],
+            }).then(result => {
+              toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+              loadAging();
+            }).catch((e: any) => {
+              toast({ title: "Import Error", description: e.message, variant: "destructive" });
+            });
+          }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
         </div>
 
         {agingLoading ? <LoadingSkeleton rows={4} /> : (
@@ -1384,6 +1420,25 @@ export default function FinancialAuditGroupPage({
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Product Lifecycle", lifecycleExportColumns, lifecycleRecords, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+          {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+            importFromCSV({
+              apiPath: "/api/products",
+              formFields: [
+                { key: "name", label: "Product Name", type: "text", required: true },
+                { key: "sku", label: "SKU", type: "text" },
+                { key: "category", label: "Category", type: "text" },
+                { key: "costPrice", label: "Cost Price", type: "number" },
+                { key: "sellPrice", label: "Sell Price", type: "number" },
+                { key: "quantity", label: "Quantity", type: "number" },
+                { key: "godownId", label: "Godown ID", type: "text" },
+              ],
+            }).then(result => {
+              toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+              loadLifecycle();
+            }).catch((e: any) => {
+              toast({ title: "Import Error", description: e.message, variant: "destructive" });
+            });
+          }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
         </div>
 
         {lifecycleLoading ? <LoadingSkeleton rows={4} /> : (
@@ -1515,7 +1570,7 @@ export default function FinancialAuditGroupPage({
       { key: "totalPaid", label: "Total Paid", type: "currency" },
       { key: "outstandingBalance", label: "Outstanding", type: "currency" },
       { key: "duration", label: "Duration", type: "text" },
-      { key: "hireRate", label: "Hire Rate %", type: "percent" },
+      { key: "hireRate", label: "Hire Rate %", type: "number" },
       { key: "currentStatus", label: "Status", type: "text" },
     ];
 
@@ -1613,10 +1668,10 @@ export default function FinancialAuditGroupPage({
       { key: "designation", label: "Designation", type: "text" },
       { key: "totalSales", label: "Total Sales", type: "number" },
       { key: "totalRevenue", label: "Total Revenue", type: "currency" },
-      { key: "commissionRate", label: "Commission Rate %", type: "percent" },
+      { key: "commissionRate", label: "Commission Rate %", type: "number" },
       { key: "earnedCommission", label: "Earned Commission", type: "currency" },
       { key: "targetAmount", label: "Target", type: "currency" },
-      { key: "targetAchievement", label: "Achievement %", type: "percent" },
+      { key: "targetAchievement", label: "Achievement %", type: "number" },
     ];
 
     return (
@@ -1714,7 +1769,7 @@ export default function FinancialAuditGroupPage({
       { key: "totalCollected", label: "Total Collected", type: "currency" },
       { key: "totalReturned", label: "Total Returned", type: "currency" },
       { key: "currentBalance", label: "Current Balance", type: "currency" },
-      { key: "collectionRate", label: "Collection Rate %", type: "percent" },
+      { key: "collectionRate", label: "Collection Rate %", type: "number" },
     ];
 
     const aging = summary.aging || {};

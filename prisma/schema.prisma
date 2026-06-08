@@ -171,6 +171,7 @@ model Company {
   smsNotificationTriggers SmsNotificationTrigger[]
   smsInbox                SmsInbox[]
   smsCampaigns            SmsCampaign[]
+  smsAutomationConfigs    SmsAutomationConfig[]
   chartOfAccounts         ChartOfAccount[]
   ledgerEntries           LedgerEntry[]
   periodCloses            PeriodClose[]
@@ -1672,6 +1673,26 @@ model SmsNotificationTrigger {
   @@index([companyId])
   @@index([eventType])
   @@index([isEnabled])
+}
+
+// ============================================================
+// SMS AUTOMATION CONFIG — Company-wide SMS toggle switches
+// Master switches that gate all automated SMS dispatch
+// ============================================================
+
+model SmsAutomationConfig {
+  id                     String   @id @default(cuid())
+  smsAlertOnPurchase     Boolean  @default(false)
+  smsAlertOnCollection   Boolean  @default(false)
+  smsAlertOnStockReceive Boolean  @default(false)
+  smsAlertOnHrLifecycle  Boolean  @default(false)
+  companyId              String?
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  company                Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 // ============================================================

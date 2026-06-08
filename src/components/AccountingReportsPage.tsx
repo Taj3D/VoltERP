@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Lock, RefreshCw, Download, FileDown,
+  Lock, RefreshCw, Download, FileDown, Upload,
   DollarSign, TrendingUp, BarChart3,
   CheckCircle, AlertTriangle, Wallet, Landmark, Scale,
   ArrowUpCircle, ArrowDownCircle, BookOpen, Building2,
@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF,
   exportToCSV,
+  importFromCSV,
   ColumnDef,
   CompanyProfile,
 } from "@/lib/export-utils";
@@ -291,7 +292,7 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
 
   const printedBy = user?.displayName || user?.name || "System";
 
-  const doExportPDF = (title: string, subtitle: string, columns: ColumnDef[], data: any[], vatMaskedColumns: string[] = [], orientation: "landscape" | "portrait" = "landscape") => {
+  const doExportPDF = (title: string, subtitle: string | undefined, columns: ColumnDef[], data: any[], vatMaskedColumns: string[] = [], orientation: "landscape" | "portrait" = "landscape") => {
     try {
       exportToPDF({
         title,
@@ -441,6 +442,23 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                 subBalanceTotalNet: a.subBalance?.totalNet ?? 0,
               })), vatMaskedColumns);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+              importFromCSV({
+                apiPath: "/api/chart-of-accounts",
+                formFields: [
+                  { key: "name", label: "Account Name", type: "text", required: true },
+                  { key: "classification", label: "Classification", type: "select", required: true, options: [{ value: "Asset", label: "Asset" }, { value: "Liability", label: "Liability" }, { value: "Income", label: "Income" }, { value: "Expense", label: "Expense" }, { value: "Equity", label: "Equity" }] },
+                  { key: "openingBalance", label: "Opening Balance", type: "number" },
+                  { key: "openingBalanceType", label: "Balance Type", type: "select", options: [{ value: "Dr", label: "Dr" }, { value: "Cr", label: "Cr" }] },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadCoA();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           </div>
 
           {/* Stat Cards */}
@@ -599,6 +617,23 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["openingBalance", "deposits", "withdrawals", "income", "expense", "collections", "deliveries", "currentBalance"] : [];
               doExportCSV("Cash In Hand Report", columns, cashData.bankBreakdown || [], vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+              importFromCSV({
+                apiPath: "/api/expenses",
+                formFields: [
+                  { key: "headId", label: "Head ID", type: "text", required: true },
+                  { key: "amount", label: "Amount", type: "number", required: true },
+                  { key: "date", label: "Date", type: "date", required: true },
+                  { key: "description", label: "Description", type: "text" },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadCash();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           </div>
 
           {cashLoading ? <Spinner /> : cashData ? (
@@ -630,17 +665,27 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                     <CardTitle className="text-white text-sm">Cash Flow Trend</CardTitle>
                   </CardHeader>
                   <CardContent className="p-4">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={cashData.dailyFlow}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                        <YAxis tick={{ fontSize: 10 }} />
-                        <RechartsTooltip />
-                        <Legend />
-                        <Line type="monotone" dataKey="inflow" stroke="#10b981" strokeWidth={2} name="Inflow" />
-                        <Line type="monotone" dataKey="outflow" stroke="#ef4444" strokeWidth={2} name="Outflow" />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    {isVatAuditor ? (
+                      <div className="flex items-center justify-center h-[300px] bg-slate-50 dark:bg-slate-800 rounded-lg">
+                        <div className="text-center">
+                          <Lock className="h-8 w-8 text-amber-500 mx-auto mb-2" />
+                          <p className="text-amber-600 dark:text-amber-400 font-medium">{AUDIT_MASK}</p>
+                          <p className="text-xs text-slate-400 mt-1">Financial data hidden in Audit Mode</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <LineChart data={cashData.dailyFlow}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <RechartsTooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="inflow" stroke="#10b981" strokeWidth={2} name="Inflow" />
+                          <Line type="monotone" dataKey="outflow" stroke="#ef4444" strokeWidth={2} name="Outflow" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -697,16 +742,26 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                     <CardTitle className="text-white text-sm">Income vs Expense Comparison</CardTitle>
                   </CardHeader>
                   <CardContent className="p-4">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={cashData.incomeVsExpense}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                        <YAxis tick={{ fontSize: 10 }} />
-                        <RechartsTooltip />
-                        <Legend />
-                        <Bar dataKey="amount" fill="#2563eb" name="Amount" />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {isVatAuditor ? (
+                      <div className="flex items-center justify-center h-[300px] bg-slate-50 dark:bg-slate-800 rounded-lg">
+                        <div className="text-center">
+                          <Lock className="h-8 w-8 text-amber-500 mx-auto mb-2" />
+                          <p className="text-amber-600 dark:text-amber-400 font-medium">{AUDIT_MASK}</p>
+                          <p className="text-xs text-slate-400 mt-1">Financial data hidden in Audit Mode</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={cashData.incomeVsExpense}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <RechartsTooltip />
+                          <Legend />
+                          <Bar dataKey="amount" fill="#2563eb" name="Amount" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -790,6 +845,23 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["totalDebit", "totalCredit", "netBalance"] : [];
               doExportCSV("Trial Balance Report", columns, tbData.entries || [], vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+              importFromCSV({
+                apiPath: "/api/chart-of-accounts",
+                formFields: [
+                  { key: "name", label: "Account Name", type: "text", required: true },
+                  { key: "classification", label: "Classification", type: "select", required: true, options: [{ value: "Asset", label: "Asset" }, { value: "Liability", label: "Liability" }, { value: "Income", label: "Income" }, { value: "Expense", label: "Expense" }, { value: "Equity", label: "Equity" }] },
+                  { key: "openingBalance", label: "Opening Balance", type: "number" },
+                  { key: "openingBalanceType", label: "Balance Type", type: "select", options: [{ value: "Dr", label: "Dr" }, { value: "Cr", label: "Cr" }] },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadTB();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           </div>
 
           {tbLoading ? <Spinner /> : tbData ? (
@@ -989,6 +1061,23 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["amount"] : [];
               doExportCSV("Profit & Loss Statement", columns, rows, vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+              importFromCSV({
+                apiPath: "/api/expenses",
+                formFields: [
+                  { key: "headId", label: "Head ID", type: "text", required: true },
+                  { key: "amount", label: "Amount", type: "number", required: true },
+                  { key: "date", label: "Date", type: "date", required: true },
+                  { key: "description", label: "Description", type: "text" },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadPL();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           </div>
 
           {plLoading ? <Spinner /> : plData ? (
@@ -1254,6 +1343,23 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["amount"] : [];
               doExportCSV("Balance Sheet Report", columns, rows, vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+              importFromCSV({
+                apiPath: "/api/chart-of-accounts",
+                formFields: [
+                  { key: "name", label: "Account Name", type: "text", required: true },
+                  { key: "classification", label: "Classification", type: "select", required: true, options: [{ value: "Asset", label: "Asset" }, { value: "Liability", label: "Liability" }, { value: "Income", label: "Income" }, { value: "Expense", label: "Expense" }, { value: "Equity", label: "Equity" }] },
+                  { key: "openingBalance", label: "Opening Balance", type: "number" },
+                  { key: "openingBalanceType", label: "Balance Type", type: "select", options: [{ value: "Dr", label: "Dr" }, { value: "Cr", label: "Cr" }] },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadBS();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
           </div>
 
           {bsLoading ? <Spinner /> : bsData ? (

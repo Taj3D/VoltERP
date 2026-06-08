@@ -637,7 +637,7 @@ export default function AuditTrailViewer() {
 
   if (isSR || isDealer) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-[50vh]">
         <Card className="max-w-md w-full border-red-300 dark:border-red-800">
           <CardContent className="p-8 text-center">
             <Shield className="w-12 h-12 mx-auto mb-4 text-red-500" />
@@ -1366,7 +1366,7 @@ export default function AuditTrailViewer() {
   // ============================================================
 
   return (
-    <div className="min-h-screen overflow-y-auto">
+    <div className="page-enter space-y-4">
       {/* VAT Auditor Mode Badge */}
       {isVatAuditor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg mb-4">

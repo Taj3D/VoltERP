@@ -2366,7 +2366,16 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
   const { toast } = useToast();
   const [cacheStats, setCacheStats] = useState<Record<string, any>>({});
   const [configs, setConfigs] = useState<SystemConfig[]>([]);
-  const [dbHealth, setDbHealth] = useState<{ status: string; size?: string; tables?: number }>({ status: "unknown" });
+  const [dbHealth, setDbHealth] = useState<{
+    status: string;
+    dbType?: string;
+    dbSizeMB?: string;
+    tableCount?: number;
+    integrity?: string;
+    journalMode?: string;
+    keyRecords?: Record<string, number>;
+    checkedAt?: string;
+  }>({ status: "unknown" });
   const [loading, setLoading] = useState(true);
   const [invalidating, setInvalidating] = useState(false);
 
@@ -2396,12 +2405,13 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
       });
       setCacheStats(stats);
 
-      // Simulate DB health check (we can check connectivity by making an API call)
-      setDbHealth({
-        status: "connected",
-        size: "SQLite",
-        tables: 55,
-      });
+      // Real DB health check
+      try {
+        const health = await apiFetch("/api/system-health");
+        setDbHealth(health);
+      } catch {
+        setDbHealth({ status: "error" });
+      }
     } catch (e: any) {
       setDbHealth({ status: "error" });
       toast({ title: "Error", description: e.message, variant: "destructive" });
@@ -2526,15 +2536,15 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
                   <div className={`h-10 w-10 rounded-full flex items-center justify-center ${dbHealth.status === "connected" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-red-100 dark:bg-red-900/30"}`}>
                     <Server className={`h-5 w-5 ${dbHealth.status === "connected" ? "text-emerald-600" : "text-red-600"}`} />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">Database Status</p>
-                    <p className={`font-semibold ${dbHealth.status === "connected" ? "text-emerald-600" : "text-red-600"}`}>
-                      {dbHealth.status === "connected" ? "Connected" : "Error"}
+                    <p className={`font-semibold ${dbHealth.status === "connected" ? "text-emerald-600" : dbHealth.status === "degraded" ? "text-amber-600" : "text-red-600"}`}>
+                      {dbHealth.status === "connected" ? "Connected" : dbHealth.status === "degraded" ? "Degraded" : "Error"}
                     </p>
                   </div>
                 </div>
@@ -2543,8 +2553,8 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                     <HardDrive className="h-5 w-5 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Database Type</p>
-                    <p className="font-semibold text-slate-900 dark:text-white">{dbHealth.size || "SQLite"}</p>
+                    <p className="text-xs text-slate-500">Database Size</p>
+                    <p className="font-semibold text-slate-900 dark:text-white">{dbHealth.dbSizeMB || dbHealth.dbType || "SQLite"}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
@@ -2553,10 +2563,40 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">Total Tables</p>
-                    <p className="font-semibold text-slate-900 dark:text-white">{dbHealth.tables || "—"}</p>
+                    <p className="font-semibold text-slate-900 dark:text-white">{dbHealth.tableCount ?? "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center ${dbHealth.integrity === "ok" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"}`}>
+                    <Activity className={`h-5 w-5 ${dbHealth.integrity === "ok" ? "text-emerald-600" : "text-amber-600"}`} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Integrity Check</p>
+                    <p className={`font-semibold ${dbHealth.integrity === "ok" ? "text-emerald-600" : "text-amber-600"}`}>
+                      {dbHealth.integrity || "Unknown"}
+                    </p>
                   </div>
                 </div>
               </div>
+              {dbHealth.keyRecords && (
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <p className="text-xs text-slate-500 mb-2">Key Record Counts (Active)</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {Object.entries(dbHealth.keyRecords).map(([key, count]) => (
+                      <div key={key} className="text-center p-2 rounded bg-slate-50 dark:bg-slate-800">
+                        <p className="text-lg font-bold text-slate-900 dark:text-white">{Number(count).toLocaleString('en-US')}</p>
+                        <p className="text-xs text-slate-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {dbHealth.journalMode && (
+                <div className="mt-3 text-xs text-slate-400 flex items-center gap-4">
+                  <span>Journal: <span className="font-medium text-slate-600 dark:text-slate-300">{dbHealth.journalMode}</span></span>
+                  <span>Checked: {dbHealth.checkedAt ? new Date(dbHealth.checkedAt).toLocaleTimeString('en-GB') : '—'}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 

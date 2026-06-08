@@ -61,6 +61,10 @@ const MODULE_GROUP_MAP: Record<string, string> = {
   SmsLogs: 'sms',
   SmsBills: 'sms',
   SmsBillPayments: 'sms',
+  SmsAutomation: 'sms',
+  SmsNotificationTriggers: 'sms',
+  SmsCampaigns: 'sms',
+  SmsInbox: 'sms',
   // Accounting Reports
   ChartOfAccounts: 'accounting-report',
   LedgerEntries: 'accounting-report',
@@ -155,7 +159,7 @@ export async function withApiSecurity(
   if (AUTH_EXEMPT_MODULES.includes(module)) {
     return {
       authorized: true,
-      user: { id: 'system', email: 'system@ems.local', name: 'System', role: 'admin', companyId: null },
+      user: { id: 'system', email: 'system@ems.local', name: 'System', role: 'admin', companyId: null, displayName: 'System' },
     };
   }
 
@@ -641,6 +645,27 @@ export const ACCOUNTING_VAT_MASKED_FIELDS = [
   'totalSalesValue',
   'lineTotal',
   'deficit',
+  // Cash flow daily
+  'inflow',
+  'outflow',
+  'net',
+  'netCash',
+  'netFlow',
+  // Cash In Hand specific
+  'totalCollections',
+  'totalDeliveries',
+  'totalIncome',
+  'totalExpense',
+  'totalDeposits',
+  'totalWithdrawals',
+  'openingCash',
+  'closingCash',
+  // Recent transactions
+  'transactionAmount',
+  'cashIn',
+  'cashOut',
+  'bankIn',
+  'bankOut',
 ];
 
 /**

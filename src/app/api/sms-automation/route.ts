@@ -35,10 +35,10 @@ const DEFAULT_AUTOMATION_CONFIG = {
 // GET /api/sms-automation — Fetch active SmsAutomationConfig
 // ─────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsAutomation', 'GET');
-  if (!security.authorized) return security.response;
-
   try {
+    const security = await withApiSecurity(request, 'SmsAutomation', 'GET');
+    if (!security.authorized) return security.response;
+
     const companyId = security.user.companyId;
 
     const config = await db.smsAutomationConfig.findFirst({
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[SmsAutomation] GET error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch SMS automation config' },
+      { error: 'Failed to fetch SMS automation config', detail: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -165,7 +165,12 @@ export async function POST(request: NextRequest) {
 // PUT /api/sms-automation — Update or create (upsert) SmsAutomationConfig (admin only)
 // ─────────────────────────────────────────────────────────────
 export async function PUT(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsAutomation', 'PUT');
+  let security;
+  try {
+    security = await withApiSecurity(request, 'SmsAutomation', 'PUT');
+  } catch (e: any) {
+    return NextResponse.json({ error: 'Auth check failed', detail: e.message }, { status: 500 });
+  }
   if (!security.authorized) return security.response;
 
   // RBAC: Only admin can modify automation settings
@@ -209,58 +214,53 @@ export async function PUT(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     });
 
-    const record = await db.$transaction(async (tx) => {
-      let result;
-
-      if (existingConfig) {
-        // Update existing config
-        result = await tx.smsAutomationConfig.update({
-          where: { id: existingConfig.id },
-          data: {
-            smsAlertOnPurchase,
-            smsAlertOnCollection,
-            smsAlertOnStockReceive,
-            smsAlertOnHrLifecycle,
-          },
-        });
-      } else {
-        // Create new config (upsert pattern — not found, so create one)
-        result = await tx.smsAutomationConfig.create({
-          data: {
-            smsAlertOnPurchase,
-            smsAlertOnCollection,
-            smsAlertOnStockReceive,
-            smsAlertOnHrLifecycle,
-            isActive: true,
-            ...(companyId && { companyId }),
-          },
-        });
-      }
-
-      // Activity log with Comm-SMS-Marketing module token
-      await logUserActivity({
-        action: 'UPDATE',
-        module: 'Comm-SMS-Marketing',
-        recordId: result.id,
-        recordLabel: `SMS Automation Config`,
-        userId: security.user.id,
-        userName: security.user.name,
-        details: JSON.stringify({
-          operation: existingConfig ? 'UPDATE' : 'CREATE_AS_UPSERT',
-          smsAlertOnPurchase: result.smsAlertOnPurchase,
-          smsAlertOnCollection: result.smsAlertOnCollection,
-          smsAlertOnStockReceive: result.smsAlertOnStockReceive,
-          smsAlertOnHrLifecycle: result.smsAlertOnHrLifecycle,
-          companyId: result.companyId,
-        }),
+    let result;
+    if (existingConfig) {
+      // Update existing config
+      result = await db.smsAutomationConfig.update({
+        where: { id: existingConfig.id },
+        data: {
+          smsAlertOnPurchase,
+          smsAlertOnCollection,
+          smsAlertOnStockReceive,
+          smsAlertOnHrLifecycle,
+        },
       });
+    } else {
+      // Create new config (upsert pattern — not found, so create one)
+      result = await db.smsAutomationConfig.create({
+        data: {
+          smsAlertOnPurchase,
+          smsAlertOnCollection,
+          smsAlertOnStockReceive,
+          smsAlertOnHrLifecycle,
+          isActive: true,
+          ...(companyId && { companyId }),
+        },
+      });
+    }
 
-      return result;
-    });
+    // Fire-and-forget activity log (outside transaction to avoid timeout)
+    logUserActivity({
+      action: existingConfig ? 'UPDATE' : 'CREATE',
+      module: 'Comm-SMS-Marketing',
+      recordId: result.id,
+      recordLabel: `SMS Automation Config`,
+      userId: security.user.id,
+      userName: security.user.name,
+      details: JSON.stringify({
+        operation: existingConfig ? 'UPDATE' : 'CREATE_AS_UPSERT',
+        smsAlertOnPurchase: result.smsAlertOnPurchase,
+        smsAlertOnCollection: result.smsAlertOnCollection,
+        smsAlertOnStockReceive: result.smsAlertOnStockReceive,
+        smsAlertOnHrLifecycle: result.smsAlertOnHrLifecycle,
+        companyId: result.companyId,
+      }),
+    }).catch(() => {});
 
     // Apply VAT Auditor masking on response
     const masked = maskForVatAuditorSms(
-      { ...record },
+      { ...result },
       security.user.role
     );
 
@@ -268,7 +268,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('[SmsAutomation] PUT error:', error);
     return NextResponse.json(
-      { error: 'Failed to update SMS automation config' },
+      { error: 'Failed to update SMS automation config', detail: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

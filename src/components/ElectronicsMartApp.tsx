@@ -18,7 +18,7 @@ import {
   DollarSign, ArrowUpCircle, ArrowDownCircle, Send, Inbox, Phone,
   Calendar, CheckCircle, AlertTriangle, XCircle, Info, ChevronLeft,
   MoreVertical, Copy, FileSpreadsheet, FileDown, ArrowUpDown, Activity,
-  KeyRound, ShieldCheck, Pencil, Loader2
+  KeyRound, ShieldCheck, Pencil, Loader2, ChevronsRight
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -2769,14 +2769,15 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
         {collapsed && (
           <button
             onClick={onToggle}
-            className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] transition-colors"
+            className="w-11 h-11 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] active:scale-95 transition-all cursor-pointer"
             title="Expand sidebar"
+            aria-label="Expand sidebar"
           >
-            <Package className="w-4 h-4 text-white" />
+            <ChevronsRight className="w-5 h-5 text-white" />
           </button>
         )}
         {!collapsed && (
-          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={onToggle}>
+          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-8 w-8 p-0" onClick={onToggle} title="Collapse sidebar" aria-label="Collapse sidebar">
             <ChevronLeft className="w-4 h-4" />
           </Button>
         )}
@@ -6289,7 +6290,7 @@ function AppLayout() {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col bg-background overflow-hidden">
+    <div className="h-dvh flex flex-col bg-background overflow-hidden">
       {/* Header — Delegated to AppHeader component with live notification polling */}
       <AppHeader
         user={user}
@@ -6352,7 +6353,7 @@ function AppLayout() {
       )}
 
       {/* Main content */}
-      <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-all duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
+      <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
         <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8">
           <ErrorBoundary fallbackTitle={currentPageConfig?.label || "Page"}>
             <React.Suspense fallback={<LazyFallback name={currentPageConfig?.label} />}>
@@ -6363,7 +6364,7 @@ function AppLayout() {
       </main>
 
       {/* Footer */}
-      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-all duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
+      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
         <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<span className="text-slate-300 font-medium">NextGen Digital Studio</span>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>

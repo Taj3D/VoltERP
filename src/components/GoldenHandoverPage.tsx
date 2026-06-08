@@ -1654,7 +1654,7 @@ export default function GoldenHandoverPage() {
   // ============================================================
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-[#132240] to-[#0a1628] flex flex-col">
+    <div className="page-enter bg-gradient-to-br from-[#0a1628] via-[#132240] to-[#0a1628] flex flex-col">
       {/* STICKY HEADER */}
       <div className="bg-[#0a1628]/95 backdrop-blur-sm text-white px-4 sm:px-6 py-4 flex items-center gap-3 shrink-0 sticky top-0 z-50 border-b border-white/10">
         <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">

@@ -2185,7 +2185,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
   // ============================================================
 
   return (
-    <div className="min-h-screen flex flex-col bg-white dark:bg-slate-900">
+    <div className="page-enter flex flex-col bg-white dark:bg-slate-900">
       <div className="flex-1">
         {/* Header */}
         <div className="bg-[#0a1628] dark:bg-[#0a1628] text-white px-4 sm:px-6 py-4">

@@ -2115,7 +2115,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
   // ============================================================
 
   return (
-    <div className="min-h-screen flex flex-col bg-white dark:bg-[#0a1628]">
+    <div className="page-enter flex flex-col bg-white dark:bg-[#0a1628]">
       <div className="flex-1">
         {/* ── Header ── */}
         <div className="bg-gradient-to-r from-[#0a1628] to-[#132240] p-4 sm:p-6">
