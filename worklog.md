@@ -983,3 +983,63 @@ Files Modified:
 - `/home/z/my-project/src/components/erp/layout/AppHeader.tsx`
 - `/home/z/my-project/src/app/api/users/profile/route.ts`
 - 30 component files (JWT Bearer token support added)
+
+---
+Task ID: 4
+Agent: Main Orchestrator
+Task: Phase 4 — Auth Flow Update (Proactive refresh, stale session migration, session timer, login UX)
+
+Work Log:
+- Added proactive JWT token auto-refresh system:
+  - `scheduleTokenRefresh()` — Calculates time until 5 minutes before access token expiry and schedules refresh
+  - `performTokenRefresh()` — Calls `/api/auth/refresh` with refresh token, updates auth state and localStorage, reschedules next refresh
+  - On login: Schedules first refresh after decoding token expiry from JWT payload
+  - On page reload: If token expired but refresh token exists, refreshes immediately; otherwise schedules proactively
+  - On logout: Clears refresh timer, revokes both access and refresh tokens server-side
+- Added stale session migration:
+  - If localStorage `ems_auth` has `isAuthenticated: true` but no `accessToken` (pre-Phase 3 session), forces clean re-login
+  - If access token expired and no refresh token available, forces re-login
+  - If localStorage is corrupted (JSON parse error), clears and forces re-login
+- Enhanced `apiFetch` with auto-retry on 401:
+  - When 401 response has `expired: true` flag, automatically calls `/api/auth/refresh`
+  - On successful refresh, retries the original request with new token
+  - Only forces logout if refresh also fails or retry still returns 401
+- Added session expiry indicator to AppHeader:
+  - New `tokenExpiry` prop passed from auth state
+  - Real-time countdown timer updates every minute: "Session: 7h 59m"
+  - Amber warning color when less than 30 minutes remain
+  - Shield icon appears in warning state
+  - Displayed below user name in the user menu dropdown
+- Improved LoginPage UX:
+  - Rate limit countdown: When too many failed attempts, shows countdown timer and disables Sign In button
+  - Button text changes to "Wait Xs" during rate limit
+  - "Secured" badge with Shield icon next to "System Online"
+  - Version updated from "v2.0" to "v2.1"
+- Extended auth state with `refreshToken` and `tokenExpiry` fields:
+  - Both stored in localStorage for persistence across page reloads
+  - `tokenExpiry` decoded from JWT payload (`exp * 1000`) at login time
+  - `refreshToken` sent to `/api/auth/logout` for server-side revocation
+
+Stage Summary:
+- All 5 user logins tested: ✅ Admin, Manager, SR, Dealer, VAT Auditor — all get access + refresh tokens
+- Token refresh flow tested: ✅ New tokens issued and work correctly
+- Browser end-to-end test: ✅ Login → Session timer visible (7h 59m) → Dashboard → Products → Logout
+- Login page shows "Secured" badge and "v2.1" version ✅
+- Rate limit countdown UX verified ✅
+- Lint: ✅ Clean pass
+- Dev server: ✅ Running on port 3000
+
+Files Modified:
+- `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Auto-refresh, stale migration, enhanced apiFetch, login page improvements, auth state extended
+- `/home/z/my-project/src/components/erp/layout/AppHeader.tsx` — Session timer, Clock/Shield icons, tokenExpiry prop
+
+New Auth State Schema:
+```typescript
+{
+  isAuthenticated: boolean;
+  user: { name, email, role, displayName } | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiry: number | null; // epoch ms when access token expires
+}
+```

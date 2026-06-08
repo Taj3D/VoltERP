@@ -18,7 +18,7 @@ import {
   DollarSign, ArrowUpCircle, ArrowDownCircle, Send, Inbox, Phone,
   Calendar, CheckCircle, AlertTriangle, XCircle, Info, ChevronLeft,
   MoreVertical, Copy, FileSpreadsheet, FileDown, ArrowUpDown, Activity,
-  KeyRound, ShieldCheck, Pencil, Loader2, ChevronsRight
+  KeyRound, ShieldCheck, Shield, Pencil, Loader2, ChevronsRight
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -220,9 +220,87 @@ let authState = {
   isAuthenticated: false,
   user: null as AuthUser | null,
   accessToken: null as string | null,
+  refreshToken: null as string | null,
+  tokenExpiry: null as number | null, // epoch ms when access token expires
 };
 
 let authListeners: Array<() => void> = [];
+
+// ── JWT Token Auto-Refresh ──
+// Proactively refreshes the access token 5 minutes before expiry
+// Prevents unexpected logouts during active sessions
+let refreshTimerRef: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleTokenRefresh() {
+  // Clear any existing refresh timer
+  if (refreshTimerRef) {
+    clearTimeout(refreshTimerRef);
+    refreshTimerRef = null;
+  }
+
+  if (!authState.refreshToken || !authState.tokenExpiry) return;
+
+  const now = Date.now();
+  const expiresAt = authState.tokenExpiry;
+  const refreshThreshold = 5 * 60 * 1000; // 5 minutes before expiry
+
+  const timeUntilRefresh = expiresAt - now - refreshThreshold;
+
+  if (timeUntilRefresh <= 0) {
+    // Token already within refresh window or expired — refresh immediately
+    performTokenRefresh();
+    return;
+  }
+
+  // Schedule refresh for 5 minutes before expiry
+  refreshTimerRef = setTimeout(() => {
+    performTokenRefresh();
+  }, timeUntilRefresh);
+}
+
+async function performTokenRefresh() {
+  if (!authState.refreshToken) return;
+
+  try {
+    const res = await fetch("/api/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: authState.refreshToken }),
+    });
+
+    if (!res.ok) {
+      // Refresh token expired — force re-login
+      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+      localStorage.removeItem("ems_auth");
+      authListeners.forEach(l => l());
+      return;
+    }
+
+    const data = await res.json();
+
+    // Decode new access token to get expiry
+    let tokenExpiry: number | null = null;
+    try {
+      const payload = JSON.parse(atob(data.accessToken.split(".")[1]));
+      tokenExpiry = payload.exp * 1000;
+    } catch {}
+
+    authState = {
+      ...authState,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken || authState.refreshToken,
+      tokenExpiry,
+    };
+    localStorage.setItem("ems_auth", JSON.stringify(authState));
+    authListeners.forEach(l => l());
+
+    // Schedule next refresh
+    scheduleTokenRefresh();
+  } catch {
+    // Network error — don't force logout, just skip this refresh cycle
+    // Will retry on next scheduled interval or on next API call
+  }
+}
 
 function useAuth() {
   const [, forceUpdate] = useState({});
@@ -237,9 +315,44 @@ function useAuth() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
+
+        // ── Stale Session Migration ──
+        // If the stored session has no JWT access token (pre-Phase 3 session),
+        // force a clean re-login instead of proceeding with broken auth
+        if (parsed.isAuthenticated && !parsed.accessToken) {
+          // Clear stale session — user must re-login to get JWT tokens
+          authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+          localStorage.removeItem("ems_auth");
+          authListeners.forEach(l => l());
+          return;
+        }
+
+        // ── Expired Token Check ──
+        // If the access token has already expired and no refresh token, force re-login
+        if (parsed.tokenExpiry && parsed.tokenExpiry < Date.now() && !parsed.refreshToken) {
+          authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+          localStorage.removeItem("ems_auth");
+          authListeners.forEach(l => l());
+          return;
+        }
+
         authState = parsed;
+
+        // If token is expired but we have a refresh token, try refreshing immediately
+        if (parsed.tokenExpiry && parsed.tokenExpiry < Date.now() && parsed.refreshToken) {
+          performTokenRefresh();
+        } else {
+          // Schedule proactive refresh for valid token
+          scheduleTokenRefresh();
+        }
+
         authListeners.forEach(l => l());
-      } catch {}
+      } catch {
+        // Corrupted localStorage — clear and force re-login
+        authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+        localStorage.removeItem("ems_auth");
+        authListeners.forEach(l => l());
+      }
     }
   }, []);
 
@@ -255,6 +368,14 @@ function useAuth() {
       const serverUser = await res.json();
       // Map server response to client-side auth state
       const resolvedDisplayName = serverUser.displayName || serverUser.name || username;
+
+      // Decode access token to get expiry timestamp
+      let tokenExpiry: number | null = null;
+      try {
+        const payload = JSON.parse(atob(serverUser.accessToken.split(".")[1]));
+        tokenExpiry = payload.exp * 1000;
+      } catch {}
+
       authState = {
         isAuthenticated: true,
         user: {
@@ -264,9 +385,15 @@ function useAuth() {
           displayName: resolvedDisplayName,
         },
         accessToken: serverUser.accessToken || null,
+        refreshToken: serverUser.refreshToken || null,
+        tokenExpiry,
       };
       localStorage.setItem("ems_auth", JSON.stringify(authState));
       authListeners.forEach(l => l());
+
+      // Schedule proactive token refresh
+      scheduleTokenRefresh();
+
       return true;
     } catch {
       // Network error — return false so the login form shows its error message
@@ -283,9 +410,15 @@ function useAuth() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${authState.accessToken}`,
         },
+        body: JSON.stringify({ refreshToken: authState.refreshToken }),
       }).catch(() => {}); // Non-blocking
     }
-    authState = { isAuthenticated: false, user: null, accessToken: null };
+    // Clear refresh timer
+    if (refreshTimerRef) {
+      clearTimeout(refreshTimerRef);
+      refreshTimerRef = null;
+    }
+    authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
     localStorage.removeItem("ems_auth");
     authListeners.forEach(l => l());
   };
@@ -332,9 +465,53 @@ async function apiFetch(path: string, opts?: RequestInit) {
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    // If 401, force logout (session expired / token invalid)
+    // If 401 with expired token, try to refresh once before forcing logout
+    if (res.status === 401 && authState.refreshToken && err.expired) {
+      try {
+        const refreshRes = await fetch("/api/auth/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken: authState.refreshToken }),
+        });
+        if (refreshRes.ok) {
+          const data = await refreshRes.json();
+          let tokenExpiry: number | null = null;
+          try {
+            const payload = JSON.parse(atob(data.accessToken.split(".")[1]));
+            tokenExpiry = payload.exp * 1000;
+          } catch {}
+          authState = {
+            ...authState,
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken || authState.refreshToken,
+            tokenExpiry,
+          };
+          localStorage.setItem("ems_auth", JSON.stringify(authState));
+          authListeners.forEach(l => l());
+          scheduleTokenRefresh();
+
+          // Retry the original request with new token
+          const retryHeaders: Record<string, string> = { "Content-Type": "application/json", "Authorization": `Bearer ${data.accessToken}` };
+          const retryRes = await fetch(path, { headers: { ...retryHeaders, ...opts?.headers }, ...opts });
+          if (!retryRes.ok) {
+            const retryErr = await retryRes.json().catch(() => ({ error: retryRes.statusText }));
+            if (retryRes.status === 401) {
+              // Even after refresh, still 401 — force logout
+              authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+              localStorage.removeItem("ems_auth");
+              authListeners.forEach(l => l());
+            }
+            throw new Error(retryErr.error || "Request failed");
+          }
+          return retryRes.json();
+        }
+      } catch (retryError) {
+        // Refresh failed — fall through to logout
+      }
+    }
+    // If 401 without refresh possibility, force logout (session expired)
     if (res.status === 401) {
-      authState = { isAuthenticated: false, user: null, accessToken: null };
+      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
       localStorage.removeItem("ems_auth");
       authListeners.forEach(l => l());
     }
@@ -606,7 +783,18 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [rateLimitSeconds, setRateLimitSeconds] = useState(0);
   const { login } = useAuth();
+
+  // Check if we were redirected due to session expiry
+  const sessionExpired = typeof window !== "undefined" && !localStorage.getItem("ems_auth");
+
+  // Rate limit countdown
+  useEffect(() => {
+    if (rateLimitSeconds <= 0) return;
+    const timer = setTimeout(() => setRateLimitSeconds(prev => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [rateLimitSeconds]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -617,8 +805,16 @@ function LoginPage() {
       if (!success) {
         setError("Invalid username or password. Please check your credentials.");
       }
-    } catch {
-      setError("Login failed. Please try again.");
+    } catch (err) {
+      // Check for rate limit response
+      if (err instanceof Error && err.message.includes("Rate limit")) {
+        const match = err.message.match(/(\d+)/);
+        const seconds = match ? parseInt(match[1]) : 60;
+        setRateLimitSeconds(seconds);
+        setError(`Too many failed attempts. Please wait ${seconds} seconds before trying again.`);
+      } else {
+        setError("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -643,9 +839,14 @@ function LoginPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2 animate-in fade-in duration-200">
-                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-                  <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+                <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-2 animate-in fade-in duration-200">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+                    {rateLimitSeconds > 0 && (
+                      <p className="text-xs text-red-500 mt-1">Retry in {rateLimitSeconds}s</p>
+                    )}
+                  </div>
                 </div>
               )}
               <div className="space-y-2">
@@ -662,16 +863,20 @@ function LoginPage() {
                   <Input id="password" type="password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} className="pl-10 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20" required />
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200 h-11" disabled={loading || !username.trim() || !password}>
+              <Button type="submit" className="w-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200 h-11" disabled={loading || !username.trim() || !password || rateLimitSeconds > 0}>
                 {loading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <ArrowUpCircle className="w-4 h-4 mr-2" />}
-                {loading ? "Signing In..." : "Sign In"}
+                {loading ? "Signing In..." : rateLimitSeconds > 0 ? `Wait ${rateLimitSeconds}s` : "Sign In"}
               </Button>
               <div className="flex items-center justify-center gap-4 pt-1">
                 <div className="flex items-center gap-1.5 text-xs text-slate-400">
                   <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                   System Online
                 </div>
-                <span className="text-xs text-slate-300">v2.0</span>
+                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <Shield className="w-3 h-3" />
+                  Secured
+                </div>
+                <span className="text-xs text-slate-300">v2.1</span>
               </div>
             </form>
           </CardContent>
@@ -6359,6 +6564,7 @@ function AppLayout() {
         sidebarCollapsed={sidebarCollapsed}
         theme={theme || "light"}
         accessToken={authState.accessToken}
+        tokenExpiry={authState.tokenExpiry}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         onNavigate={navigate}
         onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}

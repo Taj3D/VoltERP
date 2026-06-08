@@ -10,7 +10,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Bell, Moon, Sun, Search, Home, ChevronRight, ChevronDown,
   RefreshCw, User, Lock, LogOut, KeyRound, Menu, XCircle,
-  AlertTriangle, Info, X, CheckCheck, Trash2
+  AlertTriangle, Info, X, CheckCheck, Trash2, Clock, Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +53,7 @@ interface AppHeaderProps {
   sidebarCollapsed: boolean;
   theme: string;
   accessToken?: string | null;
+  tokenExpiry?: number | null;
   onToggleTheme: () => void;
   onNavigate: (page: string) => void;
   onToggleSidebar?: () => void;
@@ -192,6 +193,7 @@ export default function AppHeader({
   sidebarCollapsed,
   theme,
   accessToken,
+  tokenExpiry,
   onToggleTheme,
   onNavigate,
   onToggleMobileMenu,
@@ -212,6 +214,48 @@ export default function AppHeader({
   // ── User Menu State ──
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── Session Timer State ──
+  const [sessionTimeLeft, setSessionTimeLeft] = useState<string | null>(null);
+  const [sessionWarning, setSessionWarning] = useState(false);
+
+  // Update session timer every minute
+  useEffect(() => {
+    if (!tokenExpiry) {
+      setSessionTimeLeft(null);
+      setSessionWarning(false);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const remaining = tokenExpiry - now;
+
+      if (remaining <= 0) {
+        setSessionTimeLeft("Expired");
+        setSessionWarning(true);
+        return;
+      }
+
+      const hours = Math.floor(remaining / (1000 * 60 * 60));
+      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+
+      if (hours > 0) {
+        setSessionTimeLeft(`${hours}h ${minutes}m`);
+      } else if (minutes > 0) {
+        setSessionTimeLeft(`${minutes}m`);
+      } else {
+        setSessionTimeLeft("<1m");
+      }
+
+      // Show warning when less than 30 minutes remain
+      setSessionWarning(remaining < 30 * 60 * 1000);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 60 * 1000); // Update every minute
+    return () => clearInterval(interval);
+  }, [tokenExpiry]);
 
   // ────────────────────────────────────────────────────────
   // NOTIFICATION DATA LOADING
@@ -681,12 +725,19 @@ export default function AppHeader({
               <ChevronDown className="w-3 h-3" />
             </Button>
             {userMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
+              <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-4 py-2 border-b">
                   <p className="text-sm font-medium">
                     {user?.displayName || user?.name || "User"}
                   </p>
                   <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  {sessionTimeLeft && (
+                    <div className={`flex items-center gap-1.5 mt-1.5 text-xs ${sessionWarning ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                      <Clock className="w-3 h-3" />
+                      <span>Session: {sessionTimeLeft}</span>
+                      {sessionWarning && <Shield className="w-3 h-3 ml-1" />}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => {
