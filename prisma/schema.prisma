@@ -708,6 +708,7 @@ model Customer {
   profileImage       String? // Profile photo (base64 or URL)
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
+  nidNumber          String? // National ID / Voter ID number
   companyId          String? // Multi-tenant isolation
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())
@@ -747,6 +748,7 @@ model Supplier {
   profileImage       String? // Profile photo (base64 or URL)
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
+  nidNumber          String? // National ID / Voter ID number
   companyId          String? // Multi-tenant isolation
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())

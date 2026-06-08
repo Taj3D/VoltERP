@@ -75,6 +75,34 @@ export async function triggerEventSms(
   try {
     const { eventType, recipientPhone, templateVariables, companyId } = params;
 
+    // Step 0: Check company-wide SmsAutomationConfig toggle
+    // Maps eventType to the corresponding automation config field
+    const eventTypeToConfigField: Record<string, string> = {
+      'SalesConfirmation': 'smsAlertOnPurchase',
+      'FinancialCollection': 'smsAlertOnCollection',
+      'InventoryIngestion': 'smsAlertOnStockReceive',
+      'HRLifecycle': 'smsAlertOnHrLifecycle',
+    };
+    const configField = eventTypeToConfigField[eventType];
+    if (configField) {
+      const automationConfig = await db.smsAutomationConfig.findFirst({
+        where: {
+          OR: [
+            { companyId: companyId ?? null },
+            { companyId: null },
+          ],
+        },
+        orderBy: { companyId: 'desc' },
+      });
+      if (automationConfig) {
+        const isToggleOn = (automationConfig as Record<string, unknown>)[configField];
+        if (isToggleOn === false) {
+          // Company-wide toggle is OFF — skip this SMS event
+          return { triggered: false, error: `SMS automation toggle "${configField}" is disabled` };
+        }
+      }
+    }
+
     // Step 1: Find active notification trigger matching eventType
     const trigger = await db.smsNotificationTrigger.findFirst({
       where: {

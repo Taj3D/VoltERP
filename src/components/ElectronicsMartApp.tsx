@@ -67,6 +67,7 @@ const ReturnReplacementModulePage = React.lazy(() => import("@/components/Return
 const FinancialAuditGroupPage = React.lazy(() => import("@/components/FinancialAuditGroupPage"));
 const SystemSettingsGroupPage = React.lazy(() => import("@/components/SystemSettingsGroupPage"));
 const AuditTrailViewer = React.lazy(() => import("@/components/AuditTrailViewer"));
+const ProfileCenter = React.lazy(() => import("@/components/ProfileCenter"));
 
 // ─── Lazy-load fallback spinner ───
 function LazyFallback({ name }: { name?: string }) {
@@ -1956,6 +1957,18 @@ function ChangePasswordPage() {
       toast({ title: "Error", description: "New password must be at least 6 characters", variant: "destructive" });
       return;
     }
+    if (!/[A-Z]/.test(newPassword)) {
+      toast({ title: "Error", description: "New password must contain at least one uppercase letter", variant: "destructive" });
+      return;
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      toast({ title: "Error", description: "New password must contain at least one number", variant: "destructive" });
+      return;
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword)) {
+      toast({ title: "Error", description: "New password must contain at least one special character (!@#$%etc)", variant: "destructive" });
+      return;
+    }
     if (newPassword !== confirmPassword) {
       toast({ title: "Error", description: "New password and confirm password do not match", variant: "destructive" });
       return;
@@ -2001,6 +2014,7 @@ function ChangePasswordPage() {
               <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input id="newPassword" type="password" placeholder="Enter new password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="pl-10" />
             </div>
+            <p className="text-[10px] text-muted-foreground">Min 6 chars, 1 uppercase, 1 number, 1 special character</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirm New Password</Label>
@@ -2753,9 +2767,13 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
           </div>
         )}
         {collapsed && (
-          <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto">
+          <button
+            onClick={onToggle}
+            className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] transition-colors"
+            title="Expand sidebar"
+          >
             <Package className="w-4 h-4 text-white" />
-          </div>
+          </button>
         )}
         {!collapsed && (
           <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={onToggle}>
@@ -2770,8 +2788,9 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
           {visibleGroups.map(group => (
             <div key={group.key}>
               <button
-                onClick={() => toggleGroup(group.key)}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/10 hover:text-white ${expandedGroups.has(group.key) ? "text-blue-300" : ""}`}
+                onClick={() => collapsed ? onNavigate(group.items[0]?.key || group.key) : toggleGroup(group.key)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/10 hover:text-white ${expandedGroups.has(group.key) ? "text-blue-300" : ""} ${collapsed ? "justify-center" : ""}`}
+                title={collapsed ? group.label : undefined}
               >
                 <group.icon className="w-4 h-4 shrink-0" />
                 {!collapsed && (
@@ -2781,6 +2800,12 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
                   </>
                 )}
               </button>
+              {/* Collapsed: show active indicator dot if any item in this group is active */}
+              {collapsed && group.items.some(item => item.key === currentPage) && (
+                <div className="flex justify-center">
+                  <span className="w-1 h-1 rounded-full bg-blue-400" />
+                </div>
+              )}
               {expandedGroups.has(group.key) && !collapsed && (
                 <div className="ml-3 mt-0.5 space-y-0.5">
                   {groupItems(group.items).map((grouped, gi) => {
@@ -2834,6 +2859,16 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
             <UserCircle className="w-4 h-4" />
             <span className="truncate">{user?.displayName || user?.name || "User"}</span>
+          </div>
+        </div>
+      )}
+      {collapsed && (
+        <div className="p-2 border-t border-white/10 flex justify-center">
+          <div
+            className={`w-7 h-7 rounded-full ${user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"} flex items-center justify-center text-white text-[10px] font-bold`}
+            title={user?.displayName || user?.name || "User"}
+          >
+            {(user?.displayName || user?.name)?.charAt(0).toUpperCase() || "U"}
           </div>
         </div>
       )}
@@ -6119,7 +6154,9 @@ function AppLayout() {
     }
     items.push({ key: "dashboard", label: "Dashboard", group: "Home" });
     items.push({ key: "profile", label: "My Profile", group: "Account" });
-    items.push({ key: "change-password", label: "Change Password", group: "Account" });
+    if (user?.role === "admin") {
+      items.push({ key: "change-password", label: "Change Password", group: "Account" });
+    }
     items.push({ key: "audit-logs", label: "Audit Logs", group: "System" });
     // System Settings items are already included from SIDEBAR_CONFIG above, avoid duplicates
     return items;
@@ -6158,7 +6195,7 @@ function AppLayout() {
     if (currentPage === "sms-settings") return <SMSAnalyticsPage key={currentPage} initialTab="settings" />;
     if (currentPage === "sms-bill-payments") return <SMSAnalyticsPage key={currentPage} initialTab="billing" />;
     if (currentPage === "change-password") return <ChangePasswordPage />;
-    if (currentPage === "profile") return <ProfilePage />;
+    if (currentPage === "profile") return <ProfileCenter />;
     // GROUP 4: Logistical Inventory Management Pipelines — dedicated InventoryGroupPage component
     // Core Sales Module — dedicated SalesModulePage component (COGS, AR, Hire Installment Engine)
     const salesModuleKeys = new Set(["sales-orders", "hire-sales", "sales-returns"]);

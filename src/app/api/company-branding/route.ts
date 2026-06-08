@@ -134,6 +134,7 @@ export async function PUT(request: NextRequest) {
           ...(body.phone !== undefined && { phone: body.phone || null }),
           ...(body.mobile !== undefined && { mobile: body.mobile || null }),
           ...(body.email !== undefined && { email: body.email || null }),
+          ...(body.website !== undefined && { website: body.website || null }),
           ...(body.logo !== undefined && { logo: body.logo || null }),
           ...(body.brandLogo !== undefined && { brandLogo: body.brandLogo || null }),
           ...(body.logoWidth !== undefined && { logoWidth: parseFloat(String(body.logoWidth)) || 30 }),

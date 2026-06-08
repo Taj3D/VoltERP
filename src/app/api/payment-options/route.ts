@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       where: whereClause,
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { cardTypeSetups: true } },
+        _count: { select: { cardTypeSetups: true, expenses: true, salesOrders: true, cashCollections: true } },
       },
     });
 

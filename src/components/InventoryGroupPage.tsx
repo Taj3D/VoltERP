@@ -646,10 +646,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   // LINE ITEMS GRID COMPONENT
   // ============================================================
 
-  function LineItemsGrid({ lines, setLines, template, columns, showRate, showDiscount, showVat }: {
+  function LineItemsGrid({ lines, setLines, template, columns, showRate, showDiscount, showVat, vatPercentage }: {
     lines: any[]; setLines: React.Dispatch<React.SetStateAction<any[]>>; template: any;
     columns: { key: string; label: string; type?: string }[];
-    showRate?: boolean; showDiscount?: boolean; showVat?: boolean;
+    showRate?: boolean; showDiscount?: boolean; showVat?: boolean; vatPercentage?: number;
   }) {
     return (
       <div className="space-y-2">
@@ -745,7 +745,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                       const qty = Number(line.quantity) || 0;
                       const rate = Number(line.rate) || 0;
                       const disc = Number(line.discountPercent) || 0;
-                      const vatPct = showVat ? 15 : 0;
+                      const vatPct = showVat ? (vatPercentage ?? 15) : 0;
                       const net = qty * rate * (1 - disc / 100);
                       return <TableCell key={col.key} className="text-xs">{fmtCurrency(net * vatPct / 100)}</TableCell>;
                     }
@@ -3151,8 +3151,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         return { productId: l.productId, quantity: qty, rate: Number(l.rate) || 0, discountPercent: Number(l.discountPercent) || 0 };
       });
       const subTotal = linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate * (1 - l.discountPercent / 100), 0);
-      const vatAmt = subTotal * 0.15;
-      const payload = { ...srForm, customerId, lines: linesPayload, subTotal, vatAmount: vatAmt, vatPercentage: 15, grandTotal: subTotal + vatAmt };
+      const vatPct = Number(srForm.vatPercentage || srForm.vatPercent || 0);
+      const vatAmt = subTotal * (vatPct / 100);
+      const payload = { ...srForm, customerId, lines: linesPayload, subTotal, vatAmount: vatAmt, vatPercentage: vatPct, grandTotal: subTotal + vatAmt };
       if (srEdit) { await apiFetch(`/api/sales-returns/${srEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Sales Return updated" }); }
       else { await apiFetch("/api/sales-returns", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Sales Return created" }); }
       setSrDialog(false); loadSalesReturns();
@@ -3361,8 +3362,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         return { productId: l.productId, quantity: qty, rate: Number(l.rate) || 0, discountPercent: Number(l.discountPercent) || 0 };
       });
       const subTotal = linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate * (1 - l.discountPercent / 100), 0);
-      const vatAmt = subTotal * 0.15;
-      const payload = { ...prForm, supplierId, lines: linesPayload, subTotal, vatAmount: vatAmt, vatPercentage: 15, grandTotal: subTotal + vatAmt };
+      const vatPct = Number(prForm.vatPercentage || prForm.vatPercent || 0);
+      const vatAmt = subTotal * (vatPct / 100);
+      const payload = { ...prForm, supplierId, lines: linesPayload, subTotal, vatAmount: vatAmt, vatPercentage: vatPct, grandTotal: subTotal + vatAmt };
       if (prEdit) { await apiFetch(`/api/purchase-returns/${prEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Purchase Return updated" }); }
       else { await apiFetch("/api/purchase-returns", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Return created" }); }
       setPrDialog(false); loadPurchaseReturns();

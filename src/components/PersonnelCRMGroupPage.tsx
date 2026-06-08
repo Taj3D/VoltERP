@@ -387,6 +387,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
       { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
       { key: "profileImage", label: "Profile Photo", type: "image" },
+      { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
@@ -395,7 +396,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
     formSections: [
       { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
-      { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
+      { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
     ],
   },
   // ── Supplier CRM ──
@@ -433,6 +434,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
       { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
       { key: "profileImage", label: "Profile Photo", type: "image" },
+      { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
@@ -441,7 +443,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
     formSections: [
       { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
-      { title: "Document Uploads", fields: ["profileImage", "nidFrontImage", "nidBackImage"] },
+      { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
     ],
   },
 ];

@@ -549,7 +549,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     const loadCompanyProfile = async () => {
       try {
         const profile = await apiFetch("/api/company-branding");
-        setCompanyProfile(profile);
+        setCompanyProfile(profile.company || profile);
       } catch {}
     };
     loadCompanyProfile();

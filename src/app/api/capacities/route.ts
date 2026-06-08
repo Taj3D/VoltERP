@@ -196,7 +196,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate capacityUnit if provided — must be a valid measurement unit string after sanitization
+    const VALID_CAPACITY_UNITS = ['m³', 'sqft', 'units', 'kg', 'tons', 'pcs', 'box', 'carton'];
     const finalCapacityUnit = sanitizedCapacityUnit || null;
+    if (finalCapacityUnit && !VALID_CAPACITY_UNITS.includes(finalCapacityUnit)) {
+      return NextResponse.json(
+        { error: `Invalid capacity unit. Allowed values: ${VALID_CAPACITY_UNITS.join(', ')}` },
+        { status: 400 }
+      );
+    }
 
     const item = await db.$transaction(async (tx) => {
       // Duplicate name check within company scope (case-insensitive for SQLite)
