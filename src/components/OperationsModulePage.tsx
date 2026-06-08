@@ -496,7 +496,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
     setPerformanceDialogOpen(true);
     try {
       // Load monthly performance for the entire year
-      const monthlyData = [];
+      const monthlyData: { month: number; monthName: string; actualSales: number; achievementPct: number }[] = [];
       for (let m = 1; m <= 12; m++) {
         const key = `${item.employeeId}-${m}-${item.year}`;
         const perf = performanceData[key];

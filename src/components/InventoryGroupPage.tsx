@@ -2720,7 +2720,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           total,
         };
       });
-      const subTotal = items.reduce((s, i) => s + i.qty * i.mrp, 0);
+      const subTotal = items.reduce((s, i) => s + i.qty * (i.mrp || 0), 0);
       const discountAmount = Number(so.discount) || 0;
       const discountPercent = subTotal > 0 ? (discountAmount / subTotal) * 100 : 0;
       const invoiceData: InvoiceData = {
@@ -2736,30 +2736,33 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         netTotal: Number(so.grandTotal) || 0,
         paidAmount: Number(so.grandTotal) || 0,
         currentDue: 0,
-        paymentDetails: [{ method: paymentOption.name || "Cash", amount: Number(so.grandTotal) || 0 }],
+        paymentDetails: [{ paymentType: paymentOption.name || "Cash", paidAmount: Number(so.grandTotal) || 0 }],
         invoiceType: "Sales Invoice",
         barcodeData: so.invoiceNo || "",
         printedBy: auth.user?.displayName || "System",
         salesPerson: "System",
       };
       const templateConfig: InvoiceTemplateConfig = {
-        showCompanyLogo: true,
-        showBarcode: true,
-        showQRCode: false,
-        showWatermark: false,
-        showTermsAndConditions: false,
-        showBankDetails: false,
-        showCustomerDetails: true,
-        showProductImage: false,
-        showDiscountColumn: true,
-        showVATColumn: false,
-        showAmountInWords: true,
-        showSignatureLine: false,
-        showFooterNote: true,
+        showLogo: true,
+        showMobile: true,
+        showAddress: true,
+        showCustomerCode: true,
+        showPrevDue: false,
+        showTotalDue: false,
+        showModel: false,
+        showColor: false,
+        showDescription: false,
+        showMRP: true,
+        showDiscountAmt: true,
+        showDiscountPct: true,
+        showUnitPrice: true,
+        showPaymentDetails: true,
+        showCustomerSignature: false,
+        showPrintDate: true,
       };
       exportInvoicePDF({
-        data: invoiceData,
-        company: companyProfile,
+        invoice: invoiceData,
+        company: companyProfile as InvoiceCompanyProfile,
         template: templateConfig,
         filename: `Invoice_${invoiceData.invoiceNo}.pdf`,
       });
@@ -3047,7 +3050,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                     const dur = Number(h.duration) || 12;
                     const instAmt = Number(h.installmentAmount) || (dur > 0 ? (Number(h.balanceAmount) || 0) / dur : 0);
                     const installments = h.installments || [];
-                    const rows = [];
+                    const rows: React.ReactElement[] = [];
                     for (let i = 1; i <= dur; i++) {
                       const inst = installments[i - 1] || {};
                       const dueDate = h.date ? new Date(new Date(h.date).getTime() + i * 30 * 24 * 60 * 60 * 1000) : null;

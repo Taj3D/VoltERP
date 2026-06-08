@@ -1279,7 +1279,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
                                 : ""
                             }`}
                           >
-                            {grandTotalRow[col.key] || ""}
+                            {String(grandTotalRow[col.key] || "")}
                           </TableCell>
                         ))}
                       </TableRow>

@@ -69,13 +69,53 @@ const SystemSettingsGroupPage = React.lazy(() => import("@/components/SystemSett
 const AuditTrailViewer = React.lazy(() => import("@/components/AuditTrailViewer"));
 const ProfileCenter = React.lazy(() => import("@/components/ProfileCenter"));
 
-// ─── Lazy-load fallback spinner ───
+// ─── Lazy-load fallback skeleton with pulse animation ───
 function LazyFallback({ name }: { name?: string }) {
   return (
-    <div className="flex items-center justify-center min-h-[300px]">
-      <div className="flex items-center gap-3 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin" />
-        <span className="text-sm">{name ? `Loading ${name}...` : "Loading..."}</span>
+    <div className="min-h-[400px] p-6 space-y-6 animate-in fade-in duration-300">
+      {/* Header skeleton */}
+      <div className="space-y-2">
+        <div className="h-7 w-48 bg-muted rounded-md animate-pulse" />
+        <div className="h-4 w-72 bg-muted rounded-md animate-pulse" />
+      </div>
+      {/* Stat cards skeleton */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="rounded-lg border bg-card p-4 space-y-3">
+            <div className="h-4 w-20 bg-muted rounded animate-pulse" />
+            <div className="h-7 w-24 bg-muted rounded animate-pulse" />
+            <div className="h-3 w-16 bg-muted rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+      {/* Table skeleton */}
+      <div className="rounded-lg border bg-card">
+        <div className="p-4 border-b flex items-center justify-between">
+          <div className="h-5 w-32 bg-muted rounded animate-pulse" />
+          <div className="flex gap-2">
+            <div className="h-8 w-20 bg-muted rounded animate-pulse" />
+            <div className="h-8 w-20 bg-muted rounded animate-pulse" />
+          </div>
+        </div>
+        {/* Table header row */}
+        <div className="border-b px-4 py-3 flex gap-6">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-4 flex-1 bg-muted rounded animate-pulse" />
+          ))}
+        </div>
+        {/* Table body rows */}
+        {[...Array(6)].map((_, row) => (
+          <div key={row} className="px-4 py-3 flex gap-6 border-b last:border-0">
+            {[...Array(5)].map((_, col) => (
+              <div key={col} className="h-4 flex-1 bg-muted rounded animate-pulse" style={{ animationDelay: `${(row * 5 + col) * 50}ms` }} />
+            ))}
+          </div>
+        ))}
+      </div>
+      {/* Loading text */}
+      <div className="flex items-center justify-center gap-2 pt-2">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{name ? `Loading ${name}...` : "Loading..."}</span>
       </div>
     </div>
   );
@@ -107,7 +147,7 @@ interface ColumnDef {
 interface FieldDef {
   key: string;
   label: string;
-  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date";
+  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image";
   required?: boolean;
   options?: { value: string; label: string }[];
   placeholder?: string;
@@ -227,7 +267,7 @@ function useAuth() {
       authListeners.forEach(l => l());
       return true;
     } catch {
-      toast({ title: "Login Failed", description: "Unable to connect to server. Please check your connection.", variant: "destructive" });
+      // Network error — return false so the login form shows its error message
       return false;
     }
   };
@@ -605,9 +645,9 @@ function LoginPage() {
                   <Input id="password" type="password" placeholder="Enter your password" value={password} onChange={e => setPassword(e.target.value)} className="pl-10 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20" required />
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200" disabled={loading}>
-                {loading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <LogOut className="w-4 h-4 mr-2 rotate-180" />}
-                Sign In
+              <Button type="submit" className="w-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200 h-11" disabled={loading || !username.trim() || !password}>
+                {loading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <ArrowUpCircle className="w-4 h-4 mr-2" />}
+                {loading ? "Signing In..." : "Sign In"}
               </Button>
               <div className="flex items-center justify-center gap-4 pt-1">
                 <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -1241,7 +1281,7 @@ function ProductsPage() {
       const outOfStock = pdfData.filter(d => d.stockStatus === "Out of Stock").length;
       const activeSKUs = pdfData.filter(d => d.skuStatus === "Active").length;
       const totalInventoryValue = !isVatAuditor ? pdfData.reduce((sum, d) => sum + sanitizeCurrency(d.costPrice * d.currentStock), 0) : 0;
-      const summaryRows = [
+      const summaryRowsData = [
         { label: "Total Products", value: String(totalProducts) },
         { label: "In Stock", value: String(inStock) },
         { label: "Low Stock", value: String(lowStock) },
@@ -1249,6 +1289,7 @@ function ProductsPage() {
         { label: "Active SKUs", value: String(activeSKUs) },
         ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue))}` }]),
       ];
+      const summaryRows = summaryRowsData.map(r => ({ cells: [r.label, r.value] }));
       const user = authState.user;
       exportToPDF({
         title: "Product Master List",
@@ -4025,7 +4066,7 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
   // Installment schedule preview
   const installmentSchedule = useMemo(() => {
     if (duration <= 0 || monthlyInstallment <= 0) return [];
-    const schedule = [];
+    const schedule: { installmentNo: number; dueDate: string; amount: number; status: string }[] = [];
     const orderDate = formData.date ? new Date(formData.date) : new Date();
     for (let i = 1; i <= duration; i++) {
       const dueDate = new Date(orderDate);
@@ -6180,7 +6221,7 @@ function AppLayout() {
   };
 
   const currentPageConfig = findPageConfig(currentPage);
-  const currentGroupLabel = currentPageConfig ? SIDEBAR_CONFIG.find(g => g.items.some(i => i.key === currentPage))?.label : (currentPage === "change-password" || currentPage === "profile") ? "Account" : "";
+  const currentGroupLabel = currentPageConfig ? (SIDEBAR_CONFIG.find(g => g.items.some(i => i.key === currentPage))?.label || "") : (currentPage === "change-password" || currentPage === "profile") ? "Account" : "";
 
   // Render current page content
   const renderPage = () => {

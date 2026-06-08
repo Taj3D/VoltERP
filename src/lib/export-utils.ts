@@ -48,10 +48,13 @@ export interface CompanyProfile {
   website?: string;
   logo?: string;       // Base64 data URL
   brandLogo?: string;  // Brand logo (high-res)
+  logoData?: string;   // Logo data (alternative field)
   logoWidth?: number;  // mm (default 30)
   logoHeight?: number; // mm (default 20)
   vatNumber?: string;
   tradeLicense?: string;
+  binNumber?: string;
+  currencySymbol?: string;
   invoicePrefix?: string;
   thankYouMsg?: string;
   systemNote?: string;

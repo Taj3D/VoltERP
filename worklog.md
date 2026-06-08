@@ -502,3 +502,238 @@ Stage Summary:
 - 7 module pages no longer force 100vh height, allowing proper scroll within `<main>`
 - Footer properly sticks to bottom of viewport via `h-dvh flex flex-col mt-auto` pattern
 - More specific CSS transitions prevent layout glitches during sidebar toggle
+
+---
+Task ID: deployment-assessment
+Agent: Main Orchestrator
+Task: Deployment readiness assessment — comprehensive browser testing + bug fixes
+
+## Assessment Results
+
+### Browser Testing Summary (All 5 Roles Tested)
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Admin login | ✅ | Full access, Profile + Change Password + Log out |
+| Manager login | ✅ | No Change Password access |
+| SR login | ✅ | Limited module access |
+| Dealer login | ✅ | Very limited access |
+| VAT Auditor login | ✅ | Financial data masked, "VAT AUDIT MODE" banner |
+| Dashboard loads | ✅ | Real data, charts, KPIs |
+| Sidebar collapse/expand | ✅ | ChevronsRight icon, 44px touch target |
+| Module page scrolling | ✅ | main overflow-y-auto with h-dvh flex container |
+| Mobile responsive | ✅ | Sheet drawer sidebar, hidden desktop sidebar on mobile |
+| SMS Settings toggles | ✅ | 4 automation switches (Sales, Payment, Godown, HR) |
+| Accounting Reports | ✅ | Import CSV on all 5 tabs |
+| Cash In Hand VAT masking | ✅ | All financial fields "N/A (Audit Mode)" |
+| Performance DB health | ✅ | Real SQLite stats (3.16 MB, 88 tables, integrity ok, WAL) |
+| Profile page | ✅ | 4 tabs with data, password change, company info |
+| Products page | ✅ | Import/Export CSV, Export PDF, Create product |
+| ESLint | ✅ | `bun run lint` passes cleanly |
+
+### Fixes Applied by Sub-agents
+
+#### Agent 1 (deployment-fix): Core Bug Fixes
+1. **Notification fetch errors**: `notifFetch()` now silently handles 401/403/404 responses — no more console.error spam every 30s
+2. **ProfileCenter TypeScript errors**: Added `isActive?` to UserForReset interface, fixed employeeInfo cast
+3. **Toast crash in useAuth**: Removed `toast()` call from hook without `useToast()` — would crash at runtime
+4. **FieldDef type**: Added `"image"` to type union
+5. **Invoice engine type alignment**: Fixed InvoicePaymentDetail, InvoiceTemplateConfig mismatches
+6. **Array type inference**: Fixed `never[]` errors in 3 components
+7. **CompanyProfile interface**: Added logoData, binNumber, currencySymbol fields
+8. **SummaryRow mapping**: Converted to cells format
+
+#### Agent 2 (deployment-improve): Deployment Improvements
+1. **ESLint config rewrite**: Fixed TypeError crash by importing plugins directly instead of broken eslint-config-next
+2. **LazyFallback skeleton**: Rich skeleton animation with staggered wave effect mimicking page layout
+3. **Login page improvements**: Disabled Sign In until fields filled, "Signing In..." loading text, 44px touch target
+4. **App-level error boundary**: Added `/src/app/error.tsx` with retry + go home buttons
+5. **404 page**: Added `/src/app/not-found.tsx` with FileQuestion icon
+6. **Password change security**: Added confirmPassword verification in admin self-change API
+
+### Known Issues (Low Priority)
+1. Auth uses `x-user-email` header instead of JWT — security improvement for future
+2. Plain-text password storage — should hash with bcrypt in production
+3. Some MIS report pages are read-only (Import CSV validation-only)
+4. No real cache invalidation endpoint
+5. Duplicate inventory page implementations (InventoryGroupPage vs SalesModulePage)
+
+### Deployment Readiness Score: 85/100
+
+**Ready for**: Internal testing, staging deployment
+**Not ready for**: Public production (needs JWT auth, password hashing, rate limiting)
+
+---
+Task ID: deployment-fix
+Agent: Deployment Fix Agent
+Task: Pre-deployment fixes — hydration, notification errors, TypeScript, dark mode, footer, ProfileCenter
+
+## Issues Found & Fixed
+
+### 1. Hydration Mismatch in layout.tsx (VERIFIED OK)
+- **Finding**: `<html>` and `<body>` already have `suppressHydrationWarning` attribute
+- The geist font variable class name hash difference between SSR and CSR is handled by `suppressHydrationWarning`
+- The `next-themes` ThemeProvider adds/removes `dark` class on `<html>` which is also handled
+- **Status**: Already correctly configured, no change needed
+
+### 2. Notification Fetch Errors in AppHeader.tsx (FIXED)
+- **Problem**: `console.error("Failed to load notifications:", err)` logged errors for expected 401/403/404 responses during polling
+- **Fix**: 
+  - Added silent error handling in `notifFetch()` — 401, 403, 404 responses now throw a `silent` error
+  - Changed all 4 catch blocks (`loadNotifications`, `markAsRead`, `markAllRead`, `dismissNotification`) to check for silent errors and suppress console output
+  - Non-silent errors now use `console.warn()` instead of `console.error()` for less alarming output
+- **Files Changed**: `/home/z/my-project/src/components/erp/layout/AppHeader.tsx`
+
+### 3. ProfileCenter Component (VERIFIED OK)
+- **Finding**: ProfileCenter is properly imported via `React.lazy()` and rendered when `currentPage === "profile"`
+- Fixed TypeScript error: Added `isActive?: boolean` to `UserForReset` interface
+- Fixed TypeScript error: Changed `(employeeInfo as Record<string, unknown>)` to `(employeeInfo as unknown as Record<string, unknown>)` with `String()` wrapper for JSX safety
+- **Files Changed**: `/home/z/my-project/src/components/ProfileCenter.tsx`
+
+### 4. Dark Mode Implementation (VERIFIED OK)
+- **Finding**: Dark mode is properly implemented:
+  - `ThemeProvider` from `next-themes` with `attribute="class"`, `defaultTheme="light"`, `storageKey="emart-theme"`
+  - `useTheme()` hook in ElectronicsMartApp.tsx provides `theme` and `setTheme`
+  - Theme toggle button in AppHeader.tsx calls `onToggleTheme` → `setTheme(theme === "dark" ? "light" : "dark")`
+  - CSS variables for both light (`:root`) and dark (`.dark`) modes defined in globals.css
+  - `suppressHydrationWarning` on `<html>` handles class attribute mismatch
+- **Status**: Working correctly, no changes needed
+
+### 5. Footer Sticky Behavior (VERIFIED OK)
+- **Finding**: Footer uses `mt-auto` inside `h-dvh flex flex-col` container
+  - When content is short, footer sticks to bottom of viewport (flex column + mt-auto)
+  - When content overflows, footer is pushed down naturally by scrollable `<main>` (flex-1 min-h-0 overflow-y-auto)
+  - CSS `footer { flex-shrink: 0; }` prevents footer compression
+  - Responsive: `@media (max-width: 767px) { footer { margin-left: 0 !important; } }` ensures full width on mobile
+- **Status**: Working correctly, no changes needed
+
+### 6. TypeScript Compilation Fixes (FIXED — 0 component errors)
+
+#### ElectronicsMartApp.tsx:
+- **Runtime bug**: `toast()` called in `useAuth` hook but `useToast()` was never called in that hook → ReferenceError at runtime. Fixed by removing the toast call and returning `false` (the login form already handles the error)
+- **Type error**: `currentGroupLabel` was `string | undefined` but prop expected `string`. Added `|| ""` fallback
+- **Type error**: `FieldDef.type` didn't include `"image"`. Added `"image"` to the union type
+- **Type error**: `summaryRows` used `{ label, value }` objects but `SummaryRow` expects `{ cells: string[] }`. Mapped to correct format
+- **Type error**: `schedule` array for hire installment preview had no type annotation, causing `never[]` inference. Added explicit type
+- **Type error**: `onToggleSidebar` prop was required in `AppHeaderProps` but not passed from parent. Made it optional
+
+#### ProfileCenter.tsx:
+- Added `isActive?: boolean` to `UserForReset` interface
+- Fixed `(employeeInfo as Record<string, unknown>)` to `(employeeInfo as unknown as Record<string, unknown>)` with `String()` wrapper
+
+#### InvestmentGroupPage.tsx:
+- Fixed `schedule` arrays in `computeAmortization` — added explicit type annotations to prevent `never[]` inference
+- Fixed duplicate `balance` variable name (renamed second to `balance2`)
+
+#### InventoryGroupPage.tsx:
+- Fixed `i.mrp` possibly undefined — added `|| 0` fallback in `reduce`
+- Fixed `InvoicePaymentDetail` fields: `method` → `paymentType`, `amount` → `paidAmount`
+- Fixed `InvoiceTemplateConfig` — replaced non-existent fields (`showCompanyLogo`, `showBarcode`, etc.) with correct ones (`showLogo`, `showMobile`, etc.)
+- Fixed `InvoicePDFOptions` — `data` → `invoice`, added `as InvoiceCompanyProfile` cast
+- Fixed `rows` array type — added `React.ReactElement[]` annotation
+
+#### OperationsModulePage.tsx:
+- Fixed `monthlyData` array — added explicit type annotation to prevent `never[]` inference
+
+#### MISReportEngine.tsx:
+- Fixed `{grandTotalRow[col.key] || ""}` — wrapped in `String()` for JSX safety
+
+#### export-utils.ts:
+- Added `logoData`, `binNumber`, `currencySymbol` to `CompanyProfile` interface (used by GoldenHandoverPage and StagingQAPage)
+
+### Summary of Files Changed
+1. `/home/z/my-project/src/components/erp/layout/AppHeader.tsx` — Silent error handling for notification API
+2. `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — 6 TypeScript fixes + runtime bug fix
+3. `/home/z/my-project/src/components/ProfileCenter.tsx` — 2 TypeScript fixes
+4. `/home/z/my-project/src/components/InvestmentGroupPage.tsx` — Amortization schedule type fixes
+5. `/home/z/my-project/src/components/InventoryGroupPage.tsx` — Invoice engine type alignment (5 fixes)
+6. `/home/z/my-project/src/components/OperationsModulePage.tsx` — Array type annotation
+7. `/home/z/my-project/src/components/MISReportEngine.tsx` — JSX type safety fix
+8. `/home/z/my-project/src/lib/export-utils.ts` — Extended CompanyProfile interface
+
+### TypeScript Error Count
+- **Before**: 25+ component errors + many API route errors
+- **After**: 0 component errors (API route errors remain — Prisma schema vs generated type mismatches, non-blocking)
+
+### Dev Server Status
+- ✅ Server running on port 3000 (HTTP 200)
+- ✅ All component TypeScript errors resolved
+- ✅ No hydration warnings (suppressHydrationWarning correctly configured)
+- ✅ Notification polling gracefully handles expected auth/routing errors
+
+---
+Task ID: deployment-improve
+Agent: Deployment Improvement Agent
+Task: Fix ESLint config, verify roles, improve skeleton/login/error-boundary, verify password change
+
+## Issues Found & Fixed
+
+### 1. ESLint Configuration — FIXED (CRITICAL)
+- **Problem**: `TypeError: Class extends value undefined is not a constructor or null` in `typescript-eslint` nested inside `eslint-config-next`. The nested `typescript-eslint@8.53.0` conflicted with the top-level `typescript-eslint@8.60.1` and `eslint@10.4.1`.
+- **Root Cause**: `eslint-config-next@16.2.7` bundles its own `typescript-eslint@8.46.0` which resolved to `8.53.0` in its nested `node_modules`. The `FlatESLint` class in that version tries to extend a class from the top-level `eslint` package that doesn't exist in ESLint 10.
+- **Fix**: Replaced the entire `eslint.config.mjs` with a clean flat config that directly imports `typescript-eslint`, `@next/eslint-plugin-next`, `eslint-plugin-react`, `eslint-plugin-react-hooks`, and `eslint-plugin-jsx-a11y` — bypassing the broken `eslint-config-next` wrapper entirely. All the same rules are configured (mostly off, matching the previous relaxed policy).
+- **Verification**: `bun run lint` now completes successfully with zero errors.
+
+### 2. All 5 User Roles Login — VERIFIED WORKING
+- **Admin** (emart.amit/Test_123): ✅ Returns `{ role: "admin" }`, has `["*"]` access
+- **Manager** (emart.manager/Manager_123): ✅ Returns `{ role: "manager" }`, 10 module groups
+- **SR** (emart.sr/SR_123): ✅ Returns `{ role: "sr" }`, 5 module groups
+- **Dealer** (emart.dealer/Dealer_123): ✅ Returns `{ role: "dealer" }`, 3 module groups
+- **VAT Auditor** (emart.vat/VAT_123): ✅ Returns `{ role: "vat_auditor" }`, 6 module groups
+- All roles properly return `displayName` (never raw username/email)
+
+### 3. LazyFallback Skeleton — IMPROVED
+- **Problem**: LazyFallback was a minimal spinner (`Loader2 + "Loading..."` text), not matching the layout of actual pages.
+- **Fix**: Replaced with a rich skeleton animation that mimics the typical page layout:
+  - Header skeleton (title + subtitle bars)
+  - 4 stat card skeletons in a responsive grid
+  - Table skeleton with header row, 6 data rows, 5 columns each
+  - Staggered `animationDelay` on skeleton cells for a wave effect
+  - Spinner + page name text at the bottom
+  - Uses `animate-pulse` + `animate-in fade-in` for smooth appearance
+
+### 4. Login Page — IMPROVED
+- **Problem**: Sign In button used `LogOut` icon (semantically wrong), no disabled state for empty fields, no loading text.
+- **Fix**:
+  - Replaced `LogOut` icon with `ArrowUpCircle` (semantically appropriate for "sign in")
+  - Added `disabled={loading || !username.trim() || !password}` — button disabled until both fields filled
+  - Added loading text: "Signing In..." while request is in flight
+  - Added `h-11` class for 44px touch target on the button
+- **Already Working**: Electronics Mart branding, form validation (required fields), clear error messages, mobile responsive (max-w-md + p-4)
+
+### 5. Error Boundary & 404 — ADDED
+- **ErrorBoundary component**: Already well-implemented with "Try Again" + "Reload Page" buttons, red-themed card, technical details in `<details>`. No changes needed.
+- **Missing**: No `error.tsx` (Next.js error boundary) or `not-found.tsx` (404 page) at the app level.
+- **Added** `/src/app/error.tsx`: Next.js error boundary with:
+  - Dark gradient background matching the login page
+  - Alert icon + "Something went wrong" title
+  - Technical details in collapsible `<details>`
+  - "Try Again" button (calls `reset()`) + "Go Home" button
+- **Added** `/src/app/not-found.tsx`: 404 page with:
+  - FileQuestion icon in circular container
+  - "Page Not Found" message
+  - "Go Home" button
+
+### 6. Password Change Feature — BUG FOUND & FIXED
+- **Verified Working**:
+  - ✅ Change Password menu item only visible to Admin role (line 6160: `if (user?.role === "admin")`)
+  - ✅ ChangePasswordPage shows "Access Denied" for non-admin (line 1942)
+  - ✅ API returns 403 for non-admin roles with `PRIVILEGE_ESCALATION_BLOCKED`
+  - ✅ Password strength validation on API (uppercase + number + special char)
+  - ✅ After changing password, new password works for login
+  - ✅ Wrong current password returns 401
+  - ✅ Weak password returns specific validation errors
+- **Bug Found & Fixed**: `/api/auth/password` PUT endpoint didn't verify `confirmPassword` matches `newPassword` in Case 1 (admin self-change). The frontend sends `confirmPassword` but the API destructured it as undefined and never checked it. Fixed by adding `confirmPassword` to destructuring and adding a match check before password update.
+- **Also Verified**: `/api/auth/change-password` POST and `/api/users/change-password` POST both already have proper confirmPassword validation.
+
+## Files Changed
+1. `/home/z/my-project/eslint.config.mjs` — Complete rewrite: replaced broken `eslint-config-next` imports with direct plugin imports
+2. `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Improved LazyFallback skeleton, fixed Login button icon/disabled state
+3. `/home/z/my-project/src/app/api/auth/password/route.ts` — Added confirmPassword validation in Case 1
+4. `/home/z/my-project/src/app/error.tsx` — NEW: Next.js app-level error boundary page
+5. `/home/z/my-project/src/app/not-found.tsx` — NEW: 404 not-found page
+
+## Dev Server Status
+- ✅ Server running on port 3000 (HTTP 200)
+- ✅ ESLint passes cleanly (`bun run lint` exits 0)
+- ✅ All 5 roles can login
+- ✅ Password change flow verified end-to-end

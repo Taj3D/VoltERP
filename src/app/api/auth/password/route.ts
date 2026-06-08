@@ -55,13 +55,21 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { currentPassword, newPassword, targetUserId } = body;
+    const { currentPassword, newPassword, confirmPassword, targetUserId } = body;
 
     // ── Case 1: Admin changing their own password ──
     if (!targetUserId || targetUserId === security.user.id) {
       if (!currentPassword || !newPassword) {
         return NextResponse.json(
           { error: "Current password and new password are required." },
+          { status: 400 }
+        );
+      }
+
+      // Verify confirmation password matches
+      if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+        return NextResponse.json(
+          { error: "New password and confirmation do not match." },
           { status: 400 }
         );
       }

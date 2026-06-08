@@ -54,7 +54,7 @@ interface AppHeaderProps {
   theme: string;
   onToggleTheme: () => void;
   onNavigate: (page: string) => void;
-  onToggleSidebar: () => void;
+  onToggleSidebar?: () => void;
   onToggleMobileMenu: () => void;
   onOpenSearch: () => void;
   onChangePassword: () => void;
@@ -158,6 +158,13 @@ async function notifFetch(path: string, opts?: RequestInit, userEmail?: string) 
   if (userEmail) headers["X-User-Email"] = userEmail;
   const res = await fetch(path, { headers: { ...headers, ...(opts?.headers as Record<string, string>) }, ...opts });
   if (!res.ok) {
+    // Silently handle expected auth/routing errors (401, 403, 404) during polling
+    // These are normal when session expires or endpoint is unavailable
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      const silentErr: Error & { silent?: boolean } = new Error(`Silent ${res.status}`);
+      silentErr.silent = true;
+      throw silentErr;
+    }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || "Request failed");
   }
@@ -227,7 +234,11 @@ export default function AppHeader({
         }
       }
     } catch (err) {
-      console.error("Failed to load notifications:", err);
+      // Only log unexpected errors; suppress expected auth/routing failures during polling
+      const isSilent = err instanceof Error && (err as Error & { silent?: boolean }).silent;
+      if (!isSilent) {
+        console.warn("Notification fetch issue:", err instanceof Error ? err.message : err);
+      }
     } finally {
       setNotifLoading(false);
     }
@@ -265,7 +276,11 @@ export default function AppHeader({
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (err) {
-      console.error("Failed to mark as read:", err);
+      // Silently handle expected errors during notification interactions
+      const isSilent = err instanceof Error && (err as Error & { silent?: boolean }).silent;
+      if (!isSilent) {
+        console.warn("Mark as read issue:", err instanceof Error ? err.message : err);
+      }
     }
   }, [user?.email]);
 
@@ -279,7 +294,10 @@ export default function AppHeader({
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch (err) {
-      console.error("Failed to mark all as read:", err);
+      const isSilent = err instanceof Error && (err as Error & { silent?: boolean }).silent;
+      if (!isSilent) {
+        console.warn("Mark all read issue:", err instanceof Error ? err.message : err);
+      }
     }
   }, [user?.email]);
 
@@ -296,7 +314,10 @@ export default function AppHeader({
         return dismissed && !dismissed.isRead ? Math.max(0, prev - 1) : prev;
       });
     } catch (err) {
-      console.error("Failed to dismiss notification:", err);
+      const isSilent = err instanceof Error && (err as Error & { silent?: boolean }).silent;
+      if (!isSilent) {
+        console.warn("Dismiss notification issue:", err instanceof Error ? err.message : err);
+      }
     }
   }, [user?.email, notifications]);
 

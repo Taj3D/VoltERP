@@ -423,7 +423,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     if (principal <= 0 || months <= 0 || annualRate <= 0) {
       // Simple linear schedule for zero-interest loans
       const monthlyPayment = months > 0 ? principal / months : 0;
-      const schedule = [];
+      const schedule: { month: number; payment: number; principal: number; interest: number; balance: number }[] = [];
       let balance = principal;
       for (let i = 1; i <= months; i++) {
         balance -= monthlyPayment;
@@ -433,13 +433,13 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     }
     const monthlyRate = annualRate / 100 / 12;
     const emi = principal * monthlyRate * Math.pow(1 + monthlyRate, months) / (Math.pow(1 + monthlyRate, months) - 1);
-    const schedule = [];
-    let balance = principal;
+    const schedule: { month: number; payment: number; principal: number; interest: number; balance: number }[] = [];
+    let balance2 = principal;
     for (let i = 1; i <= months; i++) {
-      const interest = balance * monthlyRate;
+      const interest = balance2 * monthlyRate;
       const principalPart = emi - interest;
-      balance -= principalPart;
-      schedule.push({ month: i, payment: emi, principal: principalPart, interest, balance: Math.max(0, balance) });
+      balance2 -= principalPart;
+      schedule.push({ month: i, payment: emi, principal: principalPart, interest, balance: Math.max(0, balance2) });
     }
     return schedule;
   }, []);

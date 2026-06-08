@@ -103,6 +103,7 @@ interface UserForReset {
   email: string;
   name: string;
   role: string;
+  isActive?: boolean;
 }
 
 interface ActionTrackingEntry {
@@ -1218,7 +1219,7 @@ export default function ProfileCenter() {
                     {employeeInfo && (
                       <div className="flex items-center gap-2 text-sm">
                         <Activity className="w-4 h-4 text-muted-foreground shrink-0" />
-                        <span className="text-muted-foreground">Employee Code: {(employeeInfo as Record<string, unknown>).employeeCode || "—"}</span>
+                        <span className="text-muted-foreground">Employee Code: {String((employeeInfo as unknown as Record<string, unknown>)?.employeeCode || "—")}</span>
                       </div>
                     )}
                   </div>
