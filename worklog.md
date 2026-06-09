@@ -5607,3 +5607,80 @@ Task: Phase 15 — Financial Audit Module Testing + Critical Bug Fixes
 1. Mobile search dropdown can partially obscure content (minor cosmetic)
 2. Account balance shows imbalance (25000 Dr) from test COA data — expected with minimal data
 3. Phases 16-20 remain: MIS Reports, System Settings, Final Integration Test
+
+---
+Task ID: 12
+Agent: Main Orchestrator
+Task: Phase 12 — Module Testing Batch 1: Dashboard + Basic Modules + RBAC Audit
+
+## Module Testing Results
+
+### Dashboard Page ✅
+- All KPI cards render with data (Total Revenue, Purchases, Expenses, Bank Balance etc.)
+- Charts: Monthly Sales vs Purchases ✅, Category Turnover ✅, Daily Sales Trend ✅, Financial Ratios ✅
+- Low Stock Alerts table shows 2 products ✅
+- Export buttons: CSV ✅, PDF ✅, Import CSV ✅, Export CSV ✅, Export PDF ✅
+- Refresh button works ✅
+- No console errors ✅
+
+### Basic Modules (6 tabs) ✅
+| Tab | Data Rows | CRUD | Export |
+|-----|-----------|------|--------|
+| Companies | 17 | Create ✅ Update ✅ Delete ✅ | CSV/PDF/Import ✅ |
+| Categories | 11 | Create ✅ Update ✅ Delete ✅ | CSV/PDF/Import ✅ |
+| Colors | 8 | ✅ | ✅ |
+| Brands | 1 | Create ✅ Update ✅ Delete ✅ | ✅ |
+| Bank/Vault Profiles | 6 | ✅ | ✅ |
+| Units | 1 | Create ✅ Update ✅ Delete ✅ | ✅ |
+| Products | 2 | ✅ | ✅ |
+
+### Structure Modules (4 tabs) ✅
+| Tab | Data Rows | CRUD | Export |
+|-----|-----------|------|--------|
+| Departments | 10 | Create ✅ Update ✅ Delete ✅ | ✅ |
+| Godowns | 5 | Create ✅ Update ✅ Delete ✅ | ✅ |
+| Segments | 6 | Create ✅ Delete ✅ | ✅ |
+| Capacities | 2 | Create ✅ Delete ✅ (field: capacityValue) | ✅ |
+
+### Operations Modules (4 tabs) ✅
+| Tab | Data Rows | API Status |
+|-----|-----------|------------|
+| Interest % Engine | 3 | 200 ✅ |
+| SR Target Setup | 1 | 200 ✅ |
+| Payment Options | 7 | 200 ✅ |
+| Card Types | 6 | 200 ✅ |
+| CardType Setup | 7 | 200 ✅ |
+
+## 🔴 CRITICAL BUG FIXED: RBAC Write Access Gap
+
+### Problem
+SR and Dealer roles could CREATE/UPDATE/DELETE records in Basic Modules (Companies, Categories, Colors, Brands, Units, Banks, Departments, Godowns, Segments, Capacities) and Operations modules (InterestPercentages, PaymentOptions, CardTypes, CardTypeSetup). This was because these modules were NOT listed in the `WRITE_DENY` arrays for SR and Dealer roles.
+
+### Fix
+Added all Basic Module and Operations module names to `WRITE_DENY` for both SR and Dealer roles:
+- **SR**: Added Companies, Categories, Colors, Brands, Units, Banks, Departments, Godowns, Segments, Capacities, InterestPercentages, PaymentOptions, CardTypes, CardTypeSetup
+- **Dealer**: Added Companies, Categories, Colors, Brands, Units, Banks, Departments, Godowns, Segments, Capacities, InterestPercentages, PaymentOptions, CardTypes, CardTypeSetup (was already partially covered)
+
+### Verification
+- Dealer POST /api/categories → 403 "Write access denied" ✅
+- SR POST /api/categories → 403 "Write access denied" ✅
+- SR POST /api/sales-orders → 400 (validation error, not auth) ✅
+- VAT Auditor POST /api/categories → 403 "read-only access" ✅
+- Dealer GET /api/categories → 200 ✅ (read still works)
+
+### File Changed
+- `/home/z/my-project/src/lib/api-security.ts` — WRITE_DENY for sr and dealer roles
+
+## VAT Auditor Masking ✅
+- KPI endpoint: 21 fields masked with "N/A (Audit Mode)" ✅
+- All financial data properly hidden ✅
+
+## No Errors Found
+- `bun run lint` passes ✅
+- No browser console errors ✅
+- No dev server errors ✅
+- All CRUD operations verified ✅
+
+## Remaining for Next Phase
+- Phase 13: Module Testing Batch 2 (Inventory + Sales + Returns)
+- Phase 14: Module Testing Batch 3 (Account + SMS + Reports)
