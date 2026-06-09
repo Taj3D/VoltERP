@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Electronics Mart - ব্যবহারকারী গাইড</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  @page {
+    size: A4;
+    margin: 20mm 18mm 22mm 18mm;
+  }
+
+  :root {
+    --primary: #1e40af;
+    --primary-light: #3b82f6;
+    --primary-dark: #1e3a8a;
+    --accent: #f59e0b;
+    --accent-light: #fbbf24;
+    --success: #10b981;
+    --danger: #ef4444;
+    --text-dark: #1e293b;
+    --text-medium: #475569;
+    --text-light: #94a3b8;
+    --bg-page: #ffffff;
+    --bg-section: #f8fafc;
+    --bg-card: #ffffff;
+    --border-light: #e2e8f0;
+    --border-accent: #bfdbfe;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.05);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    font-family: 'Noto Sans Bengali', 'Inter', sans-serif;
+    background: var(--bg-page);
+    color: var(--text-dark);
+    line-height: 1.8;
+    font-size: 11pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ===== COVER PAGE ===== */
+  .cover-page {
+    page-break-after: always;
+    width: 100%;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 40%, #1e40af 70%, #3b82f6 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    text-align: center;
+    padding: 60px 40px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover-page::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -30%;
+    width: 80%;
+    height: 200%;
+    background: radial-gradient(ellipse, rgba(251,191,36,0.08) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .cover-page::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-light), var(--accent));
+  }
+
+  .cover-logo {
+    width: 100px;
+    height: 100px;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 42px;
+    font-weight: 900;
+    margin-bottom: 30px;
+    backdrop-filter: blur(10px);
+  }
+
+  .cover-title {
+    font-size: 38pt;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+
+  .cover-subtitle {
+    font-size: 16pt;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 40px;
+    letter-spacing: 1px;
+  }
+
+  .cover-badge {
+    display: inline-block;
+    background: rgba(251,191,36,0.2);
+    border: 1px solid rgba(251,191,36,0.4);
+    border-radius: 50px;
+    padding: 10px 28px;
+    font-size: 11pt;
+    font-weight: 600;
+    color: #fbbf24;
+    margin-bottom: 50px;
+  }
+
+  .cover-info {
+    font-size: 10pt;
+    opacity: 0.6;
+    line-height: 1.8;
+  }
+
+  .cover-decoration {
+    position: absolute;
+    top: 30px;
+    right: 30px;
+    width: 80px;
+    height: 80px;
+    border: 2px solid rgba(255,255,255,0.08);
+    border-radius: 50%;
+  }
+
+  .cover-decoration-2 {
+    position: absolute;
+    bottom: 60px;
+    left: 30px;
+    width: 50px;
+    height: 50px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    transform: rotate(45deg);
+  }
+
+  /* ===== TOC PAGE ===== */
+  .toc-page {
+    page-break-after: always;
+    padding: 0;
+  }
+
+  .toc-header {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    color: white;
+    padding: 30px 40px;
+    margin: -20mm -18mm 30px -18mm;
+  }
+
+  .toc-header h2 {
+    font-size: 22pt;
+    font-weight: 800;
+  }
+
+  .toc-list {
+    list-style: none;
+    padding: 0 20px;
+  }
+
+  .toc-list li {
+    display: flex;
+    align-items: baseline;
+    padding: 8px 0;
+    border-bottom: 1px dotted var(--border-light);
+    font-size: 11pt;
+  }
+
+  .toc-list li:last-child { border-bottom: none; }
+
+  .toc-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--primary);
+    color: white;
+    border-radius: 8px;
+    font-size: 9pt;
+    font-weight: 700;
+    margin-right: 12px;
+    flex-shrink: 0;
+  }
+
+  .toc-text {
+    flex: 1;
+    font-weight: 500;
+  }
+
+  .toc-page-num {
+    color: var(--text-light);
+    font-size: 10pt;
+    margin-left: 10px;
+  }
+
+  /* ===== CONTENT PAGES ===== */
+  .section {
+    page-break-before: always;
+    padding: 0;
+  }
+
+  .section:first-of-type {
+    page-break-before: avoid;
+  }
+
+  .section-header {
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    color: white;
+    padding: 24px 32px;
+    margin: 0 -18mm 24px -18mm;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .section-header .section-icon {
+    width: 48px;
+    height: 48px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+
+  .section-header h2 {
+    font-size: 20pt;
+    font-weight: 800;
+    line-height: 1.3;
+  }
+
+  .section-header .section-desc {
+    font-size: 9.5pt;
+    opacity: 0.8;
+    font-weight: 400;
+    margin-top: 2px;
+  }
+
+  .content-area {
+    padding: 0 4px;
+  }
+
+  /* Module Card */
+  .module-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .module-card:hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  .module-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border-accent);
+  }
+
+  .module-card-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    border: 1px solid #bfdbfe;
+  }
+
+  .module-card-header h3 {
+    font-size: 13pt;
+    font-weight: 700;
+    color: var(--primary-dark);
+    line-height: 1.3;
+  }
+
+  .module-card-body p {
+    font-size: 10.5pt;
+    color: var(--text-medium);
+    margin-bottom: 10px;
+    line-height: 1.75;
+  }
+
+  .module-card-body ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .module-card-body ul li {
+    position: relative;
+    padding: 5px 0 5px 22px;
+    font-size: 10pt;
+    color: var(--text-medium);
+    line-height: 1.6;
+  }
+
+  .module-card-body ul li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 8px;
+    height: 8px;
+    background: var(--primary-light);
+    border-radius: 50%;
+  }
+
+  /* Info Box */
+  .info-box {
+    background: #eff6ff;
+    border-left: 4px solid var(--primary-light);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-size: 10pt;
+    color: var(--text-medium);
+  }
+
+  .info-box strong {
+    color: var(--primary-dark);
+  }
+
+  .warning-box {
+    background: #fef3c7;
+    border-left: 4px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-size: 10pt;
+    color: #92400e;
+  }
+
+  .tip-box {
+    background: #ecfdf5;
+    border-left: 4px solid var(--success);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-size: 10pt;
+    color: #065f46;
+  }
+
+  /* Steps */
+  .steps {
+    margin: 12px 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step-counter;
+  }
+
+  .steps li {
+    counter-increment: step-counter;
+    position: relative;
+    padding: 8px 0 8px 40px;
+    font-size: 10.5pt;
+    color: var(--text-medium);
+    line-height: 1.6;
+  }
+
+  .steps li::before {
+    content: counter(step-counter);
+    position: absolute;
+    left: 0;
+    top: 6px;
+    width: 26px;
+    height: 26px;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9pt;
+    font-weight: 700;
+  }
+
+  /* Role Badge */
+  .role-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 8.5pt;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+  }
+
+  .role-admin { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .role-manager { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .role-sr { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .role-dealer { background: #fce7f3; color: #9d174d; border: 1px solid #f9a8d4; }
+  .role-vat { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
+
+  /* Feature Tag */
+  .feature-tag {
+    display: inline-block;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 8.5pt;
+    font-weight: 500;
+    color: var(--text-medium);
+    margin: 2px 3px;
+  }
+
+  /* Table */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 9.5pt;
+  }
+
+  .data-table th {
+    background: var(--primary-dark);
+    color: white;
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 9pt;
+  }
+
+  .data-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-medium);
+  }
+
+  .data-table tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  /* Footer */
+  .page-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 8px 18mm;
+    font-size: 8pt;
+    color: var(--text-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--border-light);
+    background: white;
+  }
+
+  /* Sub-section header */
+  .sub-section {
+    margin-top: 24px;
+    margin-bottom: 14px;
+  }
+
+  .sub-section h4 {
+    font-size: 12pt;
+    font-weight: 700;
+    color: var(--primary-dark);
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent);
+    display: inline-block;
+  }
+
+  /* Quick Access Grid */
+  .quick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 16px 0;
+  }
+
+  .quick-item {
+    background: var(--bg-section);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    padding: 12px;
+    text-align: center;
+  }
+
+  .quick-item .qi-icon {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+
+  .quick-item .qi-label {
+    font-size: 9pt;
+    font-weight: 600;
+    color: var(--text-dark);
+  }
+
+  /* Login Flow Diagram */
+  .login-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 16px 0;
+    flex-wrap: wrap;
+  }
+
+  .flow-step {
+    background: white;
+    border: 2px solid var(--primary-light);
+    border-radius: 10px;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: var(--primary-dark);
+  }
+
+  .flow-arrow {
+    font-size: 16pt;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* Keyboard shortcut */
+  kbd {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 9pt;
+    font-family: 'Inter', monospace;
+    color: var(--text-dark);
+  }
+
+  /* Divider */
+  .divider {
+    border: none;
+    height: 1px;
+    background: var(--border-light);
+    margin: 20px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER PAGE ============ -->
+<div class="cover-page">
+  <div class="cover-decoration"></div>
+  <div class="cover-decoration-2"></div>
+  <div class="cover-logo">EM</div>
+  <div class="cover-title">Electronics Mart</div>
+  <div class="cover-subtitle">সম্পূর্ণ ব্যবহারকারী গাইড</div>
+  <div class="cover-badge">ভার্সন ২.০ &mdash; পূর্ণাঙ্গ প্রয়োগবিধি</div>
+  <div class="cover-info">
+    ইলেকট্রনিক্স মার্ট ইনভেন্টরি ম্যানেজমেন্ট সিস্টেম<br>
+    প্রস্তুতকারক: NextGen Digital Studio<br>
+    প্রকাশকাল: জুন ২০২৬
+  </div>
+</div>
+
+<!-- ============ TABLE OF CONTENTS ============ -->
+<div class="toc-page">
+  <div class="toc-header">
+    <h2>সূচিপত্র</h2>
+  </div>
+  <ul class="toc-list">
+    <li><span class="toc-number">১</span><span class="toc-text">ভূমিকা ও সিস্টেম পরিচিতি</span></li>
+    <li><span class="toc-number">২</span><span class="toc-text">লগইন ও ব্যবহারকারী রোল</span></li>
+    <li><span class="toc-number">৩</span><span class="toc-text">ড্যাশবোর্ড</span></li>
+    <li><span class="toc-number">৪</span><span class="toc-text">ইনভেস্টমেন্ট মডিউল</span></li>
+    <li><span class="toc-number">৫</span><span class="toc-text">বেসিক মডিউলস</span></li>
+    <li><span class="toc-number">৬</span><span class="toc-text">স্টাফ ম্যানেজমেন্ট</span></li>
+    <li><span class="toc-number">৭</span><span class="toc-text">কাস্টমার ও সাপ্লায়ার</span></li>
+    <li><span class="toc-number">৮</span><span class="toc-text">ইনভেন্টরি ম্যানেজমেন্ট</span></li>
+    <li><span class="toc-number">৯</span><span class="toc-text">অ্যাকাউন্ট ম্যানেজমেন্ট</span></li>
+    <li><span class="toc-number">১০</span><span class="toc-text">SMS সার্ভিস</span></li>
+    <li><span class="toc-number">১১</span><span class="toc-text">অ্যাকাউন্টিং রিপোর্ট</span></li>
+    <li><span class="toc-number">১২</span><span class="toc-text">ফাইন্যান্সিয়াল অডিট</span></li>
+    <li><span class="toc-number">১৩</span><span class="toc-text">MIS রিপোর্ট</span></li>
+    <li><span class="toc-number">১৪</span><span class="toc-text">সিস্টেম সেটিংস</span></li>
+    <li><span class="toc-number">১৫</span><span class="toc-text">প্রোফাইল ও পাসওয়ার্ড</span></li>
+    <li><span class="toc-number">১৬</span><span class="toc-text">রপ্তানি (Export) ও আমদানি (Import)</span></li>
+    <li><span class="toc-number">১৭</span><span class="toc-text">কীবোর্ড শর্টকাট ও দ্রুত পদ্ধতি</span></li>
+    <li><span class="toc-number">১৮</span><span class="toc-text">সচরাচর জিজ্ঞাসা (FAQ)</span></li>
+  </ul>
+</div>
+
+<!-- ============ SECTION 1: INTRODUCTION ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📖</div>
+    <div>
+      <h2>ভূমিকা ও সিস্টেম পরিচিতি</h2>
+      <div class="section-desc">Electronics Mart সফটওয়্যার সম্পর্কে সামগ্রিক ধারণা</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏪</div>
+        <h3>Electronics Mart কী?</h3>
+      </div>
+      <div class="module-card-body">
+        <p>Electronics Mart একটি আধুনিক, সম্পূর্ণ ওয়েব-ভিত্তিক ERP (Enterprise Resource Planning) সফটওয়্যার, যা ইলেকট্রনিক্স ও আইটেম বিক্রয় ব্যবসার জন্য বিশেষভাবে ডিজাইন করা। এটি আপনার পুরো ব্যবসা — ক্রয়, বিক্রয়, ইনভেন্টরি, হিসাব, কর্মচারী, SMS ও রিপোর্টিং — একটি মাত্র প্ল্যাটফর্মে পরিচালনা করার সুবিধা দেয়।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🎯</div>
+        <h3>প্রধান বৈশিষ্ট্যসমূহ</h3>
+      </div>
+      <div class="module-card-body">
+        <div class="quick-grid">
+          <div class="quick-item"><div class="qi-icon">📊</div><div class="qi-label">রিয়েল-টাইম ড্যাশবোর্ড</div></div>
+          <div class="quick-item"><div class="qi-icon">📦</div><div class="qi-label">সম্পূর্ণ ইনভেন্টরি</div></div>
+          <div class="quick-item"><div class="qi-icon">💰</div><div class="qi-label">হিসাব ব্যবস্থাপনা</div></div>
+          <div class="quick-item"><div class="qi-icon">📱</div><div class="qi-label">SMS সার্ভিস</div></div>
+          <div class="quick-item"><div class="qi-icon">📋</div><div class="qi-label">৫০+ রিপোর্ট</div></div>
+          <div class="quick-item"><div class="qi-icon">🔒</div><div class="qi-label">৫টি রোল ভিত্তিক অ্যাক্সেস</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💻</div>
+        <h3>সিস্টেমের প্রয়োজনীয়তা</h3>
+      </div>
+      <div class="module-card-body">
+        <ul>
+          <li>ওয়েব ব্রাউজার: Google Chrome, Mozilla Firefox, Microsoft Edge বা Safari (সর্বশেষ ভার্সন)</li>
+          <li>ইন্টারনেট সংযোগ: স্থিতিশীল ব্রডব্যান্ড বা Wi-Fi</li>
+          <li>স্ক্রিন: মোবাইল, ট্যাবলেট বা ডেস্কটপ — যেকোনো ডিভাইসে ব্যবহারযোগ্য</li>
+          <li>ব্যবহারকারী অ্যাকাউন্ট: সিস্টেম অ্যাডমিনিস্ট্রেটর কর্তৃক প্রদত্ত ইউজারনেম ও পাসওয়ার্ড</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 2: LOGIN & ROLES ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">🔐</div>
+    <div>
+      <h2>লগইন ও ব্যবহারকারী রোল</h2>
+      <div class="section-desc">সিস্টেমে প্রবেশ ও রোল ভিত্তিক অনুমতি</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🔑</div>
+        <h3>কীভাবে লগইন করবেন</h3>
+      </div>
+      <div class="module-card-body">
+        <div class="login-flow">
+          <div class="flow-step">ব্রাউজারে খুলুন</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">ইউজারনেম দিন</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">পাসওয়ার্ড দিন</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">Sign In ক্লিক</div>
+        </div>
+        <ol class="steps">
+          <li>ব্রাউজারে সফটওয়্যারের ঠিকানা (URL) টাইপ করুন</li>
+          <li>লগইন পেজে User Name ফিল্ডে আপনার ইউজারনেম লিখুন</li>
+          <li>Password ফিল্ডে আপনার পাসওয়ার্ড লিখুন</li>
+          <li>"Sign In" বাটনে ক্লিক করুন</li>
+        </ol>
+        <div class="info-box">
+          <strong>পরামর্শ:</strong> লগইন করার পর অবিলম্বে আপনার পাসওয়ার্ড পরিবর্তন করুন। পাসওয়ার্ডে কমপক্ষে ৬ অক্ষর, ১টি বড় হাতের অক্ষর, ১টি সংখ্যা ও ১টি বিশেষ চিহ্ন থাকতে হবে।
+        </div>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">👥</div>
+        <h3>ব্যবহারকারী রোল ও অনুমতি</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সিস্টেমে ৫টি ভিন্ন রোল রয়েছে। প্রতিটি রোলের অ্যাক্সেস সীমা আলাদা:</p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>রোল</th>
+              <th>অ্যাক্সেস সীমা</th>
+              <th>প্রধান কাজ</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="role-badge role-admin">Admin</span></td>
+              <td>সম্পূর্ণ সিস্টেম অ্যাক্সেস</td>
+              <td>সব মডিউল, পাসওয়ার্ড পরিবর্তন, সেটিংস</td>
+            </tr>
+            <tr>
+              <td><span class="role-badge role-manager">Manager</span></td>
+              <td>প্রায় সম্পূর্ণ অ্যাক্সেস</td>
+              <td>সব মডিউল ব্যবহার, পাসওয়ার্ড পরিবর্তন ছাড়া</td>
+            </tr>
+            <tr>
+              <td><span class="role-badge role-sr">SR</span></td>
+              <td>বিক্রয় সংক্রান্ত মডিউল</td>
+              <td>বিক্রয়, কাস্টমার, প্রোডাক্ট, ইনভেন্টরি</td>
+            </tr>
+            <tr>
+              <td><span class="role-badge role-dealer">Dealer</span></td>
+              <td>সীমিত অ্যাক্সেস</td>
+              <td>প্রোডাক্ট দেখা, অর্ডার, কাস্টমার</td>
+            </tr>
+            <tr>
+              <td><span class="role-badge role-vat">VAT Auditor</span></td>
+              <td>রিপোর্ট ও অডিট মডিউল</td>
+              <td>আর্থিক তথ্য মাস্কড, অডিট রিপোর্ট</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="warning-box">
+          <strong>গুরুত্বপূর্ণ:</strong> VAT Auditor রোলে কস্ট প্রাইস, প্রফিট মার্জিন ও অভ্যন্তরীণ আর্থিক তথ্য লুকানো থাকে। এটি ভ্যাট অডিটের সময় ব্যবসার গোপনীয়তা রক্ষার জন্য।
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 3: DASHBOARD ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📊</div>
+    <div>
+      <h2>ড্যাশবোর্ড</h2>
+      <div class="section-desc">আপনার ব্যবসার সামগ্রিক চিত্র একনজরে</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏠</div>
+        <h3>ড্যাশবোর্ড পরিচিতি</h3>
+      </div>
+      <div class="module-card-body">
+        <p>লগইন করার পর প্রথম পেজটি হলো ড্যাশবোর্ড। এখানে আপনার ব্যবসার গুরুত্বপূর্ণ সব তথ্য একনজরে দেখতে পাবেন।</p>
+        <ul>
+          <li><strong>KPI কার্ড:</strong> মোট রেভিনিউ, মোট ক্রয়, সর্বমোট লাভ, নেট লাভ, মোট খরচ</li>
+          <li><strong>তারিখ ফিল্টার:</strong> নির্দিষ্ট সময়ের তথ্য দেখতে তারিখ নির্বাচন করুন</li>
+          <li><strong>রিফ্রেশ বাটন:</strong> সর্বশেষ তথ্য দেখতে Refresh ক্লিক করুন</li>
+          <li><strong>চার্ট ও গ্রাফ:</strong> মাসিক বিক্রয় প্রবণতা, পেমেন্ট মিক্স, রিসিভেবল এজিং</li>
+          <li><strong>স্টক অ্যালার্ট:</strong> কম স্টকে থাকা পণ্যের তালিকা</li>
+          <li><strong>শীর্ষ পারফর্মার:</strong> সেরা SR ও বিক্রয়কর্মীদের তালিকা</li>
+        </ul>
+      </div>
+    </div>
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📤</div>
+        <h3>ড্যাশবোর্ড থেকে ডাটা রপ্তানি</h3>
+      </div>
+      <div class="module-card-body">
+        <ol class="steps">
+          <li>ড্যাশবোর্ড পেজের উপরে CSV বা PDF বাটনে ক্লিক করুন</li>
+          <li>ডাটা স্বয়ংক্রিয়ভাবে ডাউনলোড হবে</li>
+        </ol>
+        <div class="tip-box">
+          <strong>টিপ:</strong> মিটিং বা প্রেজেন্টেশনের জন্য PDF রিপোর্ট ব্যবহার করুন, ডাটা বিশ্লেষণের জন্য CSV ফাইল ব্যবহার করুন।
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 4: INVESTMENT ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📈</div>
+    <div>
+      <h2>ইনভেস্টমেন্ট মডিউল</h2>
+      <div class="section-desc">বিনিয়োগ, সম্পদ ও দায় পরিচালনা</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="info-box"><strong>রোল:</strong> <span class="role-badge role-admin">Admin</span> <span class="role-badge role-manager">Manager</span> <span class="role-badge role-vat">VAT Auditor</span></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏦</div>
+        <h3>Investment Heads</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ইনভেস্টমেন্ট হেড হলো বিনিয়োগের শ্রেণি বা খাত। এখানে সব বিনিয়োগ খাত তৈরি ও পরিচালনা করা হয়।</p>
+        <ol class="steps">
+          <li>সাইডবার থেকে Investment &rarr; Investment Heads ক্লিক করুন</li>
+          <li>"+ Create Head" বাটনে ক্লিক করুন</li>
+          <li>হেডের নাম, ধরন (Asset/Liability), হিসাব নম্বর ইত্যাদি তথ্য পূরণ করুন</li>
+          <li>"Save" বাটনে ক্লিক করুন</li>
+        </ol>
+        <p><span class="feature-tag">Create</span> <span class="feature-tag">Edit</span> <span class="feature-tag">Delete</span> <span class="feature-tag">Export PDF</span> <span class="feature-tag">Export CSV</span> <span class="feature-tag">Import CSV</span></p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💵</div>
+        <h3>Investment</h3>
+      </div>
+      <div class="module-card-body">
+        <p>প্রতিটি বিনিয়োগের বিস্তারিত তথ্য এখানে রেকর্ড করা হয়।</p>
+        <ul>
+          <li>নতুন বিনিয়োগ এন্ট্রি করুন (হেড নির্বাচন, পরিমাণ, তারিখ)</li>
+          <li>বিনিয়োগের রিটার্ন বা উত্তোলন রেকর্ড করুন</li>
+          <li>সকল বিনিয়োগের সামগ্রিক রিপোর্ট দেখুন</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏢</div>
+        <h3>Fixed Asset ও Current Asset</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Fixed Asset (স্থায়ী সম্পদ):</strong> ভবন, যন্ত্রপাতি, যানবাহন ইত্যাদি দীর্ঘমেয়াদী সম্পদ এখানে রেকর্ড করুন। হ্রাসকৃত মূল্য (Depreciation) স্বয়ংক্রিয়ভাবে হিসাব হবে।</p>
+        <p><strong>Current Asset (চলতি সম্পদ):</strong> নগদ, ব্যাংক জমা, পাওনাদার — স্বল্পমেয়াদী সম্পদ এখানে পরিচালনা করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📋</div>
+        <h3>Liability Receive, Pay ও Report</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Liability Receive (দায় গ্রহণ):</strong> ঋণ গ্রহণ বা পাওনা পাওয়ার এন্ট্রি করুন। সুদের হার ও মেয়াদ উল্লেখ করলে পরিশোধ সূচি স্বয়ংক্রিয়ভাবে তৈরি হবে।</p>
+        <p><strong>Liability Pay (দায় পরিশোধ):</strong> ঋণের কিস্তি পরিশোধ এন্ট্রি করুন। আসল ও সুদের হিসাব আলাদাভাবে দেখা যাবে।</p>
+        <p><strong>Liability Report:</strong> সমস্ত দায়ের সামগ্রিক রিপোর্ট — বকেয়া পরিমাণ, পরিশোধিত পরিমাণ, সুদ ইত্যাদি।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 5: BASIC MODULES ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">🏢</div>
+    <div>
+      <h2>বেসিক মডিউলস</h2>
+      <div class="section-desc">কোর কনফিগারেশন, প্রোডাক্ট, স্ট্রাকচার ও অপারেশনস</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="info-box"><strong>রোল:</strong> <span class="role-badge role-admin">Admin</span> <span class="role-badge role-manager">Manager</span> <span class="role-badge role-sr">SR</span> <span class="role-badge role-dealer">Dealer</span> <span class="role-badge role-vat">VAT Auditor</span></div>
+
+    <div class="sub-section"><h4>কোর কনফিগারেশন (Core Config)</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏭</div>
+        <h3>Companies</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ব্যবসার কোম্পানি বা কনসার্নের তথ্য এখানে সংরক্ষণ করুন। কোম্পানির নাম, ঠিকানা, মোবাইল, ওয়েবসাইট, VAT নম্বর, লোগো ইত্যাদি যোগ করুন। লোগো PDF রিপোর্টে স্বয়ংক্রিয়ভাবে প্রদর্শিত হবে।</p>
+        <span class="feature-tag">Create</span> <span class="feature-tag">Edit</span> <span class="feature-tag">Logo Upload</span> <span class="feature-tag">Export</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📂</div>
+        <h3>Categories</h3>
+      </div>
+      <div class="module-card-body">
+        <p>পণ্যের শ্রেণি বা ক্যাটাগরি তৈরি করুন (যেমন: মোবাইল, ল্যাপটপ, এসি, ফ্রিজ)। প্রতিটি ক্যাটাগরিতে সক্রিয়/নিষ্ক্রিয় করার সুবিধা আছে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🎨</div>
+        <h3>Colors ও Brands</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Colors:</strong> পণ্যের রং বা ভেরিয়েন্ট যোগ করুন।</p>
+        <p><strong>Brands:</strong> ব্র্যান্ডের নাম ও বিবরণ যোগ করুন (যেমন: Samsung, Walton, Singer)।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏦</div>
+        <h3>Banks</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ব্যাংক অ্যাকাউন্টের তথ্য সংরক্ষণ করুন — ব্যাংকের নাম, অ্যাকাউন্ট নম্বর, শাখা, ব্যালেন্স ইত্যাদি।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📏</div>
+        <h3>Units</h3>
+      </div>
+      <div class="module-card-body">
+        <p>পরিমাপের একক নির্ধারণ করুন (যেমন: Pcs, Dozen, Kg, Set)। এই এককগুলো প্রোডাক্ট ও ক্রয়-বিক্রয়ে ব্যবহৃত হবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📦</div>
+        <h3>Products</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সবচেয়ে গুরুত্বপূর্ণ পেজ! এখানে সব পণ্যের তথ্য যোগ ও পরিচালনা করুন।</p>
+        <ol class="steps">
+          <li>"Create new product" বাটনে ক্লিক করুন</li>
+          <li>পণ্যের কোড, SKU, বারকোড, নাম, ক্যাটাগরি, ব্র্যান্ড নির্বাচন করুন</li>
+          <li>কস্ট প্রাইস, MRP, হোলসেল প্রাইস, পরিমাণ ইত্যাদি পূরণ করুন</li>
+          <li>কোম্পানি ও গোডাউন নির্বাচন করুন</li>
+          <li>"Save" ক্লিক করুন</li>
+        </ol>
+        <span class="feature-tag">Create</span> <span class="feature-tag">Edit</span> <span class="feature-tag">Import CSV</span> <span class="feature-tag">Export CSV</span> <span class="feature-tag">Export PDF</span>
+        <div class="tip-box">
+          <strong>টিপ:</strong> একসাথে অনেক পণ্য যোগ করতে "Import CSV" ব্যবহার করুন। CSV ফরম্যাটে পণ্যের তথ্য প্রস্তুত করে আপলোড করলে সব পণ্য একসাথে যুক্ত হবে।
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-section"><h4>স্ট্রাকচার (Structure)</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏛️</div>
+        <h3>Departments ও Godowns</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Departments:</strong> কোম্পানির বিভাগ বা ডিপার্টমেন্ট তৈরি করুন (যেমন: বিক্রয়, হিসাব, গোডাউন)।</p>
+        <p><strong>Godowns:</strong> পণ্য সংরক্ষণের গোডাউন বা গুদামের তথ্য যোগ করুন — নাম, ঠিকানা, ধারণক্ষমতা, জরুরি স্ট্যাটাস ইত্যাদি।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📊</div>
+        <h3>Interest % Engine</h3>
+      </div>
+      <div class="module-card-body">
+        <p>হায়ার পারচেজ বা কিস্তিতে বিক্রয়ের সুদের হার নির্ধারণ করুন। কোম্পানি ও ক্যাটাগরি অনুযায়ী ভিন্ন ভিন্ন সুদের হার সেট করা যায়।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏷️</div>
+        <h3>Segments ও Capacity</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Segments:</strong> পণ্যের বাজার সেগমেন্ট নির্ধারণ করুন (যেমন: প্রিমিয়াম, স্ট্যান্ডার্ড, ইকোনমি)।</p>
+        <p><strong>Capacity:</strong> গোডাউনের ধারণক্ষমতা নির্ধারণ করুন — পণ্য সংখ্যা, ওজন বা ভলিউম অনুযায়ী।</p>
+      </div>
+    </div>
+
+    <div class="sub-section"><h4>অপারেশনস (Operations)</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🎯</div>
+        <h3>SR Target Setup</h3>
+      </div>
+      <div class="module-card-body">
+        <p>SR (Sales Representative) দের মাসিক বা পর্যায়ক্রমিক বিক্রয় লক্ষ্যমাত্রা নির্ধারণ করুন। SR-ওয়াইজ টার্গেট সেট ও ট্র্যাক করা যায়।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💳</div>
+        <h3>Payment Option, CardType ও CardType Setup</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Payment Option:</strong> পেমেন্ট পদ্ধতি যোগ করুন (যেমন: ক্যাশ, বিকাশ, কার্ড, ব্যাংক ট্রান্সফার)।</p>
+        <p><strong>CardType:</strong> ক্রেডিট/ডেবিট কার্ডের ধরন যোগ করুন (যেমন: Visa, Mastercard, DBBL Nexus)।</p>
+        <p><strong>CardType Setup:</strong> প্রতিটি কার্ড টাইপের চার্জ হার, পেমেন্ট অপশন ও কোম্পানি ম্যাপিং কনফিগার করুন।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 6: STAFF ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">👥</div>
+    <div>
+      <h2>স্টাফ ম্যানেজমেন্ট</h2>
+      <div class="section-desc">কর্মচারী ও ডিজিগনেশন পরিচালনা</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="info-box"><strong>রোল:</strong> <span class="role-badge role-admin">Admin</span> <span class="role-badge role-manager">Manager</span> <span class="role-badge role-sr">SR</span></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">👔</div>
+        <h3>Designations</h3>
+      </div>
+      <div class="module-card-body">
+        <p>কর্মচারীদের পদবি বা ডিজিগনেশন তৈরি করুন (যেমন: সেলস ম্যানেজার, একাউন্টেন্ট, ডেলিভারি ম্যান)। প্রতিটি পদবি সক্রিয়/নিষ্ক্রিয় করা যায়।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🧑‍💼</div>
+        <h3>Employees</h3>
+      </div>
+      <div class="module-card-body">
+        <p>কর্মচারীদের সম্পূর্ণ তথ্য এখানে রেকর্ড করুন।</p>
+        <ol class="steps">
+          <li>"Create Employee" ক্লিক করুন</li>
+          <li>নাম, পদবি, ডিপার্টমেন্ট, মোবাইল, ইমেইল, ঠিকানা পূরণ করুন</li>
+          <li>ফটো আপলোড করুন (সর্বোচ্চ ৫MB)</li>
+          <li>ভোটার ID সামনের ও পেছনের ছবি আপলোড করুন</li>
+          <li>"Save" ক্লিক করুন</li>
+        </ol>
+        <span class="feature-tag">Photo Upload</span> <span class="feature-tag">NID Upload</span> <span class="feature-tag">Import CSV</span> <span class="feature-tag">Export</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏖️</div>
+        <h3>Employee Leave</h3>
+      </div>
+      <div class="module-card-body">
+        <p>কর্মচারীদের ছুটির আবেদন ও রেকর্ড পরিচালনা করুন। ছুটির ধরন (ক্যজুয়াল, সিক, ইarned), শুরু ও শেষ তারিখ, অনুমোদন স্ট্যাটাস ইত্যাদি ট্র্যাক করুন।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 7: CUSTOMERS & SUPPLIERS ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">🧑‍🤝‍🧑</div>
+    <div>
+      <h2>কাস্টমার ও সাপ্লায়ার</h2>
+      <div class="section-desc">গ্রাহক ও সরবরাহকারী পরিচালনা</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🛒</div>
+        <h3>Customers</h3>
+      </div>
+      <div class="module-card-body">
+        <p>গ্রাহকদের সম্পূর্ণ তথ্য পরিচালনা করুন।</p>
+        <ul>
+          <li>নাম, মোবাইল, ইমেইল, ঠিকানা, ক্রেডিট লিমিট</li>
+          <li>প্রোফাইল ছবি ও NID আপলোড</li>
+          <li>ক্রেডিট লিমিট অতিক্রম করলে সতর্কতা প্রদর্শিত হবে</li>
+          <li>কাস্টমারের বকেয়া ও পেমেন্ট হিস্ট্রি দেখুন</li>
+        </ul>
+        <span class="feature-tag">Photo Upload</span> <span class="feature-tag">NID Upload</span> <span class="feature-tag">Credit Limit</span> <span class="feature-tag">Import/Export</span>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏭</div>
+        <h3>Suppliers</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সরবরাহকারীদের তথ্য পরিচালনা করুন — নাম, কোম্পানি, মোবাইল, ঠিকানা, ব্যাংক তথ্য, প্রোফাইল ছবি ও NID আপলোড।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 8: INVENTORY ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📋</div>
+    <div>
+      <h2>ইনভেন্টরি ম্যানেজমেন্ট</h2>
+      <div class="section-desc">অর্ডার, ক্রয়, বিক্রয়, স্টক ও ট্রান্সফার</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="info-box"><strong>রোল:</strong> <span class="role-badge role-admin">Admin</span> <span class="role-badge role-manager">Manager</span> <span class="role-badge role-sr">SR</span> <span class="role-badge role-dealer">Dealer</span> <span class="role-badge role-vat">VAT Auditor</span></div>
+
+    <div class="sub-section"><h4>অর্ডার শিট (Order Sheet)</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📝</div>
+        <h3>Company Ordersheet ও Customer Ordersheet</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Company Ordersheet:</strong> কোম্পানির কাছ থেকে পণ্য অর্ডারের অনুরোধ তৈরি করুন।</p>
+        <p><strong>Customer Ordersheet:</strong> গ্রাহকের অর্ডার অনুযায়ী পণ্যের তালিকা তৈরি করুন।</p>
+        <p><strong>Ordersheet Report:</strong> সমস্ত অর্ডার শিটের সামগ্রিক রিপোর্ট।</p>
+      </div>
+    </div>
+
+    <div class="sub-section"><h4>ক্রয় ও বিক্রয় (Purchase & Sales)</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🛒</div>
+        <h3>Purchase Order</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সাপ্লায়ারের কাছ থেকে পণ্য ক্রয়ের অর্ডার তৈরি করুন।</p>
+        <ol class="steps">
+          <li>"Create Purchase Order" ক্লিক করুন</li>
+          <li>সাপ্লায়ার, গোডাউন ও তারিখ নির্বাচন করুন</li>
+          <li>পণ্য যোগ করুন — পরিমাণ, কস্ট প্রাইস, VAT শতাংশ</li>
+          <li>সর্বমোট স্বয়ংক্রিয়ভাবে হিসাব হবে</li>
+          <li>"Save" ক্লিক করুন — স্বয়ংক্রিয় SMS সাপ্লায়ারকে যাবে (চালু থাকলে)</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">⚡</div>
+        <h3>Auto PO</h3>
+      </div>
+      <div class="module-card-body">
+        <p>স্টক কম থাকা পণ্যের জন্য স্বয়ংক্রিয়ভাবে পারচেজ অর্ডার প্রস্তাব তৈরি হবে। ন্যূনতম স্টক লেভেলের নিচে থাকা পণ্যগুলো দেখে দ্রুত PO তৈরি করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💰</div>
+        <h3>Sales Order</h3>
+      </div>
+      <div class="module-card-body">
+        <p>গ্রাহকের কাছে পণ্য বিক্রয়ের অর্ডার তৈরি করুন।</p>
+        <ol class="steps">
+          <li>"Create Sales Order" ক্লিক করুন</li>
+          <li>গ্রাহক, SR, গোডাউন নির্বাচন করুন</li>
+          <li>পণ্য যোগ করুন — পরিমাণ, বিক্রয় মূল্য, ছাড়, VAT</li>
+          <li>ক্রেডিট লিমিট চেক স্বয়ংক্রিয়</li>
+          <li>"Save" ক্লিক করুন — স্বয়ংক্রিয় SMS গ্রাহককে যাবে</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🔄</div>
+        <h3>Hire Sales (কিস্তিতে বিক্রয়)</h3>
+      </div>
+      <div class="module-card-body">
+        <p>কিস্তিতে পণ্য বিক্রয়ের জন্য হায়ার সেলস অর্ডার তৈরি করুন। সুদের হার, কিস্তির সংখ্যা, ডাউন পেমেন্ট উল্লেখ করলে কিস্তির সূচি স্বয়ংক্রিয়ভাবে তৈরি হবে।</p>
+        <div class="info-box">
+          <strong>নোট:</strong> সুদের হার Interest % Engine থেকে স্বয়ংক্রিয়ভাবে আসবে অথবা ম্যানুয়ালি সেট করা যাবে।
+        </div>
+      </div>
+    </div>
+
+    <div class="sub-section"><h4>রিটার্ন ও রিপ্লেসমেন্ট</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">↩️</div>
+        <h3>Sales Return ও Purchase Return</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Sales Return:</strong> গ্রাহকের ফেরত দেওয়া পণ্যের এন্ট্রি করুন। VAT শতাংশ স্বয়ংক্রিয়ভাবে হিসাব হবে।</p>
+        <p><strong>Purchase Return:</strong> সাপ্লায়ারকে ফেরত দেওয়া পণ্যের এন্ট্রি করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🔄</div>
+        <h3>Replacement Order</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ত্রুটিপূর্ণ পণ্য প্রতিস্থাপনের জন্য রিপ্লেসমেন্ট অর্ডার তৈরি করুন। মূল অর্ডারের সাথে সংযুক্ত থাকবে।</p>
+      </div>
+    </div>
+
+    <div class="sub-section"><h4>স্টক ম্যানেজমেন্ট</h4></div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📦</div>
+        <h3>Stock, Stock Details ও Transfer</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Stock:</strong> সমস্ত গোডাউনের বর্তমান স্টক একনজরে দেখুন। কম স্টকের পণ্য লাল চিহ্নিত থাকবে।</p>
+        <p><strong>Stock Details:</strong> প্রতিটি পণ্যের গোডাউন-ওয়াইজ স্টক বিস্তারিত দেখুন।</p>
+        <p><strong>Transfer:</strong> এক গোডাউন থেকে অন্য গোডাউনে পণ্য স্থানান্তর করুন। স্টক স্বয়ংক্রিয়ভাবে আপডেট হবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📋</div>
+        <h3>Opening Stock, Batch Master ও Valuation</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Opening Stock:</strong> নতুন সিস্টেমে প্রাথমিক স্টক এন্ট্রি করুন।</p>
+        <p><strong>Batch Master:</strong> পণ্যের ব্যাচ বা লট নম্বর পরিচালনা করুন — মেয়াদ উত্তীর্ণ ট্র্যাকিং।</p>
+        <p><strong>Valuation:</strong> স্টকের বর্তমান বাজার মূল্যায়ন দেখুন।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 9: ACCOUNT MANAGEMENT ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">💰</div>
+    <div>
+      <h2>অ্যাকাউন্ট ম্যানেজমেন্ট</h2>
+      <div class="section-desc">আয়, ব্যয়, ক্যাশ ও ব্যাংক লেনদেন</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📋</div>
+        <h3>Expense/Income Head</h3>
+      </div>
+      <div class="module-card-body">
+        <p>খরচ ও আয়ের খাত বা হেড তৈরি করুন (যেমন: বেতন, ভাড়া, বিদ্যুৎ বিল, বিক্রয় আয়, সুদ আয়)। প্রতিটি হেডের ধরন (Expense/Income) ও ক্লাসিফিকেশন নির্ধারণ করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📉</div>
+        <h3>Expense ও Income</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Expense:</strong> দৈনিক খরচের এন্ট্রি করুন — হেড নির্বাচন, পরিমাণ, তারিখ, বিবরণ।</p>
+        <p><strong>Income:</strong> আয়ের এন্ট্রি করুন — হেড নির্বাচন, পরিমাণ, তারিখ, বিবরণ।</p>
+        <div class="tip-box">
+          <strong>টিপ:</strong> প্রতিটি এন্ট্রিতে রেফারেন্স নম্বর ও নোট যোগ করুন, ভবিষ্যতে খুঁজে পেতে সুবিধা হবে।
+        </div>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💵</div>
+        <h3>Cash Collection ও Cash Delivery</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Cash Collection:</strong> গ্রাহক বা SR থেকে নগদ আদায়ের এন্ট্রি। গ্রাহকের বকেয়া স্বয়ংক্রিয়ভাবে কমবে।</p>
+        <p><strong>Cash Delivery:</strong> সাপ্লায়ারকে নগদ পরিশোধের এন্ট্রি। সাপ্লায়ারের বকেয়া স্বয়ংক্রিয়ভাবে কমবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏦</div>
+        <h3>Bank Transaction</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ব্যাংক লেনদেনের এন্ট্রি করুন — জমা, উত্তোলন, ট্রান্সফার। ব্যাংক ব্যালেন্স স্বয়ংক্রিয়ভাবে আপডেট হবে।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 10: SMS ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">💬</div>
+    <div>
+      <h2>SMS সার্ভিস</h2>
+      <div class="section-desc">SMS প্রেরণ, বিলিং ও স্বয়ংক্রিয় নোটিফিকেশন</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📥</div>
+        <h3>SMS Inbox</h3>
+      </div>
+      <div class="module-card-body">
+        <p>প্রাপ্ত SMS বার্তাগুলো এখানে দেখুন। প্রেরক, সময়, বার্তার বিষয়বস্তু দেখা যাবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📤</div>
+        <h3>Send SMS ও Send Bulk SMS</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Send SMS:</strong> একক গ্রাহক বা নম্বরে SMS পাঠান।</p>
+        <p><strong>Send Bulk SMS:</strong> একসাথে অনেক গ্রাহককে SMS পাঠান। ক্যাটাগরি বা গ্রুপ অনুযায়ী নির্বাচন করুন।</p>
+        <div class="warning-box">
+          <strong>সতর্কতা:</strong> বাল্ক SMS পাঠানোর আগে বার্তার বিষয়বস্তু ভালোভাবে পরীক্ষা করুন। একবার পাঠানোর পর ফেরত নেওয়া যাবে না।
+        </div>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📊</div>
+        <h3>SMS Bill, Report ও Bill Payment</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>SMS Bill:</strong> SMS ব্যবহারের বিল ও ক্রেডিট ব্যালেন্স দেখুন।</p>
+        <p><strong>SMS Report:</strong> কত SMS পাঠানো হয়েছে, কত সফল, কত ব্যর্থ — সামগ্রিক রিপোর্ট।</p>
+        <p><strong>SMS Bill Payment:</strong> SMS সার্ভিসের বিল পরিশোধের রেকর্ড।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">⚙️</div>
+        <h3>SMS Service Setting</h3>
+      </div>
+      <div class="module-card-body">
+        <p>স্বয়ংক্রিয় SMS সেটিংস কনফিগার করুন:</p>
+        <ul>
+          <li><strong>বিক্রয় নিশ্চিতকরণ:</strong> বিক্রয়ের সময় গ্রাহককে স্বয়ংক্রিয় SMS (চালু/বন্ধ)</li>
+          <li><strong>পেমেন্ট আদায়:</strong> ক্যাশ কালেকশনে স্বয়ংক্রিয় SMS (চালু/বন্ধ)</li>
+          <li><strong>গোডাউন রিসিভ:</strong> স্টক রিসিভে স্বয়ংক্রিয় SMS (চালু/বন্ধ)</li>
+          <li><strong>HR লাইফসাইকেল:</strong> নতুন কর্মচারী যোগদানে স্বয়ংক্রিয় SMS (চালু/বন্ধ)</li>
+        </ul>
+        <div class="info-box">
+          <strong>পরামর্শ:</strong> প্রতিটি স্বয়ংক্রিয় SMS টগল চালু করলে সংশ্লিষ্ট ইভেন্টে SMS যাবে। বন্ধ করলে যাবে না। শুধুমাত্র Admin এই সেটিংস পরিবর্তন করতে পারবেন।
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 11: ACCOUNTING REPORT ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📊</div>
+    <div>
+      <h2>অ্যাকাউন্টিং রিপোর্ট</h2>
+      <div class="section-desc">হিসাব সংক্রান্ত সমস্ত রিপোর্ট</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📒</div>
+        <h3>Chart of Accounts & Ledger</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সমস্ত হিসাবের খতিয়ান বা লেজার দেখুন। প্রতিটি হিসাবের ডেবিট-ক্রেডিট ব্যালেন্স, লেনদেনের ইতিহাস এখানে পাওয়া যাবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💵</div>
+        <h3>Cash In Hand</h3>
+      </div>
+      <div class="module-card-body">
+        <p>হাতে নগদ অর্থের বর্তমান অবস্থা দেখুন — দৈনিক আয়-ব্যয়, নগদ প্রবাহ, ব্যাংক-ওয়াইজ ব্রেকডাউন।</p>
+        <div class="warning-box">
+          <strong>VAT Auditor নোট:</strong> VAT Auditor রোলে Cash In Hand এর আর্থিক তথ্য মাস্কড থাকবে।
+        </div>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">⚖️</div>
+        <h3>Trial Balance</h3>
+      </div>
+      <div class="module-card-body">
+        <p>নির্দিষ্ট তারিখে সমস্ত হিসাবের ডেবিট ও ক্রেডিট ব্যালেন্সের সামগ্রিক বিবরণ। ডেবিট ও ক্রেডিটের সমানতা যাচাই করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📉</div>
+        <h3>Profit and Loss Account</h3>
+      </div>
+      <div class="module-card-body">
+        <p>নির্দিষ্ট সময়ের আয়-ব্যয়ের সামগ্রিক হিসাব। মোট আয়, মোট ব্যয় ও নেট লাভ/ক্ষতি এখানে দেখুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📑</div>
+        <h3>Balance Sheet & Period Close</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সম্পদ, দায় ও মালিকানার সামগ্রিক বিবরণ (Asset = Liability + Equity)। হিসাব পর্ব বন্ধের সুবিধাও এখানে আছে।</p>
+      </div>
+    </div>
+
+    <p style="margin-top:10px;"><span class="feature-tag">Export PDF</span> <span class="feature-tag">Export CSV</span> <span class="feature-tag">Import CSV</span> সব ট্যাবেই উপলব্ধ</p>
+  </div>
+</div>
+
+<!-- ============ SECTION 12: FINANCIAL AUDIT ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">🛡️</div>
+    <div>
+      <h2>ফাইন্যান্সিয়াল অডিট</h2>
+      <div class="section-desc">অডিট, জালিয়াতি সনাক্তকরণ ও সততা যাচাই</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📊</div>
+        <h3>Dashboard KPI</h3>
+      </div>
+      <div class="module-card-body">
+        <p>অডিট সংক্রান্ত মূল পারফরম্যান্স সূচক — আর্থিক স্বাস্থ্য, ঝুঁকি স্কোর, অসঙ্গতি সংখ্যা ইত্যাদি।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🔍</div>
+        <h3>Fraud Detection</h3>
+      </div>
+      <div class="module-card-body">
+        <p>স্বয়ংক্রিয়ভাবে সনাক্তকৃত সন্দেহজনক লেনদেন ও অসঙ্গতি দেখুন। ডুপ্লিকেট পেমেন্ট, অস্বাভাবিক পরিমাণ, তারিখ অসঙ্গতি ইত্যাদি ফ্ল্যাগ করা হবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📒</div>
+        <h3>Ledger Auto-Post</h3>
+      </div>
+      <div class="module-card-body">
+        <p>লেনদেনের স্বয়ংক্রিয় লেজার পোস্টিং দেখুন। প্রতিটি আর্থিক লেনদেন স্বয়ংক্রিয়ভাবে সঠিক হিসাবে পোস্ট হয়।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">⏳</div>
+        <h3>Inventory Aging ও Product Lifecycle</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Inventory Aging:</strong> কতদিন ধরে পণ্য স্টকে আছে তার বিশ্লেষণ। পুরনো স্টক চিহ্নিত করুন।</p>
+        <p><strong>Product Lifecycle:</strong> পণ্যের জীবনচক্র বিশ্লেষণ — ক্রয় থেকে বিক্রয় পর্যন্ত সম্পূর্ণ পথ।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📋</div>
+        <h3>Specialized Reports ও Notifications & Integrity</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Specialized Reports:</strong> হায়ার পারচেজ, কমিশন ও কালেকশন সংক্রান্ত বিশেষ রিপোর্ট।</p>
+        <p><strong>Notifications & Integrity:</strong> সিস্টেম সততা চেক ও অডিট নোটিফিকেশন। ডাটাবেস ইন্টিগ্রিটি যাচাই করুন।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 13: MIS REPORT ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📈</div>
+    <div>
+      <h2>MIS রিপোর্ট</h2>
+      <div class="section-desc">৫০+ বিশেষায়িত ব্যবস্থাপনা রিপোর্ট</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="info-box"><strong>মোট ৯টি ক্যাটাগরিতে ৪৯টি রিপোর্ট</strong> — সব রিপোর্টে Export PDF ও Export CSV সুবিধা আছে।</div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📋</div>
+        <h3>Basic Report (১২টি রিপোর্ট)</h3>
+      </div>
+      <div class="module-card-body">
+        <ul>
+          <li>Employee Information — কর্মচারী তথ্য</li>
+          <li>Product Information — পণ্য তথ্য</li>
+          <li>Stock Details Report — স্টক বিস্তারিত</li>
+          <li>Stock Summary Report — স্টক সারসংক্ষেপ</li>
+          <li>Stock Ledger — স্টক খতিয়ান</li>
+          <li>Stock Quantity Report — স্টক পরিমাণ</li>
+          <li>Stock Forecasting (Product Wise) — পণ্যভিত্তিক পূর্বাভাস</li>
+          <li>Stock Forecasting (Concern Wise) — কনসার্নভিত্তিক পূর্বাভাস</li>
+          <li>Stock Trend Analysis — স্টক প্রবণতা</li>
+          <li>Supplier Status Grid — সাপ্লায়ার স্ট্যাটাস</li>
+          <li>Sales Performance — বিক্রয় কর্মক্ষমতা</li>
+          <li>Employee Records — কর্মচারী রেকর্ড</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🛒</div>
+        <h3>Purchase Report (৭টি)</h3>
+      </div>
+      <div class="module-card-body">
+        <p>Supplier Ledger, Daily Purchase, Supplier Wise Purchase, Supplier Cash Delivery, Supplier Due Report, Model Wise Purchase, VAT Report</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">💰</div>
+        <h3>Sales Report (৩টি) ও Hire Sales Report (৫টি)</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Sales:</strong> Daily Sales, Replacement Report, Model Wise Sales</p>
+        <p><strong>Hire Sales:</strong> Installment Collection, Upcoming Installment, Defaulting Customer, Default Customer Summary, Hire Account Details</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🎯</div>
+        <h3>SR Report (৮টি)</h3>
+      </div>
+      <div class="module-card-body">
+        <p>SR Wise Sales Report, SR Wise Sales Details, SR Wise Customer Due, SR Wise Customer Sales Summary, SR Visit Report, SR Wise Customer Status, SR Wise Cash Collection, SR Commission Report</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🧑‍🤝‍🧑</div>
+        <h3>Customer Wise Report (৬টি)</h3>
+      </div>
+      <div class="module-card-body">
+        <p>Customer Wise Sales, Category Wise Customer Due, Customer Ledger, Customer Due Report (Date Wise), Customer Cash Collection, Customer Ledger Summary</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏢</div>
+        <h3>Management Report (৭টি) ও Bank Report (৩টি)</h3>
+      </div>
+      <div class="module-card-body">
+        <p><strong>Management:</strong> Expense Report, Product Wise Benefit, Income Report, Adjustment Report, Transaction Summary, Monthly Transaction, Showroom Analysis</p>
+        <p><strong>Bank:</strong> Bank Transaction Report, Bank Ledger, Transfer Report</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🔍</div>
+        <h3>Advance Search</h3>
+      </div>
+      <div class="module-card-body">
+        <p>যেকোনো মানদণ্ড অনুযায়ী ডাটা অনুসন্ধান করুন — পণ্য, গ্রাহক, অর্ডার, লেনদেন ইত্যাদি।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 14: SYSTEM SETTINGS ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">⚙️</div>
+    <div>
+      <h2>সিস্টেম সেটিংস</h2>
+      <div class="section-desc">কোম্পানি সেটিংস, ইনভয়েস, অডিট ট্রেইল ও পারফরম্যান্স</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="info-box"><strong>রোল:</strong> <span class="role-badge role-admin">Admin</span> এবং <span class="role-badge role-manager">Manager</span> সেটিংস পরিবর্তন করতে পারবেন</div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🏭</div>
+        <h3>Company Settings</h3>
+      </div>
+      <div class="module-card-body">
+        <p>কোম্পানির নাম, ঠিকানা, ফোন, ইমেইল, ওয়েবসাইট, VAT নম্বর, BIN নম্বর, কারেন্সি সিম্বল ও লোগো সেট করুন। এই তথ্য সমস্ত PDF রিপোর্টে প্রদর্শিত হবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🧾</div>
+        <h3>Invoice Templates</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ইনভয়েস বা বিলের টেমপ্লেট কাস্টমাইজ করুন — কোম্পানি লোগো দেখাবেন কিনা, বারকোড, পেমেন্ট তথ্য, টার্মস ইত্যাদি কনফিগার করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">🔢</div>
+        <h3>Number Formats</h3>
+      </div>
+      <div class="module-card-body">
+        <p>বিভিন্ন ডকুমেন্টের নম্বর ফরম্যাট সেট করুন — PO নম্বর, SO নম্বর, ইনভয়েস নম্বর ইত্যাদির প্রিফিক্স ও সিকোয়েন্স।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📋</div>
+        <h3>Audit Trail Viewer</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সিস্টেমে ঘটে যাওয়া সমস্ত কার্যকলাপের লগ দেখুন — কে কখন কী পরিবর্তন করেছেন তার সম্পূর্ণ রেকর্ড। ব্যবহারকারী, মডিউল, কাজ, সময় অনুযায়ী ফিল্টার করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">⚡</div>
+        <h3>Performance & Cache</h3>
+      </div>
+      <div class="module-card-body">
+        <p>সিস্টেমের পারফরম্যান্স মনিটর করুন — ডাটাবেস স্বাস্থ্য, টেবিল সংখ্যা, ডাটাবেস সাইজ, ইন্টিগ্রিটি স্ট্যাটাস, কী রেকর্ড কাউন্ট ইত্যাদি।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 15: PROFILE ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">👤</div>
+    <div>
+      <h2>প্রোফাইল ও পাসওয়ার্ড</h2>
+      <div class="section-desc">ব্যক্তিগত তথ্য ও নিরাপত্তা</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">👤</div>
+        <h3>Profile Center</h3>
+      </div>
+      <div class="module-card-body">
+        <p>হেডারের ডানপাশে আপনার অ্যাভাটারে ক্লিক করে "Profile" সিলেক্ট করুন। প্রোফাইল সেন্টারে ৪টি ট্যাব আছে:</p>
+        <ul>
+          <li><strong>Profile:</strong> নাম, ইমেইল, ফোন, ঠিকানা, ছবি সম্পাদনা</li>
+          <li><strong>Action Tracking:</strong> আপনার সম্প্রতি করা কাজের তালিকা</li>
+          <li><strong>Activity Ledger:</strong> সম্পূর্ণ কার্যকলাপের ইতিহাস</li>
+          <li><strong>Password Security:</strong> পাসওয়ার্ড পরিবর্তন (শুধুমাত্র Admin)</li>
+        </ul>
+        <div class="warning-box">
+          <strong>গুরুত্বপূর্ণ:</strong> "Change Password" অপশন শুধুমাত্র Admin রোলের ব্যবহারকারী দেখতে পাবেন। অন্য রোলের ব্যবহারকারীরা পাসওয়ার্ড পরিবর্তন করতে Admin-এর সাহায্য নিতে হবে।
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 16: EXPORT/IMPORT ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">📤</div>
+    <div>
+      <h2>রপ্তানি (Export) ও আমদানি (Import)</h2>
+      <div class="section-desc">ডাটা এক্সপোর্ট ও ইমপোর্ট পদ্ধতি</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📄</div>
+        <h3>Export PDF</h3>
+      </div>
+      <div class="module-card-body">
+        <p>প্রায় সব পেজেই "Export PDF" বাটন আছে। ক্লিক করলে বর্তমান ডাটার একটি প্রিন্ট-রেডি PDF রিপোর্ট ডাউনলোড হবে। PDF-এ কোম্পানির লোগো ও নাম স্বয়ংক্রিয়ভাবে যুক্ত হবে।</p>
+        <div class="info-box">
+          <strong>নোট:</strong> PDF-এ সব সংখ্যা ইংরেজিতে থাকবে (বাংলা সংখ্যা নয়), যাতে আন্তর্জাতিক মান বজায় থাকে।
+        </div>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📊</div>
+        <h3>Export CSV</h3>
+      </div>
+      <div class="module-card-body">
+        <p>ডাটা স্প্রেডশিটে বিশ্লেষণের জন্য CSV ফরম্যাটে রপ্তানি করুন। Excel বা Google Sheets-এ খুলে কাজ করা যাবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-header">
+        <div class="module-card-icon">📥</div>
+        <h3>Import CSV</h3>
+      </div>
+      <div class="module-card-body">
+        <p>একসাথে অনেক ডাটা যোগ করতে CSV ফাইল আপলোড করুন।</p>
+        <ol class="steps">
+          <li>"Import CSV" বাটনে ক্লিক করুন</li>
+          <li>ফাইল সিলেক্ট করুন (.csv ফরম্যাট)</li>
+          <li>কলাম ম্যাপিং যাচাই করুন</li>
+          <li>"Import" ক্লিক করুন</li>
+        </ol>
+        <div class="tip-box">
+          <strong>টিপ:</strong> প্রথমে "Export CSV" করে ফরম্যাট দেখুন, তারপর সেই ফরম্যাটে ডাটা প্রস্তুত করে Import করুন।
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 17: SHORTCUTS ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">⌨️</div>
+    <div>
+      <h2>কীবোর্ড শর্টকাট ও দ্রুত পদ্ধতি</h2>
+      <div class="section-desc">দ্রুত কাজ করার কৌশল</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>শর্টকাট</th>
+          <th>কাজ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><kbd>⌘</kbd> + <kbd>K</kbd></td>
+          <td>সার্চ বক্স খুলুন (যেকোনো পেজ থেকে দ্রুত নেভিগেট)</td>
+        </tr>
+        <tr>
+          <td><kbd>F8</kbd></td>
+          <td>নোটিফিকেশন প্যানেল টগল</td>
+        </tr>
+        <tr>
+          <td><kbd>Esc</kbd></td>
+          <td>ডায়ালগ বা মডাল বন্ধ করুন</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="module-card" style="margin-top:16px;">
+      <div class="module-card-header">
+        <div class="module-card-icon">💡</div>
+        <h3>দ্রুত কাজের কৌশল</h3>
+      </div>
+      <div class="module-card-body">
+        <ul>
+          <li><strong>সার্চ বক্স:</strong> <kbd>⌘</kbd>+<kbd>K</kbd> চেপে যেকোনো মডিউলে সরাসরি যান</li>
+          <li><strong>সাইডবার কোলাপ্স:</strong> সাইডবারের "Collapse" বাটনে ক্লিক করলে সাইডবার ছোট হবে ও বেশি জায়গা পাবেন</li>
+          <li><strong>মোবাইল ব্যবহার:</strong> মোবাইলে সাইডবার স্বয়ংক্রিয়ভাবে ড্রয়ার হিসেবে খুলবে</li>
+          <li><strong>ডার্ক মোড:</strong> হেডারে থিম টগল বাটনে ক্লিক করে ডার্ক/লাইট মোড পরিবর্তন করুন</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SECTION 18: FAQ ============ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-icon">❓</div>
+    <div>
+      <h2>সচরাচর জিজ্ঞাসা (FAQ)</h2>
+      <div class="section-desc">প্রায়শই জিজ্ঞাসিত প্রশ্ন ও উত্তর</div>
+    </div>
+  </div>
+  <div class="content-area">
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: আমার পাসওয়ার্ড ভুলে গেছি, কী করব?</strong></p>
+        <p>উ: Admin-এর সাথে যোগাযোগ করুন। শুধুমাত্র Admin পাসওয়ার্ড পরিবর্তন করতে পারেন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: একসাথে অনেক পণ্য যোগ করতে চাই, কীভাবে?</strong></p>
+        <p>উ: Products পেজে "Import CSV" ব্যবহার করুন। প্রথমে Export CSV করে ফরম্যাট দেখুন, তারপর সেই ফরম্যাটে ডাটা তৈরি করে Import করুন।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: গ্রাহককে স্বয়ংক্রিয় SMS যাচ্ছে না, কেন?</strong></p>
+        <p>উ: SMS Settings পেজে গিয়ে নিশ্চিত করুন যে সংশ্লিষ্ট টগল চালু আছে। আরও নিশ্চিত করুন SMS ক্রেডিট ব্যালেন্স পর্যাপ্ত আছে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: VAT Auditor হিসেবে কিছু তথ্য দেখা যাচ্ছে না কেন?</strong></p>
+        <p>উ: এটি স্বাভাবিক। VAT Auditor রোলে কস্ট প্রাইস, প্রফিট মার্জিন ও অভ্যন্তরীণ আর্থিক তথ্য গোপনীয়তার জন্য মাস্কড থাকে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: মোবাইলে সাইডবার কোথায়?</strong></p>
+        <p>উ: মোবাইলে হেডারের বামপাশে মেনু আইকনে ক্লিক করলে সাইডবার ড্রয়ার হিসেবে খুলবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: PDF রিপোর্টে কোম্পানির লোগো কীভাবে যোগ করব?</strong></p>
+        <p>উ: System Settings &rarr; Company Settings-এ গিয়ে কোম্পানির লোগো আপলোড করুন। তারপর থেকে সব PDF রিপোর্টে লোগো স্বয়ংক্রিয়ভাবে দেখাবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: কিস্তির সূচি কীভাবে দেখব?</strong></p>
+        <p>উ: Hire Sales অর্ডার তৈরির সময় সুদের হার ও কিস্তি সংখ্যা দিলে স্বয়ংক্রিয়ভাবে কিস্তির সূচি তৈরি হবে এবং প্রিভিউ দেখা যাবে।</p>
+      </div>
+    </div>
+
+    <div class="module-card">
+      <div class="module-card-body">
+        <p><strong>প্র: সিস্টেমে কে কী পরিবর্তন করেছে কীভাবে দেখব?</strong></p>
+        <p>উ: System Settings &rarr; Audit Trail Viewer-এ গিয়ে সমস্ত কার্যকলাপের লগ দেখুন। ব্যবহারকারী, মডিউল ও তারিখ অনুযায়ী ফিল্টার করা যায়।</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BACK COVER ============ -->
+<div class="cover-page" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #1e40af 100%);">
+  <div style="font-size: 28pt; font-weight: 800; margin-bottom: 16px;">ধন্যবাদ</div>
+  <div style="font-size: 13pt; opacity: 0.8; max-width: 500px; line-height: 1.8; margin-bottom: 40px;">
+    Electronics Mart সফটওয়্যার ব্যবহারে কোনো সমস্যা হলে NextGen Digital Studio-এর সাথে যোগাযোগ করুন।
+  </div>
+  <div style="font-size: 10pt; opacity: 0.5;">
+    &copy; 2026 NextGen Digital Studio &mdash; All Rights Reserved<br>
+    https://www.facebook.com/nextgendigitalstudio
+  </div>
+</div>
+
+</body>
+</html>
