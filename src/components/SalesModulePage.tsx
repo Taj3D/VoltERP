@@ -915,6 +915,28 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     toast({ title: "Exported", description: `Sales Returns ${format.toUpperCase()} exported` });
   }, [srFiltered, isVatAuditor, userRole, getCompanyProfile, toast]);
 
+  const doCopySR = useCallback(async () => {
+    const columns: ExportColumnDef[] = [
+      { key: "returnNo", label: "Return No", type: "text" },
+      { key: "date", label: "Date", type: "date" },
+      { key: "customerName", label: "Customer", type: "text" },
+      { key: "grandTotal", label: "Grand Total", type: "currency" },
+      { key: "cogsReversal", label: "COGS Reversal", type: "currency" },
+      { key: "arAdjustmentPosted", label: "AR Adjusted", type: "text" },
+      { key: "status", label: "Status", type: "text" },
+    ];
+    const data = srFiltered.map((r: any) => ({
+      ...r,
+      customerName: r.customer?.name || "\u2014",
+      arAdjustmentPosted: r.arAdjustmentPosted ? "Yes" : "No",
+    }));
+    const maskedKeys = getVatMaskedKeys(columns);
+    try {
+      const result = await copyTableToClipboard({ title: "Sales Return Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  }, [srFiltered, isVatAuditor, toast]);
+
   const doImportCSV = useCallback((apiPath: string, fields: ExportFieldDef[], reloadFn: () => void) => {
     importFromCSV({ apiPath, formFields: fields }).then(result => {
       toast({

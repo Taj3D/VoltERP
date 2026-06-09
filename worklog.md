@@ -5684,3 +5684,116 @@ Added all Basic Module and Operations module names to `WRITE_DENY` for both SR a
 ## Remaining for Next Phase
 - Phase 13: Module Testing Batch 2 (Inventory + Sales + Returns)
 - Phase 14: Module Testing Batch 3 (Account + SMS + Reports)
+
+---
+Task ID: 13
+Agent: Main Orchestrator
+Task: ধাপ ১৩ — Module Testing Batch 2 (Inventory + Sales + Returns)
+
+## API Testing Results (22 endpoints tested)
+
+### GET Endpoints — ALL 200 ✅
+| Endpoint | HTTP Status |
+|---|---|
+| /api/order-sheets | 200 |
+| /api/order-sheets?orderType=Company | 200 |
+| /api/order-sheets?orderType=Customer | 200 |
+| /api/purchase-orders | 200 |
+| /api/auto-po | 200 |
+| /api/sales-orders | 200 |
+| /api/hire-sales | 200 |
+| /api/sales-returns | 200 |
+| /api/purchase-returns | 200 |
+| /api/replacements | 200 |
+| /api/stock | 200 |
+| /api/stock-details | 200 |
+| /api/transfers | 200 |
+| /api/opening-stock | 200 |
+| /api/batch-master | 200 |
+| /api/valuation | 200 |
+| /api/stock-entries | 200 |
+| /api/stock-valuation | 200 |
+| /api/inventory-aging | 200 |
+| /api/damage-logs | 200 |
+| /api/product-stock | 200 |
+| /api/product-lifecycle | 200 |
+
+### POST (Create) Endpoints
+| Endpoint | Result | Notes |
+|---|---|---|
+| /api/stock-entries | ✅ | Requires `date` field (not just referenceType) |
+| /api/order-sheets | ⚠️ | Stock validation blocks if no stock available (expected) |
+| /api/purchase-orders | ✅ | Created PUR-00001, status: Draft |
+| /api/sales-orders | ✅ | Created SO-00001, grandTotal: 805, arPosted: true |
+| /api/hire-sales | ✅ | Created HIR-00001 (after credit limit increase) |
+| /api/sales-returns | ✅ | Created SRT-00001 (requires salesOrderId) |
+| /api/purchase-returns | ✅ | Created PRT-00001 (requires purchaseOrderId) |
+| /api/replacements | ✅ | Created RPL-00001 |
+| /api/transfers | ✅ | Created TRN-00001, stock checked at source |
+| /api/opening-stock | ✅ | Created with costPrice validation |
+| /api/batch-master | ✅ | Created with batchCode |
+
+### PUT (Update) Endpoints
+| Endpoint | Result |
+|---|---|
+| /api/sales-orders/{id} | ✅ 200 |
+| /api/purchase-orders/{id} | ✅ 200 |
+| /api/transfers/{id} | ✅ 200 |
+| /api/hire-sales/{id} | ✅ 200 |
+| /api/replacements/{id} | ✅ 200 |
+| /api/opening-stock/{id} | ⚠️ "Posted entries cannot be modified. Reverse first." |
+| /api/batch-master/{id} | ✅ 200 |
+| /api/sales-returns/{id} | ✅ 200 |
+| /api/purchase-returns/{id} | ✅ 200 |
+
+### DELETE Endpoints
+| Endpoint | Result |
+|---|---|
+| /api/sales-orders/{id} | ✅ Soft delete |
+| /api/purchase-orders/{id} | ✅ Soft delete |
+| /api/transfers/{id} | ✅ Soft delete |
+| /api/hire-sales/{id} | ✅ Soft delete |
+| /api/replacements/{id} | ✅ Soft delete |
+| /api/batch-master/{id} | ✅ Soft delete |
+| /api/sales-returns/{id} | ✅ Soft delete |
+| /api/purchase-returns/{id} | ✅ Soft delete |
+
+## Bugs Found & Fixed
+
+### 🔴 CRITICAL FIX (1)
+1. **SalesModulePage crash — `doCopySR` not defined**: The Sales Returns tab had a Copy button (`onClick={doCopySR}`) but the function was never implemented. Sales Orders had `doCopySO` and Hire Sales had `doCopyHS`, but Sales Returns was missing `doCopySR`. This caused a ReferenceError that crashed the entire Sales Module component.
+   - **Fix**: Added `doCopySR` useCallback function following the same pattern as `doCopySO` and `doCopyHS`, with proper columns (returnNo, date, customerName, grandTotal, cogsReversal, arAdjustmentPosted, status), data mapping, and VAT auditor masking.
+   - **File**: `src/components/SalesModulePage.tsx` (lines 918-938)
+
+### 🟡 MEDIUM FINDINGS (not fixed — architectural/low-priority)
+2. **First PUT/DELETE calls return empty response**: Turbopack needs to compile the route handler on first access, which can take 5-30 seconds. Subsequent calls work fine. This is a dev-mode issue, not a production bug.
+3. **InventoryGroupPage is monolithic**: 3,866 lines with 13 tabs in a single component. Sales Orders, Hire Sales, Sales Returns state/loaders are duplicated with SalesModulePage.
+4. **No pagination on data loaders**: All API calls load the entire dataset at once.
+5. **Hardcoded batch code generation**: `BCH-${Date.now().toString(36)}` — potential collision under concurrent creates.
+
+## Browser Testing Results
+| Page | Component | Tabs Tested | Status |
+|---|---|---|---|
+| Order Sheet | InventoryGroupPage | Company OS, Customer OS, OS Report, PO, Auto PO | ✅ |
+| Purchase Order | InventoryGroupPage | All inventory tabs | ✅ |
+| Sales Order | SalesModulePage | Sales Orders, Hire Sales, Sales Returns | ✅ (after fix) |
+| Sales Return | SalesModulePage | Sales Returns tab | ✅ (after fix) |
+| Hire Sales | SalesModulePage | Hire Sales tab | ✅ |
+| Purchase Return | ReturnReplacementModulePage | Purchase Returns, Replacements | ✅ |
+| Replacement | ReturnReplacementModulePage | Replacements | ✅ |
+| Stock | StockModulePage | Stock Overview, Stock Details | ✅ |
+| Transfer | StockModulePage | Transfers tab | ✅ |
+| Opening Stock | StockModulePage | Opening Stock tab | ✅ |
+| Batch Master | StockModulePage | Batch Master tab | ✅ |
+| Valuation | StockModulePage | Valuation tab (with filters) | ✅ |
+
+## Verification
+- ✅ `bun run lint` passes clean
+- ✅ No browser console errors after fix
+- ✅ All 22 GET endpoints return 200
+- ✅ All CRUD operations functional (with proper field names)
+- ✅ Credit limit check blocks orders exceeding customer credit ceiling
+- ✅ Stock validation blocks sales/transfers when insufficient stock
+- ✅ Period close guard prevents posting to closed fiscal periods
+- ✅ Soft delete pattern consistent across all endpoints
+- ✅ VAT masking works in GET responses for VAT Auditor role
