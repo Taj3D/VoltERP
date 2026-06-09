@@ -323,6 +323,9 @@ function formatCellValue(
 // ============================================================
 
 function escapeCSVField(value: string, isNumeric?: boolean): string {
+  // Guard against undefined/null values (e.g. sparse rows with missing cells)
+  if (value === undefined || value === null) return "";
+
   // Pure numeric values don't need quoting
   if (isNumeric && /^[0-9.,-]+$/.test(value)) {
     return value;

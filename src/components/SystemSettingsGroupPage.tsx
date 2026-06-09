@@ -1261,14 +1261,14 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="h-4 w-4 mr-1" /> CSV
+          <Download className="h-4 w-4 mr-1" /> Export CSV
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <FileDown className="h-4 w-4 mr-1" /> PDF
+          <FileDown className="h-4 w-4 mr-1" /> Export PDF
         </Button>
         {canMutate && (
           <Button variant="outline" size="sm" onClick={handleImportCSV}>
-            <Upload className="h-4 w-4 mr-1" /> Import
+            <Upload className="h-4 w-4 mr-1" /> Import CSV
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadTemplates}>
@@ -1748,14 +1748,14 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="h-4 w-4 mr-1" /> CSV
+          <Download className="h-4 w-4 mr-1" /> Export CSV
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <FileDown className="h-4 w-4 mr-1" /> PDF
+          <FileDown className="h-4 w-4 mr-1" /> Export PDF
         </Button>
         {canMutate && (
           <Button variant="outline" size="sm" onClick={handleImportCSV}>
-            <Upload className="h-4 w-4 mr-1" /> Import
+            <Upload className="h-4 w-4 mr-1" /> Import CSV
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadFormats}>
@@ -2128,10 +2128,10 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="h-4 w-4 mr-1" /> CSV
+          <Download className="h-4 w-4 mr-1" /> Export CSV
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <FileDown className="h-4 w-4 mr-1" /> PDF
+          <FileDown className="h-4 w-4 mr-1" /> Export PDF
         </Button>
         <Button variant="ghost" size="sm" onClick={loadEntries}>
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -2458,14 +2458,14 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="h-4 w-4 mr-1" /> CSV
+          <Download className="h-4 w-4 mr-1" /> Export CSV
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <FileDown className="h-4 w-4 mr-1" /> PDF
+          <FileDown className="h-4 w-4 mr-1" /> Export PDF
         </Button>
         {canMutate && (
           <Button variant="outline" size="sm" onClick={handleImportCSV}>
-            <Upload className="h-4 w-4 mr-1" /> Import
+            <Upload className="h-4 w-4 mr-1" /> Import CSV
           </Button>
         )}
         {canMutate && (

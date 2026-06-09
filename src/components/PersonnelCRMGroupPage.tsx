@@ -1557,14 +1557,14 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={handleExportCSV}>
-          <Download className="h-4 w-4 mr-1" /> CSV
+          <Download className="h-4 w-4 mr-1" /> Export CSV
         </Button>
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <FileDown className="h-4 w-4 mr-1" /> PDF
+          <FileDown className="h-4 w-4 mr-1" /> Export PDF
         </Button>
         {(canMutate || (isSR && config.key === "customers")) && (
           <Button variant="outline" size="sm" onClick={handleImportCSV}>
-            <Upload className="h-4 w-4 mr-1" /> Import
+            <Upload className="h-4 w-4 mr-1" /> Import CSV
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadData}>

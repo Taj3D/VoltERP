@@ -37,7 +37,7 @@ const ROLE_ACCESS: Record<UserRole, string[]> = {
   manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report", "system-settings"],
   sr: ["basic-modules", "staff", "customers-suppliers", "inventory", "sms"],
   dealer: ["basic-modules", "customers-suppliers", "inventory"],
-  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "accounting-report", "financial-audit", "mis-report", "system-settings"],
+  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "account", "accounting-report", "financial-audit", "mis-report", "system-settings", "investment"],
 };
 
 // ============================================================

@@ -1006,10 +1006,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
             <Input value={stockSearch} onChange={e => setStockSearch(e.target.value)} placeholder="Search products..." className="pl-8 h-9" />
           </div>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Overview", exportColumns, stockFiltered)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Overview", exportColumns, stockFiltered)}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Overview", exportColumns, stockFiltered)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Overview", exportColumns, stockFiltered)}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Overview", exportColumns, stockFiltered)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
-          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/opening-stock", [], loadStock)} /></label>}
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/stock", [], loadStock)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadStock}>
             <RefreshCw className={`h-4 w-4 ${stockLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -1178,9 +1178,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
           </Select>
           <Input type="date" value={sdDateFrom} onChange={e => setSdDateFrom(e.target.value)} className="h-9 w-36 text-xs" />
           <Input type="date" value={sdDateTo} onChange={e => setSdDateTo(e.target.value)} className="h-9 w-36 text-xs" />
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Movement Trail", exportColumns, sdData)} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Movement Trail", exportColumns, sdData)} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Movement Trail", exportColumns, sdData)} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Movement Trail", exportColumns, sdData)} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Movement Trail", exportColumns, sdData)} disabled={!sdSelectedProduct}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild disabled={!sdSelectedProduct}><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/stock-details", [], () => { if (sdSelectedProduct) loadStockDetails(sdSelectedProduct); })} /></label>}
           <Button variant="ghost" size="sm" onClick={() => sdSelectedProduct && loadStockDetails(sdSelectedProduct)} disabled={!sdSelectedProduct}>
             <RefreshCw className={`h-4 w-4 ${sdLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -1326,12 +1327,12 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
               <Plus className="h-4 w-4 mr-1" /> Create Transfer
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Transfers", exportColumns, exportData)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Transfers", exportColumns, exportData)}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Transfers", exportColumns, exportData)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Transfers", exportColumns, exportData)}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Transfers", exportColumns, exportData)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           {isAdmin && (
             <label className="cursor-pointer">
-              <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
+              <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button>
               <input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/transfers?import=true", [
                 { key: "fromGodownCode", label: "From Godown Code", type: "text", required: true },
                 { key: "toGodownCode", label: "To Godown Code", type: "text", required: true },
@@ -1694,10 +1695,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
               <Plus className="h-4 w-4 mr-1" /> Add Entry
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Opening Stock", exportColumns, exportData)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Opening Stock", exportColumns, exportData)}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Opening Stock", exportColumns, exportData)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Opening Stock", exportColumns, exportData)}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Opening Stock", exportColumns, exportData)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
-          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/opening-stock", [], loadOpeningStock)} /></label>}
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/opening-stock", [], loadOpeningStock)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadOpeningStock}>
             <RefreshCw className={`h-4 w-4 ${osLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -1916,10 +1917,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
               <Plus className="h-4 w-4 mr-1" /> Add Batch
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Batch Master", exportColumns, exportData)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Batch Master", exportColumns, exportData)}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Batch Master", exportColumns, exportData)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Batch Master", exportColumns, exportData)}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Batch Master", exportColumns, exportData)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
-          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/batches", [], loadBatches)} /></label>}
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/batch-master", [], loadBatches)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadBatches}>
             <RefreshCw className={`h-4 w-4 ${bmLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -2136,9 +2137,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
             <Input value={valSearch} onChange={e => setValSearch(e.target.value)} placeholder="Search valuation..." className="pl-8 h-9" />
           </div>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Valuation", exportColumns, valFiltered)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Inventory Valuation", exportColumns, valFiltered)}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Valuation", exportColumns, valFiltered)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Inventory Valuation", exportColumns, valFiltered)}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Inventory Valuation", exportColumns, valFiltered)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/valuation", [], loadValuation)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadValuation}>
             <RefreshCw className={`h-4 w-4 ${valLoading ? "animate-spin" : ""}`} />
           </Button>

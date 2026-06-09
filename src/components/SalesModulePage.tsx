@@ -1062,12 +1062,12 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
               <Plus className="h-4 w-4 mr-1" /> Add SO
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => doExportSO("csv")}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportSO("pdf")}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportSO("csv")}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportSO("pdf")}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={doCopySO}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <Button variant="outline" size="sm" onClick={loadCOGSDashboard}><BarChart3 className="h-4 w-4 mr-1" /> COGS</Button>
           <label className="cursor-pointer">
-            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
+            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button>
             <input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/sales-orders", [], loadSalesOrders)} />
           </label>
           <Button variant="ghost" size="sm" onClick={loadSalesOrders}>
@@ -1477,10 +1477,10 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
               <Plus className="h-4 w-4 mr-1" /> Add Hire Sale
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => doExportHS("csv")}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportHS("pdf")}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportHS("csv")}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportHS("pdf")}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={doCopyHS}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
-          {(isAdmin) && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/hire-sales", [], loadHireSales)} /></label>}
+          {(isAdmin) && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/hire-sales", [], loadHireSales)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadHireSales}>
             <RefreshCw className={`h-4 w-4 ${hsLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -1900,11 +1900,11 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
               <Plus className="h-4 w-4 mr-1" /> Add Return
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => doExportSR("csv")}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportSR("pdf")}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportSR("csv")}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportSR("pdf")}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={doCopySR}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <label className="cursor-pointer">
-            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
+            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button>
             <input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/sales-returns", [], loadSalesReturns)} />
           </label>
           <Button variant="ghost" size="sm" onClick={loadSalesReturns}>

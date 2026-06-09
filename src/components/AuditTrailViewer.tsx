@@ -1356,7 +1356,7 @@ export default function AuditTrailViewer() {
           </Button>
           <Button variant="outline" size="sm" onClick={handleExportPDF}>
             <FileDown className="w-4 h-4 mr-1" />
-            Audit PDF
+            Export PDF
           </Button>
         </div>
       </div>

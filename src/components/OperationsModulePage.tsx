@@ -692,10 +692,10 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             <Plus className="h-4 w-4 mr-1" /> Add Target
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
         {canMutate && (
-          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import</Button>
+          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
       </div>
@@ -1257,10 +1257,10 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
         {canMutate && (
           <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add</Button>
         )}
-        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
         {canMutate && (
-          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import</Button>
+          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
       </div>
@@ -1661,9 +1661,9 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search card types..." className="pl-8" />
         </div>
         {canMutate && <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add</Button>}
-        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
-        {canMutate && <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import</Button>}
+        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+        {canMutate && <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>}
         <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
       </div>
 
@@ -2130,9 +2130,9 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search card type setups..." className="pl-8" />
         </div>
         {canMutate && <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add</Button>}
-        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
-        {canMutate && <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import</Button>}
+        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+        {canMutate && <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>}
         <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
       </div>
 

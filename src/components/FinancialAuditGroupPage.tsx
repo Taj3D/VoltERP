@@ -789,14 +789,30 @@ export default function FinancialAuditGroupPage({
               <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={() => doExportAuditPDF("Fraud Detection Report", fraudExportColumns, assetVal.valuationRisk || [], score)}>
-              <FileDown className="w-3.5 h-3.5 mr-1" /> Audit PDF
+              <FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF
             </Button>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Fraud Detection", fraudExportColumns, assetVal.valuationRisk || [])}>
-              <Download className="w-3.5 h-3.5 mr-1" /> CSV
+              <Download className="w-3.5 h-3.5 mr-1" /> Export CSV
             </Button>
             <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Fraud Detection", fraudExportColumns, assetVal.valuationRisk || [])}>
               <Copy className="w-3.5 h-3.5 mr-1" /> Copy
             </Button>
+            {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+              importFromCSV({
+                apiPath: "/api/financial-audit/fraud-detection",
+                formFields: [
+                  { key: "productCode", label: "Product Code", type: "text", required: true },
+                  { key: "name", label: "Product", type: "text", required: true },
+                  { key: "bookValue", label: "Book Value", type: "number", required: true },
+                  { key: "marketValue", label: "Market Value", type: "number", required: true },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadFraudDetection();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
           </div>
         </div>
 
@@ -1102,8 +1118,8 @@ export default function FinancialAuditGroupPage({
           {isAdmin && <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openPostPODialog}><Package className="w-4 h-4 mr-1" /> Post Purchase Order</Button>}
           {isAdmin && <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={runAllPending} disabled={ledgerActionLoading}><Play className="w-4 h-4 mr-1" /> {ledgerActionLoading ? "Running..." : "Run All Pending"}</Button>}
           <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, ["amount"])}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, "landscape", ["amount"])}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, ["amount"])}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, "landscape", ["amount"])}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, ["amount"])}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
             importFromCSV({
@@ -1240,8 +1256,8 @@ export default function FinancialAuditGroupPage({
           <div className="space-y-1"><Label className="text-xs">Godown</Label><Select value={agingGodownId} onValueChange={setAgingGodownId}><SelectTrigger className="h-9 w-40"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All Godowns</SelectItem>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent></Select></div>
           <Button onClick={loadAging} className="h-9 bg-[#2563eb] hover:bg-[#1d4ed8]"><RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh</Button>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={() => doExportAuditPDF("Inventory Aging Report", agingExportColumns, agingData, agingSummary?.averageAge)}><FileDown className="w-3.5 h-3.5 mr-1" /> Audit PDF</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Aging", agingExportColumns, agingData)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportAuditPDF("Inventory Aging Report", agingExportColumns, agingData, agingSummary?.averageAge)}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Aging", agingExportColumns, agingData)}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Inventory Aging", agingExportColumns, agingData)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
             importFromCSV({
@@ -1375,8 +1391,8 @@ export default function FinancialAuditGroupPage({
           <Button onClick={loadLifecycle} className="h-9 bg-[#2563eb] hover:bg-[#1d4ed8]"><Search className="w-3.5 h-3.5 mr-1" /> Search</Button>
           {isAdmin && <Button variant="outline" className="h-9" onClick={() => setLifecycleForm(true)}><Plus className="w-3.5 h-3.5 mr-1" /> New Tracking</Button>}
           <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Product Lifecycle", lifecycleExportColumns, lifecycleRecords, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Product Lifecycle", lifecycleExportColumns, lifecycleRecords, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
             importFromCSV({
@@ -1539,9 +1555,24 @@ export default function FinancialAuditGroupPage({
             <Receipt className="w-5 h-5 text-[#2563eb]" /> Hire Purchase Installments
           </h3>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => doExportPDF("Hire Purchase Report", hpExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
-            <Button variant="outline" size="sm" onClick={() => doExportCSV("Hire Purchase", hpExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => doExportPDF("Hire Purchase Report", hpExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+            <Button variant="outline" size="sm" onClick={() => doExportCSV("Hire Purchase", hpExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
             <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Hire Purchase", hpExportColumns, records)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
+            {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+              importFromCSV({
+                apiPath: "/api/hire-sales",
+                formFields: [
+                  { key: "customerId", label: "Customer ID", type: "text", required: true },
+                  { key: "date", label: "Date", type: "date", required: true },
+                  { key: "totalAmount", label: "Total Amount", type: "number", required: true },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadHirePurchase();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
           </div>
         </div>
 
@@ -1640,9 +1671,23 @@ export default function FinancialAuditGroupPage({
             <HandCoins className="w-5 h-5 text-[#2563eb]" /> Commission Payouts
           </h3>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => doExportPDF("Commission Report", commExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
-            <Button variant="outline" size="sm" onClick={() => doExportCSV("Commission Report", commExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => doExportPDF("Commission Report", commExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+            <Button variant="outline" size="sm" onClick={() => doExportCSV("Commission Report", commExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
             <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Commission Report", commExportColumns, records)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
+            {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+              importFromCSV({
+                apiPath: "/api/employees",
+                formFields: [
+                  { key: "name", label: "Employee Name", type: "text", required: true },
+                  { key: "commissionRate", label: "Commission Rate %", type: "number" },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadCommission();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
           </div>
         </div>
 
@@ -1741,9 +1786,24 @@ export default function FinancialAuditGroupPage({
             <CircleDollarSign className="w-5 h-5 text-[#2563eb]" /> Customer Collection Matrix
           </h3>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => doExportPDF("Collection Matrix", collExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
-            <Button variant="outline" size="sm" onClick={() => doExportCSV("Collection Matrix", collExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => doExportPDF("Collection Matrix", collExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+            <Button variant="outline" size="sm" onClick={() => doExportCSV("Collection Matrix", collExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
             <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Collection Matrix", collExportColumns, records)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
+            {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
+              importFromCSV({
+                apiPath: "/api/customers",
+                formFields: [
+                  { key: "name", label: "Customer Name", type: "text", required: true },
+                  { key: "phone", label: "Phone", type: "text" },
+                  { key: "creditLimit", label: "Credit Limit", type: "number" },
+                ],
+              }).then(result => {
+                toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                loadCollection();
+              }).catch((e: any) => {
+                toast({ title: "Import Error", description: e.message, variant: "destructive" });
+              });
+            }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
           </div>
         </div>
 
@@ -1903,9 +1963,28 @@ export default function FinancialAuditGroupPage({
             </div>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap gap-2 mb-3 items-center">
               <Select value={notifTypeFilter} onValueChange={setNotifTypeFilter}><SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="All Types" /></SelectTrigger><SelectContent><SelectItem value="all">All Types</SelectItem>{["LowStock", "OverdueInstallment", "DataIntegrity", "PeriodClose", "BalanceMismatch", "System"].map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select>
               <Select value={notifSeverityFilter} onValueChange={setNotifSeverityFilter}><SelectTrigger className="h-8 w-28 text-xs"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem>{["Info", "Warning", "Critical"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+              <div className="flex-1" />
+              <Button variant="outline" size="sm" className="h-8" onClick={() => doExportCSV("Notifications", [{ key: "title", label: "Title", type: "text" }, { key: "message", label: "Message", type: "text" }, { key: "type", label: "Type", type: "text" }, { key: "severity", label: "Severity", type: "text" }, { key: "createdAt", label: "Date", type: "date" }], notifRecords)}><Download className="w-3.5 h-3.5 mr-1" /> Export CSV</Button>
+              <Button variant="outline" size="sm" className="h-8" onClick={() => doExportPDF("Notifications", [{ key: "title", label: "Title", type: "text" }, { key: "message", label: "Message", type: "text" }, { key: "type", label: "Type", type: "text" }, { key: "severity", label: "Severity", type: "text" }, { key: "createdAt", label: "Date", type: "date" }], notifRecords)}><FileDown className="w-3.5 h-3.5 mr-1" /> Export PDF</Button>
+              {(isAdmin || isManager) && <Button variant="outline" size="sm" className="h-8" onClick={() => {
+                importFromCSV({
+                  apiPath: "/api/notifications",
+                  formFields: [
+                    { key: "title", label: "Title", type: "text", required: true },
+                    { key: "message", label: "Message", type: "text", required: true },
+                    { key: "type", label: "Type", type: "text" },
+                    { key: "severity", label: "Severity", type: "select", options: [{ value: "Info", label: "Info" }, { value: "Warning", label: "Warning" }, { value: "Critical", label: "Critical" }] },
+                  ],
+                }).then(result => {
+                  toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                  loadNotifications();
+                }).catch((e: any) => {
+                  toast({ title: "Import Error", description: e.message, variant: "destructive" });
+                });
+              }}><Upload className="w-3.5 h-3.5 mr-1" /> Import CSV</Button>}
             </div>
 
             {notifLoading ? <LoadingSkeleton rows={3} /> : (
@@ -1943,7 +2022,26 @@ export default function FinancialAuditGroupPage({
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4" /> Data Integrity Checks
               </CardTitle>
-              {isAdmin && <Button variant="ghost" size="sm" className="h-7 text-white hover:text-white hover:bg-white/10" onClick={runIntegrityCheck}><ClipboardCheck className="w-3 h-3 mr-1" /> Run Checks</Button>}
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" className="h-7 text-white hover:text-white hover:bg-white/10" onClick={() => doExportCSV("Data Integrity", [{ key: "code", label: "Code", type: "text" }, { key: "checkType", label: "Check Type", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "status", label: "Status", type: "text" }, { key: "discrepancy", label: "Discrepancy", type: "text" }, { key: "checkedAt", label: "Date", type: "date" }], integrityRecords)}><Download className="w-3 h-3 mr-1" /> Export CSV</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-white hover:text-white hover:bg-white/10" onClick={() => doExportPDF("Data Integrity", [{ key: "code", label: "Code", type: "text" }, { key: "checkType", label: "Check Type", type: "text" }, { key: "module", label: "Module", type: "text" }, { key: "status", label: "Status", type: "text" }, { key: "discrepancy", label: "Discrepancy", type: "text" }, { key: "checkedAt", label: "Date", type: "date" }], integrityRecords)}><FileDown className="w-3 h-3 mr-1" /> Export PDF</Button>
+                {(isAdmin || isManager) && <Button variant="ghost" size="sm" className="h-7 text-white hover:text-white hover:bg-white/10" onClick={() => {
+                  importFromCSV({
+                    apiPath: "/api/data-integrity",
+                    formFields: [
+                      { key: "code", label: "Code", type: "text", required: true },
+                      { key: "checkType", label: "Check Type", type: "text", required: true },
+                      { key: "module", label: "Module", type: "text" },
+                    ],
+                  }).then(result => {
+                    toast({ title: "Import Complete", description: `${result.imported} imported, ${result.failed} failed` });
+                    loadIntegrity();
+                  }).catch((e: any) => {
+                    toast({ title: "Import Error", description: e.message, variant: "destructive" });
+                  });
+                }}><Upload className="w-3 h-3 mr-1" /> Import CSV</Button>}
+                {isAdmin && <Button variant="ghost" size="sm" className="h-7 text-white hover:text-white hover:bg-white/10" onClick={runIntegrityCheck}><ClipboardCheck className="w-3 h-3 mr-1" /> Run Checks</Button>}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-4">

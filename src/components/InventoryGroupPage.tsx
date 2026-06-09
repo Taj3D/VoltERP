@@ -594,12 +594,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             <Plus className="h-4 w-4 mr-1" /> {createLabel || "Add"}
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={onExportCSV}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-        <Button variant="outline" size="sm" onClick={onExportPDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        <Button variant="outline" size="sm" onClick={onExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={onExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
         {onCopyToClipboard && <Button variant="outline" size="sm" onClick={onCopyToClipboard}><Copy className="h-4 w-4 mr-1" /> Copy</Button>}
         {onImportCSV && canCreate && (
           <label className="cursor-pointer">
-            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
+            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button>
             <input type="file" accept=".csv" className="hidden" onChange={onImportCSV} />
           </label>
         )}
@@ -1773,7 +1773,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 const reportData = osReportFiltered.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—", godownName: o.godown?.name || "—", orderType: o.orderType || (o.companyId ? "Company" : "Customer") }));
                 doExportCSV("Ordersheet Report", osReportColumns, reportData);
               } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-            }}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+            }}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
             <Button variant="outline" size="sm" onClick={() => {
               try {
                 const reportData = osReportFiltered.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—", godownName: o.godown?.name || "—", orderType: o.orderType || (o.companyId ? "Company" : "Customer") }));
@@ -1800,7 +1800,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 });
                 toast({ title: "PDF Exported", description: "Ordersheet Report exported" });
               } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-            }}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+            }}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           </div>
         </CardContent>
       </Card>
@@ -2106,10 +2106,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
               <SelectItem value="Fully Received">Fully Received</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={doExportPOCorporatePDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={doExportPOCorporatePDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
-          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)} /></label>}
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadPurchaseOrders}><RefreshCw className={`h-4 w-4 ${poLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={openPoCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add PO</Button>}
         </div>
@@ -2494,8 +2494,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
               {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-          <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <Button variant="ghost" size="sm" onClick={loadAutoPo}><RefreshCw className={`h-4 w-4 ${autoPoLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO by Supplier (${autoPoSelected.size})`}</Button>}
@@ -3668,7 +3668,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             stockStatus: s.stockStatus || "In Stock",
           }));
           doExportCSV("Stock", stockExportCols, stockExportData, ["stockValue"]);
-        }}><Download className="h-4 w-4 mr-1" /> CSV</Button>
+        }}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
         <Button variant="outline" size="sm" onClick={() => {
           const stockExportCols: ExportColumnDef[] = [
             { key: "productName", label: "Product", type: "text" },
@@ -3691,7 +3691,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             stockStatus: s.stockStatus || "In Stock",
           }));
           doExportPDF("Stock", stockExportCols, stockExportData, ["stockValue"]);
-        }}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        }}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
         <Button variant="ghost" size="sm" onClick={loadStock}><RefreshCw className={`h-4 w-4 ${stockLoading ? "animate-spin" : ""}`} /></Button>
       </div>
       <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
@@ -3738,8 +3738,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <Input value={sdSearch} onChange={e => setSdSearch(e.target.value)} placeholder="Search entries..." className="pl-8" />
         </div>
-        <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> CSV</Button>
-        <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
         <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
       </div>
       <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
