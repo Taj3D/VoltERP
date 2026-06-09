@@ -41,6 +41,7 @@ import {
 import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { apiFetch } from "@/lib/api-client";
+import { exportInvoicePDF, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -334,6 +335,93 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
       loadSalesOrders();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }, [soDelete, toast, loadSalesOrders]);
+
+  const handlePrintInvoice = useCallback(async (soId: string, invoiceNo?: string) => {
+    try {
+      toast({ title: "Generating Invoice", description: "Fetching data..." });
+      const [brandingResp, so] = await Promise.all([
+        apiFetch("/api/company-branding"),
+        apiFetch(`/api/sales-orders/${soId}?include=lines,customer,paymentOption`),
+      ]);
+      const companyProfile: InvoiceCompanyProfile = (brandingResp as any)?.company || brandingResp;
+      const customer = so.customer || {};
+      const paymentOption = so.paymentOption || {};
+      const items: InvoiceLineItem[] = (so.lines || []).map((line: any, idx: number) => {
+        const qty = Number(line.quantity) || 0;
+        const rate = Number(line.rate) || 0;
+        const discPct = Number(line.discountPercent) || 0;
+        const discAmt = qty * rate * (discPct / 100);
+        const lineTotal = qty * rate - discAmt;
+        return {
+          sl: idx + 1,
+          model: line.product?.sku || "",
+          color: line.product?.color || "",
+          description: line.product?.name || "Item",
+          qty,
+          mrp: rate,
+          discountAmt: discAmt || undefined,
+          unitPrice: rate,
+          amount: lineTotal,
+        };
+      });
+      const subTotal = items.reduce((s, i) => s + i.qty * (i.mrp || 0), 0);
+      const discountAmount = Number(so.discount) || 0;
+      const discountPercent = subTotal > 0 ? (discountAmount / subTotal) * 100 : 0;
+      let printedBy = "System";
+      try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); printedBy = a.user?.displayName || a.user?.name || "System"; } catch { /* use default */ }
+      const invoiceData: InvoiceData = {
+        invoiceNo: invoiceNo || so.invoiceNo || `INV-${String(so.id).padStart(5, "0")}`,
+        invoiceDate: so.date,
+        customerCode: customer.customerCode || undefined,
+        customerName: customer.name || "Walk-in Customer",
+        customerMobile: customer.phone || undefined,
+        customerAddress: customer.address || undefined,
+        items,
+        discountAmount,
+        discountPercent: Math.round(discountPercent * 100) / 100,
+        netTotal: Number(so.grandTotal) || 0,
+        paidAmount: Number(so.grandTotal) || 0,
+        currentDue: 0,
+        paymentDetails: [{ paymentType: paymentOption.name || "Cash", paidAmount: Number(so.grandTotal) || 0 }],
+        payInWord: numberToWordsBDT(Number(so.grandTotal) || 0),
+        invoiceType: "Sales Invoice",
+        barcodeData: so.invoiceNo || "",
+        printedBy,
+        salesPerson: so.srId || "System",
+      };
+      const templateConfig: InvoiceTemplateConfig = {
+        showLogo: true,
+        showBrandLogo: true,
+        showMobile: true,
+        showAddress: true,
+        showVatNumber: true,
+        showCustomerCode: true,
+        showPrevDue: false,
+        showTotalDue: false,
+        showModel: false,
+        showColor: false,
+        showDescription: true,
+        showMRP: true,
+        showDiscountAmt: true,
+        showDiscountPct: true,
+        showUnitPrice: true,
+        showPaymentDetails: true,
+        showCustomerSignature: true,
+        showPreparedBy: true,
+        showAuthorizedBy: true,
+        showPrintDate: true,
+      };
+      exportInvoicePDF({
+        invoice: invoiceData,
+        company: companyProfile,
+        template: templateConfig,
+        filename: `Invoice_${invoiceData.invoiceNo}.pdf`,
+      });
+      toast({ title: "Invoice Generated", description: `${invoiceData.invoiceNo} PDF generated successfully` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to generate invoice", variant: "destructive" });
+    }
+  }, [toast]);
 
   // ─── Sales Order Line Helpers ───
   const soLineTotal = useCallback((line: any) => {
@@ -1133,6 +1221,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
                         <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
                         <TableCell>
                           <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                            <Button variant="ghost" size="sm" onClick={() => handlePrintInvoice(item.id, item.invoiceNo)} className="h-7 w-7 p-0 text-blue-500" title="Print Invoice"><Printer className="h-3 w-3" /></Button>
                             {(isAdmin || isSR) && <Button variant="ghost" size="sm" onClick={() => openSoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>}
                             {isAdmin && <Button variant="ghost" size="sm" onClick={() => setSoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
                           </div>

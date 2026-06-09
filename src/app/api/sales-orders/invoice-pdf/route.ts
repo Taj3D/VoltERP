@@ -1,7 +1,9 @@
 // ============================================================
 // INVOICE PDF GENERATION API
 // Generates a professional sales invoice PDF with company logo
-// Uses the same invoice-engine.ts for consistent formatting
+// Fixed: Logo rendering, title, item table, customer details,
+// Bengali fallback, date format, VAT, Pay In Word, signatures,
+// layout, system note
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -77,7 +79,6 @@ const PAGE_HEIGHT = 297;
 const MARGIN_LEFT = 10;
 const MARGIN_RIGHT = 10;
 const MARGIN_TOP = 8;
-const MARGIN_BOTTOM = 8;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT;
 
 const bdtFormatter = new Intl.NumberFormat('en-US', {
@@ -109,6 +110,22 @@ function safeStr(value: string | undefined | null, fallback: string = ''): strin
   return value;
 }
 
+// Check if a string contains non-ASCII (e.g., Bengali) characters
+function hasNonAscii(str: string): boolean {
+  return /[^\x00-\x7F]/.test(str);
+}
+
+// Get a safe thank-you message (fallback for Bengali text that jsPDF can't render)
+function getSafeThankYouMsg(msg: string | undefined): string {
+  const fallback = 'Thank You! Come Again.';
+  if (!msg) return fallback;
+  if (hasNonAscii(msg)) {
+    // jsPDF can't render Bengali — use English fallback
+    return fallback;
+  }
+  return msg;
+}
+
 function drawCompanyHeader(
   doc: jsPDF,
   company: InvoiceCompanyProfile,
@@ -119,22 +136,31 @@ function drawCompanyHeader(
   const logoH = company.logoHeight || 20;
   let textStartX = MARGIN_LEFT;
 
-  // Draw company logo
+  // Draw company logo (left side)
   if (company.logo) {
     try {
-      const dataUrl = company.logo.startsWith('data:') ? company.logo : `data:image/png;base64,${company.logo}`;
-      doc.addImage(dataUrl, 'PNG', MARGIN_LEFT, y, logoW, logoH);
+      let dataUrl = company.logo;
+      if (!dataUrl.startsWith('data:')) {
+        dataUrl = `data:image/png;base64,${dataUrl}`;
+      }
+      // Detect format from data URL
+      const format = dataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
+      doc.addImage(dataUrl, format, MARGIN_LEFT, y, logoW, logoH);
       textStartX = MARGIN_LEFT + logoW + 4;
     } catch {
       textStartX = MARGIN_LEFT;
     }
   }
 
-  // Draw brand logo on the right
+  // Draw brand logo on the right side
   if (company.brandLogo) {
     try {
-      const brandDataUrl = company.brandLogo.startsWith('data:') ? company.brandLogo : `data:image/png;base64,${company.brandLogo}`;
-      doc.addImage(brandDataUrl, 'PNG', PAGE_WIDTH - MARGIN_RIGHT - logoW, y, logoW, logoH);
+      let brandDataUrl = company.brandLogo;
+      if (!brandDataUrl.startsWith('data:')) {
+        brandDataUrl = `data:image/png;base64,${brandDataUrl}`;
+      }
+      const format = brandDataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
+      doc.addImage(brandDataUrl, format, PAGE_WIDTH - MARGIN_RIGHT - logoW, y, logoW, logoH);
     } catch { /* skip */ }
   }
 
@@ -147,20 +173,20 @@ function drawCompanyHeader(
 
   // Address
   if (company.address) {
-    doc.setFontSize(14);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
     doc.text(company.address, textStartX, y + 3);
-    y += 7;
+    y += 6;
   }
 
   // Mobile
   if (company.mobile) {
-    doc.setFontSize(14);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Mobile Number: ${company.mobile}`, textStartX, y + 3);
-    y += 7;
+    doc.text(`Mobile: ${company.mobile}`, textStartX, y + 3);
+    y += 6;
   } else if (company.phone) {
-    doc.setFontSize(12);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
     doc.text(`Phone: ${company.phone}`, textStartX, y + 3);
     y += 6;
@@ -168,7 +194,7 @@ function drawCompanyHeader(
 
   // Email
   if (company.email) {
-    doc.setFontSize(10);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(80, 80, 80);
     doc.text(company.email, textStartX, y + 3);
@@ -176,11 +202,23 @@ function drawCompanyHeader(
     y += 5;
   }
 
-  // VAT Number
+  // VAT Number (always show if set)
   if (company.vatNumber) {
-    doc.setFontSize(10);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
     doc.text(`VAT No: ${company.vatNumber}`, textStartX, y + 3);
+    doc.setTextColor(10, 22, 40);
+    y += 5;
+  }
+
+  // Trade License
+  if (company.tradeLicense) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
+    doc.text(`Trade License: ${company.tradeLicense}`, textStartX, y + 3);
+    doc.setTextColor(10, 22, 40);
     y += 5;
   }
 
@@ -191,14 +229,14 @@ function drawCompanyHeader(
   doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
   y += 4;
 
-  // Invoice Title
-  doc.setFontSize(11);
+  // Invoice Title — centered, bold
+  doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(10, 22, 40);
-  const titleText = safeStr(invoiceType, 'Invoice');
+  const titleText = safeStr(invoiceType, 'Sales Invoice');
   const titleWidth = doc.getTextWidth(titleText);
   doc.text(titleText, PAGE_WIDTH / 2 - titleWidth / 2, y);
-  y += 4;
+  y += 3;
 
   // Separator
   doc.setLineWidth(0.3);
@@ -213,12 +251,12 @@ function drawMetadataGrid(doc: jsPDF, invoice: InvoiceData, startY: number): num
   const colWidth = CONTENT_WIDTH / 2;
   const leftX = MARGIN_LEFT;
   const rightX = MARGIN_LEFT + colWidth;
-  const rowHeight = 6;
+  const rowHeight = 5.5;
 
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setTextColor(10, 22, 40);
 
-  // LEFT COLUMN
+  // LEFT COLUMN — Customer info
   const leftItems: Array<{ label: string; value: string }> = [];
   leftItems.push({ label: 'Invoice No:', value: safeStr(invoice.invoiceNo) });
   if (invoice.customerCode) leftItems.push({ label: 'Customer Code:', value: safeStr(invoice.customerCode) });
@@ -226,11 +264,11 @@ function drawMetadataGrid(doc: jsPDF, invoice: InvoiceData, startY: number): num
   if (invoice.customerMobile) leftItems.push({ label: 'Mobile No:', value: safeStr(invoice.customerMobile) });
   if (invoice.customerAddress) leftItems.push({ label: 'Address:', value: safeStr(invoice.customerAddress) });
 
-  // RIGHT COLUMN
+  // RIGHT COLUMN — Date & Due info
   const rightItems: Array<{ label: string; value: string }> = [];
   rightItems.push({ label: 'Invoice Date:', value: fmtDate(invoice.invoiceDate) });
-  if (invoice.prevDue !== undefined) rightItems.push({ label: 'Prev.Due:', value: fmtCurrency(invoice.prevDue) });
-  if (invoice.totalDue !== undefined) rightItems.push({ label: 'Total Due:', value: fmtCurrency(invoice.totalDue) });
+  if (invoice.prevDue !== undefined && invoice.prevDue > 0) rightItems.push({ label: 'Prev.Due:', value: fmtCurrency(invoice.prevDue) });
+  if (invoice.totalDue !== undefined && invoice.totalDue > 0) rightItems.push({ label: 'Total Due:', value: fmtCurrency(invoice.totalDue) });
 
   const maxRows = Math.max(leftItems.length, rightItems.length);
   const gridHeight = maxRows * rowHeight + 4;
@@ -248,44 +286,44 @@ function drawMetadataGrid(doc: jsPDF, invoice: InvoiceData, startY: number): num
   doc.line(MARGIN_LEFT + colWidth, y, MARGIN_LEFT + colWidth, y + gridHeight);
 
   // Left column
-  let rowY = y + 5;
+  let rowY = y + 4;
   for (const item of leftItems) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.text(item.label, leftX + 2, rowY);
     doc.setFont('helvetica', 'normal');
-    doc.text(item.value, leftX + 37, rowY);
+    doc.text(item.value, leftX + 32, rowY);
     doc.setDrawColor(230, 230, 230);
     doc.line(leftX + 2, rowY + 2, leftX + colWidth - 2, rowY + 2);
     rowY += rowHeight;
   }
 
   // Right column
-  rowY = y + 5;
+  rowY = y + 4;
   for (const item of rightItems) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.text(item.label, rightX + 2, rowY);
     doc.setFont('helvetica', 'normal');
-    doc.text(item.value, rightX + 37, rowY);
+    doc.text(item.value, rightX + 32, rowY);
     doc.setDrawColor(230, 230, 230);
     doc.line(rightX + 2, rowY + 2, rightX + colWidth - 2, rowY + 2);
     rowY += rowHeight;
   }
 
-  return y + gridHeight + 4;
+  return y + gridHeight + 3;
 }
 
 function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): number {
   const columns = [
-    { header: 'SL', width: 8, key: 'sl', align: 'center' as const },
-    { header: 'Description', width: 70, key: 'description', align: 'left' as const },
-    { header: 'Qty', width: 15, key: 'qty', align: 'center' as const },
-    { header: 'Unit Price', width: 30, key: 'unitPrice', align: 'right' as const },
-    { header: 'Amount', width: 30, key: 'amount', align: 'right' as const },
+    { header: 'SL', width: 10, key: 'sl', align: 'center' as const },
+    { header: 'Description', width: 75, key: 'description', align: 'left' as const },
+    { header: 'Qty', width: 18, key: 'qty', align: 'center' as const },
+    { header: 'Unit Price', width: 32, key: 'unitPrice', align: 'right' as const },
+    { header: 'Amount', width: 32, key: 'amount', align: 'right' as const },
   ];
 
-  // Scale columns
+  // Scale columns to fill content width
   const totalSpecWidth = columns.reduce((sum, c) => sum + c.width, 0);
   if (totalSpecWidth !== CONTENT_WIDTH) {
     const scale = CONTENT_WIDTH / totalSpecWidth;
@@ -298,7 +336,7 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
 
   const body = items.map(item => [
     String(item.sl),
-    safeStr(item.description),
+    safeStr(item.description, 'Item'),
     String(item.qty),
     fmtCurrency(item.unitPrice),
     fmtCurrency(item.amount),
@@ -313,10 +351,10 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
     head: [headers],
     body,
     startY,
-    margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
+    margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: 10 },
     styles: {
-      fontSize: 9,
-      cellPadding: 3,
+      fontSize: 8,
+      cellPadding: 2.5,
       textColor: [30, 41, 59],
       lineWidth: 0.2,
       lineColor: [203, 213, 225],
@@ -326,9 +364,9 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
       fillColor: [10, 22, 40],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 9,
+      fontSize: 8,
       halign: 'center',
-      cellPadding: 3,
+      cellPadding: 2.5,
     },
     columnStyles,
     didParseCell: (data: any) => {
@@ -340,7 +378,7 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
   });
 
   const lastTable = (doc as any).lastAutoTable;
-  return lastTable ? lastTable.finalY + 4 : startY + 30;
+  return lastTable ? lastTable.finalY + 3 : startY + 30;
 }
 
 function drawSummaryBlock(doc: jsPDF, invoice: InvoiceData, startY: number): number {
@@ -349,9 +387,9 @@ function drawSummaryBlock(doc: jsPDF, invoice: InvoiceData, startY: number): num
   doc.setDrawColor(10, 22, 40);
   doc.setLineWidth(0.3);
   doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
-  y += 4;
+  y += 3;
 
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setTextColor(10, 22, 40);
 
   const summaryItems: Array<{ label: string; value: string; bold?: boolean }> = [];
@@ -361,14 +399,16 @@ function drawSummaryBlock(doc: jsPDF, invoice: InvoiceData, startY: number): num
   }
   summaryItems.push({ label: 'Net Total:', value: fmtCurrency(invoice.netTotal), bold: true });
   summaryItems.push({ label: 'Paid Amount:', value: fmtCurrency(invoice.paidAmount) });
-  summaryItems.push({ label: 'Current Due:', value: fmtCurrency(invoice.currentDue), bold: true });
+  if (invoice.currentDue > 0) {
+    summaryItems.push({ label: 'Current Due:', value: fmtCurrency(invoice.currentDue), bold: true });
+  }
 
   for (const item of summaryItems) {
     doc.setFont('helvetica', 'bold');
     doc.text(item.label, MARGIN_LEFT + 2, y + 4);
     doc.setFont('helvetica', item.bold ? 'bold' : 'normal');
-    doc.text(item.value, MARGIN_LEFT + 50, y + 4);
-    y += 7;
+    doc.text(item.value, MARGIN_LEFT + 45, y + 4);
+    y += 6;
   }
 
   return y + 2;
@@ -377,21 +417,24 @@ function drawSummaryBlock(doc: jsPDF, invoice: InvoiceData, startY: number): num
 function drawFooterSection(
   doc: jsPDF,
   invoice: InvoiceData,
-  company: InvoiceCompanyProfile
+  company: InvoiceCompanyProfile,
+  currentY: number
 ): number {
-  let y = doc.getCurrentPageInfo().pageContext.mediaBox?.topRight?.[1] ?? PAGE_HEIGHT;
-  y = PAGE_HEIGHT - 60;
+  let y = currentY;
 
-  // Pay In Word
+  // ── Pay In Word ──
   if (company.showPayInWord !== false) {
     const payInWordText = invoice.payInWord || numberToWordsBDT(invoice.netTotal);
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(10, 22, 40);
-    doc.text('Pay In Word:', MARGIN_LEFT + 2, y);
+    doc.text('Pay In Word:', MARGIN_LEFT + 2, y + 3);
     doc.setFont('helvetica', 'normal');
-    doc.text(payInWordText, MARGIN_LEFT + 30, y);
-    y += 7;
+    // Split long text across lines if needed
+    const maxTextWidth = CONTENT_WIDTH - 28;
+    const lines = doc.splitTextToSize(payInWordText, maxTextWidth);
+    doc.text(lines, MARGIN_LEFT + 28, y + 3);
+    y += 4 + lines.length * 4;
   }
 
   // Separator
@@ -400,18 +443,19 @@ function drawFooterSection(
   doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
   y += 5;
 
-  // Thank You message
-  const thankYouMsg = company.thankYouMsg || 'Thank You Come Again.';
-  doc.setFontSize(11);
+  // Thank You message (with Bengali fallback)
+  const thankYouMsg = getSafeThankYouMsg(company.thankYouMsg);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(10, 22, 40);
   const thankYouWidth = doc.getTextWidth(thankYouMsg);
   doc.text(thankYouMsg, PAGE_WIDTH / 2 - thankYouWidth / 2, y);
-  y += 8;
+  y += 7;
 
-  // Signature lines
+  // Signature lines (3 columns: Customer, Prepared By, Authorized By)
   const sigSectionWidth = CONTENT_WIDTH / 3;
-  const sigY = y + 10;
+  const sigY = y + 12;
+
   doc.setDrawColor(150, 150, 150);
   doc.setLineWidth(0.2);
 
@@ -432,11 +476,27 @@ function drawFooterSection(
 
   y = sigY + 8;
 
-  // System note
-  doc.setTextColor(130, 130, 130);
+  // System meta info (Printed By | Sales Person | Print Date)
+  doc.setTextColor(100, 100, 100);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+
+  const systemParts: string[] = [];
+  if (invoice.printedBy) {
+    systemParts.push(`Printed By: ${invoice.printedBy}`);
+  }
+  if (invoice.salesPerson) {
+    systemParts.push(`Sales Person: ${invoice.salesPerson}`);
+  }
+  systemParts.push(`Print Date: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+  doc.text(systemParts.join('  |  '), MARGIN_LEFT + 2, y);
+  y += 4;
+
+  // System-generated note
+  const systemNote = company.systemNote || 'This is a computer generated invoice.';
   doc.setFontSize(7);
   doc.setFont('helvetica', 'italic');
-  const systemNote = company.systemNote || 'This is a system generated invoice no need to seal & signature.';
+  doc.setTextColor(130, 130, 130);
   const noteWidth = doc.getTextWidth(systemNote);
   doc.text(systemNote, PAGE_WIDTH / 2 - noteWidth / 2, y);
 
@@ -507,7 +567,7 @@ export async function GET(request: NextRequest) {
 
     // Build invoice data
     const invoice: InvoiceData = {
-      invoiceNo: order.invoiceNo,
+      invoiceNo: order.invoiceNo || `SO-${String(order.id).padStart(5, '0')}`,
       invoiceDate: order.date,
       customerCode: order.customer?.customerCode || undefined,
       customerName: order.customer?.name || 'Walk-in Customer',
@@ -526,8 +586,8 @@ export async function GET(request: NextRequest) {
       discountPercent: order.discountPercent ? Number(order.discountPercent) : undefined,
       discountAmount: order.discount ? Number(order.discount) : undefined,
       netTotal: Number(order.grandTotal),
-      paidAmount: 0,
-      currentDue: Number(order.grandTotal),
+      paidAmount: Number(order.grandTotal),
+      currentDue: 0,
       payInWord: numberToWordsBDT(Number(order.grandTotal)),
       barcodeData: order.invoiceNo,
       printedBy: security.user?.name || undefined,
@@ -550,8 +610,8 @@ export async function GET(request: NextRequest) {
     // 4. Summary Block
     y = drawSummaryBlock(doc, invoice, y);
 
-    // 5. Footer
-    drawFooterSection(doc, invoice, companyProfile);
+    // 5. Footer Section (follows content flow — no excessive white space)
+    drawFooterSection(doc, invoice, companyProfile, y);
 
     // Generate PDF buffer
     const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
@@ -561,7 +621,7 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${order.invoiceNo}-Invoice.pdf"`,
+        'Content-Disposition': `inline; filename="${order.invoiceNo || 'Invoice'}-Invoice.pdf"`,
         'Content-Length': String(pdfBuffer.length),
       },
     });

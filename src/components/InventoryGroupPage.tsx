@@ -2674,10 +2674,12 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const handlePrintInvoice = async (soId: string, invoiceNo?: string) => {
     try {
       toast({ title: "Generating Invoice", description: "Fetching data..." });
-      const [companyProfile, so] = await Promise.all([
+      const [brandingResp, so] = await Promise.all([
         apiFetch("/api/company-branding"),
         apiFetch(`/api/sales-orders/${soId}?include=lines,customer,paymentOption`),
       ]);
+      // Extract company profile from API response { company: {...} }
+      const companyProfile: InvoiceCompanyProfile = (brandingResp as any)?.company || brandingResp;
       const customer = so.customer || {};
       const paymentOption = so.paymentOption || {};
       const items: InvoiceLineItem[] = (so.lines || []).map((line: any, idx: number) => {
@@ -2685,17 +2687,17 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         const rate = Number(line.rate) || 0;
         const discPct = Number(line.discountPercent) || 0;
         const discAmt = qty * rate * (discPct / 100);
-        const total = qty * rate - discAmt;
+        const lineTotal = qty * rate - discAmt;
         return {
           sl: idx + 1,
-          model: line.product?.name || "—",
+          model: line.product?.sku || "",
           color: line.product?.color || "",
-          description: line.product?.name || "—",
+          description: line.product?.name || "Item",
           qty,
           mrp: rate,
-          discountAmt: discAmt,
-          rate,
-          total,
+          discountAmt: discAmt || undefined,
+          unitPrice: rate,
+          amount: lineTotal,
         };
       });
       const subTotal = items.reduce((s, i) => s + i.qty * (i.mrp || 0), 0);
@@ -2703,11 +2705,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const discountPercent = subTotal > 0 ? (discountAmount / subTotal) * 100 : 0;
       const invoiceData: InvoiceData = {
         invoiceNo: invoiceNo || so.invoiceNo || `INV-${String(so.id).padStart(5, "0")}`,
-        invoiceDate: so.date ? new Date(so.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—",
-        customerCode: customer.customerCode || "—",
-        customerName: customer.name || "—",
-        customerMobile: customer.phone || "—",
-        customerAddress: customer.address || "",
+        invoiceDate: so.date,
+        customerCode: customer.customerCode || undefined,
+        customerName: customer.name || "Walk-in Customer",
+        customerMobile: customer.phone || undefined,
+        customerAddress: customer.address || undefined,
         items,
         discountAmount,
         discountPercent: Math.round(discountPercent * 100) / 100,
@@ -2715,32 +2717,37 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         paidAmount: Number(so.grandTotal) || 0,
         currentDue: 0,
         paymentDetails: [{ paymentType: paymentOption.name || "Cash", paidAmount: Number(so.grandTotal) || 0 }],
+        payInWord: numberToWordsBDT(Number(so.grandTotal) || 0),
         invoiceType: "Sales Invoice",
         barcodeData: so.invoiceNo || "",
         printedBy: auth.user?.displayName || "System",
-        salesPerson: "System",
+        salesPerson: so.srId || "System",
       };
       const templateConfig: InvoiceTemplateConfig = {
         showLogo: true,
+        showBrandLogo: true,
         showMobile: true,
         showAddress: true,
+        showVatNumber: true,
         showCustomerCode: true,
         showPrevDue: false,
         showTotalDue: false,
         showModel: false,
         showColor: false,
-        showDescription: false,
+        showDescription: true,
         showMRP: true,
         showDiscountAmt: true,
         showDiscountPct: true,
         showUnitPrice: true,
         showPaymentDetails: true,
-        showCustomerSignature: false,
+        showCustomerSignature: true,
+        showPreparedBy: true,
+        showAuthorizedBy: true,
         showPrintDate: true,
       };
       exportInvoicePDF({
         invoice: invoiceData,
-        company: companyProfile as InvoiceCompanyProfile,
+        company: companyProfile,
         template: templateConfig,
         filename: `Invoice_${invoiceData.invoiceNo}.pdf`,
       });
