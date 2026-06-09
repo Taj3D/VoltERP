@@ -85,19 +85,38 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "name", label: "Company Name", type: "text" },
       { key: "address", label: "Address", type: "text" },
       { key: "phone", label: "Phone", type: "text" },
+      { key: "mobile", label: "Mobile", type: "text" },
       { key: "email", label: "Email", type: "text" },
+      { key: "vatNumber", label: "VAT No.", type: "text" },
+      { key: "website", label: "Website", type: "text" },
       { key: "_count.products", label: "Products", type: "number" },
       { key: "_count.orderSheets", label: "Order Sheets", type: "number" },
       { key: "isActive", label: "Status", type: "boolean" },
     ],
     formFields: [
+      // ── Basic Info ──
       { key: "code", label: "Code", type: "text", required: false, placeholder: "Auto-generated" },
       { key: "name", label: "Company Name", type: "text", required: true },
+      // ── Contact ──
       { key: "address", label: "Address", type: "textarea", required: false },
       { key: "phone", label: "Phone", type: "text", required: false },
+      { key: "mobile", label: "Mobile Number", type: "text", required: false, placeholder: "01XXXXXXXXX" },
       { key: "email", label: "Email", type: "email", required: false },
+      { key: "website", label: "Website", type: "text", required: false, placeholder: "https://example.com" },
+      // ── Business Registration ──
+      { key: "vatNumber", label: "VAT/Tax Registration No", type: "text", required: false, placeholder: "e.g. BIN-123456" },
+      { key: "tradeLicense", label: "Trade License No", type: "text", required: false, placeholder: "e.g. TL-2024-001" },
+      // ── Invoice Settings ──
+      { key: "invoicePrefix", label: "Invoice Prefix", type: "text", required: false, placeholder: "e.g. EM" },
+      { key: "thankYouMsg", label: "Invoice Footer Message", type: "textarea", required: false, placeholder: "Thank You Come Again.", defaultValue: "Thank You Come Again." },
+      { key: "systemNote", label: "System Generation Note", type: "textarea", required: false, placeholder: "This is a system generated invoice no need to seal & signature.", defaultValue: "This is a system generated invoice no need to seal & signature." },
+      { key: "showBarcode", label: "Show Barcode on Invoice", type: "checkbox", defaultValue: true },
+      { key: "showPayInWord", label: "Show Amount in Words", type: "checkbox", defaultValue: true },
+      // ── Logo Settings ──
       { key: "logo", label: "Company Logo", type: "image" },
       { key: "brandLogo", label: "Brand Logo", type: "image" },
+      { key: "logoWidth", label: "Logo Width (mm)", type: "number", required: false, defaultValue: 30, step: "1" },
+      { key: "logoHeight", label: "Logo Height (mm)", type: "number", required: false, defaultValue: 20, step: "1" },
     ],
   },
   {
@@ -220,7 +239,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "colorId", label: "Color", type: "select", required: false, options: [] },
       { key: "sku", label: "SKU", type: "text", required: false },
       { key: "barcode", label: "Barcode", type: "text", required: false },
-      { key: "unit", label: "Unit", type: "text", required: false, placeholder: "e.g. pcs, kg" },
+      { key: "unit", label: "Unit", type: "select", required: false, options: [] },
       { key: "sizeCapacity", label: "Size/Capacity", type: "text", required: false },
       { key: "costPrice", label: "Purchase Price (Tk. )", type: "number", required: true, step: "0.01" },
       { key: "salePrice", label: "MRP/Retail Price (Tk. )", type: "number", required: true, step: "0.01" },
@@ -490,6 +509,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         else if (field.key === "colorId") apiPath = "/api/colors";
         else if (field.key === "godownId") apiPath = "/api/godowns";
         else if (field.key === "segmentId") apiPath = "/api/segments";
+        else if (field.key === "unit") apiPath = "/api/units";
         if (apiPath) {
           const items = await apiFetch(apiPath);
           opts[field.key] = Array.isArray(items) ? items : [];
@@ -562,6 +582,14 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
       else values[f.key] = f.type === "checkbox" ? true : "";
     });
+    // Special handling: Product unit field is stored as name string, but dropdown uses ID
+    if (config.key === "products" && values.unit && typeof values.unit === "string") {
+      const unitOptions = dynamicOptions['unit'] || [];
+      const matchedUnit = unitOptions.find((u: any) => u.name === values.unit || u.symbol === values.unit);
+      if (matchedUnit) {
+        values.unit = matchedUnit.id;
+      }
+    }
     setFormData(values);
     setDialogOpen(true);
   };
@@ -692,6 +720,15 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         sanitizedData[key] = sanitizeInput(value);
       } else {
         sanitizedData[key] = value;
+      }
+    }
+
+    // Special handling: Product unit field is a string, not a foreign key
+    if (config.key === "products" && sanitizedData.unit) {
+      const unitOptions = dynamicOptions['unit'] || [];
+      const selectedUnit = unitOptions.find((u: any) => u.id === sanitizedData.unit);
+      if (selectedUnit) {
+        sanitizedData.unit = selectedUnit.name || selectedUnit.symbol || String(sanitizedData.unit);
       }
     }
 
@@ -882,7 +919,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     if (field.type === "select") {
       const options = field.options?.length ? field.options :
         (dynamicOptions[field.key] || []).map((item: any) => ({
-          value: item.id, label: item.name || item.employeeCode || item.code || item.id,
+          value: item.id, label: field.key === "unit"
+            ? `${item.name}${item.symbol ? ` (${item.symbol})` : ''}`
+            : item.name || item.employeeCode || item.code || item.id,
         }));
       return (
         <Select value={String(val)} onValueChange={(v) => {

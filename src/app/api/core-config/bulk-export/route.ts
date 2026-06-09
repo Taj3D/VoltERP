@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
           where,
           orderBy: { name: 'asc' },
         });
-        headers = ['Code', 'Name', 'Address', 'Phone', 'Mobile', 'Email', 'Website', 'VAT Number', 'Trade License', 'BIN Number', 'Currency Symbol', 'Invoice Prefix', 'Thank You Message', 'System Note', 'Show Barcode', 'Show Pay In Word', 'Logo Width', 'Logo Height', 'Active'];
+        headers = ['Code', 'Name', 'Address', 'Phone', 'Mobile', 'Email', 'Website', 'VAT Number', 'Trade License', 'Invoice Prefix', 'Thank You Message', 'System Note', 'Show Barcode', 'Show Pay In Word', 'Logo Width', 'Logo Height', 'Active'];
         rows = data.map(item => [
           item.code || '',
           item.name || '',
@@ -58,8 +58,6 @@ export async function GET(request: NextRequest) {
           item.website || '',
           item.vatNumber || '',
           item.tradeLicense || '',
-          item.binNumber || '',
-          item.currencySymbol || 'Tk. ',
           item.invoicePrefix || '',
           item.thankYouMsg || '',
           item.systemNote || '',
