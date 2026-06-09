@@ -6040,3 +6040,137 @@ Task: ধাপ ১৪ — Module Testing Batch 3 (Account + SMS + Reports)
 5. `/api/sms`, `/api/sms-dispatch`, `/api/sms-gateway` have no root route.ts (404)
 6. Consolidation endpoint requires companyId (null for test users)
 7. Dashboard metrics inconsistent zero-value VAT masking
+
+---
+Task ID: 15-prisma-fix
+Agent: Code Agent
+Task: Add SystemBackup Prisma model + push schema
+
+Work Log:
+- Read worklog.md for project context and history
+- Read prisma/schema.prisma — confirmed Company model already has `systemBackups SystemBackup[]` relation (line 223), but SystemBackup model itself was missing
+- Read src/lib/db.ts — found PRISMA_SCHEMA_VERSION = 7
+- Added SystemBackup model after the Cheque model at end of schema.prisma (after line 2679):
+  - id: String @id @default(cuid())
+  - backupCode: String @unique (format BKP-XXXXX)
+  - backupType: String @default("FULL")
+  - status: String @default("PENDING") // PENDING, COMPLETED, FAILED
+  - recordCount: Int @default(0)
+  - fileSizeBytes: Int @default(0)
+  - storageKey: String? (S3-compatible storage key)
+  - checksumSha256: String? (SHA-256 checksum)
+  - errorMessage: String? (for FAILED status)
+  - triggeredBy: String? (User ID who triggered)
+  - triggeredByName: String? (User name)
+  - startedAt: DateTime?
+  - completedAt: DateTime?
+  - companyId: String? (multi-tenant)
+  - isActive: Boolean @default(true)
+  - createdAt: DateTime @default(now())
+  - updatedAt: DateTime @updatedAt
+  - company: Company? @relation(fields: [companyId], references: [id])
+  - Indexes on: companyId, status, backupCode, createdAt
+- Incremented PRISMA_SCHEMA_VERSION from 7 to 8 in src/lib/db.ts
+- Ran `bun run db:push` — database synced successfully in 52ms, Prisma Client generated in 497ms
+- Validated schema with `npx prisma validate` — schema is valid
+
+Files Changed:
+- `/home/z/my-project/prisma/schema.prisma` — Added SystemBackup model (27 lines appended after Cheque model)
+- `/home/z/my-project/src/lib/db.ts` — PRISMA_SCHEMA_VERSION: 7 → 8
+
+Verification:
+- ✅ db:push completed without errors
+- ✅ Prisma Client regenerated (v6.19.3)
+- ✅ Schema validation passes
+- ✅ Company ↔ SystemBackup relation intact
+
+---
+Task ID: 15
+Agent: Main Orchestrator
+Task: ধাপ ১৫ — Module Testing Batch 4 (MIS Reports + Settings)
+
+## Complete Module Inventory
+
+### MIS Reports Module
+- **Component**: `MISReportEngine.tsx` — 9 tabs, 51 sub-reports + 1 advance search
+- **API**: Unified `/api/mis-reports?type=&subtype=` endpoint (GET)
+- **Legacy Routes**: 15 `/api/reports/*` routes used by AccountingReportsPage (not MIS)
+- **Sidebar**: 52 items under 9 parent groups
+
+### Settings Module  
+- **Component**: `SystemSettingsGroupPage.tsx` — 5 tabs (Company, Templates, Formats, Audit, Performance)
+- **API Routes**: 13 core endpoints across company-branding, system-config, invoice-templates, number-formats, audit-trail, audit-logs, user-activity, system-audit-logs, system-health, system-backup, data-integrity
+
+## Bugs Found & Fixed
+
+### 🔴 CRITICAL FIX 1: SystemBackup Prisma Model Missing
+- **Problem**: `/api/system-backup` GET and POST both returned 400 with `TypeError: Cannot read properties of undefined (reading 'findMany')` — `db.systemBackup` was undefined because the Prisma model didn't exist
+- **Fix**: Added `SystemBackup` model to `prisma/schema.prisma` with all 16 fields (backupCode, backupType, status, recordCount, fileSizeBytes, storageKey, checksumSha256, errorMessage, triggeredBy, triggeredByName, startedAt, completedAt, companyId, etc.) + 4 indexes
+- **Also**: Added `systemBackups SystemBackup[]` relation to Company model, bumped PRISMA_SCHEMA_VERSION from 7→8
+- **Verification**: `bun run db:push` successful, both GET and POST return 200
+
+### 🔴 CRITICAL FIX 2: SystemSettingsGroupPage Default Tab Not Rendering
+- **Problem**: When navigating to Company Settings/Invoice Templates/etc. from sidebar, ALL 5 tabs showed `state=inactive` with empty tabpanels. The `defaultValue` prop received `"company-settings"` but tabs use values like `"company"`, so no tab was auto-selected
+- **Root Cause**: `initialTab={currentPage}` passes sidebar key (e.g., "company-settings") but tabs expect short values ("company", "templates", etc.)
+- **Fix**: Added `tabMap` mapping in SystemSettingsGroupPage: `company-settings→company, invoice-templates→templates, number-formats→formats, audit-trail→audit, performance-cache→performance`. Changed `defaultValue={initialTab || "company"}` to `defaultValue={resolvedTab}`
+- **Verification**: Navigating to Company Settings now auto-selects the "Company Settings" tab with content visible
+
+### 🟡 MEDIUM FIX 3: Sidebar reportType Mismatches (4 endpoints)
+- **Problem**: 4 MIS report sidebar items had incorrect `reportType` values that didn't match the API subtype:
+  - `sr-visit` → should be `sr-visit-report` 
+  - `sr-commission` → should be `sr-commission-report`
+  - `bank-transaction` → should be `bank-transaction-report`
+  - `bank-ledger` → should be `bank-ledger-report`
+- **Impact**: Direct API calls with these subtypes returned 400 "Unknown report type/subtype". Frontend MISReportEngine worked fine because it uses SIDEBAR_REPORT_MAP (keyed by sidebar key, not reportType)
+- **Fix**: Updated 4 `reportType` values in ElectronicsMartApp.tsx sidebar config
+- **Verification**: All 4 endpoints now return 200
+
+## Full API Test Results
+
+### MIS Reports API — 54/54 endpoints pass ✅
+| Category | Count | Status |
+|----------|-------|--------|
+| Basic Report | 12 | All 200 |
+| Purchase Report | 7 | All 200 |
+| Sales Report | 3 | All 200 |
+| Hire Sales Report | 5 | All 200 |
+| SR Report | 8 | All 200 |
+| Customer Wise | 6 | All 200 |
+| Management Report | 8 | All 200 |
+| Bank Report | 4 | All 200 |
+| Advance Search | 1 | 200 |
+
+### Settings API — 12/12 endpoints pass ✅
+| Endpoint | Method | Status |
+|----------|--------|--------|
+| company-branding | GET | 200 |
+| system-config | GET | 200 |
+| company-profile | GET | 200 |
+| invoice-templates | GET | 200 |
+| number-formats | GET | 200 |
+| audit-trail | GET | 200 |
+| audit-logs | GET | 200 |
+| user-activity | GET | 200 |
+| system-audit-logs | GET | 200 |
+| system-health | GET | 200 |
+| system-backup | GET/POST | 200 |
+| data-integrity | GET | 200 |
+
+## Files Changed
+1. `/home/z/my-project/prisma/schema.prisma` — Added SystemBackup model + Company relation
+2. `/home/z/my-project/src/lib/db.ts` — Bumped PRISMA_SCHEMA_VERSION 7→8
+3. `/home/z/my-project/src/components/SystemSettingsGroupPage.tsx` — Added tabMap for sidebar→tab value mapping, fixed defaultValue
+4. `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Fixed 4 sidebar reportType mismatches
+
+## Browser Verification (Admin)
+- ✅ MIS Report Engine loads with all 9 tabs
+- ✅ SR Visit Report generates data from API
+- ✅ System Settings page renders with auto-selected Company Settings tab
+- ✅ Company Settings shows full form (Company Identity, logo, etc.)
+- ✅ All export buttons (CSV, PDF, Import) visible
+- ✅ `bun run lint` passes clean
+
+## Remaining Known Issues
+1. Dashboard analytics Prisma timeout (P1008) — SQLite under heavy load, pre-existing
+2. Audit Trail in SystemSettingsGroupPage is separate from AuditTrailViewer component — design choice, not bug
+3. MIS Reports Import CSV is validation-only (reports are read-only by design)

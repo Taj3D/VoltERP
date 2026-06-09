@@ -220,6 +220,7 @@ model Company {
   branches                Branch[]
   fiscalYears             FiscalYear[]
   cheques                 Cheque[]
+  systemBackups           SystemBackup[]
 }
 
 model Category {
@@ -2675,4 +2676,34 @@ model Cheque {
   @@index([status])
   @@index([type])
   @@index([chequeDate])
+}
+
+// ============================================================
+// SYSTEM BACKUP
+// ============================================================
+
+model SystemBackup {
+  id              String    @id @default(cuid())
+  backupCode      String    @unique // Format: BKP-XXXXX
+  backupType      String    @default("FULL") // FULL, INCREMENTAL, DIFFERENTIAL
+  status          String    @default("PENDING") // PENDING, COMPLETED, FAILED
+  recordCount     Int       @default(0)
+  fileSizeBytes   Int       @default(0)
+  storageKey      String? // S3-compatible storage key
+  checksumSha256  String? // SHA-256 checksum
+  errorMessage    String? // For FAILED status
+  triggeredBy     String? // User ID who triggered
+  triggeredByName String? // User name
+  startedAt       DateTime?
+  completedAt     DateTime?
+  companyId       String? // Multi-tenant
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  company         Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
+  @@index([backupCode])
+  @@index([createdAt])
 }

@@ -2654,6 +2654,16 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
   const isVatAuditor = userRole === "vat_auditor";
   const isSROrDealer = userRole === "sr" || userRole === "dealer";
 
+  // Map sidebar page keys to tab values
+  const tabMap: Record<string, string> = {
+    "company-settings": "company",
+    "invoice-templates": "templates",
+    "number-formats": "formats",
+    "audit-trail": "audit",
+    "performance-cache": "performance",
+  };
+  const resolvedTab = tabMap[initialTab || ""] || initialTab || "company";
+
   // SR and Dealer see 403
   if (isSROrDealer) {
     return <ForbiddenPage />;
@@ -2684,7 +2694,7 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue={initialTab || "company"} className="space-y-4">
+      <Tabs defaultValue={resolvedTab} className="space-y-4">
         <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full overflow-x-auto">
           <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Building2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Company</span> Settings

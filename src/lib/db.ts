@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 
 // Schema version: increment this after any Prisma schema change to force cache invalidation
-const PRISMA_SCHEMA_VERSION = 7;
+const PRISMA_SCHEMA_VERSION = 8;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
