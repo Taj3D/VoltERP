@@ -187,6 +187,37 @@ export function initAuthState() {
 }
 
 // ============================================================
+// CSRF TOKEN CACHE
+// ============================================================
+
+let cachedCsrfToken: string | null = null;
+
+/**
+ * fetchCsrfToken — Fetches a CSRF token from the server if not cached.
+ * Token is cached per session and re-fetched after it's used (one-time-use tokens).
+ */
+async function fetchCsrfToken(): Promise<string | null> {
+  if (!authState.accessToken) return null;
+  try {
+    const res = await fetch("/api/csrf-token", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authState.accessToken}`,
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      cachedCsrfToken = data.csrfToken;
+      return cachedCsrfToken;
+    }
+  } catch {
+    // CSRF token fetch failed — continue without it (log-only mode)
+  }
+  return null;
+}
+
+// ============================================================
 // CANONICAL apiFetch
 // ============================================================
 
@@ -196,6 +227,22 @@ export async function apiFetch(path: string, opts?: RequestInit): Promise<any> {
   if (authState.accessToken) {
     authHeaders["Authorization"] = `Bearer ${authState.accessToken}`;
   }
+
+  // ── CSRF Token for Write Operations ──
+  // For POST/PUT/DELETE requests, include a CSRF token in the X-CSRF-Token header.
+  // The token is fetched lazily and cached until used (one-time-use).
+  const method = (opts?.method || "GET").toUpperCase();
+  const isWriteOp = method === "POST" || method === "PUT" || method === "DELETE";
+
+  if (isWriteOp && authState.accessToken) {
+    // Fetch a new CSRF token for this write operation (one-time-use)
+    const csrfToken = await fetchCsrfToken();
+    if (csrfToken) {
+      authHeaders["X-CSRF-Token"] = csrfToken;
+      cachedCsrfToken = null; // Clear cache since token is one-time-use
+    }
+  }
+
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers as Record<string, string> }, ...opts });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

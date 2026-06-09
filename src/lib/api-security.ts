@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { checkApiRateLimit, getClientIp } from '@/lib/rate-limiter';
 import { verifyToken, extractBearerToken } from '@/lib/jwt-utils';
+import { sanitizeObject } from '@/lib/sanitize';
 
 export type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
 
@@ -168,6 +169,30 @@ export async function withApiSecurity(
   module: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
 ): Promise<ApiSecurityResult | ApiSecurityError> {
+  // ── Input Sanitization: Strip XSS from POST/PUT request bodies ──
+  // Sanitize user input before any processing to prevent XSS attacks.
+  // This is done early so all downstream logic works with clean data.
+  if (method === 'POST' || method === 'PUT') {
+    try {
+      const clonedRequest = request.clone();
+      const contentType = request.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await clonedRequest.json().catch(() => null);
+        if (body && typeof body === 'object') {
+          const sanitized = sanitizeObject(body as Record<string, unknown>);
+          // Store sanitized body on the request for downstream handlers
+          // Note: NextRequest body can't be mutated, but the sanitized data
+          // is available via the __sanitizedBody property convention.
+          // Individual handlers should use getSanitizedBody() helper.
+          (request as unknown as Record<string, unknown>).__sanitizedBody = sanitized;
+        }
+      }
+    } catch {
+      // Sanitization failed — continue with original request body
+      // This is non-blocking; sanitization is defense-in-depth
+    }
+  }
+
   // Exempt modules from auth
   if (AUTH_EXEMPT_MODULES.includes(module)) {
     return {
@@ -308,6 +333,35 @@ export async function withApiSecurity(
       { status: 401 }
     ),
   };
+}
+
+/**
+ * getSanitizedBody — Retrieves the XSS-sanitized request body set by withApiSecurity().
+ * Falls back to parsing the request body normally if sanitization was skipped.
+ *
+ * Usage in API route:
+ * ```ts
+ * const security = await withApiSecurity(request, 'Products', 'POST');
+ * if (!security.authorized) return security.response;
+ * const body = await getSanitizedBody(request);
+ * // body is now sanitized — safe to use in database queries and responses
+ * ```
+ */
+export async function getSanitizedBody<T = Record<string, unknown>>(request: NextRequest): Promise<T> {
+  const sanitized = (request as unknown as Record<string, unknown>).__sanitizedBody;
+  if (sanitized) {
+    return sanitized as T;
+  }
+  // Fallback: parse and sanitize the body directly
+  try {
+    const body = await request.json();
+    if (body && typeof body === 'object') {
+      return sanitizeObject(body as Record<string, unknown>) as T;
+    }
+    return body as T;
+  } catch {
+    return {} as T;
+  }
 }
 
 /**

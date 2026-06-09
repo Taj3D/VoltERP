@@ -603,6 +603,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     });
   }, [investments]);
 
+  // ─── Enhancement: Memoized Amortization Preview for Liability Receive Form ───
+  const liabReceiveAmortPreview = useMemo(() => {
+    const p = Number(liabReceiveFormData.principalAmount);
+    const r = Number(liabReceiveFormData.interestRate);
+    const m = Number(liabReceiveFormData.loanDurationMonths);
+    if (p <= 0 || r <= 0 || m <= 0) return null;
+    const schedule = computeAmortization(p, r, m);
+    const monthlyEMI = schedule?.[0]?.payment || 0;
+    const totalInterest = schedule.reduce((s: number, row: any) => s + row.interest, 0);
+    return { monthlyEMI, totalInterest, schedule };
+  }, [liabReceiveFormData.principalAmount, liabReceiveFormData.interestRate, liabReceiveFormData.loanDurationMonths, computeAmortization]);
+
   // ============================================================
   // RBAC
   // ============================================================
@@ -1212,9 +1224,9 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   // INVESTMENT HEAD SELECT OPTIONS (filtered)
   // ============================================================
 
-  const investTypeHeads = headOptions.filter((h: any) => h.type === "Investment");
-  const assetTypeHeads = headOptions.filter((h: any) => h.type === "Asset");
-  const liabilityTypeHeads = headOptions.filter((h: any) => h.type === "Liability");
+  const investTypeHeads = useMemo(() => headOptions.filter((h: any) => h.type === "Investment"), [headOptions]);
+  const assetTypeHeads = useMemo(() => headOptions.filter((h: any) => h.type === "Asset"), [headOptions]);
+  const liabilityTypeHeads = useMemo(() => headOptions.filter((h: any) => h.type === "Liability"), [headOptions]);
 
   // ============================================================
   // RENDER
@@ -1807,7 +1819,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <StatCard label="Cash" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
             <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
             <StatCard label="Cheque" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cheque)} icon={Wallet} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
-            <StatCard label="Total Outstanding" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(Object.values(outstandingBalances).reduce((s: number, v: number) => s + Math.max(0, v), 0))} icon={TrendingUp} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
+            <StatCard label="Total Outstanding" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(quickStats.totalLiabilities)} icon={TrendingUp} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
           </div>
 
           {/* Actions Bar */}
@@ -2584,10 +2596,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <div className="px-3 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-md text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between">
                 <span>
                   <Calculator className="w-3.5 h-3.5 inline mr-1" />
-                  Monthly EMI: {fmtCurrency(computeAmortization(Number(liabReceiveFormData.principalAmount), Number(liabReceiveFormData.interestRate), Number(liabReceiveFormData.loanDurationMonths))?.[0]?.payment || 0)}
-                  {" | "}Total Interest: {fmtCurrency(computeAmortization(Number(liabReceiveFormData.principalAmount), Number(liabReceiveFormData.interestRate), Number(liabReceiveFormData.loanDurationMonths)).reduce((s, r) => s + r.interest, 0))}
+                  Monthly EMI: {fmtCurrency(liabReceiveAmortPreview?.monthlyEMI || 0)}
+                  {" | "}Total Interest: {fmtCurrency(liabReceiveAmortPreview?.totalInterest || 0)}
                 </span>
-                <Button variant="outline" size="sm" className="text-xs h-6" onClick={() => { setAmortizationData(computeAmortization(Number(liabReceiveFormData.principalAmount), Number(liabReceiveFormData.interestRate), Number(liabReceiveFormData.loanDurationMonths))); setAmortizationVisible(true); }}>View Schedule</Button>
+                <Button variant="outline" size="sm" className="text-xs h-6" onClick={() => { setAmortizationData(liabReceiveAmortPreview?.schedule || []); setAmortizationVisible(true); }}>View Schedule</Button>
               </div>
             )}
             <Separator />
