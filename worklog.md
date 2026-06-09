@@ -7793,3 +7793,36 @@ Task: ৯৩ → ১০০/১০০ — সব সিকিউরিটি ফ�
 - ✅ Dev server: running on port 3000
 
 ## Final Deployment Score: 93 → 100/100 ✅
+---
+Task ID: 1
+Agent: Main Agent
+Task: Demonstrate complete business workflow: Purchase → Store → Transfer → Sell → PDF Receipt
+
+Work Log:
+- Logged in as Admin (emart.amit) via API
+- Created "Sony" brand (BRN-00005)
+- Created supplier "Sony Bangladesh Ltd" (SUP-00002)
+- Created showroom godown "Main Showroom" (WH-00010)
+- Created customer "Rahim Uddin" (CUS-00003)
+- Created product "Sony Bravia 43 Inch Smart TV" (PROD-00005) with costPrice=15000, salePrice=16500
+- Created Purchase Order PUR-00002 for 10 Sony TVs at Tk. 15,000 each (Total: Tk. 150,000) - Status: Confirmed
+- Verified stock: 10 units in Main Warehouse
+- Created Stock Transfer TRN-00002: 1 TV from Main Warehouse to Main Showroom
+- Approved → In-Transit → Delivered the transfer
+- Verified stock: 9 units in Main Warehouse, 1 unit in Main Showroom
+- Created Sales Order SO-00002: 1 Sony TV at Tk. 16,500 from Main Showroom to Rahim Uddin
+- COGS: Tk. 15,000 | Gross Profit: Tk. 1,500 | Margin: 9.09%
+- Verified stock after sale: 9 units in Main Warehouse, 0 in Showroom
+- Uploaded company logo (from /home/z/my-project/upload/logo.jpeg) to company branding
+- Created API endpoint /api/sales-orders/invoice-pdf for server-side PDF generation
+- Generated PDF invoice (21.5KB, 1 page) with company logo, saved to /home/z/my-project/public/sony-tv-invoice.pdf
+- Verified PDF content via VLM: Logo ✅, Company name ✅, Invoice No ✅, Customer ✅, Product ✅, Amount ✅, Bengali thank you ✅
+- Verified dashboard shows correct metrics: Revenue Tk. 16,500, Purchases Tk. 150,000, Profit Tk. 1,500
+- Lint passed clean, PDF accessible via HTTP 200
+
+Stage Summary:
+- Complete business workflow demonstrated successfully
+- All 7 steps completed: Product → Purchase → Store → Transfer → Sell → Logo → PDF Receipt
+- PDF invoice generated with company branding and Bengali thank you message
+- New API endpoint created: /api/sales-orders/invoice-pdf for server-side PDF generation
+- All data verified correct through API and browser testing
