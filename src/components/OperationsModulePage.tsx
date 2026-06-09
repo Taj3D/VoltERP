@@ -845,7 +845,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Month *</Label>
                 <Select value={String(formData.month || "")} onValueChange={(v) => setFormData(prev => ({ ...prev, month: Number(v) }))}>
@@ -2243,7 +2243,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
                 <span className="text-sm text-red-700 dark:text-red-400">{cardFeeError}</span>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Payment Option *</Label>
                 <Select value={String(formData.paymentOptionId || "")} onValueChange={(v) => setFormData(prev => ({ ...prev, paymentOptionId: v }))}>
@@ -2267,7 +2267,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Charge %</Label>
                 <Input

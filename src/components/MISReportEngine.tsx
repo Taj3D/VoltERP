@@ -754,7 +754,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as ReportCategoryKey)}
       >
-        <TabsList className="flex overflow-x-auto scrollbar-none h-auto gap-1 bg-muted/50 p-1">
+        <TabsList className="flex overflow-x-auto scrollbar-none h-auto gap-1 bg-muted/50 p-1 w-full">
           {(
             [
               ["basic", "Basic Report"],
@@ -771,7 +771,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
             <TabsTrigger
               key={key}
               value={key}
-              className="text-xs sm:text-sm data-[state=active]:bg-[#2563eb] data-[state=active]:text-white"
+              className="text-xs sm:text-sm data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0"
             >
               {label}
             </TabsTrigger>

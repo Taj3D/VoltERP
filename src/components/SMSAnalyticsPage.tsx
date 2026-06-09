@@ -941,42 +941,42 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex overflow-x-auto flex-wrap gap-1 pb-1 scrollbar-none">
-          <TabsTrigger value="dashboard" className="flex items-center gap-1">
+        <TabsList className="flex overflow-x-auto h-auto gap-1 pb-1 scrollbar-none w-full">
+          <TabsTrigger value="dashboard" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
             <Activity className="w-4 h-4" />
             Dashboard
           </TabsTrigger>
-          <TabsTrigger value="inbox" className="flex items-center gap-1">
+          <TabsTrigger value="inbox" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
             <Mail className="w-4 h-4" />
             Inbox
             {smsInbox.filter((m: any) => m.status === "Unread").length > 0 && (
               <Badge className="bg-red-500 text-white text-xs ml-1 px-1.5 py-0 min-w-[18px] text-center">{smsInbox.filter((m: any) => m.status === "Unread").length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="logs" className="flex items-center gap-1">
+          <TabsTrigger value="logs" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
             <MessageSquare className="w-4 h-4" />
             SMS Log
           </TabsTrigger>
           {/* Hide Billing tab for SR */}
           {!isSR && (
-            <TabsTrigger value="billing" className="flex items-center gap-1">
+            <TabsTrigger value="billing" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
               <CreditCard className="w-4 h-4" />
               SMS Billing
             </TabsTrigger>
           )}
-          <TabsTrigger value="send" className="flex items-center gap-1">
+          <TabsTrigger value="send" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
             <Send className="w-4 h-4" />
             Send SMS
           </TabsTrigger>
           {!isSR && (
-            <TabsTrigger value="campaigns" className="flex items-center gap-1">
+            <TabsTrigger value="campaigns" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
               <Megaphone className="w-4 h-4" />
               Campaigns
             </TabsTrigger>
           )}
           {/* Hide Settings tab for SR */}
           {!isSR && (
-            <TabsTrigger value="settings" className="flex items-center gap-1">
+            <TabsTrigger value="settings" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
               <Settings className="w-4 h-4" />
               Settings
             </TabsTrigger>

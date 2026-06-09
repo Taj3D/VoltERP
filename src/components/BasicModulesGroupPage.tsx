@@ -1432,11 +1432,11 @@ export default function BasicModulesGroupPage({ activeModule }: { activeModule?:
                 <p className="text-xs text-slate-500 dark:text-slate-400">Companies, Categories, Colors, Brands, Banks, Units</p>
               </div>
             </div>
-            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto flex-wrap gap-1 p-1 scrollbar-none">
+            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto gap-1 p-1 scrollbar-none w-full">
               {coreModules.map(mod => {
                 const Icon = mod.icon;
                 return (
-                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5">
+                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5 whitespace-nowrap flex-shrink-0">
                     <Icon className="h-3.5 w-3.5" />
                     {mod.label}
                   </TabsTrigger>
@@ -1456,11 +1456,11 @@ export default function BasicModulesGroupPage({ activeModule }: { activeModule?:
                 <p className="text-xs text-slate-500 dark:text-slate-400">Departments, Godowns, Segments, Capacities</p>
               </div>
             </div>
-            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto flex-wrap gap-1 p-1 scrollbar-none">
+            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto gap-1 p-1 scrollbar-none w-full">
               {structuralModules.map(mod => {
                 const Icon = mod.icon;
                 return (
-                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5">
+                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5 whitespace-nowrap flex-shrink-0">
                     <Icon className="h-3.5 w-3.5" />
                     {mod.label}
                   </TabsTrigger>
@@ -1480,11 +1480,11 @@ export default function BasicModulesGroupPage({ activeModule }: { activeModule?:
                 <p className="text-xs text-slate-500 dark:text-slate-400">SR Target Setup, Payment Options, Card Types, CardType Setup</p>
               </div>
             </div>
-            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto flex-wrap gap-1 p-1 scrollbar-none">
+            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto gap-1 p-1 scrollbar-none w-full">
               {operationalModules.map(mod => {
                 const Icon = mod.icon;
                 return (
-                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5">
+                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5 whitespace-nowrap flex-shrink-0">
                     <Icon className="h-3.5 w-3.5" />
                     {mod.label}
                   </TabsTrigger>

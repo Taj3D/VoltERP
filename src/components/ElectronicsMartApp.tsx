@@ -2738,8 +2738,8 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
           </button>
         )}
         {!collapsed && (
-          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-8 w-8 p-0" onClick={onToggle} title="Collapse sidebar" aria-label="Collapse sidebar">
-            <ChevronLeft className="w-4 h-4" />
+          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-11 w-11 min-w-11 min-h-11 p-0 cursor-pointer active:scale-95 transition-transform" onClick={onToggle} title="Collapse sidebar" aria-label="Collapse sidebar">
+            <ChevronLeft className="w-5 h-5" />
           </Button>
         )}
       </div>

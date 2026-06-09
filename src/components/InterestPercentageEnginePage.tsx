@@ -1035,7 +1035,7 @@ export default function InterestPercentageEnginePage({
                     </Table>
                   </div>
                   {/* Totals row */}
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs font-bold text-slate-900 dark:text-white bg-muted/30 rounded p-2 overflow-x-auto">
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs font-bold text-slate-900 dark:text-white bg-muted/30 rounded p-2 overflow-x-auto">
                     <div className="text-right font-mono truncate">Installments: {fmtNumber(amortResult.schedule.reduce((s: number, r: any) => s + r.installment, 0))}</div>
                     <div className="text-right font-mono truncate">Interest: {fmtNumber(amortResult.totalInterest)}</div>
                     <div className="text-right font-mono truncate">Principal: {fmtNumber(amortResult.netPrincipal)}</div>

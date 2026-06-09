@@ -406,9 +406,9 @@ export default function AppHeader({
         sidebarCollapsed ? "left-0 md:left-16" : "left-0 md:left-64"
       }`}
     >
-      <div className="h-full flex items-center justify-between px-2 sm:px-4">
+      <div className="h-full flex items-center justify-between px-3 sm:px-4">
         {/* ── LEFT SIDE: Mobile menu + Breadcrumb ── */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
@@ -434,20 +434,20 @@ export default function AppHeader({
             )}
             {currentPage === "change-password" && (
               <>
-                <ChevronRight className="w-3 h-3 shrink-0" />
-                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">Change Password</span>
+                <ChevronRight className="w-3 h-3 shrink-0 hidden lg:block" />
+                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none hidden lg:inline">Change Password</span>
               </>
             )}
             {currentPage === "profile" && (
               <>
-                <ChevronRight className="w-3 h-3 shrink-0" />
-                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">My Profile</span>
+                <ChevronRight className="w-3 h-3 shrink-0 hidden lg:block" />
+                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none hidden lg:inline">My Profile</span>
               </>
             )}
             {currentPageLabel && currentPage !== "change-password" && currentPage !== "profile" && (
               <>
-                <ChevronRight className="w-3 h-3 shrink-0" />
-                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none">{currentPageLabel}</span>
+                <ChevronRight className="w-3 h-3 shrink-0 hidden lg:block" />
+                <span className="text-foreground font-medium truncate max-w-[120px] sm:max-w-none hidden lg:inline">{currentPageLabel}</span>
               </>
             )}
           </div>
@@ -459,7 +459,7 @@ export default function AppHeader({
           <Button
             variant="outline"
             size="sm"
-            className="md:hidden min-w-[44px] min-h-[44px] h-9 w-9 p-0 text-muted-foreground"
+            className="lg:hidden min-w-[44px] min-h-[44px] h-9 w-9 p-0 text-muted-foreground"
             onClick={onOpenSearch}
           >
             <Search className="w-4 h-4" />
@@ -467,7 +467,7 @@ export default function AppHeader({
           <Button
             variant="outline"
             size="sm"
-            className="hidden md:flex items-center gap-2 text-muted-foreground h-8 px-3"
+            className="hidden lg:flex items-center gap-2 text-muted-foreground h-8 px-3"
             onClick={onOpenSearch}
           >
             <Search className="w-3.5 h-3.5" />

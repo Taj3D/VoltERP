@@ -2695,20 +2695,20 @@ export default function SystemSettingsGroupPage({ initialTab }: SystemConfigGrou
 
       {/* Tabs */}
       <Tabs defaultValue={resolvedTab} className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full overflow-x-auto">
-          <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs sm:text-sm">
+        <TabsList className="flex overflow-x-auto h-auto gap-1 p-1 scrollbar-none w-full">
+          <TabsTrigger value="company" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
             <Building2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Company</span> Settings
           </TabsTrigger>
-          <TabsTrigger value="templates" className="flex items-center gap-1.5 text-xs sm:text-sm">
+          <TabsTrigger value="templates" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
             <FileText className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Invoice</span> Templates
           </TabsTrigger>
-          <TabsTrigger value="formats" className="flex items-center gap-1.5 text-xs sm:text-sm">
+          <TabsTrigger value="formats" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
             <Hash className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Number</span> Formats
           </TabsTrigger>
-          <TabsTrigger value="audit" className="flex items-center gap-1.5 text-xs sm:text-sm">
+          <TabsTrigger value="audit" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
             <Shield className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Audit</span> Trail
           </TabsTrigger>
-          <TabsTrigger value="performance" className="flex items-center gap-1.5 text-xs sm:text-sm">
+          <TabsTrigger value="performance" className="flex items-center gap-1.5 text-xs sm:text-sm whitespace-nowrap flex-shrink-0">
             <Gauge className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Performance</span> & Cache
           </TabsTrigger>
         </TabsList>

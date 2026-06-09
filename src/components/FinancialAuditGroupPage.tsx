@@ -1458,7 +1458,7 @@ export default function FinancialAuditGroupPage({
         {/* New Tracking Dialog */}
         <Dialog open={lifecycleForm} onOpenChange={setLifecycleForm}>
           <DialogContent><DialogHeader><DialogTitle>New Serial Tracking Record</DialogTitle><DialogDescription>Add a new product serial/IMEI tracking record.</DialogDescription></DialogHeader>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-2"><Label className="text-xs">Product</Label><Select value={lifecycleFormData.productId} onValueChange={(v) => setLifecycleFormData({ ...lifecycleFormData, productId: v })}><SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger><SelectContent>{products.slice(0, 100).map((p: any) => <SelectItem key={p.id} value={p.id}>{p.productCode} - {p.name}</SelectItem>)}</SelectContent></Select></div>
               <div><Label className="text-xs">Serial Number</Label><Input value={lifecycleFormData.serialNumber} onChange={(e) => setLifecycleFormData({ ...lifecycleFormData, serialNumber: e.target.value })} /></div>
               <div><Label className="text-xs">IMEI Number</Label><Input value={lifecycleFormData.imeiNumber} onChange={(e) => setLifecycleFormData({ ...lifecycleFormData, imeiNumber: e.target.value })} /></div>
@@ -1473,7 +1473,7 @@ export default function FinancialAuditGroupPage({
         <Dialog open={!!selectedSerial} onOpenChange={() => setSelectedSerial(null)}>
           <DialogContent><DialogHeader><DialogTitle>Serial Detail: {selectedSerial?.code}</DialogTitle><DialogDescription>Full tracking information for this serial record.</DialogDescription></DialogHeader>
             {selectedSerial && (
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 <div><span className="text-muted-foreground">Product:</span> {selectedSerial.productName}</div>
                 <div><span className="text-muted-foreground">Serial:</span> {selectedSerial.serialNumber || "—"}</div>
                 <div><span className="text-muted-foreground">IMEI:</span> {selectedSerial.imeiNumber || "—"}</div>
@@ -1505,14 +1505,14 @@ export default function FinancialAuditGroupPage({
         </div>
 
         <Tabs value={specSubTab} onValueChange={setSpecSubTab}>
-          <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
-            <TabsTrigger value="hire-purchase" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsList className="flex overflow-x-auto scrollbar-none h-auto gap-1 bg-muted/50 p-1 w-full">
+            <TabsTrigger value="hire-purchase" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
               <Receipt className="w-3.5 h-3.5 mr-1" /> Hire Purchase
             </TabsTrigger>
-            <TabsTrigger value="commission" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+            <TabsTrigger value="commission" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
               <HandCoins className="w-3.5 h-3.5 mr-1" /> Commission
             </TabsTrigger>
-            <TabsTrigger value="collections" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+            <TabsTrigger value="collections" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
               <CircleDollarSign className="w-3.5 h-3.5 mr-1" /> Collections
             </TabsTrigger>
           </TabsList>
@@ -1691,7 +1691,7 @@ export default function FinancialAuditGroupPage({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <StatCard label="Total Commissions" value={isVatAuditor ? AUDIT_MASK : fmtCurrency(summary.totalCommissions || 0)} icon={DollarSign} color="text-green-600" bg="bg-green-100 dark:bg-green-900/30" />
           <StatCard label="Avg Target Achievement" value={`${(summary.avgTargetAchievement || 0).toFixed(1)}%`} icon={Target} color="text-blue-600" bg="bg-blue-100 dark:bg-blue-900/30" />
           <StatCard label="Top Performer" value={summary.topPerformer || "—"} icon={Award} color="text-amber-600" bg="bg-amber-100 dark:bg-amber-900/30" />
@@ -1820,7 +1820,7 @@ export default function FinancialAuditGroupPage({
             <CardTitle className="text-sm font-medium">Receivables Aging</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
               {[
                 { label: "Current", value: aging.current || 0 },
                 { label: "1-30 days", value: aging["1-30"] || aging["1-30 days"] || 0 },
@@ -2120,26 +2120,26 @@ export default function FinancialAuditGroupPage({
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
-          <TabsTrigger value="kpi" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+        <TabsList className="flex overflow-x-auto scrollbar-none h-auto gap-1 bg-muted/50 p-1 w-full">
+          <TabsTrigger value="kpi" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <BarChart3 className="w-3.5 h-3.5 mr-1" /> KPI Dashboard
           </TabsTrigger>
-          <TabsTrigger value="fraud-detection" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsTrigger value="fraud-detection" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <Fingerprint className="w-3.5 h-3.5 mr-1" /> Fraud Detection
           </TabsTrigger>
-          <TabsTrigger value="ledger-auto-post" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsTrigger value="ledger-auto-post" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <BookOpen className="w-3.5 h-3.5 mr-1" /> Ledger Auto-Post
           </TabsTrigger>
-          <TabsTrigger value="inventory-aging" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsTrigger value="inventory-aging" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <Clock className="w-3.5 h-3.5 mr-1" /> Inventory Aging
           </TabsTrigger>
-          <TabsTrigger value="product-lifecycle" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsTrigger value="product-lifecycle" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <QrCode className="w-3.5 h-3.5 mr-1" /> Product Lifecycle
           </TabsTrigger>
-          <TabsTrigger value="specialized-reports" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsTrigger value="specialized-reports" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <FileBarChart className="w-3.5 h-3.5 mr-1" /> Specialized Reports
           </TabsTrigger>
-          <TabsTrigger value="notifications-integrity" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+          <TabsTrigger value="notifications-integrity" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
             <Bell className="w-3.5 h-3.5 mr-1" /> Notifications & Integrity
           </TabsTrigger>
         </TabsList>

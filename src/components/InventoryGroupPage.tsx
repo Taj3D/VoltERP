@@ -2252,7 +2252,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Receive PO Items</DialogTitle><DialogDescription>Enter received quantities for each line item.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Received Date</Label><Input type="date" value={poReceiveForm.receivedDate || ""} onChange={e => setPoReceiveForm((p: any) => ({ ...p, receivedDate: e.target.value }))} /></div>
                 <div><Label className="text-sm font-medium">Challan Ref</Label><Input value={poReceiveForm.challanRef || ""} onChange={e => setPoReceiveForm((p: any) => ({ ...p, challanRef: e.target.value }))} placeholder="Challan reference" /></div>
               </div>
@@ -2812,7 +2812,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{soEdit ? "Edit" : "Create"} Sales Order</DialogTitle><DialogDescription>Fill in SO details and line items.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div><Label className="text-sm font-medium">Customer <span className="text-red-500">*</span></Label>
                   <Select value={soForm.customerId || ""} onValueChange={v => setSoForm(p => ({ ...p, customerId: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
@@ -2825,7 +2825,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={soForm.date || ""} onChange={e => setSoForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div><Label className="text-sm font-medium">Discount (Tk. )</Label><Input type="number" min={0} step="0.01" value={soForm.discount || 0} onChange={e => setSoForm(p => ({ ...p, discount: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={soForm.vatPercent || 0} onChange={e => setSoForm(p => ({ ...p, vatPercent: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">Payment Option</Label>
@@ -2984,7 +2984,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{hsEdit ? "Edit" : "Create"} Hire Sale</DialogTitle><DialogDescription>Fill in hire sale details, line items and installment schedule.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Customer <span className="text-red-500">*</span></Label>
                   <Select value={hsForm.customerId || ""} onValueChange={v => setHsForm(p => ({ ...p, customerId: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
@@ -2992,7 +2992,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={hsForm.date || ""} onChange={e => setHsForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div><Label className="text-sm font-medium">Down Payment</Label><Input type="number" min={0} step="0.01" value={hsForm.downPayment || 0} onChange={e => setHsForm(p => ({ ...p, downPayment: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">Duration (mo)</Label><Input type="number" min={1} value={hsForm.duration || 12} onChange={e => setHsForm(p => ({ ...p, duration: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">Hire Rate %</Label><Input type="number" min={0} step="0.01" value={hsForm.hireRate || 0} onChange={e => setHsForm(p => ({ ...p, hireRate: Number(e.target.value) }))} /></div>
@@ -3211,7 +3211,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{srEdit ? "Edit" : "Create"} Sales Return</DialogTitle><DialogDescription>Select a sales order and enter return details.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Sales Order <span className="text-red-500">*</span></Label>
                   <Select value={srForm.salesOrderId || ""} onValueChange={v => { const so = soData.find((s: any) => s.id === v); setSrForm(p => ({ ...p, salesOrderId: v, customerId: so?.customerId || so?.customer?.id || "" })); loadSrProducts(v); }}>
                     <SelectTrigger><SelectValue placeholder="Select Sales Order" /></SelectTrigger>
@@ -3219,7 +3219,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={srForm.date || ""} onChange={e => setSrForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Reason</Label><Textarea value={srForm.reason || ""} onChange={e => setSrForm(p => ({ ...p, reason: e.target.value }))} rows={2} /></div>
                 <div><Label className="text-sm font-medium">Status</Label>
                   <Select value={srForm.status || "Pending"} onValueChange={v => setSrForm(p => ({ ...p, status: v }))}>
@@ -3428,7 +3428,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{prEdit ? "Edit" : "Create"} Purchase Return</DialogTitle><DialogDescription>Select a purchase order and enter return details.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Purchase Order <span className="text-red-500">*</span></Label>
                   <Select value={prForm.purchaseOrderId || ""} onValueChange={v => { const po = poData.find((p: any) => p.id === v); setPrForm(p => ({ ...p, purchaseOrderId: v, supplierId: po?.supplierId || po?.supplier?.id || "" })); loadPrProducts(v); }}>
                     <SelectTrigger><SelectValue placeholder="Select PO" /></SelectTrigger>
@@ -3436,7 +3436,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={prForm.date || ""} onChange={e => setPrForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Reason</Label><Textarea value={prForm.reason || ""} onChange={e => setPrForm(p => ({ ...p, reason: e.target.value }))} rows={2} /></div>
                 <div><Label className="text-sm font-medium">Status</Label>
                   <Select value={prForm.status || "Pending"} onValueChange={v => setPrForm(p => ({ ...p, status: v }))}>
@@ -3599,7 +3599,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{rplEdit ? "Edit" : "Create"} Replacement Order</DialogTitle><DialogDescription>Enter replacement details.</DialogDescription></DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Sales Order</Label>
                   <Select value={rplForm.salesOrderId || ""} onValueChange={v => setRplForm(p => ({ ...p, salesOrderId: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select Sales Order (optional)" /></SelectTrigger>
@@ -3607,7 +3607,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Select></div>
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={rplForm.date || ""} onChange={e => setRplForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div><Label className="text-sm font-medium">Reason</Label><Textarea value={rplForm.reason || ""} onChange={e => setRplForm(p => ({ ...p, reason: e.target.value }))} rows={2} /></div>
                 <div><Label className="text-sm font-medium">Status</Label>
                   <Select value={rplForm.status || "Pending"} onValueChange={v => setRplForm(p => ({ ...p, status: v }))}>
@@ -3806,7 +3806,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       <Dialog open={trnDialog} onOpenChange={setTrnDialog}>
         <DialogContent className="max-w-[95vw] sm:max-w-2xl"><DialogHeader><DialogTitle>{trnEdit ? "Edit Transfer" : "New Stock Transfer"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><Label className="text-sm font-medium">From Godown</Label><Select value={trnForm.fromGodownId} onValueChange={v => setTrnForm(p => ({ ...p, fromGodownId: v }))}><SelectTrigger><SelectValue placeholder="From" /></SelectTrigger><SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent></Select></div>
               <div><Label className="text-sm font-medium">To Godown</Label><Select value={trnForm.toGodownId} onValueChange={v => setTrnForm(p => ({ ...p, toGodownId: v }))}><SelectTrigger><SelectValue placeholder="To" /></SelectTrigger><SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent></Select></div>
             </div>
@@ -3832,20 +3832,20 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </div>
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-800 p-1 pb-1 scrollbar-none">
-          <TabsTrigger value="company-ordersheet" className="text-xs">Company OS</TabsTrigger>
-          <TabsTrigger value="customer-ordersheet" className="text-xs">Customer OS</TabsTrigger>
-          <TabsTrigger value="ordersheet-report" className="text-xs">OS Report</TabsTrigger>
-          <TabsTrigger value="purchase-orders" className="text-xs">Purchase Orders</TabsTrigger>
-          <TabsTrigger value="auto-po" className="text-xs">Auto PO</TabsTrigger>
-          <TabsTrigger value="sales-orders" className="text-xs">Sales Orders</TabsTrigger>
-          <TabsTrigger value="hire-sales" className="text-xs">Hire Sales</TabsTrigger>
-          <TabsTrigger value="sales-returns" className="text-xs">Sales Returns</TabsTrigger>
-          <TabsTrigger value="purchase-returns" className="text-xs">Purchase Returns</TabsTrigger>
-          <TabsTrigger value="replacements" className="text-xs">Replacements</TabsTrigger>
-          <TabsTrigger value="stock" className="text-xs">Stock</TabsTrigger>
-          <TabsTrigger value="stock-details" className="text-xs">Stock Details</TabsTrigger>
-          <TabsTrigger value="transfers" className="text-xs">Transfers</TabsTrigger>
+        <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-800 p-1 pb-1 scrollbar-none w-full">
+          <TabsTrigger value="company-ordersheet" className="text-xs whitespace-nowrap flex-shrink-0">Company OS</TabsTrigger>
+          <TabsTrigger value="customer-ordersheet" className="text-xs whitespace-nowrap flex-shrink-0">Customer OS</TabsTrigger>
+          <TabsTrigger value="ordersheet-report" className="text-xs whitespace-nowrap flex-shrink-0">OS Report</TabsTrigger>
+          <TabsTrigger value="purchase-orders" className="text-xs whitespace-nowrap flex-shrink-0">Purchase Orders</TabsTrigger>
+          <TabsTrigger value="auto-po" className="text-xs whitespace-nowrap flex-shrink-0">Auto PO</TabsTrigger>
+          <TabsTrigger value="sales-orders" className="text-xs whitespace-nowrap flex-shrink-0">Sales Orders</TabsTrigger>
+          <TabsTrigger value="hire-sales" className="text-xs whitespace-nowrap flex-shrink-0">Hire Sales</TabsTrigger>
+          <TabsTrigger value="sales-returns" className="text-xs whitespace-nowrap flex-shrink-0">Sales Returns</TabsTrigger>
+          <TabsTrigger value="purchase-returns" className="text-xs whitespace-nowrap flex-shrink-0">Purchase Returns</TabsTrigger>
+          <TabsTrigger value="replacements" className="text-xs whitespace-nowrap flex-shrink-0">Replacements</TabsTrigger>
+          <TabsTrigger value="stock" className="text-xs whitespace-nowrap flex-shrink-0">Stock</TabsTrigger>
+          <TabsTrigger value="stock-details" className="text-xs whitespace-nowrap flex-shrink-0">Stock Details</TabsTrigger>
+          <TabsTrigger value="transfers" className="text-xs whitespace-nowrap flex-shrink-0">Transfers</TabsTrigger>
         </TabsList>
         <TabsContent value="company-ordersheet">{renderCompanyOrdersheet()}</TabsContent>
         <TabsContent value="customer-ordersheet">{renderCustomerOrdersheet()}</TabsContent>

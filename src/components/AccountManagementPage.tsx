@@ -686,13 +686,13 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={v => { setActiveTab(v); setSearch(""); setExpandedRows(new Set()); }}>
-          <TabsList className="flex overflow-x-auto flex-wrap gap-1 pb-1 scrollbar-none">
-            <TabsTrigger value="heads" className="flex items-center gap-1"><FileText className="w-4 h-4" />Heads</TabsTrigger>
-            <TabsTrigger value="expenses" className="flex items-center gap-1" disabled={isSR}><ArrowDownCircle className="w-4 h-4" />Expenses</TabsTrigger>
-            <TabsTrigger value="incomes" className="flex items-center gap-1"><ArrowUpCircle className="w-4 h-4" />Incomes</TabsTrigger>
-            <TabsTrigger value="collections" className="flex items-center gap-1"><Banknote className="w-4 h-4" />Collections</TabsTrigger>
-            <TabsTrigger value="deliveries" className="flex items-center gap-1" disabled={isSR}><ArrowDownCircle className="w-4 h-4" />Deliveries</TabsTrigger>
-            <TabsTrigger value="bank-transactions" className="flex items-center gap-1" disabled={isSR}><Landmark className="w-4 h-4" />Bank Txns</TabsTrigger>
+          <TabsList className="flex overflow-x-auto h-auto gap-1 pb-1 scrollbar-none w-full">
+            <TabsTrigger value="heads" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0"><FileText className="w-4 h-4" />Heads</TabsTrigger>
+            <TabsTrigger value="expenses" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0" disabled={isSR}><ArrowDownCircle className="w-4 h-4" />Expenses</TabsTrigger>
+            <TabsTrigger value="incomes" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0"><ArrowUpCircle className="w-4 h-4" />Incomes</TabsTrigger>
+            <TabsTrigger value="collections" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0"><Banknote className="w-4 h-4" />Collections</TabsTrigger>
+            <TabsTrigger value="deliveries" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0" disabled={isSR}><ArrowDownCircle className="w-4 h-4" />Deliveries</TabsTrigger>
+            <TabsTrigger value="bank-transactions" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0" disabled={isSR}><Landmark className="w-4 h-4" />Bank Txns</TabsTrigger>
           </TabsList>
 
           {/* Stat Cards */}

@@ -2223,23 +2223,23 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
         {/* Tabs */}
         <div className="px-4 sm:px-6 py-4">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-800 p-1 pb-1 scrollbar-none">
-              <TabsTrigger value="stock" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+            <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-800 p-1 pb-1 scrollbar-none w-full">
+              <TabsTrigger value="stock" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
                 <Package className="h-3.5 w-3.5 mr-1" /> Stock Overview
               </TabsTrigger>
-              <TabsTrigger value="stock-details" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+              <TabsTrigger value="stock-details" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
                 <Eye className="h-3.5 w-3.5 mr-1" /> Stock Details
               </TabsTrigger>
-              <TabsTrigger value="stock-transfers" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+              <TabsTrigger value="stock-transfers" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1" /> Transfers
               </TabsTrigger>
-              <TabsTrigger value="opening-stock" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+              <TabsTrigger value="opening-stock" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
                 <Archive className="h-3.5 w-3.5 mr-1" /> Opening Stock
               </TabsTrigger>
-              <TabsTrigger value="batch-master" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+              <TabsTrigger value="batch-master" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
                 <Layers className="h-3.5 w-3.5 mr-1" /> Batch Master
               </TabsTrigger>
-              <TabsTrigger value="valuation" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+              <TabsTrigger value="valuation" className="text-xs data-[state=active]:bg-[#2563eb] data-[state=active]:text-white whitespace-nowrap flex-shrink-0">
                 <Calculator className="h-3.5 w-3.5 mr-1" /> Valuation
               </TabsTrigger>
             </TabsList>

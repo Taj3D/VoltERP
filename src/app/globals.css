@@ -851,6 +851,20 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* Table scroll indicators on mobile */
+@media (max-width: 767px) {
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  
+  /* Fade indicator for horizontal scroll */
+  .overflow-x-auto:not(:has(.scroll-shadow-end)) {
+    mask-image: linear-gradient(to right, black 90%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black 90%, transparent 100%);
+  }
+}
+
 /* Mobile-friendly dialog */
 @media (max-width: 767px) {
   [data-slot="dialog-content"] {
@@ -861,9 +875,10 @@ input:focus, select:focus, textarea:focus {
 
 /* Touch-friendly spacing adjustments */
 @media (max-width: 767px) {
-  /* Increase tap targets */
-  button, [role="button"] {
-    min-height: 36px;
+  /* Mobile touch targets - minimum 44px per WCAG 2.5.5 */
+  button:not(.touch-exempt),
+  [role="button"]:not(.touch-exempt) {
+    min-height: 44px;
   }
   /* Prevent text selection on interactive elements */
   nav button, [role="tab"] {

@@ -1277,26 +1277,26 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 pb-1 scrollbar-none">
-          <TabsTrigger value="investment-heads" className="flex items-center gap-1 text-xs">
+        <TabsList className="flex overflow-x-auto h-auto gap-1 sm:gap-2 pb-1 scrollbar-none w-full">
+          <TabsTrigger value="investment-heads" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <Landmark className="w-3.5 h-3.5" />Investment Heads
           </TabsTrigger>
-          <TabsTrigger value="investment" className="flex items-center gap-1 text-xs">
+          <TabsTrigger value="investment" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <TrendingUp className="w-3.5 h-3.5" />Investment
           </TabsTrigger>
-          <TabsTrigger value="fixed-asset" className="flex items-center gap-1 text-xs">
+          <TabsTrigger value="fixed-asset" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <Building2 className="w-3.5 h-3.5" />Fixed Asset
           </TabsTrigger>
-          <TabsTrigger value="current-asset" className="flex items-center gap-1 text-xs">
+          <TabsTrigger value="current-asset" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <Wallet className="w-3.5 h-3.5" />Current Asset
           </TabsTrigger>
-          <TabsTrigger value="liability-receive" className="flex items-center gap-1 text-xs">
+          <TabsTrigger value="liability-receive" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <ArrowDownCircle className="w-3.5 h-3.5" />Liability Receive
           </TabsTrigger>
-          <TabsTrigger value="liability-pay" className="flex items-center gap-1 text-xs">
+          <TabsTrigger value="liability-pay" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <ArrowUpCircle className="w-3.5 h-3.5" />Liability Pay
           </TabsTrigger>
-          <TabsTrigger value="liability-report" className="flex items-center gap-1 text-xs">
+          <TabsTrigger value="liability-report" className="flex items-center gap-1 text-xs whitespace-nowrap flex-shrink-0">
             <FileBarChart className="w-3.5 h-3.5" />Liability Report
           </TabsTrigger>
         </TabsList>
@@ -2198,7 +2198,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Label htmlFor="head-name">Name <span className="text-red-500">*</span></Label>
               <Input id="head-name" value={headsFormData.name} onChange={(e) => setHeadsFormData({ ...headsFormData, name: e.target.value })} placeholder="Enter head name" />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="head-type">Type</Label>
                 <Select value={headsFormData.type} onValueChange={(v) => setHeadsFormData({ ...headsFormData, type: v })}>
@@ -2309,7 +2309,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Entry Type</Label>
                 <Select value={investFormData.entryType} onValueChange={(v) => setInvestFormData({ ...investFormData, entryType: v })}>
@@ -2374,7 +2374,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Date <span className="text-red-500">*</span></Label>
                 <Input type="date" value={assetsFormData.date} onChange={(e) => setAssetsFormData({ ...assetsFormData, date: e.target.value })} />
@@ -2393,7 +2393,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               <Calculator className="w-4 h-4 text-purple-600" />
               <span className="text-sm font-semibold text-slate-900 dark:text-white">Depreciation Details</span>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <Label>Purchase Value</Label>
                 <Input type="number" step="0.01" min="0" value={assetsFormData.purchaseValue} onChange={(e) => setAssetsFormData({ ...assetsFormData, purchaseValue: e.target.value })} placeholder="Original purchase value" />
@@ -2466,7 +2466,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Date <span className="text-red-500">*</span></Label>
                 <Input type="date" value={currentAssetsFormData.date} onChange={(e) => setCurrentAssetsFormData({ ...currentAssetsFormData, date: e.target.value })} />
@@ -2521,7 +2521,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <DialogDescription>{liabReceiveEdit ? "Update liability receive details" : "Record a new liability/loan receipt into the system"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Investment Head <span className="text-red-500">*</span></Label>
                 <Select value={liabReceiveFormData.investmentHeadId} onValueChange={(v) => {
@@ -2552,7 +2552,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <Label>Date <span className="text-red-500">*</span></Label>
                 <Input type="date" value={liabReceiveFormData.date} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, date: e.target.value })} />
@@ -2568,7 +2568,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 {Number(liabReceiveFormData.amount) <= 0 && liabReceiveFormData.amount !== "" && <p className="text-xs text-red-500 mt-1">Must be greater than zero</p>}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Interest Rate (%)</Label>
                 <Input type="number" step="0.01" min="0" value={liabReceiveFormData.interestRate} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, interestRate: e.target.value })} className={Number(liabReceiveFormData.interestRate) < 0 ? "border-red-500 focus:border-red-500" : ""} />
@@ -2591,7 +2591,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
               </div>
             )}
             <Separator />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Payment Method</Label>
                 <Select value={liabReceiveFormData.paymentMethod} onValueChange={(v) => setLiabReceiveFormData({ ...liabReceiveFormData, paymentMethod: v })}>
@@ -2616,7 +2616,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Voucher No</Label>
                 <Input value={liabReceiveFormData.voucherNo} onChange={(e) => setLiabReceiveFormData({ ...liabReceiveFormData, voucherNo: e.target.value })} placeholder="Optional" />
@@ -2666,7 +2666,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <DialogDescription>{liabPayEdit ? "Update liability payment details" : "Execute a liability/loan repayment"}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Investment Head <span className="text-red-500">*</span></Label>
                 <Select value={liabPayFormData.investmentHeadId} onValueChange={(v) => {
@@ -2705,7 +2705,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </span>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Payment Amount <span className="text-red-500">*</span></Label>
                 <Input type="number" step="0.01" min="0.01" value={liabPayFormData.amount} onChange={(e) => {
@@ -2729,7 +2729,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Bank Account</Label>
                 <Select value={liabPayFormData.bankId || "none"} onValueChange={(v) => setLiabPayFormData({ ...liabPayFormData, bankId: v === "none" ? "" : v })}>
@@ -2753,7 +2753,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Voucher No</Label>
                 <Input value={liabPayFormData.voucherNo} onChange={(e) => setLiabPayFormData({ ...liabPayFormData, voucherNo: e.target.value })} placeholder="Optional" />

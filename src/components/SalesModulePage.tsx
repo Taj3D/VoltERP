@@ -2185,18 +2185,18 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
         {/* ── Tab Navigation ── */}
         <div className="max-w-[1400px] mx-auto p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-[#132240] dark:bg-[#0a1628] w-full sm:w-auto overflow-x-auto scrollbar-none">
-              <TabsTrigger value="sales-orders" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-300">
+            <TabsList className="bg-[#132240] dark:bg-[#0a1628] flex h-auto overflow-x-auto scrollbar-none gap-1 p-1 w-full">
+              <TabsTrigger value="sales-orders" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-300 whitespace-nowrap flex-shrink-0">
                 <Receipt className="h-4 w-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">Sales Orders</span>
                 <span className="sm:hidden">Orders</span>
               </TabsTrigger>
-              <TabsTrigger value="hire-sales" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-300">
+              <TabsTrigger value="hire-sales" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-300 whitespace-nowrap flex-shrink-0">
                 <DollarSign className="h-4 w-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">Hire Sales</span>
                 <span className="sm:hidden">Hire</span>
               </TabsTrigger>
-              <TabsTrigger value="sales-returns" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-300">
+              <TabsTrigger value="sales-returns" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-300 whitespace-nowrap flex-shrink-0">
                 <RotateCcw className="h-4 w-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">Sales Returns</span>
                 <span className="sm:hidden">Returns</span>
