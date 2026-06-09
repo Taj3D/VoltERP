@@ -26,7 +26,7 @@ import { useAuth } from "@/hooks/useAuth";
 // ── Utility Functions ──────────────────────────────────────────────
 
 const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtCurrency = (v: any): string => { if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return `৳${bdCurrencyFmt.format(n)}`; };
+const fmtCurrency = (v: any): string => { if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return `Tk. ${bdCurrencyFmt.format(n)}`; };
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const fmtEmpty = (v: any) => (v === null || v === undefined || v === "") ? "—" : String(v);
 const sanitizeCurrency = (val: any): number => { const num = Number(val); if (isNaN(num)) return 0; return Math.round(num * 100) / 100; };
@@ -247,7 +247,27 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
   const openCreate = (context: string) => {
     setFormContext(context);
     setEditItem(null);
-    setFormData({ date: new Date().toISOString().split("T")[0], status: "Approved", amount: "", headId: "", bankId: "", paymentOptionId: "", chequeNo: "", voucherNo: "", description: "", type: "Deposit" });
+    const defaultType = context === "heads" ? "Expense" : "Deposit";
+    setFormData({
+      date: new Date().toISOString().split("T")[0],
+      status: "Approved",
+      amount: "",
+      headId: "",
+      bankId: "",
+      paymentOptionId: "",
+      chequeNo: "",
+      voucherNo: "",
+      description: "",
+      type: defaultType,
+      type_head: defaultType,
+      name: "",
+      chartOfAccountId: "",
+      customerId: "",
+      supplierId: "",
+      toBankId: "",
+      depositorName: "",
+      referenceNo: "",
+    });
     setShowForm(true);
   };
 
@@ -754,10 +774,6 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
         </DialogContent>
       </Dialog>
 
-      {/* Sticky Footer */}
-      <footer className="mt-auto border-t bg-white dark:bg-slate-900 py-3 text-center text-xs text-muted-foreground">
-        Developed & Copyright by NextGen Digital Studio
-      </footer>
     </div>
   );
 }

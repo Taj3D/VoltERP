@@ -36,7 +36,7 @@ const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximu
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${bdtFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdtFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -460,9 +460,9 @@ export default function CustomerSupplierLedgerPage({
                     <TableHead>Date</TableHead>
                     <TableHead>Reference No</TableHead>
                     <TableHead>Reference Type</TableHead>
-                    <TableHead className="text-right">Debit (৳)</TableHead>
-                    <TableHead className="text-right">Credit (৳)</TableHead>
-                    <TableHead className="text-right">Balance (৳)</TableHead>
+                    <TableHead className="text-right">Debit (Tk. )</TableHead>
+                    <TableHead className="text-right">Credit (Tk. )</TableHead>
+                    <TableHead className="text-right">Balance (Tk. )</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -889,9 +889,9 @@ export default function CustomerSupplierLedgerPage({
                     <TableHead>Date</TableHead>
                     <TableHead>Reference No</TableHead>
                     <TableHead>Reference Type</TableHead>
-                    <TableHead className="text-right">Debit (৳)</TableHead>
-                    <TableHead className="text-right">Credit (৳)</TableHead>
-                    <TableHead className="text-right">Balance (৳)</TableHead>
+                    <TableHead className="text-right">Debit (Tk. )</TableHead>
+                    <TableHead className="text-right">Credit (Tk. )</TableHead>
+                    <TableHead className="text-right">Balance (Tk. )</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

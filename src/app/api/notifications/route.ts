@@ -37,8 +37,8 @@ function maskForVat(value: any, isVatAuditor: boolean): any {
 // Comprehensive monetary pattern masking within message strings
 function maskVatInMessage(message: string, isVatAuditor: boolean): string {
   if (!isVatAuditor) return message;
-  // Mask BDT currency patterns: ৳1,200.00 or ৳575,000.00
-  let masked = message.replace(/৳[\d,]+\.?\d*/g, 'N/A (Audit Mode)');
+  // Mask BDT currency patterns: Tk. 1,200.00 or Tk. 575,000.00
+  let masked = message.replace(/Tk. [\d,]+\.?\d*/g, 'N/A (Audit Mode)');
   // Mask plain number patterns preceded by currency keywords
   masked = masked.replace(/(?:amount|balance|limit|total|due|remaining|outstanding|overdue|exceeded|difference|debit|credit|cost|value|price|paid)[\s:]*[\d,]+\.?\d*/gi, (match) =>
     match.replace(/[\d,]+\.?\d*$/, 'N/A (Audit Mode)')
@@ -512,7 +512,7 @@ async function generateNotifications(
               type: 'OverdueInstallment',
               severity: 'Critical',
               title: `Overdue Installment: ${inst.hireSales.invoiceNo}`,
-              message: `Installment #${inst.installmentNo} for ${inst.hireSales.customer.name} is overdue. Amount: ৳${remaining.toLocaleString()} remaining. Due: ${inst.dueDate.toISOString().split('T')[0]}`,
+              message: `Installment #${inst.installmentNo} for ${inst.hireSales.customer.name} is overdue. Amount: Tk. ${remaining.toLocaleString()} remaining. Due: ${inst.dueDate.toISOString().split('T')[0]}`,
               module: 'HireSales',
               referenceId: inst.id,
               referenceCode: inst.hireSales.invoiceNo,
@@ -675,7 +675,7 @@ async function generateNotifications(
                   type: 'BalanceMismatch',
                   severity: 'Critical',
                   title: `Balance Mismatch: ${dateKey}`,
-                  message: `Ledger imbalance detected on ${dateKey}. Debit total: ৳${totals.totalDebit.toLocaleString()}, Credit total: ৳${totals.totalCredit.toLocaleString()}, Difference: ৳${difference.toLocaleString()}. Affected entries: ${totals.entryCodes.slice(0, 5).join(', ')}${totals.entryCodes.length > 5 ? ` and ${totals.entryCodes.length - 5} more` : ''}.`,
+                  message: `Ledger imbalance detected on ${dateKey}. Debit total: Tk. ${totals.totalDebit.toLocaleString()}, Credit total: Tk. ${totals.totalCredit.toLocaleString()}, Difference: Tk. ${difference.toLocaleString()}. Affected entries: ${totals.entryCodes.slice(0, 5).join(', ')}${totals.entryCodes.length > 5 ? ` and ${totals.entryCodes.length - 5} more` : ''}.`,
                   module: 'Ledger',
                   referenceCode: totals.entryCodes[0] || null,
                   actionUrl: '/chart-of-accounts',
@@ -736,7 +736,7 @@ async function generateNotifications(
                 type: 'CreditLimitExceeded',
                 severity: 'Warning',
                 title: `Credit Limit Exceeded: ${customer.name}`,
-                message: `Customer ${customer.name} (${customer.customerCode}) has outstanding balance ৳${customer.openingBalance.toLocaleString()} (Dr) exceeding credit limit ৳${customer.creditLimit.toLocaleString()} by ৳${overAmount.toLocaleString()}. Type: ${customer.customerType}.`,
+                message: `Customer ${customer.name} (${customer.customerCode}) has outstanding balance Tk. ${customer.openingBalance.toLocaleString()} (Dr) exceeding credit limit Tk. ${customer.creditLimit.toLocaleString()} by Tk. ${overAmount.toLocaleString()}. Type: ${customer.customerType}.`,
                 module: 'Financial',
                 referenceId: customer.id,
                 referenceCode: customer.customerCode,

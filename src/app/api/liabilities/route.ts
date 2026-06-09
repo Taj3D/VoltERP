@@ -321,7 +321,7 @@ export async function POST(request: NextRequest) {
           action: 'CREATE',
           module: 'Fin-Liability-Core',
           recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
+          recordLabel: `${record.investmentHead?.name || record.id} - Tk. ${record.amount}`,
           userId,
           userName,
           details: JSON.stringify({

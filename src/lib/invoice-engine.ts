@@ -239,7 +239,7 @@ export function numberToWordsBDT(amount: number): string {
 }
 
 // ============================================================
-// UTILITY: Format currency with ৳ symbol
+// UTILITY: Format currency with Tk.  symbol
 // Uses safe BDT formatter to guarantee Latin digits (0-9)
 // ============================================================
 
@@ -256,7 +256,7 @@ function fmtCurrency(value: number | undefined | null, isMasked?: boolean): stri
   if (isNaN(num)) return "\u2014";
   // Use safe formatter to guarantee Latin digits (0-9) — avoid toLocaleString
   // which can fall back to Bengali numerals (০-৯) in some environments
-  return `\u09F3${invoiceBdtFormatter.format(num)}`;
+  return `Tk. ${invoiceBdtFormatter.format(num)}`;
 }
 
 // ============================================================

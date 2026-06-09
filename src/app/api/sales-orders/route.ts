@@ -436,7 +436,7 @@ async function handleCreate(
   if (customer.creditStatus === 'Frozen') {
     return NextResponse.json(
       {
-        error: `CREDIT FREEZE: Transaction blocked. Customer account is frozen. Outstanding ৳${fmtBD(Math.abs(customer.currentBalance))}. Contact management to unfreeze account or collect outstanding payments.`,
+        error: `CREDIT FREEZE: Transaction blocked. Customer account is frozen. Outstanding Tk. ${fmtBD(Math.abs(customer.currentBalance))}. Contact management to unfreeze account or collect outstanding payments.`,
       },
       { status: 403 }
     );
@@ -517,7 +517,7 @@ async function handleCreate(
         }
 
         throw Object.assign(new Error('CREDIT_LIMIT_EXCEEDED'), {
-          creditError: `CREDIT FREEZE: Transaction blocked. Customer outstanding ৳${fmtBD(outstandingBalance)} + proposed ৳${fmtBD(grandTotal)} = ৳${fmtBD(projectedBalance)} exceeds credit ceiling ৳${fmtBD(customer.creditLimit)}. Contact management to increase credit limit or collect outstanding payments.`,
+          creditError: `CREDIT FREEZE: Transaction blocked. Customer outstanding Tk. ${fmtBD(outstandingBalance)} + proposed Tk. ${fmtBD(grandTotal)} = Tk. ${fmtBD(projectedBalance)} exceeds credit ceiling Tk. ${fmtBD(customer.creditLimit)}. Contact management to increase credit limit or collect outstanding payments.`,
         });
       }
     }
@@ -985,7 +985,7 @@ async function handleCsvImport(
       if (projectedBalance > customer.creditLimit) {
         errors.push({
           row: 0,
-          message: `CREDIT LIMIT: Customer "${customer.name}" (${customer.customerCode}) — outstanding ৳${fmtBD(outstandingBalance)} + proposed ৳${fmtBD(totalOrderValue)} = ৳${fmtBD(projectedBalance)} exceeds credit ceiling ৳${fmtBD(customer.creditLimit)}. All rows for this customer rejected.`,
+          message: `CREDIT LIMIT: Customer "${customer.name}" (${customer.customerCode}) — outstanding Tk. ${fmtBD(outstandingBalance)} + proposed Tk. ${fmtBD(totalOrderValue)} = Tk. ${fmtBD(projectedBalance)} exceeds credit ceiling Tk. ${fmtBD(customer.creditLimit)}. All rows for this customer rejected.`,
         });
         // Remove all rows for this customer
         for (let i = validRows.length - 1; i >= 0; i--) {

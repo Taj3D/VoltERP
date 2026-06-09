@@ -162,11 +162,12 @@ export function sanitizeCurrencyValue(value: any): number {
   let raw = String(value);
   
   // Remove known corruption patterns:
-  // - Unicode taka symbol ৳ (U+09F3)
+  // - Currency prefix "Tk." (English notation)
   // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯
   // - Comma separators that may have digit corruption
   // - Any non-ASCII digits that might have been inserted
-  raw = raw.replace(/[\u09F3\u09E6-\u09EF]/g, ''); // Remove ৳ symbol and Bengali digits
+  raw = raw.replace(/Tk\.\s*/g, ''); // Remove Tk. currency prefix
+  raw = raw.replace(/[\u09E6-\u09EF]/g, ''); // Remove Bengali digits
   raw = raw.replace(/[^\d.\-]/g, ''); // Keep only digits, decimal point, and minus sign
   
   // Handle multiple decimal points (keep only the first)
@@ -183,7 +184,7 @@ export function sanitizeCurrencyValue(value: any): number {
 /** Format a sanitized currency value for PDF display (right-aligned, guaranteed Latin digits) */
 export function formatSanitizedCurrency(value: any): string {
   const sanitized = sanitizeCurrencyValue(value);
-  return `\u09F3${formatBDT(sanitized)}`;
+  return `Tk. ${formatBDT(sanitized)}`;
 }
 
 // ============================================================
@@ -299,7 +300,7 @@ function formatCellValue(
   if (type === "currency") {
     const num = sanitizeCurrencyValue(value);
     if (num === 0 && (value === null || value === undefined || value === "")) return "\u2014";
-    return `\u09F3${formatBDT(num)}`;
+    return `Tk. ${formatBDT(num)}`;
   }
   if (type === "boolean") return value ? "Active" : "Inactive";
   if (type === "date") {
@@ -324,7 +325,7 @@ function formatCellValue(
 
 // ============================================================
 // UTILITY: Escape CSV field (RFC 4180 compliant)
-// Handles commas, double quotes, line breaks, and the ৳ symbol
+// Handles commas, double quotes, line breaks, and the Tk.  symbol
 // Numeric values are not quoted unless they contain special chars
 // ============================================================
 
@@ -350,7 +351,7 @@ function escapeCSVField(value: string, isNumeric?: boolean): string {
     value.includes('"') ||
     value.includes("\n") ||
     value.includes("\r") ||
-    value.includes("\u09F3"); // ৳ taka symbol
+    value.includes("Tk."); // Tk. currency prefix
 
   if (needsQuoting) {
     return `"${value.replace(/"/g, '""')}"`;
@@ -664,12 +665,42 @@ function drawFooter(
 // Second pass: replace {total} with actual page count
 // ============================================================
 
-function fixPageXOfY(doc: jsPDF, pageHeight: number, pageWidth: number, margin: number): void {
+function fixPageXOfY(
+  doc: jsPDF,
+  pageHeight: number,
+  pageWidth: number,
+  margin: number,
+  financialFooter?: PDFOptions["financialFooter"],
+  company?: CompanyProfile
+): void {
   const totalPageCount = doc.getNumberOfPages();
   for (let i = 1; i <= totalPageCount; i++) {
     doc.setPage(i);
 
-    // Overwrite the right portion of the footer bar where the page text sits
+    // ── Fix page number in the financial footer signature section (above navy bar) ──
+    // When a financial footer is present, "Page X of {total}" is also drawn at
+    // signatureY + 20 ≈ pageHeight - 18. We must overwrite that area too.
+    if (financialFooter) {
+      const signatureY = pageHeight - 38;
+      const ffPageInfoY = signatureY + 20; // pageHeight - 18
+
+      // Overwrite with white/background to erase placeholder
+      doc.setFillColor(255, 255, 255);
+      doc.rect(pageWidth - 55, ffPageInfoY - 3, 55, 6, "F");
+
+      // Rewrite with correct total
+      doc.setFontSize(5.5);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont("helvetica", "normal");
+      const ffCorrected = `Page ${i} of ${totalPageCount}`;
+      doc.text(
+        ffCorrected,
+        pageWidth - margin - doc.getTextWidth(ffCorrected),
+        ffPageInfoY
+      );
+    }
+
+    // ── Fix page number in the navy blue footer bar ──
     doc.setFillColor(10, 22, 40);
     doc.rect(pageWidth - 55, pageHeight - 12, 55, 12, "F");
 
@@ -770,7 +801,7 @@ export function exportToPDF(options: PDFOptions): void {
     // Calculate the maximum width needed for each currency column based on
     // the longest formatted value. Setting a fixed cellWidth ensures all
     // currency values in a column occupy the same width, making right-alignment
-    // visually correct (the ৳ symbol is consistently placed on the left of
+    // visually correct (the Tk.  symbol is consistently placed on the left of
     // each value, and numbers line up properly).
     {
       const tempDoc = new jsPDF({ orientation, unit: "mm", format: "a4" });
@@ -879,7 +910,7 @@ export function exportToPDF(options: PDFOptions): void {
     }
 
     // ── Second Pass: Fix "Page X of Y" with correct total ──
-    fixPageXOfY(doc, pageHeight, pageWidth, margin);
+    fixPageXOfY(doc, pageHeight, pageWidth, margin, options.financialFooter, company);
 
     // ── Save ──
     // Strip any .pdf extension if already present in filename to prevent double .pdf.pdf
@@ -954,7 +985,7 @@ export function exportToPDFSimple(
     });
 
     // Second pass: fix Page X of Y
-    fixPageXOfY(doc, pageHeight, pageWidth, margin);
+    fixPageXOfY(doc, pageHeight, pageWidth, margin, financialFooter, company);
 
     const rawFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
@@ -1296,7 +1327,7 @@ export function exportAuditReportPDF(options: AuditReportOptions): void {
     drawSystemDisclaimer(doc, currentY + 2, margin, pageWidth, pageHeight, financialFooter);
 
     // ── Second Pass: Fix "Page X of Y" ──
-    fixPageXOfY(doc, pageHeight, pageWidth, margin);
+    fixPageXOfY(doc, pageHeight, pageWidth, margin, financialFooter, company);
 
     // ── Save ──
     const rawFilename = `audit-${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
@@ -1311,7 +1342,7 @@ export function exportAuditReportPDF(options: AuditReportOptions): void {
 // ============================================================
 // EXPORT CSV ENGINE
 // UTF-8 BOM always injected, RFC 4180 compliant, VAT masking,
-// numeric values unquoted, proper escaping for ৳ symbol
+// numeric values unquoted, proper escaping for Tk.  symbol
 // ============================================================
 
 export function exportToCSV(options: CSVOptions): void {
@@ -1352,7 +1383,7 @@ export function exportToCSV(options: CSVOptions): void {
         .join(",")
     );
 
-    // UTF-8 BOM is ALWAYS injected for Excel compatibility (preserves ৳ symbol)
+    // UTF-8 BOM is ALWAYS injected for Excel compatibility (preserves Tk.  symbol)
     const bom = "\uFEFF";
     const csv = bom + headerRow + "\n" + dataRows.join("\n") + "\n";
 
@@ -1723,7 +1754,7 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
 
             // Type coercion
             if (field.type === "number") {
-              const num = Number(value.replace(/[,$\u09F3]/g, ""));
+              const num = Number(value.replace(/Tk\.\s*/g, "").replace(/[,$]/g, ""));
               if (isNaN(num)) {
                 fieldErrors.push({
                   row: i + 2,

@@ -378,7 +378,7 @@ async function executeDispatchInternal(params: {
 
 /**
  * buildPurchaseSms — TRIGGER A: Product Purchase Alert
- * "Dear [Name], Invoice [InvNo] raised for [ItemSummary]. Total: ৳[GrandTotal]. Thank you."
+ * "Dear [Name], Invoice [InvNo] raised for [ItemSummary]. Total: Tk. [GrandTotal]. Thank you."
  */
 export function buildPurchaseSms(params: {
   customerName: string;
@@ -390,12 +390,12 @@ export function buildPurchaseSms(params: {
   const invNo = sanitizeSmsVariable(params.invoiceNo);
   const items = sanitizeSmsVariable(truncateSummary(params.itemSummary, 50));
   const total = sanitizeSmsVariable(String(params.grandTotal));
-  return `Dear ${name}, Invoice ${invNo} raised for ${items}. Total: ৳${total}. Thank you.`;
+  return `Dear ${name}, Invoice ${invNo} raised for ${items}. Total: Tk. ${total}. Thank you.`;
 }
 
 /**
  * buildCollectionSms — TRIGGER B: Cash/Bank/MFS Collection Alert
- * "Received with thanks: ৳[Amount] via [PaymentMethod] against Invoice/Account [RefNo]. Available balance: ৳[Balance]."
+ * "Received with thanks: Tk. [Amount] via [PaymentMethod] against Invoice/Account [RefNo]. Available balance: Tk. [Balance]."
  */
 export function buildCollectionSms(params: {
   amount: string | number;
@@ -407,7 +407,7 @@ export function buildCollectionSms(params: {
   const method = sanitizeSmsVariable(truncateSummary(params.paymentMethod, 20));
   const refNo = sanitizeSmsVariable(truncateSummary(params.referenceNo, 25));
   const balance = sanitizeSmsVariable(String(params.balance));
-  return `Received with thanks: ৳${amount} via ${method} against Invoice/Account ${refNo}. Available balance: ৳${balance}.`;
+  return `Received with thanks: Tk. ${amount} via ${method} against Invoice/Account ${refNo}. Available balance: Tk. ${balance}.`;
 }
 
 /**

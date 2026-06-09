@@ -394,7 +394,7 @@ async function createSingleCashDelivery(
     });
     if (bank && bank.currentBalance < safeAmount) {
       throw new Error(
-        `Insufficient bank balance. ${bank.bankName} has ৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bank.currentBalance)} but delivery amount is ৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount)}`
+        `Insufficient bank balance. ${bank.bankName} has Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bank.currentBalance)} but delivery amount is Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount)}`
       );
     }
   }
@@ -439,7 +439,7 @@ async function createSingleCashDelivery(
       });
       if (!currentBank || currentBank.currentBalance < safeAmount) {
         throw new Error(
-          `Insufficient bank balance. Bank has ৳${currentBank?.currentBalance ?? 0} but delivery amount is ৳${safeAmount}`
+          `Insufficient bank balance. Bank has Tk. ${currentBank?.currentBalance ?? 0} but delivery amount is Tk. ${safeAmount}`
         );
       }
       const newBalance = safeFinancialSubtract(currentBank.currentBalance, safeAmount);
@@ -599,7 +599,7 @@ async function createSingleCashDelivery(
       recordLabel: deliveryCode,
       userId,
       userName,
-      details: `Created cash delivery ${deliveryCode}: ৳${safeAmount}`,
+      details: `Created cash delivery ${deliveryCode}: Tk. ${safeAmount}`,
     });
 
     const finalResult = await tx.cashDelivery.findUnique({

@@ -43,7 +43,7 @@ const bdFmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${bdFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return bdFmtInt.format(Number(v));
@@ -53,7 +53,7 @@ const fmt = (v: any, type?: string) => {
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${bdFmt.format(Number(v))}`;
+  return `Tk. ${bdFmt.format(Number(v))}`;
 };
 
 
@@ -222,10 +222,10 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "barcode", label: "Barcode", type: "text", required: false },
       { key: "unit", label: "Unit", type: "text", required: false, placeholder: "e.g. pcs, kg" },
       { key: "sizeCapacity", label: "Size/Capacity", type: "text", required: false },
-      { key: "costPrice", label: "Purchase Price (৳)", type: "number", required: true, step: "0.01" },
-      { key: "salePrice", label: "MRP/Retail Price (৳)", type: "number", required: true, step: "0.01" },
-      { key: "wholesalePrice", label: "Wholesale Price (৳)", type: "number", defaultValue: 0, step: "0.01" },
-      { key: "dealerPrice", label: "Dealer Price (৳)", type: "number", defaultValue: 0, step: "0.01" },
+      { key: "costPrice", label: "Purchase Price (Tk. )", type: "number", required: true, step: "0.01" },
+      { key: "salePrice", label: "MRP/Retail Price (Tk. )", type: "number", required: true, step: "0.01" },
+      { key: "wholesalePrice", label: "Wholesale Price (Tk. )", type: "number", defaultValue: 0, step: "0.01" },
+      { key: "dealerPrice", label: "Dealer Price (Tk. )", type: "number", defaultValue: 0, step: "0.01" },
       { key: "openingStock", label: "Opening Stock", type: "number", defaultValue: 0, step: "0.01" },
       { key: "reorderLevel", label: "Reorder Level", type: "number", defaultValue: 0, step: "0.01" },
       { key: "godownId", label: "Warehouse", type: "select", required: false, options: [] },
@@ -348,8 +348,8 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "employeeId", label: "Employee (SR)", type: "select", required: true, options: [] },
       { key: "month", label: "Month", type: "number", required: true },
       { key: "year", label: "Year", type: "number", required: true },
-      { key: "targetAmount", label: "Target Amount (৳)", type: "number", required: true, step: "0.01" },
-      { key: "minimumSalesQuota", label: "Minimum Sales Quota (৳)", type: "number", required: true, step: "0.01" },
+      { key: "targetAmount", label: "Target Amount (Tk. )", type: "number", required: true, step: "0.01" },
+      { key: "minimumSalesQuota", label: "Minimum Sales Quota (Tk. )", type: "number", required: true, step: "0.01" },
       { key: "commissionPercentage", label: "Commission Percentage (%)", type: "number", required: true, step: "0.01" },
     ],
     vatMaskedColumns: ["targetAmount", "minimumSalesQuota", "commissionPercentage"],

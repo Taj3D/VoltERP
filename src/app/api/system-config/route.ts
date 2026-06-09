@@ -18,7 +18,7 @@ function isProfitSensitive(key: string): boolean {
 const DEFAULT_CONFIGS = [
   { configKey: 'company_name', configValue: 'Electronics Mart', configType: 'string', category: 'Branding', description: 'Company display name' },
   { configKey: 'default_vat_rate', configValue: '15', configType: 'number', category: 'Tax', description: 'Default VAT percentage' },
-  { configKey: 'currency_symbol', configValue: '৳', configType: 'string', category: 'Currency', description: 'Currency symbol for display' },
+  { configKey: 'currency_symbol', configValue: 'Tk. ', configType: 'string', category: 'Currency', description: 'Currency symbol for display' },
   { configKey: 'currency_code', configValue: 'BDT', configType: 'string', category: 'Currency', description: 'ISO currency code' },
   { configKey: 'currency_decimal_places', configValue: '2', configType: 'number', category: 'Currency', description: 'Decimal places for currency formatting' },
   { configKey: 'date_format', configValue: 'DD/MM/YYYY', configType: 'string', category: 'General', description: 'Default date format' },

@@ -47,7 +47,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2,
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
 };
 
 const fmtDate = (d: string | Date) =>
@@ -1481,10 +1481,6 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
         </Tabs>
       </main>
 
-      {/* Sticky Footer */}
-      <footer className="mt-auto bg-[#0a1628] border-t border-[#132240] py-3 px-4 text-center">
-        <p className="text-xs text-slate-400">Developed &amp; Copyright by NextGen Digital Studio</p>
-      </footer>
     </div>
   );
 }

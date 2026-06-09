@@ -347,7 +347,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Deposit ${transactionCode}: ৳${transactionAmount}` });
+        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Deposit ${transactionCode}: Tk. ${transactionAmount}` });
 
         return bankTransaction;
       }
@@ -426,7 +426,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Withdraw ${transactionCode}: ৳${transactionAmount}` });
+        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Withdraw ${transactionCode}: Tk. ${transactionAmount}` });
 
         return bankTransaction;
       }
@@ -542,7 +542,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: sourceTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Transfer ${transactionCode}: ৳${transactionAmount}` });
+        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: sourceTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Transfer ${transactionCode}: Tk. ${transactionAmount}` });
 
         return sourceTransaction;
       }

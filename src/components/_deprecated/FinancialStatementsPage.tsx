@@ -50,7 +50,7 @@ const bdFmt = new Intl.NumberFormat("en-BD", {
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${bdFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
   if (type === "number") return bdFmt.format(Number(v));
   if (type === "date")
     return v
@@ -655,7 +655,7 @@ export default function FinancialStatementsPage({
       setYecResult(res);
       toast({
         title: "Year-End Close Complete",
-        description: `Fiscal year closed. Net Profit Transferred: ৳${bdFmt.format(res.fiscalYear?.netProfitClosed || 0)}`,
+        description: `Fiscal year closed. Net Profit Transferred: Tk. ${bdFmt.format(res.fiscalYear?.netProfitClosed || 0)}`,
       });
       loadFiscalYears();
       setYecPreClose(null);

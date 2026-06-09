@@ -50,7 +50,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2,
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
 };
 
 const fmtDate = (d: string | Date) =>
@@ -910,7 +910,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     if (info.creditStatus === "Frozen") return { type: "error" as const, message: `Customer "${info.name}" account is FROZEN. Sales not allowed.` };
     if (info.creditLimit > 0) {
       const projected = info.currentBalance + soComputedTotals.grandTotal;
-      if (projected > info.creditLimit) return { type: "warning" as const, message: `Projected balance ৳${bdCurrencyFmt.format(projected)} exceeds credit limit ৳${bdCurrencyFmt.format(info.creditLimit)}` };
+      if (projected > info.creditLimit) return { type: "warning" as const, message: `Projected balance Tk. ${bdCurrencyFmt.format(projected)} exceeds credit limit Tk. ${bdCurrencyFmt.format(info.creditLimit)}` };
     }
     return null;
   }, [soForm.customerId, soComputedTotals.grandTotal, getCustomerCreditInfo]);
@@ -2152,10 +2152,6 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
         </div>
       </div>
 
-      {/* ── Sticky Footer ── */}
-      <footer className="mt-auto bg-[#0a1628] text-slate-400 text-xs text-center py-3 border-t border-slate-700">
-        Developed & Copyright by NextGen Digital Studio
-      </footer>
     </div>
   );
 }

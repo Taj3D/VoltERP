@@ -209,7 +209,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2,
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${bdCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -1208,7 +1208,7 @@ function ProductsPage() {
         { label: "Low Stock", value: String(lowStock) },
         { label: "Out of Stock", value: String(outOfStock) },
         { label: "Active SKUs", value: String(activeSKUs) },
-        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue))}` }]),
+        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue))}` }]),
       ];
       const summaryRows = summaryRowsData.map(r => ({ cells: [r.label, r.value] }));
       const { user } = useAuth();
@@ -2370,7 +2370,7 @@ function DashboardChart() {
           <XAxis dataKey="name" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
           <YAxis tick={{ fontSize: 11 }} className="fill-muted-foreground" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
           <RechartsTooltip
-            formatter={(value: number) => [`৳${new Intl.NumberFormat('en-US').format(value)}`, ""]}
+            formatter={(value: number) => [`Tk. ${new Intl.NumberFormat('en-US').format(value)}`, ""]}
             contentStyle={{ borderRadius: "8px", fontSize: "12px" }}
           />
           <Legend wrapperStyle={{ fontSize: "12px" }} />

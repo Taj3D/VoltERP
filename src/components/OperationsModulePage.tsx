@@ -51,7 +51,7 @@ const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximum
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${bdFmt.format(Number(v))}`;
+  return `Tk. ${bdFmt.format(Number(v))}`;
 };
 
 const fmtPercent = (v: any) => {
@@ -125,8 +125,8 @@ const SR_TARGET_FIELDS: ExportFieldDef[] = [
   { key: "employeeId", label: "Employee (SR)", type: "select", required: true, options: [] },
   { key: "month", label: "Month", type: "number", required: true },
   { key: "year", label: "Year", type: "number", required: true },
-  { key: "targetAmount", label: "Target Amount (৳)", type: "number", required: true, step: "0.01" },
-  { key: "minimumSalesQuota", label: "Minimum Sales Quota (৳)", type: "number", required: true, step: "0.01" },
+  { key: "targetAmount", label: "Target Amount (Tk. )", type: "number", required: true, step: "0.01" },
+  { key: "minimumSalesQuota", label: "Minimum Sales Quota (Tk. )", type: "number", required: true, step: "0.01" },
   { key: "commissionPercentage", label: "Commission Percentage (%)", type: "number", required: true, step: "0.01" },
 ];
 
@@ -330,7 +330,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
   const openCreate = () => {
     setEditingItem(null);
     setSrTargetError(null);
-    setFormData({ employeeId: "", month: "", year: new Date().getFullYear(), targetAmount: "", minimumSalesQuota: "", commissionPercentage: "" });
+    setFormData({ employeeId: "", month: "", year: String(new Date().getFullYear()), targetAmount: "", minimumSalesQuota: "", commissionPercentage: "" });
     setDialogOpen(true);
   };
 
@@ -859,20 +859,20 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
               </div>
               <div className="space-y-2">
                 <Label>Year *</Label>
-                <Input type="number" value={String(formData.year || "")} onChange={(e) => setFormData(prev => ({ ...prev, year: Number(e.target.value) }))} placeholder="2024" />
+                <Input type="number" value={String(formData.year ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))} placeholder="2024" />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Target Amount (৳) *</Label>
-              <Input type="number" step="0.01" value={String(formData.targetAmount || "")} onChange={(e) => setFormData(prev => ({ ...prev, targetAmount: Number(e.target.value) }))} placeholder="0.00" className={srTargetError && ["Target"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
+              <Label>Target Amount (Tk. ) *</Label>
+              <Input type="number" step="0.01" value={String(formData.targetAmount ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, targetAmount: e.target.value }))} placeholder="0.00" className={srTargetError && ["Target"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
             </div>
             <div className="space-y-2">
-              <Label>Minimum Sales Quota (৳) *</Label>
-              <Input type="number" step="0.01" value={String(formData.minimumSalesQuota || "")} onChange={(e) => setFormData(prev => ({ ...prev, minimumSalesQuota: Number(e.target.value) }))} placeholder="0.00" className={srTargetError && ["Quota"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
+              <Label>Minimum Sales Quota (Tk. ) *</Label>
+              <Input type="number" step="0.01" value={String(formData.minimumSalesQuota ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, minimumSalesQuota: e.target.value }))} placeholder="0.00" className={srTargetError && ["Quota"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
             </div>
             <div className="space-y-2">
               <Label>Commission Percentage (%) *</Label>
-              <Input type="number" step="0.01" value={String(formData.commissionPercentage || "")} onChange={(e) => setFormData(prev => ({ ...prev, commissionPercentage: Number(e.target.value) }))} placeholder="0.00" className={srTargetError && ["Commission"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
+              <Input type="number" step="0.01" value={String(formData.commissionPercentage ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, commissionPercentage: e.target.value }))} placeholder="0.00" className={srTargetError && ["Commission"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
             </div>
           </div>
           <DialogFooter>
@@ -1806,7 +1806,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
   const loadDropdowns = useCallback(async () => {
     try {
       const [poResult, ctResult] = await Promise.all([
-        apiFetch("/api/payment-options"),
+        apiFetch("/api/payment-options?activeOnly=true"),
         apiFetch("/api/card-types"),
       ]);
       setPaymentOptions(Array.isArray(poResult) ? poResult : []);

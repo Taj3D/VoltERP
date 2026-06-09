@@ -551,7 +551,7 @@ export async function PUT(
           action: 'UPDATE',
           module: 'Fin-Liability-Core',
           recordId: updated.id,
-          recordLabel: `${updated.investmentHead?.name || updated.id} - ৳${updated.amount}`,
+          recordLabel: `${updated.investmentHead?.name || updated.id} - Tk. ${updated.amount}`,
           userId,
           userName,
           details: JSON.stringify({
@@ -668,7 +668,7 @@ export async function DELETE(
           action: 'DELETE',
           module: 'Fin-Liability-Core',
           recordId: existing.id,
-          recordLabel: `${existing.investmentHead?.name || existing.id} - ৳${existing.amount}`,
+          recordLabel: `${existing.investmentHead?.name || existing.id} - Tk. ${existing.amount}`,
           userId,
           userName,
           details: JSON.stringify({

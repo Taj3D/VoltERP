@@ -35,7 +35,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
 
 const fmtCurrency = (v: any): string => {
   if (v === null || v === undefined) return "—";
-  return `৳${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
 };
 
 const fmt = (v: any, type?: string) => {

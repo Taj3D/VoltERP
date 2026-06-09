@@ -533,7 +533,7 @@ export async function POST(request: NextRequest) {
         }
         return NextResponse.json(
           {
-            error: `CREDIT LIMIT: Supplier outstanding + proposed order (৳${safeFinancialRound(projectedBalance)}) exceeds credit ceiling (৳${safeFinancialRound(supplier.creditLimit)}). Review supplier payment terms or increase credit limit.`,
+            error: `CREDIT LIMIT: Supplier outstanding + proposed order (Tk. ${safeFinancialRound(projectedBalance)}) exceeds credit ceiling (Tk. ${safeFinancialRound(supplier.creditLimit)}). Review supplier payment terms or increase credit limit.`,
           },
           { status: 403 }
         );

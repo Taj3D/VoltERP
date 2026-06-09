@@ -586,7 +586,7 @@ async function createSingleCashCollection(
       recordLabel: collectionCode,
       userId,
       userName,
-      details: `Created cash collection ${collectionCode}: ৳${safeAmount}`,
+      details: `Created cash collection ${collectionCode}: Tk. ${safeAmount}`,
     });
 
     const finalResult = await tx.cashCollection.findUnique({

@@ -43,7 +43,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2,
 const fmtCurrency = (v: any) => {
   const num = Number(v);
   if (isNaN(num) || v === null || v === undefined) return "—";
-  return `৳${bdCurrencyFmt.format(num)}`;
+  return `Tk. ${bdCurrencyFmt.format(num)}`;
 };
 
 const fmt = (v: any, type?: string) => {
@@ -1844,11 +1844,11 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="bill-total-cost">Total Cost (৳)</Label>
+                    <Label htmlFor="bill-total-cost">Total Cost (Tk. )</Label>
                     <Input id="bill-total-cost" type="number" step="0.01" min="0" value={billForm.totalCost} onChange={e => setBillForm({ ...billForm, totalCost: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="bill-paid-amount">Paid Amount (৳)</Label>
+                    <Label htmlFor="bill-paid-amount">Paid Amount (Tk. )</Label>
                     <Input id="bill-paid-amount" type="number" step="0.01" min="0" value={billForm.paidAmount} onChange={e => setBillForm({ ...billForm, paidAmount: Number(e.target.value) || 0 })} />
                   </div>
                 </div>
@@ -1886,7 +1886,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
               </DialogHeader>
               <div className="space-y-4 py-2">
                 <div className="space-y-2">
-                  <Label htmlFor="payment-amount">Amount (৳) <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="payment-amount">Amount (Tk. ) <span className="text-red-500">*</span></Label>
                   <Input id="payment-amount" type="number" step="0.01" min="0" value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) || 0 })} />
                 </div>
                 <div className="space-y-2">
@@ -2570,7 +2570,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Rate/SMS (৳)</Label>
+                          <Label className="text-xs text-muted-foreground">Rate/SMS (Tk. )</Label>
                           <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
                             <span className="text-sm font-mono text-slate-900 dark:text-white">
                               {isVatAuditor ? "N/A (Audit Mode)" : fmt(setting.ratePerSms, "currency")}
@@ -2578,7 +2578,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Unicode Rate (৳)</Label>
+                          <Label className="text-xs text-muted-foreground">Unicode Rate (Tk. )</Label>
                           <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
                             <span className="text-sm font-mono text-slate-900 dark:text-white">
                               {isVatAuditor ? "N/A (Audit Mode)" : fmt(setting.unicodeRate, "currency")}
@@ -2586,7 +2586,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Setup Cost (৳)</Label>
+                          <Label className="text-xs text-muted-foreground">Setup Cost (Tk. )</Label>
                           <div className="flex items-center gap-2 p-2 rounded-md bg-background border">
                             <span className="text-sm font-mono text-slate-900 dark:text-white">
                               {isVatAuditor ? "N/A (Audit Mode)" : fmt(setting.setupCost, "currency")}
@@ -2643,15 +2643,15 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="settings-rate-per-sms">Rate/SMS (৳) <span className="text-red-500">*</span></Label>
+                    <Label htmlFor="settings-rate-per-sms">Rate/SMS (Tk. ) <span className="text-red-500">*</span></Label>
                     <Input id="settings-rate-per-sms" type="number" step="0.01" min="0" value={settingsForm.ratePerSms} onChange={e => setSettingsForm({ ...settingsForm, ratePerSms: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="settings-unicode-rate">Unicode Rate (৳) <span className="text-red-500">*</span></Label>
+                    <Label htmlFor="settings-unicode-rate">Unicode Rate (Tk. ) <span className="text-red-500">*</span></Label>
                     <Input id="settings-unicode-rate" type="number" step="0.01" min="0" value={settingsForm.unicodeRate} onChange={e => setSettingsForm({ ...settingsForm, unicodeRate: Number(e.target.value) || 0 })} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="settings-setup-cost">Setup Cost (৳)</Label>
+                    <Label htmlFor="settings-setup-cost">Setup Cost (Tk. )</Label>
                     <Input id="settings-setup-cost" type="number" step="0.01" min="0" value={settingsForm.setupCost} onChange={e => setSettingsForm({ ...settingsForm, setupCost: Number(e.target.value) || 0 })} />
                   </div>
                 </div>

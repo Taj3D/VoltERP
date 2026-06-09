@@ -42,7 +42,7 @@ interface BulkPhoneParseResult {
 
 function formatCurrency(amount: number): string {
   // Use en-US locale to guarantee Latin digits (0-9) — en-US falls back to Bengali numerals
-  return `৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}`;
+  return `Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}`;
 }
 
 // ── Date Formatting Helper ────────────────────────────────────

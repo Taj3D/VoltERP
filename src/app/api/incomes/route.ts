@@ -526,7 +526,7 @@ async function createSingleIncome(
       recordLabel: incomeCode,
       userId,
       userName,
-      details: `Created income ${incomeCode}: ৳${safeAmount}`,
+      details: `Created income ${incomeCode}: Tk. ${safeAmount}`,
     });
 
     const finalIncome = await tx.income.findUnique({

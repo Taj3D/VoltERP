@@ -34,7 +34,7 @@ import { apiFetch } from "@/lib/api-client";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v))}`;
+  if (type === "currency") return `Tk. ${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   return String(v);
 };
@@ -898,8 +898,8 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
                 <TableRow className="bg-[#0a1628]">
                   <TableHead className="text-white w-10">#</TableHead>
                   <TableHead className="text-white">Account</TableHead>
-                  <TableHead className="text-white w-32">Debit (৳)</TableHead>
-                  <TableHead className="text-white w-32">Credit (৳)</TableHead>
+                  <TableHead className="text-white w-32">Debit (Tk. )</TableHead>
+                  <TableHead className="text-white w-32">Credit (Tk. )</TableHead>
                   <TableHead className="text-white">Particulars</TableHead>
                   <TableHead className="text-white w-10"></TableHead>
                 </TableRow>
@@ -1048,7 +1048,7 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
               <Input type="date" value={cbDate} onChange={e => setCbDate(e.target.value)} />
             </div>
             <div>
-              <Label>Amount (৳)</Label>
+              <Label>Amount (Tk. )</Label>
               <Input type="number" min="0" step="0.01" value={cbAmount || ""} onChange={e => setCbAmount(Number(e.target.value) || 0)} placeholder="0.00" />
             </div>
             <div>

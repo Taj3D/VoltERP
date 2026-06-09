@@ -322,7 +322,7 @@ export async function POST(request: NextRequest) {
       if (customer.creditStatus === 'Frozen') {
         const fmtBD = (v: number) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
         return NextResponse.json(
-          { error: `CREDIT FREEZE: Transaction blocked. Customer account is frozen. Outstanding ৳${fmtBD(Math.abs(customer.currentBalance))}. Contact management to unfreeze account or collect outstanding payments.` },
+          { error: `CREDIT FREEZE: Transaction blocked. Customer account is frozen. Outstanding Tk. ${fmtBD(Math.abs(customer.currentBalance))}. Contact management to unfreeze account or collect outstanding payments.` },
           { status: 403 }
         );
       }
@@ -338,7 +338,7 @@ export async function POST(request: NextRequest) {
           }
           const fmtBD = (v: number) => new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
           return NextResponse.json(
-            { error: `CREDIT FREEZE: Transaction blocked. Customer outstanding ৳${fmtBD(outstandingCustomerBalance)} + proposed ৳${fmtBD(grandTotal)} = ৳${fmtBD(projectedBalance)} exceeds credit ceiling ৳${fmtBD(customer.creditLimit)}. Contact management to increase credit limit or collect outstanding payments.` },
+            { error: `CREDIT FREEZE: Transaction blocked. Customer outstanding Tk. ${fmtBD(outstandingCustomerBalance)} + proposed Tk. ${fmtBD(grandTotal)} = Tk. ${fmtBD(projectedBalance)} exceeds credit ceiling Tk. ${fmtBD(customer.creditLimit)}. Contact management to increase credit limit or collect outstanding payments.` },
             { status: 403 }
           );
         }

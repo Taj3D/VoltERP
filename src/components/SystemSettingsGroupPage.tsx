@@ -47,7 +47,7 @@ const settingsNumberFmt = new Intl.NumberFormat("en-US");
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${settingsCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${settingsCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return settingsNumberFmt.format(Number(v));
@@ -1124,7 +1124,7 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
 
   const handleDelete = async (id: string) => {
     try {
-      await apiFetch(`/api/invoice-templates?id=${id}`, { method: "DELETE" });
+      await apiFetch(`/api/invoice-templates/${id}`, { method: "DELETE" });
       toast({ title: "Deleted", description: "Template deleted successfully" });
       setDeleteConfirm(null);
       loadTemplates();

@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
           action: 'CREATE',
           module: 'Assets',
           recordId: record.id,
-          recordLabel: `${record.investmentHead?.name || record.id} - ৳${record.amount}`,
+          recordLabel: `${record.investmentHead?.name || record.id} - Tk. ${record.amount}`,
           userId: security.user.id,
           userName: security.user.name,
           details: JSON.stringify({ investmentHeadId: record.investmentHeadId, amount: record.amount, category: record.assetCategory, purchaseValue, salvageValue, usefulLifeMonths, date: record.date }),

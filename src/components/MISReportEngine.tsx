@@ -230,7 +230,7 @@ const misCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2
 const fmt = (v: unknown, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency")
-    return `৳${misCurrencyFmt.format(Number(v))}`;
+    return `Tk. ${misCurrencyFmt.format(Number(v))}`;
   if (type === "date")
     return v
       ? new Date(v as string).toLocaleDateString("en-GB", {

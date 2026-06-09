@@ -383,7 +383,7 @@ export default function AppHeader({
   // ────────────────────────────────────────────────────────
   const maskMessage = useCallback((msg: string): string => {
     if (!isVatAuditor) return msg;
-    return msg.replace(/৳[\d,]+\.?\d*/g, "N/A (Audit Mode)");
+    return msg.replace(/Tk. [\d,]+\.?\d*/g, "N/A (Audit Mode)");
   }, [isVatAuditor]);
 
   // ── Close user menu on outside click ──

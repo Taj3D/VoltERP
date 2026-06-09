@@ -692,7 +692,7 @@ export async function POST(request: NextRequest) {
         recordLabel: replacementNo,
         userId: security.user.id,
         userName: security.user.name,
-        details: `Created replacement order ${replacementNo} with ${computedLines.length} lines, originalCostTotal=৳${fmtBD(originalCostTotal)}, replacementCostTotal=৳${fmtBD(replacementCostTotal)}, adjustmentAmount=৳${fmtBD(adjustmentAmount)}`,
+        details: `Created replacement order ${replacementNo} with ${computedLines.length} lines, originalCostTotal=Tk. ${fmtBD(originalCostTotal)}, replacementCostTotal=Tk. ${fmtBD(replacementCostTotal)}, adjustmentAmount=Tk. ${fmtBD(adjustmentAmount)}`,
       });
 
       return replacement;

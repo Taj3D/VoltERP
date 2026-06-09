@@ -44,7 +44,7 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${currencyFormatter.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${currencyFormatter.format(Number(v))}`;
   if (type === "date") return v ? dateFormatter.format(new Date(v)) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return numberFormatter.format(Number(v));
@@ -54,7 +54,7 @@ const fmt = (v: any, type?: string) => {
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${currencyFormatter.format(Number(v))}`;
+  return `Tk. ${currencyFormatter.format(Number(v))}`;
 };
 
 
@@ -192,8 +192,8 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "name", label: "Designation Name", type: "text", required: true },
       { key: "departmentId", label: "Department", type: "select", required: true, options: [] },
       { key: "gradeLevel", label: "Grade Level", type: "select", required: false, options: GRADE_LEVEL_OPTIONS },
-      { key: "salaryBandMin", label: "Salary Band Min (৳)", type: "number", step: "0.01" },
-      { key: "salaryBandMax", label: "Salary Band Max (৳)", type: "number", step: "0.01" },
+      { key: "salaryBandMin", label: "Salary Band Min (Tk. )", type: "number", step: "0.01" },
+      { key: "salaryBandMax", label: "Salary Band Max (Tk. )", type: "number", step: "0.01" },
       { key: "description", label: "Description", type: "textarea" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
@@ -226,7 +226,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "departmentId", label: "Department", type: "select", required: true, options: [] },
       { key: "joiningDate", label: "Joining Date", type: "date", required: true },
       { key: "resignationDate", label: "Resignation Date", type: "date" },
-      { key: "baseSalary", label: "Base Salary (৳)", type: "number", step: "0.01" },
+      { key: "baseSalary", label: "Base Salary (Tk. )", type: "number", step: "0.01" },
       { key: "employeeType", label: "Employee Type", type: "select", required: false, options: EMPLOYEE_TYPE_OPTIONS },
       { key: "status", label: "Status", type: "select", required: false, options: EMPLOYEE_STATUS_OPTIONS },
       { key: "referenceBy", label: "Reference By", type: "text" },
@@ -340,9 +340,9 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "area", label: "Area", type: "text" },
       { key: "reference", label: "Reference", type: "text" },
       { key: "customerType", label: "Customer Type", type: "select", required: true, options: CUSTOMER_TYPE_OPTIONS },
-      { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
+      { key: "openingBalance", label: "Opening Balance (Tk. )", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_CUSTOMER },
-      { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
+      { key: "creditLimit", label: "Credit Limit (Tk. )", type: "number", step: "0.01" },
       { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
       { key: "profileImage", label: "Profile Photo", type: "image" },
       { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
@@ -387,9 +387,9 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "address", label: "Address", type: "textarea" },
       { key: "area", label: "Area", type: "text" },
       { key: "terms", label: "Terms", type: "textarea" },
-      { key: "openingBalance", label: "Opening Balance (৳)", type: "number", step: "0.01" },
+      { key: "openingBalance", label: "Opening Balance (Tk. )", type: "number", step: "0.01" },
       { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_SUPPLIER },
-      { key: "creditLimit", label: "Credit Limit (৳)", type: "number", step: "0.01" },
+      { key: "creditLimit", label: "Credit Limit (Tk. )", type: "number", step: "0.01" },
       { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
       { key: "profileImage", label: "Profile Photo", type: "image" },
       { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
@@ -1445,7 +1445,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           <Card className="border-slate-200 dark:border-slate-700">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
-                <span className="text-sm font-bold text-[#2563eb]">৳</span>
+                <span className="text-sm font-bold text-[#2563eb]">Tk. </span>
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Monthly Payroll</p>
@@ -1484,7 +1484,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           <Card className="border-slate-200 dark:border-slate-700 sm:col-span-2">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
-                <span className="text-sm font-bold text-[#2563eb]">৳</span>
+                <span className="text-sm font-bold text-[#2563eb]">Tk. </span>
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AR</p>
@@ -1523,7 +1523,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           <Card className="border-slate-200 dark:border-slate-700 sm:col-span-2">
             <CardContent className="p-4 flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
-                <span className="text-sm font-bold text-[#2563eb]">৳</span>
+                <span className="text-sm font-bold text-[#2563eb]">Tk. </span>
               </div>
               <div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AP</p>

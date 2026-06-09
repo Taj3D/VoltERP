@@ -50,7 +50,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2,
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
 };
 
 const fmtDate = (d: string | Date) =>
@@ -718,18 +718,28 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
 
     setBmSaving(true);
     try {
-      const payload = {
-        ...bmForm,
-        quantityReceived: Number(bmForm.quantityReceived),
-        costPricePerUnit: Number(bmForm.costPricePerUnit),
-        salePricePerUnit: Number(bmForm.salePricePerUnit),
-        quantityOnHand: bmEdit ? undefined : Number(bmForm.quantityReceived),
+      // Map form fields to /api/batch-master API schema:
+      // API expects: batchCode, productId, quantity, costPrice, salePrice, expiryDate, manufacturingDate, godownId, status
+      // Form uses: quantityReceived, costPricePerUnit, salePricePerUnit
+      const apiPayload: Record<string, any> = {
+        productId: bmForm.productId,
+        quantity: Number(bmForm.quantityReceived),
+        costPrice: Number(bmForm.costPricePerUnit),
+        salePrice: Number(bmForm.salePricePerUnit) || 0,
+        expiryDate: bmForm.expiryDate || null,
+        manufacturingDate: bmForm.manufacturingDate || null,
+        godownId: bmForm.godownId || null,
+        notes: bmForm.notes || null,
       };
       if (bmEdit) {
-        await apiFetch(`/api/batch-master/${bmEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+        // PUT: include batchCode from existing record
+        apiPayload.batchCode = bmEdit.batchCode || "";
+        await apiFetch(`/api/batch-master/${bmEdit.id}`, { method: "PUT", body: JSON.stringify(apiPayload) });
         toast({ title: "Updated", description: "Batch updated" });
       } else {
-        await apiFetch("/api/batch-master", { method: "POST", body: JSON.stringify(payload) });
+        // POST: auto-generate batchCode (API accepts batchCode or batchNumber)
+        apiPayload.batchCode = `BCH-${Date.now().toString(36).toUpperCase()}`;
+        await apiFetch("/api/batch-master", { method: "POST", body: JSON.stringify(apiPayload) });
         toast({ title: "Created", description: "Batch created" });
       }
       setBmDialog(false);
@@ -784,7 +794,14 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
       if (valAsOfDate) params.set("asOfDate", valAsOfDate);
       const qs = params.toString();
       const res = await apiFetch(`/api/valuation${qs ? `?${qs}` : ""}`);
-      setValData(Array.isArray(res) ? res : []);
+      // Valuation API returns { method, asOfDate, filters, aggregates, products }
+      if (res?.products && Array.isArray(res.products)) {
+        setValData(res.products);
+      } else if (Array.isArray(res)) {
+        setValData(res);
+      } else {
+        setValData([]);
+      }
     } catch (e: any) {
       setValData([]);
     }
@@ -797,7 +814,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
       totalInventoryValue: isVatAuditor ? "N/A (Audit Mode)" : data.reduce((s, v) => s + safeNum(v.totalValue), 0),
       totalSaleValue: isVatAuditor ? "N/A (Audit Mode)" : data.reduce((s, v) => s + safeNum(v.saleValue), 0),
       potentialProfit: isVatAuditor ? "N/A (Audit Mode)" : data.reduce((s, v) => s + safeNum(v.potentialProfit), 0),
-      avgMargin: isVatAuditor ? "N/A (Audit Mode)" : (data.length > 0 ? data.reduce((s, v) => s + safeNum(v.marginPercent), 0) / data.filter(v => safeNum(v.marginPercent) !== 0).length : 0),
+      avgMargin: isVatAuditor ? "N/A (Audit Mode)" : (data.length > 0 ? data.reduce((s, v) => {
+        const margin = safeNum(v.totalValue) > 0 ? (safeNum(v.potentialProfit) / safeNum(v.totalValue)) * 100 : safeNum(v.marginPercent);
+        return s + margin;
+      }, 0) / data.filter(v => safeNum(v.totalValue) > 0 || safeNum(v.marginPercent) !== 0).length : 0),
     };
   }, [valData, isVatAuditor]);
 
@@ -819,7 +839,10 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
       totalValue: data.reduce((s, v) => s + safeNum(v.totalValue), 0),
       saleValue: data.reduce((s, v) => s + safeNum(v.saleValue), 0),
       potentialProfit: data.reduce((s, v) => s + safeNum(v.potentialProfit), 0),
-      avgMargin: data.length > 0 ? data.reduce((s, v) => s + safeNum(v.marginPercent), 0) / data.filter(v => safeNum(v.marginPercent) !== 0).length : 0,
+      avgMargin: data.length > 0 ? data.reduce((s, v) => {
+        const margin = safeNum(v.totalValue) > 0 ? (safeNum(v.potentialProfit) / safeNum(v.totalValue)) * 100 : safeNum(v.marginPercent);
+        return s + margin;
+      }, 0) / data.filter(v => safeNum(v.totalValue) > 0 || safeNum(v.marginPercent) !== 0).length : 0,
     };
   }, [valFiltered, isVatAuditor]);
 
@@ -2139,7 +2162,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                     <TableCell className="text-xs text-right font-medium">{fmtCurrency(vatMask(item.totalValue, isVatAuditor))}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.saleValue, isVatAuditor))}</TableCell>
                     <TableCell className="text-xs text-right">{fmtCurrency(vatMask(item.potentialProfit, isVatAuditor))}</TableCell>
-                    <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtPercent(item.marginPercent)}</TableCell>
+                    <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtPercent(safeNum(item.totalValue) > 0 ? (safeNum(item.potentialProfit) / safeNum(item.totalValue)) * 100 : item.marginPercent)}</TableCell>
                   </TableRow>
                 ))}
                 {/* Summary Row */}
@@ -2215,10 +2238,6 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
         </div>
       </div>
 
-      {/* Sticky Footer */}
-      <footer className="mt-auto bg-[#0a1628] text-slate-400 text-center py-3 text-xs">
-        Developed &amp; Copyright by NextGen Digital Studio
-      </footer>
     </div>
   );
 }

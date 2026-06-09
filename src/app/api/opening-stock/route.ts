@@ -315,7 +315,7 @@ export async function POST(request: NextRequest) {
       recordLabel: `OS-${product.productCode}`,
       userId: security.user.id,
       userName: security.user.name,
-      details: `Created opening stock entry for ${product.name} (${product.productCode}): ${quantity} units at ৳${costPrice}`,
+      details: `Created opening stock entry for ${product.name} (${product.productCode}): ${quantity} units at Tk. ${costPrice}`,
     });
 
     return NextResponse.json(result, { status: 201 });

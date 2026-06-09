@@ -166,7 +166,7 @@ const bdFmt = new Intl.NumberFormat("en-BD", {
 
 const fmtCurrency = (v: any): string => {
   if (v === null || v === undefined) return "—";
-  return `৳${bdFmt.format(Number(v))}`;
+  return `Tk. ${bdFmt.format(Number(v))}`;
 };
 
 const fmtNumber = (v: any): string => {
@@ -1686,7 +1686,7 @@ export default function MultiBranchConsolidationPage({
                       <div>
                         <p className="text-slate-300 text-xs">Elimination Amount</p>
                         <p className="text-amber-400 font-bold text-lg">
-                          ({maskIfVat(consolidationResult.consolidated.eliminationAmount, isVatAuditor).replace("৳", "৳-")})
+                          ({maskIfVat(consolidationResult.consolidated.eliminationAmount, isVatAuditor).replace("Tk. ", "Tk. -")})
                         </p>
                       </div>
                       <div>

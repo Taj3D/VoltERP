@@ -41,7 +41,7 @@ const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximu
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${bdtFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdtFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -1611,10 +1611,6 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
         </TabsContent>
       </Tabs>
 
-      {/* Sticky Footer */}
-      <div className="mt-8 pt-4 border-t text-center text-xs text-muted-foreground">
-        Developed & Copyright by NextGen Digital Studio
-      </div>
     </div>
   );
 }

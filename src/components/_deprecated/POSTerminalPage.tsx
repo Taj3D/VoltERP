@@ -128,7 +128,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-BD", {
 });
 
 function fmtCurrency(v: number): string {
-  return `৳${bdCurrencyFmt.format(v)}`;
+  return `Tk. ${bdCurrencyFmt.format(v)}`;
 }
 
 function safeRound(v: number): number {
@@ -1617,7 +1617,7 @@ export default function POSTerminalPage() {
                         onClick={() => setQuickCash(amount)}
                         disabled={isLoading}
                       >
-                        ৳{new Intl.NumberFormat('en-US').format(amount)}
+                        Tk. {new Intl.NumberFormat('en-US').format(amount)}
                       </Button>
                     ))}
                     <Button
@@ -1703,7 +1703,7 @@ export default function POSTerminalPage() {
                         ? fmtCurrency(cashChange)
                         : cashChange < 0
                         ? fmtCurrency(Math.abs(cashChange))
-                        : "৳0.00"}
+                        : "Tk. 0.00"}
                     </span>
                   </div>
 

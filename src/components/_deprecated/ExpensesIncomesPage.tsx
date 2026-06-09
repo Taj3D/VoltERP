@@ -34,7 +34,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "\u2014";
-  if (type === "currency") return `\u09F3${bdCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "\u2014";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return bdCurrencyFmt.format(Number(v));

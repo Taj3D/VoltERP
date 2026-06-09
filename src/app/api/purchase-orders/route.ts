@@ -373,7 +373,7 @@ async function handleCreate(
       new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
     return NextResponse.json(
       {
-        error: `CREDIT FREEZE: Transaction blocked. Supplier account is frozen. Outstanding ৳${fmtBD(Math.abs(supplier.currentBalance))}. Review supplier payment terms or contact management to unfreeze account.`,
+        error: `CREDIT FREEZE: Transaction blocked. Supplier account is frozen. Outstanding Tk. ${fmtBD(Math.abs(supplier.currentBalance))}. Review supplier payment terms or contact management to unfreeze account.`,
       },
       { status: 403 }
     );
@@ -471,7 +471,7 @@ async function handleCreate(
         const fmtBD = (v: number) =>
           new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
         throw Object.assign(new Error('CREDIT_LIMIT_EXCEEDED'), {
-          creditError: `CREDIT FREEZE: Transaction blocked. Supplier outstanding ৳${fmtBD(outstandingBalance)} + proposed ৳${fmtBD(grandTotal)} = ৳${fmtBD(projectedBalance)} exceeds credit ceiling ৳${fmtBD(supplier.creditLimit)}. Review supplier payment terms or increase credit limit.`,
+          creditError: `CREDIT FREEZE: Transaction blocked. Supplier outstanding Tk. ${fmtBD(outstandingBalance)} + proposed Tk. ${fmtBD(grandTotal)} = Tk. ${fmtBD(projectedBalance)} exceeds credit ceiling Tk. ${fmtBD(supplier.creditLimit)}. Review supplier payment terms or increase credit limit.`,
         });
       }
     }

@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
                 vatNumber: record.vatNumber ? stripHtml(String(record.vatNumber)) : null,
                 tradeLicense: record.tradeLicense ? stripHtml(String(record.tradeLicense)) : null,
                 binNumber: record.binNumber ? stripHtml(String(record.binNumber)) : null,
-                currencySymbol: record.currencySymbol || '৳',
+                currencySymbol: record.currencySymbol || 'Tk. ',
                 invoicePrefix: record.invoicePrefix ? stripHtml(String(record.invoicePrefix)) : null,
                 thankYouMsg: record.thankYouMsg ? stripHtml(String(record.thankYouMsg)) : null,
                 systemNote: record.systemNote ? stripHtml(String(record.systemNote)) : null,

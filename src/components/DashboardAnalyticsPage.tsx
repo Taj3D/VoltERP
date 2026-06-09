@@ -31,7 +31,7 @@ const safeIntFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits:
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (typeof v === "string" && v === "N/A (Audit Mode)") return v;
-  if (type === "currency") return `৳${safeNumberFormatter.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${safeNumberFormatter.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -134,7 +134,7 @@ function KpiCard({ label, value, icon: Icon, color, bg, change, isCurrency, form
     : formatType === "percent"
       ? `${Number(value).toFixed(2)}%`
       : isCurrency
-        ? `৳${safeNumberFormatter.format(animated)}`
+        ? `Tk. ${safeNumberFormatter.format(animated)}`
         : String(animated);
 
   return (
@@ -1309,7 +1309,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
                     ? "N/A (Audit Mode)"
                     : agingData.total > 0
                       ? fmt(agingData.total, "currency")
-                      : "৳0.00"}
+                      : "Tk. 0.00"}
                 </p>
               </div>
 

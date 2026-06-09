@@ -54,7 +54,7 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2,
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${bdCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
@@ -65,7 +65,7 @@ const fmt = (v: any, type?: string) => {
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
 };
 
 const AUDIT_MASK = "N/A (Audit Mode)";
@@ -388,7 +388,7 @@ export default function FinancialAuditGroupPage({
       ]);
       setGodowns(Array.isArray(gRes) ? gRes : gRes.data || []);
       setProducts(Array.isArray(pRes) ? pRes : pRes.data || []);
-      if (cRes) setCompanyProfile(cRes);
+      if (cRes?.company) setCompanyProfile(cRes.company);
       if (eRes) setEmployees(Array.isArray(eRes) ? eRes : eRes.data || []);
       if (custRes) setCustomers(Array.isArray(custRes) ? custRes : custRes.data || []);
       if (brandRes) { setFraudData(brandRes); if (brandRes.overallHealthScore !== undefined) setHealthScore(brandRes.overallHealthScore); }

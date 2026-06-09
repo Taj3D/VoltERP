@@ -44,7 +44,7 @@ const safeNumberFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2,
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${safeNumberFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${safeNumberFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
@@ -56,7 +56,7 @@ const fmtDate = (d: string | Date) =>
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${safeNumberFmt.format(Number(v))}`;
+  return `Tk. ${safeNumberFmt.format(Number(v))}`;
 };
 
 const fmtPct = (v: any) => {
@@ -2410,8 +2410,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             {Number(assetsFormData.usefulLifeMonths) > 0 && Number(assetsFormData.purchaseValue) > 0 && (
               <div className="px-3 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-md text-xs text-purple-700 dark:text-purple-300">
                 <Calculator className="w-3.5 h-3.5 inline mr-1" />
-                Monthly Depreciation: ৳{safeNumberFmt.format(Math.max(0, (Number(assetsFormData.purchaseValue) - Number(assetsFormData.salvageValue)) / Number(assetsFormData.usefulLifeMonths)))}
-                {Number(assetsFormData.salvageValue) > 0 && ` | Salvage: ৳${safeNumberFmt.format(Number(assetsFormData.salvageValue))}`}
+                Monthly Depreciation: Tk. {safeNumberFmt.format(Math.max(0, (Number(assetsFormData.purchaseValue) - Number(assetsFormData.salvageValue)) / Number(assetsFormData.usefulLifeMonths)))}
+                {Number(assetsFormData.salvageValue) > 0 && ` | Salvage: Tk. ${safeNumberFmt.format(Number(assetsFormData.salvageValue))}`}
               </div>
             )}
             <div>
@@ -2686,7 +2686,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   <SelectContent>
                     {liabilityTypeHeads.map((h: any) => (
                       <SelectItem key={h.id} value={h.id} disabled={!h.isActive}>
-                        {h.code} - {h.name} {!h.isActive ? "(Inactive)" : ""} {outstandingBalances[h.id] > 0 ? `(Outstanding: ৳${safeNumberFmt.format(outstandingBalances[h.id])})` : ""}
+                        {h.code} - {h.name} {!h.isActive ? "(Inactive)" : ""} {outstandingBalances[h.id] > 0 ? `(Outstanding: Tk. ${safeNumberFmt.format(outstandingBalances[h.id])})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

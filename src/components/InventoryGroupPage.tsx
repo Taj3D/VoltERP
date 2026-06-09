@@ -45,7 +45,7 @@ const _bdNumberFmt = new Intl.NumberFormat("en-US");
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `৳${_bdCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return `Tk. ${_bdCurrencyFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return _bdNumberFmt.format(Number(v));
@@ -55,7 +55,7 @@ const fmt = (v: any, type?: string) => {
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `৳${_bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${_bdCurrencyFmt.format(Number(v))}`;
 };
 
 
@@ -2634,7 +2634,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const linesTotal = soLines.reduce((s: number, l: any) => s + (Number(l.quantity) || 0) * (Number(l.rate) || 0), 0);
       const orderTotal = linesTotal - (Number(soForm.discount) || 0);
       if (orderTotal > Number(cust.creditLimit)) {
-        toast({ title: "⚠️ Credit Limit Warning", description: `Order total ৳${orderTotal.toFixed(2)} exceeds credit limit ৳${Number(cust.creditLimit).toFixed(2)}`, variant: "destructive" });
+        toast({ title: "⚠️ Credit Limit Warning", description: `Order total Tk. ${orderTotal.toFixed(2)} exceeds credit limit Tk. ${Number(cust.creditLimit).toFixed(2)}`, variant: "destructive" });
       }
     }
     setSoSaving(true);
@@ -2812,7 +2812,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={soForm.date || ""} onChange={e => setSoForm(p => ({ ...p, date: e.target.value }))} /></div>
               </div>
               <div className="grid grid-cols-3 gap-4">
-                <div><Label className="text-sm font-medium">Discount (৳)</Label><Input type="number" min={0} step="0.01" value={soForm.discount || 0} onChange={e => setSoForm(p => ({ ...p, discount: Number(e.target.value) }))} /></div>
+                <div><Label className="text-sm font-medium">Discount (Tk. )</Label><Input type="number" min={0} step="0.01" value={soForm.discount || 0} onChange={e => setSoForm(p => ({ ...p, discount: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={soForm.vatPercent || 0} onChange={e => setSoForm(p => ({ ...p, vatPercent: Number(e.target.value) }))} /></div>
                 <div><Label className="text-sm font-medium">Payment Option</Label>
                   <Select value={soForm.paymentOptionId || "_none"} onValueChange={v => setSoForm(p => ({ ...p, paymentOptionId: v === "_none" ? "" : v }))}>

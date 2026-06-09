@@ -360,7 +360,7 @@ async function createSingleExpense(
     });
     if (bankRecord && bankRecord.currentBalance < safeAmount) {
       throw new Error(
-        `Insufficient bank balance. ${bankRecord.bankName} has ৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bankRecord.currentBalance)} but expense amount is ৳${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount)}`
+        `Insufficient bank balance. ${bankRecord.bankName} has Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(bankRecord.currentBalance)} but expense amount is Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount)}`
       );
     }
   }
@@ -546,7 +546,7 @@ async function createSingleExpense(
       recordLabel: expenseCode,
       userId,
       userName,
-      details: `Created expense ${expenseCode}: ৳${safeAmount}`,
+      details: `Created expense ${expenseCode}: Tk. ${safeAmount}`,
     });
 
     // Re-fetch with updated ledgerPosted

@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
           item.vatNumber || '',
           item.tradeLicense || '',
           item.binNumber || '',
-          item.currencySymbol || '৳',
+          item.currencySymbol || 'Tk. ',
           item.invoicePrefix || '',
           item.thankYouMsg || '',
           item.systemNote || '',

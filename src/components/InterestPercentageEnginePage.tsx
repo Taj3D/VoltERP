@@ -69,7 +69,7 @@ const bdCurrencyFmt = new Intl.NumberFormat('en-US', {
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined || v === '') return '\u2014';
-  return `\u09F3${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
 };
 
 const fmtNumber = (v: any) => {
@@ -649,21 +649,21 @@ export default function InterestPercentageEnginePage({
         ════════════════════════════════════════════════════════ */}
         <div className="lg:col-span-3 space-y-4">
           {/* KPI Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             {[
               { label: 'Total Rates', value: totalRates, icon: Percent, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/30' },
               { label: 'Active Rates', value: activeRates, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/30' },
               { label: 'Expired Rates', value: expiredRates, icon: XCircle, color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-900/30' },
               { label: 'Rate Types', value: rateTypes, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/30' },
             ].map((stat, i) => (
-              <Card key={i} className="stat-mini-card">
-                <CardContent className="p-3 flex items-center gap-2">
-                  <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}>
+              <Card key={i} className="stat-mini-card min-w-0">
+                <CardContent className="p-2 sm:p-3 flex items-center gap-2 min-w-0">
+                  <div className={`shrink-0 p-1.5 rounded-lg ${stat.bg} ${stat.color}`}>
                     <stat.icon className="w-4 h-4" />
                   </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                    <p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p>
+                  <div className="min-w-0 overflow-hidden">
+                    <p className="text-xs text-muted-foreground truncate">{stat.label}</p>
+                    <p className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">{stat.value}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -708,20 +708,20 @@ export default function InterestPercentageEnginePage({
 
               {/* Data Table */}
               <div className="table-container overflow-x-auto overflow-y-auto max-h-[50vh] rounded-md border -mx-2 sm:mx-0">
-                <Table className="min-w-[600px]">
+                <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead>Code</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead className="text-right">%</TableHead>
-                      <TableHead>Effective</TableHead>
-                      <TableHead>Expiry</TableHead>
-                      <TableHead className="text-right">Min Amt</TableHead>
-                      <TableHead className="text-right">Max Amt</TableHead>
-                      <TableHead className="text-right">Min Dur</TableHead>
-                      <TableHead className="text-right">Max Dur</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-20 text-right">Actions</TableHead>
+                      <TableHead className="whitespace-nowrap">Code</TableHead>
+                      <TableHead className="whitespace-nowrap">Type</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">%</TableHead>
+                      <TableHead className="whitespace-nowrap">Effective</TableHead>
+                      <TableHead className="whitespace-nowrap">Expiry</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Min Amt</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Max Amt</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Min Dur</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Max Dur</TableHead>
+                      <TableHead className="whitespace-nowrap">Status</TableHead>
+                      <TableHead className="w-20 text-right whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -740,38 +740,38 @@ export default function InterestPercentageEnginePage({
                     ) : (
                       filtered.map((r: any) => (
                         <TableRow key={r.id} className="data-table-row hover:bg-muted/50">
-                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white">
+                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white whitespace-nowrap text-xs">
                             {r.code}
                           </TableCell>
-                          <TableCell>
-                            <Badge className={RATE_TYPE_BADGE[r.type as RateType] || ''}>
+                          <TableCell className="whitespace-nowrap">
+                            <Badge variant="secondary" className={`text-xs ${RATE_TYPE_BADGE[r.type as RateType] || ''}`}>
                               {RATE_TYPE_LABELS[r.type as RateType] || r.type}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right font-mono">
+                          <TableCell className="text-right font-mono whitespace-nowrap text-xs">
                             {Number(r.percentage).toFixed(2)}%
                           </TableCell>
-                          <TableCell>{fmtDate(r.effectiveDate)}</TableCell>
-                          <TableCell>{fmtDate(r.expiryDate)}</TableCell>
-                          <TableCell className="text-right font-mono">
-                            {isVatAuditor ? 'N/A (Audit Mode)' : fmtCurrency(r.minimumAmount)}
+                          <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.effectiveDate)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.expiryDate)}</TableCell>
+                          <TableCell className="text-right font-mono whitespace-nowrap text-xs">
+                            {isVatAuditor ? 'N/A' : fmtCurrency(r.minimumAmount)}
                           </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {isVatAuditor ? 'N/A (Audit Mode)' : (r.maximumAmount === 0 ? 'Unlimited' : fmtCurrency(r.maximumAmount))}
+                          <TableCell className="text-right font-mono whitespace-nowrap text-xs">
+                            {isVatAuditor ? 'N/A' : (r.maximumAmount === 0 ? 'Unlimited' : fmtCurrency(r.maximumAmount))}
                           </TableCell>
-                          <TableCell className="text-right">{r.durationMonthsMin || 0} mo</TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right whitespace-nowrap text-xs">{r.durationMonthsMin || 0} mo</TableCell>
+                          <TableCell className="text-right whitespace-nowrap text-xs">
                             {r.durationMonthsMax === 0 ? 'Unlimited' : `${r.durationMonthsMax} mo`}
                           </TableCell>
-                          <TableCell>
-                            <Badge className={r.isActive
+                          <TableCell className="whitespace-nowrap">
+                            <Badge variant="secondary" className={`text-xs ${r.isActive
                               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}>
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
                               {r.isActive ? 'Active' : 'Inactive'}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
+                            <div className="flex items-center justify-end gap-0.5">
                               <Button variant="ghost" size="sm" onClick={() => openEdit(r)} disabled={!canCreateEdit}>
                                 <Edit className="w-3.5 h-3.5" />
                               </Button>
@@ -811,7 +811,7 @@ export default function InterestPercentageEnginePage({
         {/* ════════════════════════════════════════════════════════
             RIGHT PANEL — Amortization Calculator (40% → 2/5)
         ════════════════════════════════════════════════════════ */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="lg:col-span-2 space-y-4 min-w-0">
           {/* Calculator Input Form */}
           <Card>
             <CardContent className="p-4 space-y-4">
@@ -924,21 +924,21 @@ export default function InterestPercentageEnginePage({
           {amortResult && (
             <>
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 {[
                   { label: 'Net Principal', value: fmtCurrency(amortResult.netPrincipal), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/30' },
-                  { label: 'Monthly Installment', value: fmtCurrency(amortResult.monthlyInstallment), icon: Calculator, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/30' },
+                  { label: 'Monthly EMI', value: fmtCurrency(amortResult.monthlyInstallment), icon: Calculator, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/30' },
                   { label: 'Total Payable', value: fmtCurrency(amortResult.totalPayable), icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-900/30' },
                   { label: 'Total Interest', value: fmtCurrency(amortResult.totalInterest), icon: Percent, color: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-900/30' },
                 ].map((stat, i) => (
-                  <Card key={i} className="stat-mini-card">
-                    <CardContent className="p-3 flex items-center gap-2">
-                      <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}>
+                  <Card key={i} className="stat-mini-card min-w-0">
+                    <CardContent className="p-2 sm:p-3 flex items-center gap-2 min-w-0">
+                      <div className={`shrink-0 p-1.5 rounded-lg ${stat.bg} ${stat.color}`}>
                         <stat.icon className="w-4 h-4" />
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">{stat.label}</p>
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">{stat.value}</p>
+                      <div className="min-w-0 overflow-hidden">
+                        <p className="text-xs text-muted-foreground truncate">{stat.label}</p>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{stat.value}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -962,38 +962,38 @@ export default function InterestPercentageEnginePage({
                     </div>
                   </div>
                   <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-md border">
-                    <Table>
+                    <Table className="min-w-[500px]">
                       <TableHeader>
                         <TableRow className="bg-muted/50">
-                          <TableHead className="text-right">#</TableHead>
-                          <TableHead className="text-right">Opening</TableHead>
-                          <TableHead className="text-right">Installment</TableHead>
-                          <TableHead className="text-right">Interest</TableHead>
-                          <TableHead className="text-right">Principal</TableHead>
-                          <TableHead className="text-right">Closing</TableHead>
+                          <TableHead className="text-right whitespace-nowrap">#</TableHead>
+                          <TableHead className="text-right whitespace-nowrap">Opening</TableHead>
+                          <TableHead className="text-right whitespace-nowrap">Installment</TableHead>
+                          <TableHead className="text-right whitespace-nowrap">Interest</TableHead>
+                          <TableHead className="text-right whitespace-nowrap">Principal</TableHead>
+                          <TableHead className="text-right whitespace-nowrap">Closing</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {amortResult.schedule.map((row: any) => (
                           <TableRow key={row.month} className="data-table-row hover:bg-muted/50">
-                            <TableCell className="text-right font-mono text-xs">{row.month}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.openingBalance)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.installment)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.interestComponent)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.principalComponent)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.closingBalance)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{row.month}</TableCell>
+                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.openingBalance)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.installment)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.interestComponent)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.principalComponent)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.closingBalance)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
                   {/* Totals row */}
-                  <div className="mt-2 grid grid-cols-6 gap-1 text-xs font-bold text-slate-900 dark:text-white bg-muted/30 rounded p-2">
-                    <div className="text-right">Total</div>
+                  <div className="mt-2 grid grid-cols-6 gap-1 text-xs font-bold text-slate-900 dark:text-white bg-muted/30 rounded p-2 overflow-x-auto">
+                    <div className="text-right whitespace-nowrap">Total</div>
                     <div></div>
-                    <div className="text-right font-mono">{fmtNumber(amortResult.schedule.reduce((s: number, r: any) => s + r.installment, 0))}</div>
-                    <div className="text-right font-mono">{fmtNumber(amortResult.totalInterest)}</div>
-                    <div className="text-right font-mono">{fmtNumber(amortResult.netPrincipal)}</div>
+                    <div className="text-right font-mono truncate">{fmtNumber(amortResult.schedule.reduce((s: number, r: any) => s + r.installment, 0))}</div>
+                    <div className="text-right font-mono truncate">{fmtNumber(amortResult.totalInterest)}</div>
+                    <div className="text-right font-mono truncate">{fmtNumber(amortResult.netPrincipal)}</div>
                     <div></div>
                   </div>
                 </CardContent>

@@ -44,7 +44,7 @@ const fmtCurrency = (v: any): string => {
   if (v === null || v === undefined) return "—";
   const num = Number(v);
   if (isNaN(num)) return "—";
-  return `৳${bdCurrencyFormatter.format(num)}`;
+  return `Tk. ${bdCurrencyFormatter.format(num)}`;
 };
 
 const fmt = (v: any, type?: string) => {
