@@ -18,17 +18,17 @@ export async function GET(request: NextRequest) {
 
   if (type === 'heads') {
     csvContent = [
-      'Name,Type,Opening Balance,Opening Type,Description,Share Percentage,Capital Value',
-      '"Investor Name",Liability,0,None,"Description here",,',
-      '"Asset Holder",Asset,0,None,"Description here",,',
-      '"Capital Partner",Investment,100000,None,"Initial investment",25,500000',
+      'Code,Name,Type,Description,Opening Balance,Opening Type,Is Active,Profile Image,NID Front Image,NID Back Image,Company ID',
+      '"INVH-00001","Investor Name",Liability,"Description here",0,None,true,,,,',
+      '"INVH-00002","Asset Holder",Asset,"Description here",0,None,true,,,,',
+      '"INVH-00003","Capital Partner",Investment,"Initial investment",100000,None,true,,,,',
     ].join('\n');
     filename = 'investment-heads-template.csv';
   } else if (type === 'assets') {
     csvContent = [
-      'Investment Head ID,Date,Amount,Asset Category,Asset Sub-Category,Location Tag,Purchase Value,Salvage Value,Useful Life (Months),Depreciation Rate,Description',
-      '"head-id-here",2025-01-15,50000,Fixed,Machinery,"Building A",50000,5000,60,10,"Fixed asset description"',
-      '"head-id-here",2025-02-01,10000,Current,Cash,,,,,,"Current asset description"',
+      'Investment Head ID,Date,Amount,Asset Category,Purchase Value,Salvage Value,Useful Life (Months),Description,Is Active,Company ID',
+      '"head-id-here",2025-01-15,50000,Fixed,50000,5000,60,"Fixed asset description",true,',
+      '"head-id-here",2025-02-01,10000,Current,10000,0,0,"Current asset description",true,',
     ].join('\n');
     filename = 'assets-template.csv';
   } else if (type === 'liabilities') {

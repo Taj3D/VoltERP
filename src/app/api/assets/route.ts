@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     });
 
     // VAT Auditor masking
-    const masked = items.map(item => maskForVatAuditor(item, security.user.role, ['amount']));
+    const masked = items.map(item => maskForVatAuditor(item, security.user.role, ['amount', 'purchaseValue', 'salvageValue', 'netBookValue', 'accumulatedDepreciation']));
     return NextResponse.json(masked);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch assets' }, { status: 500 });
@@ -37,6 +37,31 @@ export async function POST(request: NextRequest) {
     // Validate investmentHeadId
     if (!body.investmentHeadId) {
       return NextResponse.json({ error: 'Investment Head is required' }, { status: 400 });
+    }
+
+    // Verify investmentHeadId references an active InvestmentHead
+    const investmentHead = await db.investmentHead.findUnique({
+      where: { id: body.investmentHeadId },
+    });
+    if (!investmentHead) {
+      return NextResponse.json({ error: 'Investment Head not found' }, { status: 400 });
+    }
+    if (!investmentHead.isActive) {
+      return NextResponse.json({ error: 'Investment Head is not active' }, { status: 400 });
+    }
+
+    // Financial validations
+    if (body.amount !== undefined && Number(body.amount) <= 0) {
+      return NextResponse.json({ error: 'Amount must be greater than zero' }, { status: 400 });
+    }
+    if (body.purchaseValue !== undefined && Number(body.purchaseValue) < 0) {
+      return NextResponse.json({ error: 'Purchase value must not be negative' }, { status: 400 });
+    }
+    if (body.salvageValue !== undefined && Number(body.salvageValue) < 0) {
+      return NextResponse.json({ error: 'Salvage value must not be negative' }, { status: 400 });
+    }
+    if (body.usefulLifeMonths !== undefined && Number(body.usefulLifeMonths) < 0) {
+      return NextResponse.json({ error: 'Useful life months must not be negative' }, { status: 400 });
     }
     
     // Period close check

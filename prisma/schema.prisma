@@ -48,6 +48,7 @@ model InvestmentHead {
   type           String      @default("Liability")
   openingBalance Float       @default(0)
   openingType    String      @default("")
+  companyId      String? // Multi-tenant isolation
   profileImage   String? // Profile photo (base64 or URL)
   nidFrontImage  String? // National ID front card image
   nidBackImage   String? // National ID back card image
@@ -56,6 +57,8 @@ model InvestmentHead {
   updatedAt      DateTime    @updatedAt
   assets         Asset[]
   liabilities    Liability[]
+
+  @@index([companyId])
 }
 
 model Asset {
@@ -110,6 +113,9 @@ model Liability {
   interestRate       Float          @default(0) // Interest rate (%)
   loanDurationMonths Int            @default(0) // Loan term in months
   outstandingBalance Float          @default(0) // Running outstanding balance after payments
+  agingBucket        String         @default("Current") // "Current", "1-30", "31-60", "61-90", "90+"
+  overdueDays        Int            @default(0) // Days past due date
+  apSyncStatus       String         @default("Pending") // "Pending", "Synced", "Failed" for AP reconciliation
   paymentMethod      String? // "Cash", "Bank Transfer", "Cheque", etc.
   bankId             String? // Linked bank account for double-entry
   voucherNo          String? // Payment voucher number
@@ -126,6 +132,7 @@ model Liability {
   @@index([companyId])
   @@index([type])
   @@index([liabilityType])
+  @@index([agingBucket])
 }
 
 // ============================================================

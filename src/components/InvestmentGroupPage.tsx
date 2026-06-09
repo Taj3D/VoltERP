@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, FileDown, Shield, Landmark,
   Building2, Wallet, ArrowDownCircle, ArrowUpCircle, FileBarChart,
   Banknote, TrendingUp, CheckCircle, AlertTriangle, Activity,
-  PieChart, Calculator, Layers, BarChart3, Clock,
+  PieChart, Calculator, Layers, BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,7 +122,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   const [headsSaving, setHeadsSaving] = useState(false);
   const [expandedHeads, setExpandedHeads] = useState<Set<string>>(new Set());
   const [headsFormData, setHeadsFormData] = useState<Record<string, any>>({
-    name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", isActive: true,
+    name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", companyId: "", isActive: true,
   });
 
   // ─── Investment (Detailed) State ───
@@ -205,6 +205,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
   // ─── Phase 4: New Liability State ───
   const [banks, setBanks] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
   const [companyBranding, setCompanyBranding] = useState<any>(null);
   const [exceedBalanceWarning, setExceedBalanceWarning] = useState(false);
   const liabilitySnapshotRef = useRef<any>(null);
@@ -327,6 +328,15 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     }
   }, []);
 
+  const loadCompanies = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/companies");
+      setCompanies(Array.isArray(res) ? res : []);
+    } catch (err) {
+      console.error('Error loading companies:', err);
+    }
+  }, []);
+
   const loadCompanyBranding = useCallback(async () => {
     try {
       const res = await apiFetch("/api/company-branding");
@@ -427,9 +437,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
     loadHeads();
     loadHeadOptions();
     loadBanks();
+    loadCompanies();
     loadCompanyBranding();
     loadActivityLog();
-  }, [loadHeads, loadHeadOptions, loadBanks, loadCompanyBranding, loadActivityLog]);
+  }, [loadHeads, loadHeadOptions, loadBanks, loadCompanies, loadCompanyBranding, loadActivityLog]);
 
   useEffect(() => {
     if (activeTab === "investment") loadInvestments();
@@ -651,7 +662,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   // ============================================================
 
   const openHeadsCreate = () => {
-    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", profileImage: null, nidFrontImage: null, nidBackImage: null, isActive: true });
+    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", companyId: "", profileImage: null, nidFrontImage: null, nidBackImage: null, isActive: true });
     setHeadsEdit(null);
     setHeadsForm(true);
   };
@@ -663,6 +674,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       openingBalance: item.openingBalance || 0,
       openingType: item.openingType || "None",
       description: item.description || "",
+      companyId: item.companyId || "",
       profileImage: item.profileImage || null,
       nidFrontImage: item.nidFrontImage || null,
       nidBackImage: item.nidBackImage || null,
@@ -685,6 +697,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         openingBalance: Number(headsFormData.openingBalance) || 0,
         openingType: headsFormData.openingType,
         description: headsFormData.description || null,
+        companyId: headsFormData.companyId || null,
         profileImage: headsFormData.profileImage || null,
         nidFrontImage: headsFormData.nidFrontImage || null,
         nidBackImage: headsFormData.nidBackImage || null,
@@ -775,6 +788,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         purchaseValue: Number(formData.purchaseValue) || Number(formData.amount) || 0,
         salvageValue: Number(formData.salvageValue) || 0,
         usefulLifeMonths: Number(formData.usefulLifeMonths) || 0,
+        companyId: formData.companyId || null,
         description: formData.description || null,
         isActive: formData.isActive ?? true,
       };
@@ -895,6 +909,27 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       // Directive 2: Generate referenceKey for new records
       const referenceKey = editItem?.referenceKey || `LIAB-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
       const outstandingBal = isReceive ? (Number(formData.principalAmount) || Number(formData.amount)) : Math.max(0, (outstandingBalances[formData.investmentHeadId] || 0) - Number(formData.amount));
+
+      // Auto-calculate aging bucket based on date and loan duration
+      let overdueDays = 0;
+      let agingBucket = "Current";
+      if (isReceive && formData.date && Number(formData.loanDurationMonths) > 0) {
+        const liabilityDate = new Date(formData.date);
+        const dueDate = new Date(liabilityDate);
+        dueDate.setMonth(dueDate.getMonth() + Number(formData.loanDurationMonths));
+        const today = new Date();
+        const diffMs = today.getTime() - dueDate.getTime();
+        overdueDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+        if (overdueDays === 0) agingBucket = "Current";
+        else if (overdueDays <= 30) agingBucket = "1-30";
+        else if (overdueDays <= 60) agingBucket = "31-60";
+        else if (overdueDays <= 90) agingBucket = "61-90";
+        else agingBucket = "90+";
+      } else if (editItem?.overdueDays !== undefined) {
+        overdueDays = editItem.overdueDays;
+        agingBucket = editItem.agingBucket || "Current";
+      }
+
       const payload = {
         investmentHeadId: formData.investmentHeadId,
         date: formData.date,
@@ -910,6 +945,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         voucherNo: formData.voucherNo || null,
         chequeNo: formData.chequeNo || null,
         referenceKey,
+        agingBucket,
+        overdueDays,
         description: formData.description || null,
         isActive: formData.isActive ?? true,
       };
@@ -982,6 +1019,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             date: investFormData.date,
             amount: Number(investFormData.amount) || 0,
             assetCategory: investFormData.assetCategory || "Fixed",
+            companyId: investFormData.companyId || null,
             description: investFormData.description || null,
             isActive: investFormData.isActive ?? true,
           }),
@@ -998,6 +1036,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             loanDurationMonths: 0,
             type: "received",
             paymentMethod: "Cash",
+            referenceKey: `INV-ENTRY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            companyId: investFormData.companyId || null,
             description: investFormData.description || null,
             isActive: investFormData.isActive ?? true,
           }),
@@ -1251,7 +1291,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       </div>
 
       {/* Enhancement: Quick Stats Dashboard */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Card className="border-green-200 dark:border-green-900 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2 rounded-xl bg-green-100 dark:bg-green-900/40">
@@ -1375,8 +1415,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Opening Balance</TableHead>
-                      <TableHead>Opening Type</TableHead>
+                      <TableHead className="hidden md:table-cell">Opening Balance</TableHead>
+                      <TableHead className="hidden lg:table-cell">Opening Type</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
@@ -1407,8 +1447,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.code}</TableCell>
                           <TableCell className="text-slate-900 dark:text-white">{item.name}</TableCell>
                           <TableCell><Badge className={TYPE_BADGE[item.type] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>{item.type}</Badge></TableCell>
-                          <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.openingBalance)}</TableCell>
-                          <TableCell><Badge variant="outline">{item.openingType || "None"}</Badge></TableCell>
+                          <TableCell className="hidden md:table-cell font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.openingBalance)}</TableCell>
+                          <TableCell className="hidden lg:table-cell"><Badge variant="outline">{item.openingType || "None"}</Badge></TableCell>
                           <TableCell>
                             <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                               {item.isActive ? "Active" : "Inactive"}
@@ -1447,7 +1487,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         ═══════════════════════════════════════════════════════════ */}
         <TabsContent value="investment">
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-3 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3 mt-4">
             <StatCard label="Total Investment Heads" value={investSummary?.totalHeads ?? investments.length} icon={Landmark} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
             <StatCard label="Total Opening Balance" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandOpeningBalances ?? 0)} icon={Banknote} color="text-purple-600" bg="bg-purple-50 dark:bg-purple-900/30" />
             <StatCard label="Total Invested Amount" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(investSummary?.grandTotalAssets ?? 0)} icon={Banknote} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
@@ -1663,10 +1703,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Date</TableHead>
                       <TableHead>Investment Head</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Net Book Value</TableHead>
-                      <TableHead>Accum. Dep.</TableHead>
-                      <TableHead>Description</TableHead>
+                      <TableHead className="hidden md:table-cell">Category</TableHead>
+                      <TableHead className="hidden md:table-cell">Net Book Value</TableHead>
+                      <TableHead className="hidden md:table-cell">Accum. Dep.</TableHead>
+                      <TableHead className="hidden lg:table-cell">Description</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
@@ -1681,10 +1721,10 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
                         <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
-                        <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
-                        <TableCell className="font-mono">{isVatAuditor ? "N/A" : fmtCurrency(item.netBookValue ?? item.amount)}</TableCell>
-                        <TableCell className="font-mono text-xs">{isVatAuditor ? "N/A" : fmtCurrency(item.accumulatedDepreciation ?? 0)}</TableCell>
-                        <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell"><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
+                        <TableCell className="hidden md:table-cell font-mono">{isVatAuditor ? "N/A" : fmtCurrency(item.netBookValue ?? item.amount)}</TableCell>
+                        <TableCell className="hidden md:table-cell font-mono text-xs">{isVatAuditor ? "N/A" : fmtCurrency(item.accumulatedDepreciation ?? 0)}</TableCell>
+                        <TableCell className="hidden lg:table-cell max-w-[200px] truncate">{item.description || "—"}</TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -1756,8 +1796,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Date</TableHead>
                       <TableHead>Investment Head</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Description</TableHead>
+                      <TableHead className="hidden md:table-cell">Category</TableHead>
+                      <TableHead className="hidden lg:table-cell">Description</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
@@ -1772,8 +1812,8 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         <TableCell className="text-slate-900 dark:text-white">{fmtDate(item.date)}</TableCell>
                         <TableCell className="text-slate-900 dark:text-white">{item.investmentHead?.name || "—"}</TableCell>
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
-                        <TableCell><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
-                        <TableCell className="max-w-[200px] truncate">{item.description || "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell"><Badge className={CATEGORY_BADGE[item.assetCategory] || "bg-slate-100 text-slate-700"}>{item.assetCategory}</Badge></TableCell>
+                        <TableCell className="hidden lg:table-cell max-w-[200px] truncate">{item.description || "—"}</TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -1814,7 +1854,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             </div>
           )}
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-3 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3 mt-4">
             <StatCard label="Total Received" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.total)} icon={ArrowDownCircle} color="text-green-600" bg="bg-green-50 dark:bg-green-900/30" />
             <StatCard label="Cash" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
             <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabReceiveStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
@@ -1862,17 +1902,20 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Amount</TableHead>
                       <TableHead>Outstanding</TableHead>
                       <TableHead>Method</TableHead>
-                      <TableHead>Bank</TableHead>
-                      <TableHead>Voucher</TableHead>
+                      <TableHead className="hidden md:table-cell">Bank</TableHead>
+                      <TableHead className="hidden md:table-cell">Voucher</TableHead>
+                      <TableHead>Aging</TableHead>
+                      <TableHead>Overdue</TableHead>
+                      <TableHead>AP Status</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {liabReceiveLoading ? (
-                      <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={14} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredLiabReceive.length === 0 ? (
-                      <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No liability receives found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={14} className="h-24 text-center text-muted-foreground">No liability receives found</TableCell></TableRow>
                     ) : filteredLiabReceive.map((item: any) => {
                       const bankObj = banks.find((b: any) => b.id === item.bankId);
                       return (
@@ -1884,8 +1927,15 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
                         <TableCell className="font-mono font-semibold text-red-600 dark:text-red-400">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(outstandingBalances[item.investmentHeadId] || 0)}</TableCell>
                         <TableCell><Badge className={PAYMENT_METHOD_BADGE[item.paymentMethod] || "bg-slate-100 text-slate-700"}>{item.paymentMethod || "—"}</Badge></TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{bankObj ? `${bankObj.bankName} (${bankObj.accountNo})` : "—"}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.voucherNo || "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground">{bankObj ? `${bankObj.bankName} (${bankObj.accountNo})` : "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground">{item.voucherNo || "—"}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{item.agingBucket || "Current"}</Badge></TableCell>
+                        <TableCell className="text-xs">{item.overdueDays ? `${item.overdueDays}d` : "0d"}</TableCell>
+                        <TableCell>
+                          <Badge className={item.apSyncStatus === "synced" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : item.apSyncStatus === "pending" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>
+                            {item.apSyncStatus || "—"}
+                          </Badge>
+                        </TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -1920,7 +1970,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             </div>
           )}
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mt-4">
             <StatCard label="Total Paid" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.total)} icon={ArrowUpCircle} color="text-red-600" bg="bg-red-50 dark:bg-red-900/30" />
             <StatCard label="Cash" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.cash)} icon={Banknote} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-900/30" />
             <StatCard label="Bank Transfer" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(liabPayStats.bank)} icon={Building2} color="text-amber-600" bg="bg-amber-50 dark:bg-amber-900/30" />
@@ -1965,18 +2015,21 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                       <TableHead>Amount</TableHead>
                       <TableHead>Remaining Outstanding</TableHead>
                       <TableHead>Method</TableHead>
-                      <TableHead>Bank</TableHead>
-                      <TableHead>Cheque</TableHead>
-                      <TableHead>Voucher</TableHead>
+                      <TableHead className="hidden md:table-cell">Bank</TableHead>
+                      <TableHead className="hidden md:table-cell">Cheque</TableHead>
+                      <TableHead className="hidden md:table-cell">Voucher</TableHead>
+                      <TableHead>Aging</TableHead>
+                      <TableHead>Overdue</TableHead>
+                      <TableHead>AP Status</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="w-20 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {liabPayLoading ? (
-                      <TableRow><TableCell colSpan={10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      <TableRow><TableCell colSpan={13} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
                     ) : filteredLiabPay.length === 0 ? (
-                      <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No liability pays found</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={13} className="h-24 text-center text-muted-foreground">No liability pays found</TableCell></TableRow>
                     ) : filteredLiabPay.map((item: any) => {
                       const bankObj = banks.find((b: any) => b.id === item.bankId);
                       return (
@@ -1986,9 +2039,16 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                         <TableCell className="font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount)}</TableCell>
                         <TableCell className="font-mono font-semibold text-red-600 dark:text-red-400">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(outstandingBalances[item.investmentHeadId] || 0)}</TableCell>
                         <TableCell><Badge className={PAYMENT_METHOD_BADGE[item.paymentMethod] || "bg-slate-100 text-slate-700"}>{item.paymentMethod || "—"}</Badge></TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{bankObj ? `${bankObj.bankName} (${bankObj.accountNo})` : "—"}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.chequeNo || "—"}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.voucherNo || "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground">{bankObj ? `${bankObj.bankName} (${bankObj.accountNo})` : "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground">{item.chequeNo || "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground">{item.voucherNo || "—"}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{item.agingBucket || "—"}</Badge></TableCell>
+                        <TableCell className="text-xs">{item.overdueDays ? `${item.overdueDays}d` : "—"}</TableCell>
+                        <TableCell>
+                          <Badge className={item.apSyncStatus === "synced" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : item.apSyncStatus === "pending" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>
+                            {item.apSyncStatus || "—"}
+                          </Badge>
+                        </TableCell>
                         <TableCell>
                           <Badge className={item.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                             {item.isActive ? "Active" : "Inactive"}
@@ -2200,7 +2260,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Investment Head Create/Edit Dialog ─── */}
       <Dialog open={headsForm} onOpenChange={setHeadsForm}>
-        <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">{headsEdit ? "Edit Investment Head" : "Create Investment Head"}</DialogTitle>
             <DialogDescription>{headsEdit ? "Update investment head details" : "Add a new investment head to the system"}</DialogDescription>
@@ -2237,6 +2297,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
             <div>
               <Label htmlFor="head-opening-balance">Opening Balance</Label>
               <Input id="head-opening-balance" type="number" step="0.01" value={headsFormData.openingBalance} onChange={(e) => setHeadsFormData({ ...headsFormData, openingBalance: e.target.value })} />
+            </div>
+            <div>
+              <Label htmlFor="head-company">Company</Label>
+              <Select value={headsFormData.companyId || "none"} onValueChange={(v) => setHeadsFormData({ ...headsFormData, companyId: v === "none" ? "" : v })}>
+                <SelectTrigger id="head-company"><SelectValue placeholder="Select company (optional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {companies.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="head-description">Description</Label>
@@ -2304,7 +2376,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Investment Entry (Add against head) Dialog ─── */}
       <Dialog open={investForm} onOpenChange={setInvestForm}>
-        <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">Add Entry Against Investment Head</DialogTitle>
             <DialogDescription>Create a new asset or liability entry for an investment head</DialogDescription>
@@ -2369,7 +2441,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Fixed Asset Create/Edit Dialog ─── */}
       <Dialog open={assetsForm} onOpenChange={setAssetsForm}>
-        <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">{assetsEdit ? "Edit Fixed Asset" : "Create Fixed Asset"}</DialogTitle>
             <DialogDescription>{assetsEdit ? "Update fixed asset details" : "Add a new fixed asset"}</DialogDescription>
@@ -2461,7 +2533,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Current Asset Create/Edit Dialog ─── */}
       <Dialog open={currentAssetsForm} onOpenChange={setCurrentAssetsForm}>
-        <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">{currentAssetsEdit ? "Edit Current Asset" : "Create Current Asset"}</DialogTitle>
             <DialogDescription>{currentAssetsEdit ? "Update current asset details" : "Add a new current asset"}</DialogDescription>
@@ -2527,7 +2599,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Liability Receive Create/Edit Dialog ─── */}
       <Dialog open={liabReceiveForm} onOpenChange={setLiabReceiveForm}>
-        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">{liabReceiveEdit ? "Edit Liability Receive" : "Record Loan Receipt"}</DialogTitle>
             <DialogDescription>{liabReceiveEdit ? "Update liability receive details" : "Record a new liability/loan receipt into the system"}</DialogDescription>
@@ -2672,7 +2744,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
 
       {/* ─── Liability Pay Create/Edit Dialog ─── */}
       <Dialog open={liabPayForm} onOpenChange={setLiabPayForm}>
-        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">{liabPayEdit ? "Edit Liability Payment" : "Execute Liability Payment"}</DialogTitle>
             <DialogDescription>{liabPayEdit ? "Update liability payment details" : "Execute a liability/loan repayment"}</DialogDescription>

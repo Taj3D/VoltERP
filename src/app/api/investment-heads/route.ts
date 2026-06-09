@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {};
     if (!includeInactive) where.isActive = true;
     if (type) where.type = type;
+    // Multi-tenant filtering: if authenticated user has a companyId, filter by it
+    if (security.user.companyId) where.companyId = security.user.companyId;
 
     const items = await db.investmentHead.findMany({
       where,
@@ -58,6 +60,7 @@ export async function POST(request: NextRequest) {
           profileImage: body.profileImage || null,
           nidFrontImage: body.nidFrontImage || null,
           nidBackImage: body.nidBackImage || null,
+          companyId: body.companyId || security.user.companyId || null,
           isActive: body.isActive ?? true,
         },
       });

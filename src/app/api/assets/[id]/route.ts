@@ -38,12 +38,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const item = await db.$transaction(async (tx) => {
-      // If purchaseValue changes, recalculate netBookValue
+      // Always recalculate netBookValue regardless of which field changed
       const existingAsset = await tx.asset.findUnique({ where: { id } });
       const purchaseValue = body.purchaseValue !== undefined ? Number(body.purchaseValue) : (existingAsset?.purchaseValue ?? 0);
       const salvageValue = body.salvageValue !== undefined ? Number(body.salvageValue) : (existingAsset?.salvageValue ?? 0);
       const usefulLifeMonths = body.usefulLifeMonths !== undefined ? Number(body.usefulLifeMonths) : (existingAsset?.usefulLifeMonths ?? 0);
-      const accumulatedDepreciation = existingAsset?.accumulatedDepreciation ?? 0;
+      const accumulatedDepreciation = body.accumulatedDepreciation !== undefined ? Number(body.accumulatedDepreciation) : (existingAsset?.accumulatedDepreciation ?? 0);
       const netBookValue = purchaseValue - accumulatedDepreciation;
 
       const record = await tx.asset.update({
@@ -56,7 +56,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           purchaseValue: body.purchaseValue !== undefined ? purchaseValue : undefined,
           salvageValue: body.salvageValue !== undefined ? salvageValue : undefined,
           usefulLifeMonths: body.usefulLifeMonths !== undefined ? usefulLifeMonths : undefined,
-          netBookValue: body.purchaseValue !== undefined ? netBookValue : undefined,
+          accumulatedDepreciation: body.accumulatedDepreciation !== undefined ? accumulatedDepreciation : undefined,
+          netBookValue,
           companyId: body.companyId !== undefined ? (body.companyId || null) : undefined,
           description: body.description || null,
           isActive: body.isActive ?? true,

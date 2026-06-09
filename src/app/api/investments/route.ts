@@ -12,6 +12,8 @@ export async function GET(request: NextRequest) {
 
     const where: any = { isActive: true };
     if (headType) where.type = headType;
+    // Multi-tenant filtering: if authenticated user has a companyId, filter by it
+    if (security.user.companyId) where.companyId = security.user.companyId;
 
     if (includeDetails) {
       const investmentHeads = await db.investmentHead.findMany({
@@ -107,7 +109,7 @@ export async function POST(request: NextRequest) {
       }
       const code = `INV-${String(maxNum + 1).padStart(5, '0')}`;
 
-      return tx.investmentHead.create({
+      const record = await tx.investmentHead.create({
         data: {
           code,
           name: body.name,
@@ -118,9 +120,24 @@ export async function POST(request: NextRequest) {
           profileImage: body.profileImage || null,
           nidFrontImage: body.nidFrontImage || null,
           nidBackImage: body.nidBackImage || null,
+          companyId: body.companyId || security.user.companyId || null,
           isActive: body.isActive ?? true,
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE',
+          module: 'InvestmentHeads',
+          recordId: record.id,
+          recordLabel: record.name || record.code || record.id,
+          userId: security.user.id,
+          userName: security.user.name,
+          details: JSON.stringify({ code: record.code, name: record.name, type: record.type }),
+        },
+      });
+
+      return record;
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
