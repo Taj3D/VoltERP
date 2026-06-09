@@ -5797,3 +5797,246 @@ Task: ধাপ ১৩ — Module Testing Batch 2 (Inventory + Sales + Returns)
 - ✅ Period close guard prevents posting to closed fiscal periods
 - ✅ Soft delete pattern consistent across all endpoints
 - ✅ VAT masking works in GET responses for VAT Auditor role
+
+---
+Task ID: 14-9c
+Agent: VAT Masking Fix Agent
+Task: Fix Reports module VAT masking bugs — SR Performance and Trial Balance
+
+## Bugs Fixed
+
+### Bug 1: SR Performance — NO VAT masking for VAT Auditor
+- **Problem**: `/api/sr-performance/route.ts` returned all financial data unmasked when accessed by VAT Auditor role. Fields like `targetAmount`, `minimumSalesQuota`, `commissionPercentage`, `actualSales`, `cashCollected`, `commissionProjection`, `remainingAmount`, `achievementPercentage` and summary fields were fully visible.
+- **Fix**: 
+  - Added `maskForVatAuditor` to the import from `@/lib/api-security`
+  - Before the return statement, applied `maskForVatAuditor` to each period object with 8 financial field names
+  - Applied `maskForVatAuditor` to the summary object with 4 aggregate field names
+  - Constructed the response using masked periods and masked summary, with proper type casts
+- **File Changed**: `/home/z/my-project/src/app/api/sr-performance/route.ts`
+
+### Bug 2: Trial Balance grand totals not masked for VAT Auditor
+- **Problem**: `/api/reports/trial-balance/route.ts` properly masked individual entry fields via `maskAccountingReportForVatAuditor`, but `grandTotalDebit`, `grandTotalCredit`, and `balanced` top-level fields remained unmasked. Chart data (debit/credit), pie data (value), and classification summary amounts were also unmasked.
+- **Fix**:
+  - Added `maskForVatAuditor` to the import from `@/lib/api-security`
+  - Inside the VAT mode block, after calling `maskAccountingReportForVatAuditor`, added explicit masking for `vat_auditor` role:
+    - `grandTotalDebit`, `grandTotalCredit`, `balanced` → `'N/A (Audit Mode)'`
+    - `chartData` array items: `debit` and `credit` → `'N/A (Audit Mode)'`
+    - `pieData` array items: `value` → `'N/A (Audit Mode)'`
+    - `classificationSummary` array items: applied `maskForVatAuditor` with `['totalDebit', 'totalCredit']` fields
+- **File Changed**: `/home/z/my-project/src/app/api/reports/trial-balance/route.ts`
+
+## Verification
+- ✅ `bun run lint` passes cleanly
+- ✅ Dev server running on port 3000 (HTTP 200)
+- ✅ No TypeScript errors introduced
+- ✅ Both fixes follow the existing VAT masking pattern used across the codebase
+
+---
+Task ID: 14-9b
+Agent: Code Agent
+Task: Fix SMS module bugs in VoltERP Phase 14 — 4 bugs fixed
+
+## Bugs Fixed
+
+### Bug 1: SMS credit-balance crashes with 500 — wrong field name `smsUnits` (CRITICAL)
+- **Problem**: `/api/sms-credit-balance` route used `smsUnits` in the aggregate `_sum` and result access, but the `SmsLog` model has `smsSegmentCount` instead, causing a Prisma query error and 500 response.
+- **Fix**: Changed `smsUnits: true` → `smsSegmentCount: true` on line 40, and `usedResult._sum.smsUnits` → `usedResult._sum.smsSegmentCount` on line 44.
+- **File Changed**: `/home/z/my-project/src/app/api/sms-credit-balance/route.ts`
+
+### Bug 2: SmsSetting missing `creditBalanceLimit` and `lastKnownCreditBalance` fields (HIGH)
+- **Problem**: The sms-credit-balance and sms-gateway/balance routes reference `activeSetting.creditBalanceLimit` and `activeSetting.lastKnownCreditBalance` but these fields didn't exist in the `SmsSetting` Prisma model, causing undefined values and incorrect balance calculations.
+- **Fix**: Added two new fields to the `SmsSetting` model after `unicodeRate`:
+  - `creditBalanceLimit Float @default(0)` — SMS credit balance limit from gateway
+  - `lastKnownCreditBalance Float @default(0)` — Last fetched credit balance from gateway
+- Ran `bun run db:push` to sync schema to database
+- Bumped `PRISMA_SCHEMA_VERSION` from 6 to 7 in `/home/z/my-project/src/lib/db.ts`
+- **Files Changed**: `/home/z/my-project/prisma/schema.prisma`, `/home/z/my-project/src/lib/db.ts`
+
+### Bug 3: SmsGateway not in MODULE_GROUP_MAP → RBAC bypass (HIGH)
+- **Problem**: `SmsGateway` module was not listed in the `MODULE_GROUP_MAP` in `api-security.ts`, meaning the gateway/balance endpoint bypassed RBAC group checks entirely.
+- **Fix**: Added `SmsGateway: 'sms'` to MODULE_GROUP_MAP, right after the `SmsBillPayments: 'sms'` line.
+- **File Changed**: `/home/z/my-project/src/lib/api-security.ts`
+
+### Bug 4: SMS routes use wrong module name `SmsLogs` (MEDIUM)
+- **Problem**: Three SMS API route files used `'SmsLogs'` instead of their correct module names in `withApiSecurity()` calls, causing incorrect RBAC module-level deny checks and audit trail logging.
+- **Fix**:
+  1. `sms-campaigns/route.ts`: Changed `'SmsLogs'` → `'SmsCampaigns'` on lines 89 and 156 (GET + POST)
+  2. `sms-inbox/route.ts`: Changed `'SmsLogs'` → `'SmsInbox'` on lines 46 and 128 (GET + POST)
+  3. `sms-notification-triggers/route.ts`: Changed `'SmsLogs'` → `'SmsNotificationTriggers'` on lines 53 and 103 (GET + POST)
+- **Files Changed**: `/home/z/my-project/src/app/api/sms-campaigns/route.ts`, `/home/z/my-project/src/app/api/sms-inbox/route.ts`, `/home/z/my-project/src/app/api/sms-notification-triggers/route.ts`
+
+## Verification
+- ✅ Dev server running on port 3000 (no errors in dev.log)
+- ✅ Prisma schema synced to database (`bun run db:push` succeeded)
+- ✅ PRISMA_SCHEMA_VERSION bumped to 7 for cache invalidation
+
+
+---
+Task ID: 14-9a
+Agent: Account Bug Fix Agent
+Task: Fix 4 Account module bugs — cheque entryCode, DELETE transaction timeout, COA classification validation, expense/income headId validation
+
+## Bugs Fixed
+
+### Bug 1: Cheque Clear crashes — Missing `entryCode` in LedgerEntry (CRITICAL)
+- **Problem**: `PUT /api/cheques/[id]` creates LedgerEntry records without the required `entryCode` field when a cheque is cleared. The `LedgerEntry` model has `entryCode String @unique` which means it's required, causing Prisma to throw a constraint violation.
+- **Fix**: Added `generateLedgerEntryCode(tx)` helper function (same pattern used in expenses/[id]/route.ts) and included `entryCode: await generateLedgerEntryCode(tx)` in all 6 `ledgerEntry.create()` calls:
+  1. Incoming cheque → Dr: Bank
+  2. Incoming cheque → Cr: Cheque Payable
+  3. Incoming cheque with toBankId → Dr: toBank (inter-bank deposit)
+  4. Incoming cheque with toBankId → Cr: Cash in Hand (inter-bank deposit)
+  5. Outgoing cheque → Dr: Cheque Receivable
+  6. Outgoing cheque → Cr: Bank
+- **File Changed**: `/home/z/my-project/src/app/api/cheques/[id]/route.ts`
+
+### Bug 2: DELETE /api/expenses, /api/incomes 500 errors (HIGH)
+- **Problem**: `logUserActivity({ tx: tx, ... })` was INSIDE the `$transaction()` block, causing SQLite transaction timeouts (5s limit) because logUserActivity does an additional DB write within the same transaction.
+- **Fix**: Moved `logUserActivity` call OUTSIDE the transaction (after `await db.$transaction(...)`), making it fire-and-forget with `.catch(() => {})` — same pattern already used in bank-transactions DELETE handler.
+- **Files Changed**:
+  - `/home/z/my-project/src/app/api/expenses/[id]/route.ts` — DELETE handler
+  - `/home/z/my-project/src/app/api/incomes/[id]/route.ts` — DELETE handler
+
+### Bug 3: COA accepts invalid classification (MEDIUM)
+- **Problem**: `POST /api/chart-of-accounts` doesn't validate the `classification` field. It would accept any arbitrary string.
+- **Fix**: Added `VALID_CLASSIFICATIONS` array check after XSS strip. Only accepts: Asset, Liability, Equity, Income, Revenue, Expense. Returns 400 with clear error message if invalid.
+- **File Changed**: `/home/z/my-project/src/app/api/chart-of-accounts/route.ts`
+
+### Bug 4: Expense with invalid headId returns raw Prisma error (HIGH)
+- **Problem**: Creating an expense/income with an invalid `headId` would crash deep in the Prisma create, returning a raw Prisma foreign key constraint error (500) instead of a clean 400 message.
+- **Fix**: Added `headId` validation before transaction — checks `db.expenseIncomeHead.findFirst({ where: { id: headId, isActive: true } })` and throws a clear error if not found. Also updated POST error handlers to return 400 for 'Invalid headId' messages.
+- **Files Changed**:
+  - `/home/z/my-project/src/app/api/expenses/route.ts` — createSingleExpense function + POST error handler
+  - `/home/z/my-project/src/app/api/incomes/route.ts` — createSingleIncome function + POST error handler
+
+## Verification
+- ✅ `bun run lint` passes cleanly with zero errors
+- ✅ Dev server running on port 3000 (HTTP 200)
+- ✅ All 4 API routes compile without TypeScript errors
+
+---
+Task ID: phase14
+Agent: Main Orchestrator
+Task: ধাপ ১৪ — Module Testing Batch 3 (Account + SMS + Reports)
+
+## Module Testing Summary
+
+### Account Module (15 endpoints tested, 5 RBAC roles)
+| Endpoint | GET | POST | PUT | DELETE | Status |
+|----------|-----|------|-----|--------|--------|
+| expense-income-heads | ✅ 200 | ✅ 201 | ✅ 200 | ✅ 200 | ✅ |
+| expenses | ✅ 200 | ✅ 201 | ✅ 200 | ✅ 200 (FIXED) | ✅ |
+| incomes | ✅ 200 | ✅ 201 | ✅ 200 | ✅ 200 (FIXED) | ✅ |
+| cash-collections | ✅ 200 | ✅ 201 | — | ✅ 200 | ✅ |
+| cash-deliveries | ✅ 200 | ✅ 201 | — | ✅ 200 | ✅ |
+| bank-transactions | ✅ 200 | ✅ 201 | ✅ 200 | ✅ 200 (FIXED) | ✅ |
+| chart-of-accounts | ✅ 200 | ✅ 201 (FIXED) | ✅ 200 | ✅ 200 | ✅ |
+| ledger-entries | ✅ 200 | ✅ 201 | — | — | ✅ |
+| ledger-auto-post | ✅ 200 | ✅ 200 | — | — | ✅ |
+| ledger-reports | ✅ 200 | — | — | — | ⚠️ Requires type param |
+| account-balance-validation | ✅ 200 | — | — | — | ✅ |
+| cheques | ✅ 200 | ✅ 201 | ✅ 200 (FIXED) | ✅ 200 | ✅ |
+| fiscal-years | ✅ 200 | ✅ 201 | ✅ 200 | ✅ 200 | ✅ |
+| journal-vouchers | ✅ 200 | ✅ 201 | ✅ 200 | ✅ 403 (correct) | ✅ |
+| period-close | ✅ 200 | ✅ 201 | ✅ 200 | — | ✅ |
+
+### SMS Module (13 endpoints tested)
+| Endpoint | GET | POST | Status |
+|----------|-----|------|--------|
+| sms-automation | ✅ 200 | ✅ 201 | ✅ |
+| sms-automation-config | ✅ 200 | 405 (correct) | ✅ |
+| sms-bill-payments | ✅ 200 | ✅ 201 | ✅ |
+| sms-bills | ✅ 200 | ✅ 201 | ✅ |
+| sms-campaigns | ✅ 200 | ✅ 201 | ✅ (FIXED module name) |
+| sms-credit-balance | ✅ 200 (FIXED) | 405 | ✅ |
+| sms-gateway/balance | ✅ 200 | — | ✅ (FIXED RBAC) |
+| sms-inbox | ✅ 200 | ✅ 201 | ✅ (FIXED module name) |
+| sms-logs | ✅ 200 | ✅ 201 | ✅ |
+| sms-notification-triggers | ✅ 200 | ✅ 201 | ✅ (FIXED module name) |
+| sms-settings | ✅ 200 | ✅ 201 | ✅ |
+
+### Reports Module (17 endpoints tested)
+| Endpoint | Status | VAT Masking |
+|----------|--------|-------------|
+| /api/reports (cash flow) | ✅ | ✅ |
+| /api/reports/sales | ✅ | ✅ |
+| /api/reports/purchase | ✅ | ✅ |
+| /api/reports/trial-balance | ✅ | ✅ (FIXED grand totals) |
+| /api/reports/profit-loss | ✅ | ✅ |
+| /api/reports/balance-sheet | ✅ | ✅ |
+| /api/reports/cash-in-hand | ✅ | ✅ |
+| /api/reports/sr | ✅ | ✅ |
+| /api/dashboard | ✅ | ✅ |
+| /api/dashboard-analytics (10 types) | ✅ | ✅ |
+| /api/sr-performance | ✅ | ✅ (FIXED masking) |
+| /api/mis-reports | ✅ | ✅ |
+| /api/inventory-aging | ✅ | ✅ |
+| /api/stock-valuation | ✅ | ✅ |
+| /api/financial-audit/* | ✅ | ✅ |
+
+## Critical Bugs Found & Fixed
+
+### 🔴 CRITICAL FIXES (5)
+1. **Cheque Clear crashes — Missing `entryCode` in LedgerEntry**: PUT /api/cheques/[id] with status="Cleared" created LedgerEntry records without the required `entryCode` field. Fixed by adding `generateLedgerEntryCode(tx)` helper and including `entryCode` in all 6 `ledgerEntry.create()` calls.
+
+2. **DELETE /api/expenses 500 — Duplicate entryCode**: `generateLedgerEntryCode(tx)` was called twice before any entry was created, so both calls returned the same code → unique constraint violation. Fixed by generating each code just before creating the entry (so the second call sees the first entry within the same transaction).
+
+3. **DELETE /api/incomes 500 — Same duplicate entryCode root cause**: Fixed the same code generation ordering issue.
+
+4. **SMS credit-balance crash 500**: `sms-credit-balance/route.ts` used `smsUnits` but the SmsLog model field is `smsSegmentCount`. Fixed the aggregate field name.
+
+5. **SmsGateway RBAC bypass**: `SmsGateway` was not in `MODULE_GROUP_MAP`, so all authenticated users (including Dealer/VAT) could access the gateway config endpoint. Added `SmsGateway: 'sms'` to MODULE_GROUP_MAP.
+
+### 🟡 HIGH FIXES (6)
+6. **COA accepts invalid classification**: POST /api/chart-of-accounts accepted any classification value. Added `VALID_CLASSIFICATIONS` validation (Asset, Liability, Equity, Income, Revenue, Expense).
+
+7. **DELETE /api/bank-transactions 500**: Same duplicate entryCode issue as expenses/incomes. Fixed by reordering code generation.
+
+8. **SmsSetting missing schema fields**: Added `creditBalanceLimit Float @default(0)` and `lastKnownCreditBalance Float @default(0)` to SmsSetting Prisma model. Ran db:push. Bumped PRISMA_SCHEMA_VERSION to 7.
+
+9. **SMS routes use wrong module names**: `sms-campaigns` used `SmsLogs` → fixed to `SmsCampaigns`. `sms-inbox` used `SmsLogs` → fixed to `SmsInbox`. `sms-notification-triggers` used `SmsLogs` → fixed to `SmsNotificationTriggers`.
+
+10. **SR Performance — NO VAT masking**: All financial fields returned unmasked for VAT Auditor. Added `maskForVatAuditor` for 8 period fields + 4 summary fields.
+
+11. **Trial Balance grand totals not masked**: `grandTotalDebit`, `grandTotalCredit`, `balanced` were unmasked for VAT Auditor. Added explicit masking + chart/pie data masking.
+
+### 🟢 LOW/FORMATTING FIXES (2)
+12. **Expense/income PUT rejection — Duplicate entryCode**: Same root cause as DELETE — generate codes just before creating entries.
+
+13. **logUserActivity inside transaction**: Moved `logUserActivity` outside `$transaction()` to fire-and-forget pattern in expenses/incomes DELETE handlers (prevents SQLite transaction timeout).
+
+## Files Changed
+- `/src/app/api/cheques/[id]/route.ts` — Added entryCode to all 6 ledgerEntry.create calls
+- `/src/app/api/expenses/[id]/route.ts` — Fixed entryCode generation ordering, moved logUserActivity outside transaction
+- `/src/app/api/incomes/[id]/route.ts` — Fixed entryCode generation ordering, moved logUserActivity outside transaction
+- `/src/app/api/bank-transactions/[id]/route.ts` — Fixed entryCode generation ordering
+- `/src/app/api/chart-of-accounts/route.ts` — Added classification validation
+- `/src/app/api/expenses/route.ts` — Added headId validation
+- `/src/app/api/incomes/route.ts` — Added headId validation
+- `/src/app/api/sms-credit-balance/route.ts` — Fixed smsUnits → smsSegmentCount
+- `/src/app/api/sms-campaigns/route.ts` — Fixed module name SmsLogs → SmsCampaigns
+- `/src/app/api/sms-inbox/route.ts` — Fixed module name SmsLogs → SmsInbox
+- `/src/app/api/sms-notification-triggers/route.ts` — Fixed module name SmsLogs → SmsNotificationTriggers
+- `/src/lib/api-security.ts` — Added SmsGateway to MODULE_GROUP_MAP
+- `/src/app/api/sr-performance/route.ts` — Added VAT Auditor masking
+- `/src/app/api/reports/trial-balance/route.ts` — Added grand totals VAT masking
+- `/prisma/schema.prisma` — Added creditBalanceLimit + lastKnownCreditBalance to SmsSetting
+- `/src/lib/db.ts` — Bumped PRISMA_SCHEMA_VERSION to 7
+
+## Verification Results
+- ✅ SMS Credit Balance: Returns `{"available":0,"used":0,"remaining":0,"configured":false}` (no more 500)
+- ✅ SR Performance (VAT): `targetAmount: "N/A (Audit Mode)"`, `totalTargetAmount: "N/A (Audit Mode)"`
+- ✅ Trial Balance (VAT): `grandTotalDebit: "N/A (Audit Mode)"`, `grandTotalCredit: "N/A (Audit Mode)"`
+- ✅ COA Invalid Classification: Returns 400 with `"Invalid classification. Must be one of: Asset, Liability, Equity, Income, Revenue, Expense"`
+- ✅ SmsGateway (Dealer): Returns 403 `"Access denied. Your role (dealer) does not have access to SmsGateway."`
+- ✅ DELETE expense: Returns `{"message":"Expense deleted successfully"}` HTTP 200
+- ✅ DELETE income: Returns `{"message":"Income deleted successfully"}` HTTP 200
+- ✅ `bun run lint` passes cleanly
+
+## Known Issues (Low Priority / Not Fixed)
+1. `account-balance-validation` accessible to SR and Dealer roles (exposes total debits/credits)
+2. `ledger-reports` returns 400 without type param (needs documentation or default)
+3. SmsBill `paidAmount` not auto-updated when payments are added
+4. Multiple SmsAutomationConfig records created on repeated POST (should use upsert)
+5. `/api/sms`, `/api/sms-dispatch`, `/api/sms-gateway` have no root route.ts (404)
+6. Consolidation endpoint requires companyId (null for test users)
+7. Dashboard metrics inconsistent zero-value VAT masking

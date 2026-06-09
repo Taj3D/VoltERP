@@ -106,6 +106,15 @@ export async function POST(request: NextRequest) {
     if (classification) classification = stripHtml(String(classification));
     if (openingBalanceType) openingBalanceType = stripHtml(String(openingBalanceType));
 
+    // Validate classification
+    const VALID_CLASSIFICATIONS = ['Asset', 'Liability', 'Equity', 'Income', 'Revenue', 'Expense'];
+    if (classification && !VALID_CLASSIFICATIONS.includes(classification)) {
+      return NextResponse.json(
+        { error: `Invalid classification. Must be one of: ${VALID_CLASSIFICATIONS.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
     // Duplicate check: same account name within same company (case-insensitive for SQLite)
     const dupWhere: Record<string, unknown> = { isActive: true };
     if (companyId) dupWhere.companyId = companyId;

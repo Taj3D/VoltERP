@@ -179,7 +179,9 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Error creating income:', error);
     const message = error instanceof Error ? error.message : 'Failed to create income';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const isBadRequest = message.includes('Invalid headId') || message.includes('Invalid date') || message.includes('positive number');
+    const statusCode = isBadRequest ? 400 : 500;
+    return NextResponse.json({ error: message }, { status: statusCode });
   }
 }
 
@@ -309,6 +311,14 @@ async function createSingleIncome(
 
   if (!headId || amount === undefined || amount === null) {
     throw new Error('headId and amount are required');
+  }
+
+  // Validate headId references an active ExpenseIncomeHead
+  if (headId) {
+    const headExists = await db.expenseIncomeHead.findFirst({ where: { id: String(headId), isActive: true } });
+    if (!headExists) {
+      throw new Error('Invalid headId. Expense/Income head not found.');
+    }
   }
 
   // Amount must be a positive number

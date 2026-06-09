@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
 
+// Helper: generate LED entry code — collision-safe (numeric max)
+async function generateLedgerEntryCode(tx: any): Promise<string> {
+  const all = await tx.ledgerEntry.findMany({
+    select: { entryCode: true },
+  });
+  let maxNum = 0;
+  for (const r of all) {
+    if (r.entryCode) {
+      const match = r.entryCode.match(/LED-(\d+)/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    }
+  }
+  return `LED-${String(maxNum + 1).padStart(5, '0')}`;
+}
+
 // GET /api/cheques/[id] - Get single cheque with all relations
 export async function GET(
   request: NextRequest,
@@ -152,6 +167,7 @@ export async function PUT(
           const bankAccountName = bank.bankName;
           await tx.ledgerEntry.create({
             data: {
+              entryCode: await generateLedgerEntryCode(tx),
               date: chequeDateValue,
               account: bankAccountName,
               particulars: `Cheque cleared - ${existing.chequeCode}`,
@@ -163,6 +179,7 @@ export async function PUT(
           });
           await tx.ledgerEntry.create({
             data: {
+              entryCode: await generateLedgerEntryCode(tx),
               date: chequeDateValue,
               account: 'Cheque Payable',
               particulars: `Cheque cleared - ${existing.chequeCode}`,
@@ -179,6 +196,7 @@ export async function PUT(
             if (toBank) {
               await tx.ledgerEntry.create({
                 data: {
+                  entryCode: await generateLedgerEntryCode(tx),
                   date: chequeDateValue,
                   account: toBank.bankName,
                   particulars: `Cheque cleared (inter-bank deposit) - ${existing.chequeCode}`,
@@ -190,6 +208,7 @@ export async function PUT(
               });
               await tx.ledgerEntry.create({
                 data: {
+                  entryCode: await generateLedgerEntryCode(tx),
                   date: chequeDateValue,
                   account: 'Cash in Hand',
                   particulars: `Cheque cleared (inter-bank deposit) - ${existing.chequeCode}`,
@@ -223,6 +242,7 @@ export async function PUT(
           // Create LedgerEntry pair: Dr: Cheque Receivable, Cr: Bank
           await tx.ledgerEntry.create({
             data: {
+              entryCode: await generateLedgerEntryCode(tx),
               date: chequeDateValue,
               account: 'Cheque Receivable',
               particulars: `Cheque cleared - ${existing.chequeCode}`,
@@ -234,6 +254,7 @@ export async function PUT(
           });
           await tx.ledgerEntry.create({
             data: {
+              entryCode: await generateLedgerEntryCode(tx),
               date: chequeDateValue,
               account: bank.bankName,
               particulars: `Cheque cleared - ${existing.chequeCode}`,

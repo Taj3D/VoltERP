@@ -4,6 +4,7 @@ import {
   withApiSecurity,
   validateVatMode,
   maskAccountingReportForVatAuditor,
+  maskForVatAuditor,
   safeFinancialAdd,
   safeFinancialSubtract,
   safeFinancialRound,
@@ -203,6 +204,33 @@ export async function GET(request: NextRequest) {
     // STAGE 12: Apply VAT Auditor deep masking
     if (vatMode) {
       const masked = maskAccountingReportForVatAuditor(responseData, userRole);
+      // Explicitly mask grand totals (top-level fields may not be caught by recursive masking)
+      if (userRole === 'vat_auditor') {
+        masked.grandTotalDebit = 'N/A (Audit Mode)';
+        masked.grandTotalCredit = 'N/A (Audit Mode)';
+        masked.balanced = 'N/A (Audit Mode)';
+        // Also mask chart data values
+        if (Array.isArray(masked.chartData)) {
+          masked.chartData = (masked.chartData as Record<string, unknown>[]).map((d: Record<string, unknown>) => ({
+            ...d,
+            debit: 'N/A (Audit Mode)',
+            credit: 'N/A (Audit Mode)',
+          }));
+        }
+        // Also mask pie data values
+        if (Array.isArray(masked.pieData)) {
+          masked.pieData = (masked.pieData as Record<string, unknown>[]).map((d: Record<string, unknown>) => ({
+            ...d,
+            value: 'N/A (Audit Mode)',
+          }));
+        }
+        // Mask classification summary amounts
+        if (Array.isArray(masked.classificationSummary)) {
+          masked.classificationSummary = (masked.classificationSummary as Record<string, unknown>[]).map((cs: Record<string, unknown>) => 
+            maskForVatAuditor(cs, userRole, ['totalDebit', 'totalCredit'])
+          );
+        }
+      }
       return NextResponse.json(masked);
     }
 

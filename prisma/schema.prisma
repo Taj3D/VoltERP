@@ -1582,8 +1582,10 @@ model SmsSetting {
   maskingRegId String? // Masking registration tracking ID
   gatewayName  String? // Carrier/gateway provider name (e.g., "BulkSMSBD", "Infobip")
   ratePerSms   Float    @default(0) // Per-SMS cost in BDT
-  unicodeRate  Float    @default(0) // Per-Unicode-SMS cost in BDT
-  setupCost    Float    @default(0) // Gateway one-time setup cost
+  unicodeRate            Float    @default(0) // Per-Unicode-SMS cost in BDT
+  creditBalanceLimit     Float    @default(0) // SMS credit balance limit from gateway
+  lastKnownCreditBalance Float    @default(0) // Last fetched credit balance from gateway
+  setupCost              Float    @default(0) // Gateway one-time setup cost
   companyId    String? // Multi-tenant isolation
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())

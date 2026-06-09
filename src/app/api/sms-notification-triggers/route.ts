@@ -50,7 +50,7 @@ function nullIfEmpty(val: string | undefined | null): string | null {
 
 // GET /api/sms-notification-triggers — List all active notification triggers for current tenant
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsLogs', 'GET');
+  const security = await withApiSecurity(request, 'SmsNotificationTriggers', 'GET');
   if (!security.authorized) return security.response;
 
   try {
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/sms-notification-triggers — Create notification trigger
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsLogs', 'POST');
+  const security = await withApiSecurity(request, 'SmsNotificationTriggers', 'POST');
   if (!security.authorized) return security.response;
 
   try {

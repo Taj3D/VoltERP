@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { withApiSecurity, safeFinancialRound } from '@/lib/api-security';
+import { withApiSecurity, safeFinancialRound, maskForVatAuditor } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
 // ── Type definitions ──
@@ -241,9 +241,25 @@ export async function GET(request: NextRequest) {
       }),
     });
 
+    // Apply VAT Auditor masking for financial fields
+    const role = security.user.role;
+    
+    const maskedPeriods = periods.map(p => 
+      maskForVatAuditor(p, role, [
+        'targetAmount', 'minimumSalesQuota', 'commissionPercentage',
+        'actualSales', 'cashCollected', 'achievementPercentage',
+        'remainingAmount', 'commissionProjection'
+      ])
+    );
+    
+    const maskedSummary = maskForVatAuditor(summary, role, [
+      'totalTargetAmount', 'totalActualSales',
+      'avgAchievementPercentage', 'totalCommissionProjection'
+    ]);
+    
     const response: SRPerformanceResponse = {
-      periods,
-      summary,
+      periods: maskedPeriods as SRPerformancePeriod[],
+      summary: maskedSummary as SRPerformanceSummary,
     };
 
     return NextResponse.json(response);

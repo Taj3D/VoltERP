@@ -169,9 +169,6 @@ export async function PUT(
         }
 
         // Create reversal ledger entries
-        const reversalDrCode = await generateLedgerEntryCode(tx);
-        const reversalCrCode = await generateLedgerEntryCode(tx);
-
         const head = await tx.expenseIncomeHead.findUnique({
           where: { id: existing.headId },
           select: { name: true },
@@ -187,6 +184,7 @@ export async function PUT(
         }
 
         // Reversal: Dr: income head (reverses original Cr)
+        const reversalDrCode = await generateLedgerEntryCode(tx);
         await tx.ledgerEntry.create({
           data: {
             entryCode: reversalDrCode,
@@ -202,6 +200,7 @@ export async function PUT(
         });
 
         // Reversal: Cr: cash/bank (reverses original Dr)
+        const reversalCrCode = await generateLedgerEntryCode(tx);
         await tx.ledgerEntry.create({
           data: {
             entryCode: reversalCrCode,
@@ -395,10 +394,8 @@ export async function DELETE(
           cashAccountName = bankRecord?.bankName || 'Bank';
         }
 
-        const reversalDrCode = await generateLedgerEntryCode(tx);
-        const reversalCrCode = await generateLedgerEntryCode(tx);
-
         // Reversal: Dr: income head (reverses original Cr)
+        const reversalDrCode = await generateLedgerEntryCode(tx);
         await tx.ledgerEntry.create({
           data: {
             entryCode: reversalDrCode,
@@ -414,6 +411,7 @@ export async function DELETE(
         });
 
         // Reversal: Cr: cash/bank (reverses original Dr)
+        const reversalCrCode = await generateLedgerEntryCode(tx);
         await tx.ledgerEntry.create({
           data: {
             entryCode: reversalCrCode,
@@ -473,17 +471,18 @@ export async function DELETE(
         },
       });
 
-      await logUserActivity({
-        tx: tx,
-        action: 'DELETE',
-        module: 'Fin-Ledger-Transaction',
-        recordId: id,
-        recordLabel: existing.incomeCode,
-        userId,
-        userName,
-        details: `Soft-deleted income ${existing.incomeCode}`,
-      });
     });
+
+    // Activity logging — fire-and-forget (outside transaction to avoid SQLite 5s timeout)
+    logUserActivity({
+      action: 'DELETE',
+      module: 'Fin-Ledger-Transaction',
+      recordId: id,
+      recordLabel: existing.incomeCode,
+      userId,
+      userName,
+      details: `Soft-deleted income ${existing.incomeCode}`,
+    }).catch(() => {});
 
     return NextResponse.json({ message: 'Income deleted successfully' });
   } catch (error) {

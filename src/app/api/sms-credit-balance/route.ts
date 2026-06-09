@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
     const usedResult = await db.smsLog.aggregate({
       where: usedWhere,
       _sum: {
-        smsUnits: true,
+        smsSegmentCount: true,
       },
     });
 
-    const used = usedResult._sum.smsUnits || 0;
+    const used = usedResult._sum.smsSegmentCount || 0;
     const creditBalanceLimit = activeSetting.creditBalanceLimit || 0;
     const remaining = Math.max(0, creditBalanceLimit - used);
 

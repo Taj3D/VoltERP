@@ -43,7 +43,7 @@ function nullIfEmpty(val: string | undefined | null): string | null {
 
 // GET /api/sms-inbox — List all inbox messages for current tenant
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsLogs', 'GET');
+  const security = await withApiSecurity(request, 'SmsInbox', 'GET');
   if (!security.authorized) return security.response;
 
   try {
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/sms-inbox — Create inbox message (simulates incoming SMS)
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsLogs', 'POST');
+  const security = await withApiSecurity(request, 'SmsInbox', 'POST');
   if (!security.authorized) return security.response;
 
   try {

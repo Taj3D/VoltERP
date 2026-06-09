@@ -185,7 +185,9 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Error creating expense:', error);
     const message = error instanceof Error ? error.message : 'Failed to create expense';
-    const statusCode = message.includes('Insufficient') || message.includes('Period') || message.includes('Idempotency') ? 409 : 500;
+    const isBadRequest = message.includes('Invalid headId') || message.includes('Invalid date') || message.includes('positive number');
+    const isConflict = message.includes('Insufficient') || message.includes('Period') || message.includes('Idempotency');
+    const statusCode = isConflict ? 409 : isBadRequest ? 400 : 500;
     return NextResponse.json({ error: message }, { status: statusCode < 500 ? statusCode : 500 });
   }
 }
@@ -316,6 +318,14 @@ async function createSingleExpense(
 
   if (!headId || amount === undefined || amount === null) {
     throw new Error('headId and amount are required');
+  }
+
+  // Validate headId references an active ExpenseIncomeHead
+  if (headId) {
+    const headExists = await db.expenseIncomeHead.findFirst({ where: { id: String(headId), isActive: true } });
+    if (!headExists) {
+      throw new Error('Invalid headId. Expense/Income head not found.');
+    }
   }
 
   // Amount must be a positive number

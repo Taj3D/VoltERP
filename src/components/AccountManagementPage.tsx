@@ -423,6 +423,32 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
+  // ── Copy to Clipboard ────────────────────────────────────────
+  const copyToClipboard = useCallback(async () => {
+    try {
+      const columns: ColumnDef[] = [
+        { key: "code", label: "Code", type: "text" },
+        { key: "name", label: "Name/Head", type: "text" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "amount", label: "Amount", type: "currency" },
+        { key: "status", label: "Status", type: "text" },
+      ];
+      const data = filtered.map((item: any) => ({
+        code: item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || "—",
+        name: item.head?.name || item.customer?.name || item.supplier?.name || item.bank?.bankName || item.name || "—",
+        date: item.date, amount: sanitizeCurrency(item.amount || 0), status: item.status,
+      }));
+      const result = await copyTableToClipboard({
+        title: `Account Management — ${activeTab}`,
+        columns,
+        data,
+        isVatAuditor,
+        vatMaskedColumns: isVatAuditor ? ["amount"] : [],
+      });
+      toast({ title: result.success ? "Copied" : "Error", description: result.message, variant: result.success ? "default" : "destructive" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  }, [filtered, activeTab, isVatAuditor, toast]);
+
   // ── Import CSV ───────────────────────────────────────────────
   const importCSV = () => {
     if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }

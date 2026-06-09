@@ -86,7 +86,7 @@ async function countRecipients(targetGroup: string, companyId: string | null): P
 
 // GET /api/sms-campaigns — List all campaigns for current tenant
 export async function GET(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsLogs', 'GET');
+  const security = await withApiSecurity(request, 'SmsCampaigns', 'GET');
   if (!security.authorized) return security.response;
 
   try {
@@ -153,7 +153,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/sms-campaigns — Create campaign or CSV import
 export async function POST(request: NextRequest) {
-  const security = await withApiSecurity(request, 'SmsLogs', 'POST');
+  const security = await withApiSecurity(request, 'SmsCampaigns', 'POST');
   if (!security.authorized) return security.response;
 
   const { searchParams } = new URL(request.url);

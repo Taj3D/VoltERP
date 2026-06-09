@@ -387,9 +387,6 @@ export async function DELETE(
 
       // If ledgerPosted, create reversal ledger entries
       if (existing.ledgerPosted) {
-        const reversalDrCode = await generateLedgerEntryCode(tx);
-        const reversalCrCode = await generateLedgerEntryCode(tx);
-
         let debitAccount = 'Cash in Hand';
         let creditAccount = existing.bank?.bankName || 'Bank';
 
@@ -402,6 +399,7 @@ export async function DELETE(
         }
 
         // Reversal entries
+        const reversalDrCode = await generateLedgerEntryCode(tx);
         await tx.ledgerEntry.create({
           data: {
             entryCode: reversalDrCode, date: existing.date || new Date(),
@@ -410,6 +408,7 @@ export async function DELETE(
             companyId: existing.companyId,
           },
         });
+        const reversalCrCode = await generateLedgerEntryCode(tx);
         await tx.ledgerEntry.create({
           data: {
             entryCode: reversalCrCode, date: existing.date || new Date(),
