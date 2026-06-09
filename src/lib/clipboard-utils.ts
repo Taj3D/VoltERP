@@ -5,13 +5,9 @@
  */
 
 import { ColumnDef } from "./export-utils";
+import { toLatinDigits } from "./number-format";
 
 const AUDIT_MASK = "N/A (Audit Mode)";
-
-/** Convert any Bengali digits in a string to Latin equivalents */
-function toLatinDigits(s: string): string {
-  return s.replace(/[\u09E6-\u09EF]/g, d => String(d.charCodeAt(0) - 0x09E6 + 0x0030));
-}
 
 /**
  * Copy table data to clipboard as tab-separated values

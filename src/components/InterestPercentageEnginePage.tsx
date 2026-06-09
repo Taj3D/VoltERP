@@ -736,19 +736,19 @@ export default function InterestPercentageEnginePage({
 
               {/* Data Table */}
               <div className="table-container overflow-x-auto overflow-y-auto max-h-[50vh] rounded-md border">
-                <Table className="min-w-[800px]">
+                <Table className="min-w-[1000px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="text-xs">Code</TableHead>
-                      <TableHead className="text-xs">Type</TableHead>
-                      <TableHead className="text-right text-xs">%</TableHead>
-                      <TableHead className="text-xs">Effective</TableHead>
-                      <TableHead className="text-xs">Expiry</TableHead>
-                      <TableHead className="text-right text-xs">Min Amt</TableHead>
-                      <TableHead className="text-right text-xs">Max Amt</TableHead>
-                      <TableHead className="text-right text-xs">Min Dur</TableHead>
-                      <TableHead className="text-right text-xs">Max Dur</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="w-20 text-xs">Code</TableHead>
+                      <TableHead className="w-28 text-xs">Type</TableHead>
+                      <TableHead className="w-16 text-right text-xs">%</TableHead>
+                      <TableHead className="w-24 text-xs">Effective</TableHead>
+                      <TableHead className="w-24 text-xs">Expiry</TableHead>
+                      <TableHead className="w-28 text-right text-xs">Min Amt</TableHead>
+                      <TableHead className="w-28 text-right text-xs">Max Amt</TableHead>
+                      <TableHead className="w-20 text-right text-xs">Min Dur</TableHead>
+                      <TableHead className="w-20 text-right text-xs">Max Dur</TableHead>
+                      <TableHead className="w-20 text-xs">Status</TableHead>
                       <TableHead className="w-16 text-right text-xs">Act</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -768,37 +768,37 @@ export default function InterestPercentageEnginePage({
                     ) : (
                       filtered.map((r: any) => (
                         <TableRow key={r.id} className="data-table-row hover:bg-muted/50">
-                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white text-xs">
+                          <TableCell className="whitespace-nowrap font-mono font-medium text-slate-900 dark:text-white text-xs">
                             {r.code}
                           </TableCell>
-                          <TableCell className="text-xs">
+                          <TableCell className="whitespace-nowrap text-xs">
                             <Badge variant="secondary" className={`text-xs ${RATE_TYPE_BADGE[r.type as RateType] || ''}`}>
                               {RATE_TYPE_LABELS[r.type as RateType] || r.type}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
+                          <TableCell className="whitespace-nowrap text-right font-mono text-xs">
                             {Number(r.percentage).toFixed(2)}%
                           </TableCell>
-                          <TableCell className="text-xs">{fmtDate(r.effectiveDate)}</TableCell>
-                          <TableCell className="text-xs">{fmtDate(r.expiryDate)}</TableCell>
-                          <TableCell className="text-right font-mono text-xs">
+                          <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.effectiveDate)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.expiryDate)}</TableCell>
+                          <TableCell className="whitespace-nowrap truncate text-right font-mono text-xs">
                             {isVatAuditor ? 'N/A' : fmtCurrency(r.minimumAmount)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
+                          <TableCell className="whitespace-nowrap truncate text-right font-mono text-xs">
                             {isVatAuditor ? 'N/A' : (r.maximumAmount === 0 ? 'Unlimited' : fmtCurrency(r.maximumAmount))}
                           </TableCell>
-                          <TableCell className="text-right text-xs">{r.durationMonthsMin || 0} mo</TableCell>
-                          <TableCell className="text-right text-xs">
+                          <TableCell className="whitespace-nowrap text-right text-xs">{r.durationMonthsMin || 0} mo</TableCell>
+                          <TableCell className="whitespace-nowrap text-right text-xs">
                             {r.durationMonthsMax === 0 ? 'Unlimited' : `${r.durationMonthsMax} mo`}
                           </TableCell>
-                          <TableCell className="text-xs">
+                          <TableCell className="whitespace-nowrap text-xs">
                             <Badge variant="secondary" className={`text-xs ${r.isActive
                               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                               : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
                               {r.isActive ? 'Active' : 'Inactive'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-0.5">
                               <Button variant="ghost" size="sm" onClick={() => openEdit(r)} disabled={!canCreateEdit}>
                                 <Edit className="w-3.5 h-3.5" />

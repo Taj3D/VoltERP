@@ -2181,7 +2181,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
                 ))}
                 {/* Summary Row */}
                 {!isVatAuditor && valFiltered.length > 0 && (
-                  <TableRow className="bg-[#0a1628] dark:bg-[#0a1628] font-bold">
+                  <TableRow className="bg-slate-700 dark:bg-slate-700 font-bold">
                     <TableCell colSpan={5} className="text-white text-xs text-right">TOTALS</TableCell>
                     <TableCell className="text-white text-xs text-right">—</TableCell>
                     <TableCell className="text-white text-xs text-right">{fmtCurrency(valTotals.totalValue)}</TableCell>

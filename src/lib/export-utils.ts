@@ -629,9 +629,6 @@ function drawFooter(
     doc.setFont("helvetica", "normal");
     doc.text(printedByText, margin, signatureY + 20);
 
-    // Page number on the right side of the signature section
-    const pageInfoText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
-    doc.text(pageInfoText, pageWidth - margin - doc.getTextWidth(pageInfoText), signatureY + 20);
   }
 
   // Navy blue footer bar

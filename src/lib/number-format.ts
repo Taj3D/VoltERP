@@ -11,7 +11,7 @@
 const BENGALI_DIGIT_RE = /[\u09E6-\u09EF]/g;
 
 /** Convert any Bengali digits in a string to Latin equivalents */
-function toLatinDigits(s: string): string {
+export function toLatinDigits(s: string): string {
   return s.replace(BENGALI_DIGIT_RE, d => String(d.charCodeAt(0) - 0x09E6 + 0x0030));
 }
 

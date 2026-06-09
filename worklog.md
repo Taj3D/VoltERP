@@ -5415,3 +5415,195 @@ Task: Phase 14 — Accounting Reports Testing + Global Bug Fixes (Number Formatt
 - 9 pages + 1 utility created for copy-to-clipboard
 - Centralized `number-format.ts` module ensures Latin digits globally
 - Deployment readiness improved from 85/100 to ~90/100
+
+---
+Task ID: 15-2
+Agent: Code Agent
+Task: Fix PDF double footer — "Page X of Y" rendered twice
+
+## Issue
+In `/home/z/my-project/src/lib/export-utils.ts`, the `drawFooter()` function drew "Page X of Y" text in TWO places when `financialFooter` was provided:
+1. Inside the signature block (at `signatureY + 20`) — lines 632-634
+2. Inside the navy blue footer bar (at `footerY`) — lines 651-652
+
+This caused a "double footer" appearance in PDF exports.
+
+## Fix Applied
+Removed the "Page X of Y" text from the signature block, keeping only the one in the navy blue footer bar (which is the proper location for page numbers).
+
+**Removed lines:**
+```typescript
+    // Page number on the right side of the signature section
+    const pageInfoText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
+    doc.text(pageInfoText, pageWidth - margin - doc.getTextWidth(pageInfoText), signatureY + 20);
+```
+
+**File Changed:** `/home/z/my-project/src/lib/export-utils.ts`
+
+## Verification
+- ✅ `bun run lint` passes cleanly
+- ✅ Dev server running on port 3000
+- ✅ Only the navy blue footer bar now renders "Page X of Y"
+- ✅ No other code modified
+
+---
+Task ID: 15-4
+Agent: UI Fix Agent
+Task: Fix Valuation summary row visual double footer
+
+## Issue
+The Valuation tab's summary row in StockModulePage.tsx used `bg-[#0a1628] dark:bg-[#0a1628]` which is the EXACT SAME color as the application footer. When scrolling to the bottom of the Valuation page, the dark summary row looked like a second footer, creating a confusing "double footer" visual effect.
+
+## Fix Applied
+- Changed line 2184 in `/home/z/my-project/src/components/StockModulePage.tsx`
+- Before: `<TableRow className="bg-[#0a1628] dark:bg-[#0a1628] font-bold">`
+- After: `<TableRow className="bg-slate-700 dark:bg-slate-700 font-bold">`
+- The `bg-slate-700` color is still dark and visually distinct as a summary row, but is clearly different from the `bg-[#0a1628]` footer color, eliminating the "double footer" confusion.
+
+## Files Changed
+1. `/home/z/my-project/src/components/StockModulePage.tsx` — Summary row background color changed from footer-matching `bg-[#0a1628]` to distinguishable `bg-slate-700`
+
+## Verification
+- ✅ Single targeted change made, no other code modified
+- ✅ Summary row remains visually distinct (dark background + white text + bold)
+- ✅ Summary row no longer matches footer color, eliminating double-footer confusion
+
+---
+Task ID: 15-1
+Agent: CSS Fix Agent
+Task: Fix Interest % Engine page text overlapping
+
+## Fixes Applied
+
+1. **Increased table minimum width**: Changed `min-w-[800px]` to `min-w-[1000px]` on line 739 — gives 11 columns enough horizontal space to prevent cramping.
+
+2. **Added explicit column widths to all 11 TableHead elements** (lines 742-752):
+   - Code: `w-20`
+   - Type: `w-28`
+   - %: `w-16`
+   - Effective: `w-24`
+   - Expiry: `w-24`
+   - Min Amt: `w-28`
+   - Max Amt: `w-28`
+   - Min Dur: `w-20`
+   - Max Dur: `w-20`
+   - Status: `w-20`
+   - Act: `w-16` (was already present)
+
+3. **Added `whitespace-nowrap`** to ALL 11 TableCell elements in data rows (lines 771-801) — prevents text from wrapping unexpectedly within cells.
+
+4. **Added `truncate` class** to currency amount cells (Min Amt line 784, Max Amt line 787) — provides overflow protection for wide currency strings like "Tk. 1,234,567.89".
+
+## Verification
+- `bun run lint` passes cleanly with zero errors
+- Dev server running on port 3000, no compilation errors
+- No logic changes — only CSS class additions/modifications
+- All existing functionality preserved
+
+## Files Changed
+- `/home/z/my-project/src/components/InterestPercentageEnginePage.tsx` — Table width, column widths, whitespace-nowrap, truncate classes
+
+---
+Task ID: 15-3
+Agent: Code Agent
+Task: Consolidate duplicate toLatinDigits() and ensure English digits everywhere
+
+## Changes Made
+
+1. **Exported `toLatinDigits` from `number-format.ts`**: Changed `function toLatinDigits` to `export function toLatinDigits` (line 14) so the canonical implementation is available for import.
+
+2. **Removed duplicate in `clipboard-utils.ts`**: Removed the local `toLatinDigits()` function (old lines 11-14) and added `import { toLatinDigits } from "./number-format";`. Kept existing `import { ColumnDef } from "./export-utils";`.
+
+3. **Searched for other `toLatinDigits` implementations**: Grep across all `/home/z/my-project/src` files. Only two files had the function — `number-format.ts` (now canonical+exported) and `clipboard-utils.ts` (now importing). No other local implementations found.
+
+4. **Searched for Bengali locale usage (`bn-BD`, `bn-IN`, `bn`)**: Only found in `page.tsx.bak` (a backup file, not active code). No active files use Bengali locale strings. All active code uses `en-US` or `en-GB` locale.
+
+## Verification
+- `bun run lint` passes with zero errors ✅
+- Dev server running on port 3000, no compilation errors ✅
+- Only one `toLatinDigits` definition remains (in `number-format.ts`) ✅
+- Only one import of `toLatinDigits` exists (in `clipboard-utils.ts`) ✅
+
+## Files Changed
+1. `/home/z/my-project/src/lib/number-format.ts` — Added `export` keyword to `toLatinDigits`
+2. `/home/z/my-project/src/lib/clipboard-utils.ts` — Removed duplicate function, added import from `./number-format`
+
+---
+Task ID: 15
+Agent: Main Orchestrator
+Task: Phase 15 — Financial Audit Module Testing + Critical Bug Fixes
+
+## Bugs Found & Fixed
+
+### 🔴 CRITICAL FIXES (4)
+
+1. **Interest % Engine text overlapping**: Table had 11 columns with `min-w-[800px]` but no explicit column widths. Currency strings ("Tk. 1,234,567.89"), "Unlimited" text, and Badge components overflowed cells.
+   - **Fix**: Increased table width to `min-w-[1000px]`, added explicit column widths (w-16 to w-28), added `whitespace-nowrap` to all TableCell elements, added `truncate` to currency columns.
+   - **File**: `/home/z/my-project/src/components/InterestPercentageEnginePage.tsx`
+
+2. **PDF double footer**: `drawFooter()` in `export-utils.ts` drew "Page X of Y" text in TWO places when `financialFooter` was provided — once in the signature block (lines 633-634) and once in the navy blue footer bar (lines 651-652). This caused every PDF export to show the page number twice.
+   - **Fix**: Removed duplicate "Page X of Y" from the signature block, keeping only the one in the navy footer bar.
+   - **File**: `/home/z/my-project/src/lib/export-utils.ts`
+
+3. **Valuation page visual double footer**: The Valuation tab's summary row used `bg-[#0a1628]` — the EXACT SAME color as the application footer. When scrolled to the bottom, the dark summary row looked like a second footer.
+   - **Fix**: Changed summary row background from `bg-[#0a1628] dark:bg-[#0a1628]` to `bg-slate-700 dark:bg-slate-700`.
+   - **File**: `/home/z/my-project/src/components/StockModulePage.tsx` (line 2184)
+
+4. **Duplicate toLatinDigits() implementation**: Two separate `toLatinDigits()` functions existed in `number-format.ts` and `clipboard-utils.ts`. If one was updated without the other, Bengali digits could leak through.
+   - **Fix**: Exported `toLatinDigits` from `number-format.ts`, removed the duplicate from `clipboard-utils.ts`, added import from `./number-format`.
+   - **Files**: `/home/z/my-project/src/lib/number-format.ts`, `/home/z/my-project/src/lib/clipboard-utils.ts`
+
+## Financial Audit Module Verification (7 tabs)
+
+### All 7 tabs verified working:
+
+| Tab | Status | API Endpoint | Notes |
+|-----|--------|-------------|-------|
+| KPI Dashboard | ✅ | /api/dashboard, /api/dashboard-analytics | Health score 98/100, KPI cards render |
+| Fraud Detection | ✅ | /api/financial-audit/fraud-detection | Age distribution, asset valuation metrics |
+| Ledger Auto-Post | ✅ | /api/ledger-auto-post | Auto-post records, pending SO/PO posting |
+| Inventory Aging | ✅ | /api/inventory-aging | Aging brackets (0-30, 31-60, 61-90, etc.) |
+| Product Lifecycle | ✅ | /api/product-lifecycle | Serial tracking records, lifecycle events |
+| Specialized Reports | ✅ | /api/financial-audit/commission-report, hire-purchase-report, collection-matrix | 3 sub-tabs (Commission, Hire Purchase, Collection Matrix) |
+| Notifications & Integrity | ✅ | /api/notifications, /api/data-integrity | Alert cards, data integrity check, generate/dismiss notifications |
+
+### API Verification Results:
+- `/api/financial-audit/fraud-detection` — 200 ✅
+- `/api/financial-audit/commission-report` — 200 ✅
+- `/api/financial-audit/hire-purchase-report` — 200 ✅
+- `/api/financial-audit/collection-matrix` — 200 ✅
+- `/api/ledger-auto-post` — 200 ✅
+- `/api/inventory-aging` — 200 ✅
+- `/api/product-lifecycle` — 200 ✅
+- `/api/data-integrity` — 200 ✅
+- `/api/account-balance-validation` — 200 ✅ (correctly reports imbalance from test data)
+- `/api/notifications` — 200 ✅
+- `/api/system-health` — 200 ✅ (3.67 MB, 91 tables, integrity ok, WAL)
+
+### VAT Auditor Masking Verification:
+- Financial KPIs: All financial fields masked with "N/A (Audit Mode)" ✅
+- Fraud Detection: Asset valuation book/market values masked ✅
+- Account Balance Validation: totalDebits, totalCredits, difference all masked ✅
+
+## Browser Testing Results
+- Interest % Engine: No text overlapping, table columns properly sized ✅
+- Valuation page: No double footer, summary row distinct from app footer ✅
+- P&L Account: Single footer, no double footer ✅
+- Transfer page: Single footer, no double footer ✅
+- Opening Stock: Single footer, no double footer ✅
+- Batch Master: Single footer, no double footer ✅
+- Mobile responsive (375px): Functional layout ✅
+- No browser console errors ✅
+- No dev server errors ✅
+- `bun run lint` passes with zero errors ✅
+
+## Code Quality Scan Results
+- No bare `toLocaleString()` calls in active source files ✅
+- No Bengali locale strings (`bn-BD`, `bn-IN`) in active code ✅
+- Single canonical `toLatinDigits()` in `number-format.ts` ✅
+- No `min-h-screen` in module pages (only on login/loading) ✅
+
+## Remaining Follow-up Items
+1. Mobile search dropdown can partially obscure content (minor cosmetic)
+2. Account balance shows imbalance (25000 Dr) from test COA data — expected with minimal data
+3. Phases 16-20 remain: MIS Reports, System Settings, Final Integration Test
