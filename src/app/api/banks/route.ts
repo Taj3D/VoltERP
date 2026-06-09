@@ -60,15 +60,15 @@ export async function GET(request: NextRequest) {
       return { ...bankData, currentBalance: computedBalance };
     });
 
-    // Background: sync any stale currentBalance values
-    computed.forEach(async (bank) => {
+    // Background: sync any stale currentBalance values (best-effort, non-blocking)
+    Promise.all(computed.map(async (bank) => {
       const original = items.find((b) => b.id === bank.id);
       if (original && Math.abs(original.currentBalance - bank.currentBalance) > 0.01) {
-        await db.bank
-          .update({ where: { id: bank.id }, data: { currentBalance: bank.currentBalance } })
-          .catch(() => {});
+        try {
+          await db.bank.update({ where: { id: bank.id }, data: { currentBalance: bank.currentBalance } });
+        } catch { /* best-effort sync */ }
       }
-    });
+    })).catch(() => {}); // Don't await - fire and forget is OK for background sync
 
     // Apply VAT Auditor masking with extra fields
     const masked = maskFinancialArray(computed, role, ['accountNo', 'currentBalance', 'openingBalance']);
@@ -208,6 +208,12 @@ export async function POST(request: NextRequest) {
     if (!accountNo) {
       return NextResponse.json(
         { error: 'accountNo is required and cannot be empty' },
+        { status: 400 }
+      );
+    }
+    if (!accountHolder) {
+      return NextResponse.json(
+        { error: 'accountHolder is required and cannot be empty' },
         { status: 400 }
       );
     }

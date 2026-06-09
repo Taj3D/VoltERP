@@ -365,9 +365,7 @@ export async function POST(request: NextRequest) {
       if (!body.name || !String(body.name).trim()) {
         return NextResponse.json({ error: "Product name is required" }, { status: 400 });
       }
-      if (!body.sku || !String(body.sku).trim()) {
-        return NextResponse.json({ error: "Product SKU is required" }, { status: 400 });
-      }
+      // SKU is optional — collision check below handles the case when SKU is provided
     }
 
     // ---- BATCH MODE ----

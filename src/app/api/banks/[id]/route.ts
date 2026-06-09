@@ -119,6 +119,31 @@ export async function PUT(
         include: { chartOfAccount: true },
       });
 
+      // After the bank update, recalculate currentBalance if openingBalance changed
+      if (openingBalance !== existing.openingBalance) {
+        // Compute current balance: new opening + deposits - withdrawals
+        const bankTransactions = await tx.bankTransaction.findMany({
+          where: { bankId: id, isActive: true },
+          select: { type: true, amount: true },
+        });
+        const depositTotal = bankTransactions
+          .filter((t: any) => t.type === 'Deposit')
+          .reduce((sum: number, t: any) => sum + t.amount, 0);
+        const withdrawTotal = bankTransactions
+          .filter((t: any) => t.type === 'Withdraw' || t.type === 'Transfer')
+          .reduce((sum: number, t: any) => sum + t.amount, 0);
+        const newCurrentBalance = safeFinancialRound(openingBalance + depositTotal - withdrawTotal);
+
+        // Update currentBalance
+        await tx.bank.update({
+          where: { id },
+          data: { currentBalance: newCurrentBalance },
+        });
+
+        // Also update the returned bank object
+        bank.currentBalance = newCurrentBalance;
+      }
+
       // If bank has a linked CoA node, sync changes
       if (existing.chartOfAccountId) {
         const coaUpdateData: Record<string, unknown> = {};

@@ -448,6 +448,7 @@ const DYNAMIC_OPTIONS_MAP: Record<string, { apiPath: string; labelKey: string; v
   companyId: { apiPath: "/api/companies", labelKey: "name", valueKey: "id" },
   colorId: { apiPath: "/api/colors", labelKey: "name", valueKey: "id" },
   brandId: { apiPath: "/api/brands", labelKey: "name", valueKey: "id" },
+  unit: { apiPath: "/api/units", labelKey: "name", valueKey: "id" },
   segmentId: { apiPath: "/api/segments", labelKey: "name", valueKey: "id" },
   designationId: { apiPath: "/api/designations", labelKey: "name", valueKey: "id" },
   salesOrderId: { apiPath: "/api/sales-orders", labelKey: "invoiceNo", valueKey: "id" },
@@ -973,14 +974,14 @@ function ProductsPage() {
     const loadCompanyProfile = async () => {
       try {
         const profile = await apiFetch("/api/company-branding");
-        setCompanyProfile(profile);
+        setCompanyProfile(profile.company || profile);
       } catch (e) { console.warn("Failed to load company profile:", e); }
     };
     loadCompanyProfile();
   }, []);
 
   const loadDynamicOpts = useCallback(async () => {
-    const keys = ["colorId", "brandId", "godownId", "segmentId", "companyId"];
+    const keys = ["colorId", "brandId", "unit", "godownId", "segmentId", "companyId"];
     const results = await Promise.all(keys.map(async (k) => {
       const options = await fetchDynamicOptions(k);
       return { key: k, options };
@@ -1019,7 +1020,8 @@ function ProductsPage() {
       { key: "barcode", label: "Barcode", type: "text", required: false, placeholder: "Unique barcode identifier" },
       { key: "categoryId", label: "Category", type: "select", required: true, options: categories.map(c => ({ value: c.id, label: c.name })) },
       { key: "brandId", label: "Brand", type: "select", options: dynamicOptions.brandId || [] },
-      { key: "unit", label: "Unit", type: "text" },
+      { key: "colorId", label: "Color", type: "select", options: dynamicOptions.colorId || [] },
+      { key: "unit", label: "Unit", type: "select", options: dynamicOptions.unit || [] },
       { key: "sizeCapacity", label: "Size/Capacity", type: "text" },
       { key: "costPrice", label: "Cost Price", type: "number", defaultValue: 0 },
       { key: "salePrice", label: "Sale Price (MRP)", type: "number", defaultValue: 0 },
@@ -1050,6 +1052,14 @@ function ProductsPage() {
   const openEdit = (item: any) => {
     const vals: Record<string, any> = {};
     fields.forEach(f => { vals[f.key] = item[f.key] ?? f.defaultValue ?? ""; });
+    // Convert unit name string to unit ID for select dropdown (product.unit is a String, not a foreign key)
+    if (vals.unit && typeof vals.unit === "string") {
+      const unitOptions = dynamicOptions.unit || [];
+      const matchedUnit = (unitOptions as any[]).find((u: any) => u.name === vals.unit || u.symbol === vals.unit);
+      if (matchedUnit) {
+        vals.unit = matchedUnit.id;
+      }
+    }
     setFormData(vals); setEditItem(item); setShowForm(true);
     loadDynamicOpts();
   };
@@ -1058,11 +1068,19 @@ function ProductsPage() {
     setSaveError(null);
     setSaving(true);
     try {
+      // Convert unit ID to unit name string (product.unit is a String, not a foreign key)
+      const sanitizedData = { ...formData };
+      if (sanitizedData.unit && dynamicOptions.unit) {
+        const selectedUnit = (dynamicOptions.unit as any[]).find((u: any) => u.id === sanitizedData.unit || u.value === sanitizedData.unit);
+        if (selectedUnit) {
+          sanitizedData.unit = selectedUnit.name || selectedUnit.label || String(sanitizedData.unit);
+        }
+      }
       if (editItem) {
-        await apiFetch(`/api/products/${editItem.id}`, { method: "PUT", body: JSON.stringify(formData) });
+        await apiFetch(`/api/products/${editItem.id}`, { method: "PUT", body: JSON.stringify(sanitizedData) });
         toast({ title: "Updated", description: "Product updated" });
       } else {
-        await apiFetch("/api/products", { method: "POST", body: JSON.stringify(formData) });
+        await apiFetch("/api/products", { method: "POST", body: JSON.stringify(sanitizedData) });
         toast({ title: "Created", description: "Product created" });
       }
       setShowForm(false); load();
