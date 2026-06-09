@@ -43,6 +43,7 @@ import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys, exportAuditReportPDF,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import { apiFetch, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -50,22 +51,22 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmtCurrency as _fmtCurrency, fmtNumber as _fmtNumber, fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return _fmtBDT(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
-  if (type === "number") return bdCurrencyFmt.format(Number(v));
+  if (type === "number") return _fmtNumber(Number(v));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
+  return _fmtBDT(Number(v));
 };
 
 const AUDIT_MASK = "N/A (Audit Mode)";
@@ -553,6 +554,14 @@ export default function FinancialAuditGroupPage({
     }
   };
 
+  const doCopyToClipboard = async (title: string, columns: ExportColumnDef[], data: any[], extraMasked?: string[]) => {
+    try {
+      const maskedKeys = getVatMaskedKeys(columns, extraMasked);
+      const result = await copyTableToClipboard({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Copy Error", description: e.message, variant: "destructive" }); }
+  };
+
   // ============================================================
   // SHARED COMPONENTS
   // ============================================================
@@ -784,6 +793,9 @@ export default function FinancialAuditGroupPage({
             </Button>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Fraud Detection", fraudExportColumns, assetVal.valuationRisk || [])}>
               <Download className="w-3.5 h-3.5 mr-1" /> CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Fraud Detection", fraudExportColumns, assetVal.valuationRisk || [])}>
+              <Copy className="w-3.5 h-3.5 mr-1" /> Copy
             </Button>
           </div>
         </div>
@@ -1092,6 +1104,7 @@ export default function FinancialAuditGroupPage({
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, ["amount"])}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, "landscape", ["amount"])}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Ledger Auto-Post", ledgerExportColumns, ledgerRecords, ["amount"])}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
             importFromCSV({
               apiPath: "/api/ledger-auto-post",
@@ -1229,6 +1242,7 @@ export default function FinancialAuditGroupPage({
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => doExportAuditPDF("Inventory Aging Report", agingExportColumns, agingData, agingSummary?.averageAge)}><FileDown className="w-3.5 h-3.5 mr-1" /> Audit PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Inventory Aging", agingExportColumns, agingData)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Inventory Aging", agingExportColumns, agingData)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
             importFromCSV({
               apiPath: "/api/products",
@@ -1363,6 +1377,7 @@ export default function FinancialAuditGroupPage({
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Product Lifecycle", lifecycleExportColumns, lifecycleRecords, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Product Lifecycle", lifecycleExportColumns, lifecycleRecords)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           {(isAdmin || isManager) && <Button variant="outline" size="sm" onClick={() => {
             importFromCSV({
               apiPath: "/api/products",
@@ -1526,6 +1541,7 @@ export default function FinancialAuditGroupPage({
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => doExportPDF("Hire Purchase Report", hpExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Hire Purchase", hpExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Hire Purchase", hpExportColumns, records)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           </div>
         </div>
 
@@ -1626,6 +1642,7 @@ export default function FinancialAuditGroupPage({
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => doExportPDF("Commission Report", commExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Commission Report", commExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Commission Report", commExportColumns, records)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           </div>
         </div>
 
@@ -1726,6 +1743,7 @@ export default function FinancialAuditGroupPage({
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => doExportPDF("Collection Matrix", collExportColumns, records, "landscape")}><FileDown className="w-3.5 h-3.5 mr-1" /> PDF</Button>
             <Button variant="outline" size="sm" onClick={() => doExportCSV("Collection Matrix", collExportColumns, records)}><Download className="w-3.5 h-3.5 mr-1" /> CSV</Button>
+            <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Collection Matrix", collExportColumns, records)}><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
           </div>
         </div>
 

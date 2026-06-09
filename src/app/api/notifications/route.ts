@@ -15,6 +15,7 @@ import {
   type UserRole,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { fmtNumber } from '@/lib/number-format';
 
 // Zero-padded immutable auto-code generator: NOT-XXXXX
 async function generateCode(model: string, prefix: string): Promise<string> {
@@ -512,7 +513,7 @@ async function generateNotifications(
               type: 'OverdueInstallment',
               severity: 'Critical',
               title: `Overdue Installment: ${inst.hireSales.invoiceNo}`,
-              message: `Installment #${inst.installmentNo} for ${inst.hireSales.customer.name} is overdue. Amount: Tk. ${remaining.toLocaleString()} remaining. Due: ${inst.dueDate.toISOString().split('T')[0]}`,
+              message: `Installment #${inst.installmentNo} for ${inst.hireSales.customer.name} is overdue. Amount: Tk. ${fmtNumber(remaining)} remaining. Due: ${inst.dueDate.toISOString().split('T')[0]}`,
               module: 'HireSales',
               referenceId: inst.id,
               referenceCode: inst.hireSales.invoiceNo,
@@ -675,7 +676,7 @@ async function generateNotifications(
                   type: 'BalanceMismatch',
                   severity: 'Critical',
                   title: `Balance Mismatch: ${dateKey}`,
-                  message: `Ledger imbalance detected on ${dateKey}. Debit total: Tk. ${totals.totalDebit.toLocaleString()}, Credit total: Tk. ${totals.totalCredit.toLocaleString()}, Difference: Tk. ${difference.toLocaleString()}. Affected entries: ${totals.entryCodes.slice(0, 5).join(', ')}${totals.entryCodes.length > 5 ? ` and ${totals.entryCodes.length - 5} more` : ''}.`,
+                  message: `Ledger imbalance detected on ${dateKey}. Debit total: Tk. ${fmtNumber(totals.totalDebit)}, Credit total: Tk. ${fmtNumber(totals.totalCredit)}, Difference: Tk. ${fmtNumber(difference)}. Affected entries: ${totals.entryCodes.slice(0, 5).join(', ')}${totals.entryCodes.length > 5 ? ` and ${totals.entryCodes.length - 5} more` : ''}.`,
                   module: 'Ledger',
                   referenceCode: totals.entryCodes[0] || null,
                   actionUrl: '/chart-of-accounts',
@@ -736,7 +737,7 @@ async function generateNotifications(
                 type: 'CreditLimitExceeded',
                 severity: 'Warning',
                 title: `Credit Limit Exceeded: ${customer.name}`,
-                message: `Customer ${customer.name} (${customer.customerCode}) has outstanding balance Tk. ${customer.openingBalance.toLocaleString()} (Dr) exceeding credit limit Tk. ${customer.creditLimit.toLocaleString()} by Tk. ${overAmount.toLocaleString()}. Type: ${customer.customerType}.`,
+                message: `Customer ${customer.name} (${customer.customerCode}) has outstanding balance Tk. ${fmtNumber(customer.openingBalance)} (Dr) exceeding credit limit Tk. ${fmtNumber(customer.creditLimit)} by Tk. ${fmtNumber(overAmount)}. Type: ${customer.customerType}.`,
                 module: 'Financial',
                 referenceId: customer.id,
                 referenceCode: customer.customerCode,

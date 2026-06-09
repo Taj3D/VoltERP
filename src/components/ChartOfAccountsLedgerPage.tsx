@@ -27,12 +27,12 @@ import { useAuth } from "@/hooks/useAuth";
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
-const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `Tk. ${bdtFmt.format(Number(v))}`;
+  if (type === "currency") return _fmtBDT(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);

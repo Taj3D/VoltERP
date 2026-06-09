@@ -7,7 +7,7 @@ import {
   FileBarChart, Receipt, DollarSign, RotateCcw, ArrowLeftRight,
   Package, BarChart3, Truck, AlertTriangle, Ban, PackageCheck,
   Calculator, ArrowRightLeft, Eye, TrendingUp, Clock, Printer,
-  Inbox, CheckSquare,
+  Inbox, CheckSquare, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys, formatSanitizedCurrency,
 } from "@/lib/export-utils";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
 import { apiFetch, type UserRole } from "@/lib/api-client";
@@ -39,23 +40,22 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
-// Safe formatters — use Intl.NumberFormat to prevent Bengali digit output
-const _bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const _bdNumberFmt = new Intl.NumberFormat("en-US");
+// Safe formatters — centralized utility guarantees Latin digits
+import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
-  if (type === "currency") return `Tk. ${_bdCurrencyFmt.format(Number(v))}`;
+  if (type === "currency") return _fmtBDT(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return _bdNumberFmt.format(Number(v));
+  if (type === "number") return _fmtNumberVal(Number(v));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `Tk. ${_bdCurrencyFmt.format(Number(v))}`;
+  return _fmtBDT(Number(v));
 };
 
 
@@ -565,13 +565,21 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     });
   };
 
+  const doCopyToClipboard = async (title: string, columns: ExportColumnDef[], data: any[], extraMasked?: string[]) => {
+    try {
+      const maskedKeys = [...getVatMaskedKeys(columns), ...(extraMasked || [])];
+      const result = await copyTableToClipboard({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
   // ============================================================
   // TOOLBAR COMPONENT (reusable)
   // ============================================================
 
-  function Toolbar({ search, setSearch, onRefresh, loading, onExportCSV, onExportPDF, onImportCSV, importFields, importApiPath, importReload, canCreate, onCreate, createLabel }: {
+  function Toolbar({ search, setSearch, onRefresh, loading, onExportCSV, onExportPDF, onCopyToClipboard, onImportCSV, importFields, importApiPath, importReload, canCreate, onCreate, createLabel }: {
     search: string; setSearch: (v: string) => void; onRefresh: () => void; loading: boolean;
-    onExportCSV: () => void; onExportPDF: () => void;
+    onExportCSV: () => void; onExportPDF: () => void; onCopyToClipboard?: () => void;
     onImportCSV?: () => void; importFields?: ExportFieldDef[]; importApiPath?: string; importReload?: () => void;
     canCreate?: boolean; onCreate?: () => void; createLabel?: string;
   }) {
@@ -588,6 +596,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         )}
         <Button variant="outline" size="sm" onClick={onExportCSV}><Download className="h-4 w-4 mr-1" /> CSV</Button>
         <Button variant="outline" size="sm" onClick={onExportPDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        {onCopyToClipboard && <Button variant="outline" size="sm" onClick={onCopyToClipboard}><Copy className="h-4 w-4 mr-1" /> Copy</Button>}
         {onImportCSV && canCreate && (
           <label className="cursor-pointer">
             <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
@@ -928,6 +937,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       </div>
       <Toolbar search={coSearch} setSearch={setCoSearch} onRefresh={loadCompanyOrdersheets} loading={coLoading}
         onExportCSV={() => doExportCSV("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" })))}
+        onCopyToClipboard={() => doCopyToClipboard("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" })))}
         onExportPDF={() => {
           try {
             const reportData = coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" }));
@@ -1358,6 +1368,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </div>
         <Toolbar search={custOSearch} setSearch={setCustOSearch} onRefresh={loadCustomerOrdersheets} loading={custOLoading}
           onExportCSV={() => doExportCSV("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
+          onCopyToClipboard={() => doCopyToClipboard("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
           onExportPDF={() => {
             try {
               const reportData = custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" }));
@@ -2097,6 +2108,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </Select>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Download className="h-4 w-4 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={doExportPOCorporatePDF}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadPurchaseOrders}><RefreshCw className={`h-4 w-4 ${poLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={openPoCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add PO</Button>}
@@ -2484,6 +2496,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </Select>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <Button variant="ghost" size="sm" onClick={loadAutoPo}><RefreshCw className={`h-4 w-4 ${autoPoLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO by Supplier (${autoPoSelected.size})`}</Button>}
         </div>
@@ -2751,6 +2764,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={soSearch} setSearch={setSoSearch} onRefresh={loadSalesOrders} loading={soLoading}
           onExportCSV={() => doExportCSV("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
           onExportPDF={() => doExportPDF("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
+          onCopyToClipboard={() => doCopyToClipboard("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
           onImportCSV={() => doImportCSV("/api/sales-orders", [], loadSalesOrders)}
           canCreate={isAdmin || isSR} onCreate={openSoCreate} createLabel="Add SO" />
         <Card className="border-slate-200 dark:border-slate-700">
@@ -2922,6 +2936,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={hsSearch} setSearch={setHsSearch} onRefresh={loadHireSales} loading={hsLoading}
           onExportCSV={() => doExportCSV("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
           onExportPDF={() => doExportPDF("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
+          onCopyToClipboard={() => doCopyToClipboard("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
           onImportCSV={() => doImportCSV("/api/hire-sales", [], loadHireSales)}
           canCreate={isAdmin || isSR} onCreate={openHsCreate} createLabel="Add Hire Sale" />
         <Card className="border-slate-200 dark:border-slate-700">
@@ -3150,6 +3165,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={srSearch} setSearch={setSrSearch} onRefresh={loadSalesReturns} loading={srLoading}
           onExportCSV={() => doExportCSV("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
           onExportPDF={() => doExportPDF("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
+          onCopyToClipboard={() => doCopyToClipboard("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
           onImportCSV={() => doImportCSV("/api/sales-returns", [], loadSalesReturns)}
           canCreate={isAdmin || isSR} onCreate={openSrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700">
@@ -3366,6 +3382,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={prSearch} setSearch={setPrSearch} onRefresh={loadPurchaseReturns} loading={prLoading}
           onExportCSV={() => doExportCSV("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
           onExportPDF={() => doExportPDF("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
+          onCopyToClipboard={() => doCopyToClipboard("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
           onImportCSV={() => doImportCSV("/api/purchase-returns", [], loadPurchaseReturns)}
           canCreate={isAdmin} onCreate={openPrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700">
@@ -3540,6 +3557,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         <Toolbar search={rplSearch} setSearch={setRplSearch} onRefresh={loadReplacements} loading={rplLoading}
           onExportCSV={() => doExportCSV("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onExportPDF={() => doExportPDF("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
+          onCopyToClipboard={() => doCopyToClipboard("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onImportCSV={() => doImportCSV("/api/replacements", [], loadReplacements)}
           canCreate={isAdmin || isSR} onCreate={openRplCreate} createLabel="Add Replacement" />
         <Card className="border-slate-200 dark:border-slate-700">
@@ -3698,7 +3716,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <TableCell className="text-xs font-medium">{s.productCode || s.product?.productCode || ""} — {s.productName || s.product?.name || ""}</TableCell>
                 <TableCell className="text-xs">{s.category || s.product?.category?.name || "—"}</TableCell>
                 <TableCell className="text-xs">{s.godown || s.godown?.name || "Main"}</TableCell>
-                <TableCell className="text-xs text-right font-medium">{_bdNumberFmt.format(Number(s.currentStock || 0))}</TableCell>
+                <TableCell className="text-xs text-right font-medium">{_fmtNumberVal(Number(s.currentStock || 0))}</TableCell>
                 <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(s.stockValue || 0)}</TableCell>
                 <TableCell className="text-xs"><StockStatusBadge status={s.stockStatus || "In Stock"} /></TableCell>
               </TableRow>
@@ -3722,6 +3740,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </div>
         <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> CSV</Button>
         <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+        <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
       </div>
       <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
         <Table className="min-w-[600px]">
@@ -3740,7 +3759,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <TableCell className="text-xs">{fmt(e.date, "date")}</TableCell>
                 <TableCell className="text-xs"><Badge className={`${TYPE_BADGE[e.type as string] || ""} border-0 text-xs`}>{e.type}</Badge></TableCell>
                 <TableCell className="text-xs">{e.reference || "—"}</TableCell>
-                <TableCell className="text-xs text-right font-medium">{_bdNumberFmt.format(Number(e.quantity || 0))}</TableCell>
+                <TableCell className="text-xs text-right font-medium">{_fmtNumberVal(Number(e.quantity || 0))}</TableCell>
                 <TableCell className="text-xs">{e.notes || "—"}</TableCell>
               </TableRow>
             ))}
@@ -3755,6 +3774,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       <Toolbar search={trnSearch} setSearch={setTrnSearch} onRefresh={loadTransfers} loading={trnLoading}
         onExportCSV={() => doExportCSV("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
         onExportPDF={() => doExportPDF("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
+        onCopyToClipboard={() => doCopyToClipboard("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
         onImportCSV={() => doImportCSV("/api/transfers", [], loadTransfers)}
         canCreate={isAdmin} onCreate={() => { setTrnForm({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" }); setTrnLines([{ productId: "", quantity: 1 }]); setTrnEdit(null); setTrnDialog(true); }} createLabel="New Transfer"
       />

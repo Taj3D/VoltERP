@@ -6,7 +6,7 @@ import {
   DollarSign, TrendingUp, BarChart3,
   CheckCircle, AlertTriangle, Wallet, Landmark, Scale,
   ArrowUpCircle, ArrowDownCircle, BookOpen, Building2,
-  PieChart as PieChartIcon, FileSpreadsheet, ChevronRight, ChevronDown
+  PieChart as PieChartIcon, FileSpreadsheet, ChevronRight, ChevronDown, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ import {
   ColumnDef,
   CompanyProfile,
 } from "@/lib/export-utils";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell
@@ -36,12 +37,12 @@ import { useAuth } from "@/hooks/useAuth";
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
-const bdtFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `Tk. ${bdtFmt.format(Number(v))}`;
+  if (type === "currency") return _fmtBDT(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -299,6 +300,13 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
     }
   };
 
+  const doCopyToClipboard = async (title: string, subtitle: string | undefined, columns: ColumnDef[], data: any[], vatMaskedColumns: string[] = []) => {
+    try {
+      const result = await copyTableToClipboard({ title: subtitle ? `${title} — ${subtitle}` : title, columns, data, isVatAuditor, vatMaskedColumns });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Copy Error", description: e.message, variant: "destructive" }); }
+  };
+
   // ============================================================
   // RBAC: SR/Dealer => 403 (AFTER all hooks)
   // ============================================================
@@ -404,6 +412,19 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
                 subBalanceTotalNet: a.subBalance?.totalNet ?? 0,
               })), vatMaskedColumns);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={async () => {
+              const columns: ColumnDef[] = [
+                { key: "code", label: "Code", type: "text" },
+                { key: "name", label: "Account Name", type: "text" },
+                { key: "classification", label: "Classification", type: "text" },
+                { key: "parentAccountName", label: "Parent", type: "text" },
+                { key: "openingBalance", label: "Opening Balance", type: "currency" },
+                { key: "openingBalanceType", label: "Dr/Cr", type: "text" },
+                { key: "subBalanceTotalNet", label: "Current Balance", type: "currency" },
+              ];
+              const vatMaskedColumns = isVatAuditor ? ["openingBalance", "subBalanceTotalNet"] : [];
+              await doCopyToClipboard("Chart of Accounts", `As of ${fmtDate(new Date())}`, columns, coaData, vatMaskedColumns);
+            }}><Copy className="w-4 h-4 mr-1" />Copy</Button>
             <Button variant="outline" size="sm" onClick={() => {
               if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
               importFromCSV({
@@ -579,6 +600,24 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["openingBalance", "deposits", "withdrawals", "income", "expense", "collections", "deliveries", "currentBalance"] : [];
               doExportCSV("Cash In Hand Report", columns, cashData.bankBreakdown || [], vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={async () => {
+              if (!cashData) return;
+              const columns: ColumnDef[] = [
+                { key: "bankName", label: "Bank Name", type: "text" },
+                { key: "accountNo", label: "Account No", type: "text" },
+                { key: "openingBalance", label: "Opening Balance", type: "currency" },
+                { key: "deposits", label: "Deposits", type: "currency" },
+                { key: "withdrawals", label: "Withdrawals", type: "currency" },
+                { key: "income", label: "Income", type: "currency" },
+                { key: "expense", label: "Expense", type: "currency" },
+                { key: "collections", label: "Collections", type: "currency" },
+                { key: "deliveries", label: "Deliveries", type: "currency" },
+                { key: "currentBalance", label: "Current Balance", type: "currency" },
+              ];
+              const vatMasked = isVatAuditor ? ["openingBalance", "deposits", "withdrawals", "income", "expense", "collections", "deliveries", "currentBalance"] : [];
+              const period = cashFrom || cashTo ? `Period: ${cashFrom || "\u2014"} to ${cashTo || "\u2014"}` : undefined;
+              await doCopyToClipboard("Cash In Hand Report", period, columns, cashData.bankBreakdown || [], vatMasked);
+            }}><Copy className="w-4 h-4 mr-1" />Copy</Button>
             <Button variant="outline" size="sm" onClick={() => {
               if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
               importFromCSV({
@@ -807,6 +846,19 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["totalDebit", "totalCredit", "netBalance"] : [];
               doExportCSV("Trial Balance Report", columns, tbData.entries || [], vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={async () => {
+              if (!tbData) return;
+              const columns: ColumnDef[] = [
+                { key: "account", label: "Account Name", type: "text" },
+                { key: "classification", label: "Classification", type: "text" },
+                { key: "totalDebit", label: "Total Debit", type: "currency" },
+                { key: "totalCredit", label: "Total Credit", type: "currency" },
+                { key: "netBalance", label: "Net Balance", type: "currency" },
+              ];
+              const vatMasked = isVatAuditor ? ["totalDebit", "totalCredit", "netBalance"] : [];
+              const period = tbFrom || tbTo ? `Period: ${tbFrom || "\u2014"} to ${tbTo || "\u2014"}` : undefined;
+              await doCopyToClipboard("Trial Balance Report", period, columns, tbData.entries || [], vatMasked);
+            }}><Copy className="w-4 h-4 mr-1" />Copy</Button>
             <Button variant="outline" size="sm" onClick={() => {
               if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
               importFromCSV({
@@ -1023,6 +1075,26 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["amount"] : [];
               doExportCSV("Profit & Loss Statement", columns, rows, vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={async () => {
+              if (!plData) return;
+              const rows = [
+                { item: "Sales Revenue", amount: plData.salesRevenue, section: "Revenue" },
+                { item: "Other Income", amount: plData.otherIncome, section: "Revenue" },
+                { item: "Total Revenue", amount: plData.revenue, section: "Revenue Total" },
+                { item: "Cost of Goods Sold", amount: plData.costOfGoods, section: "COGS" },
+                { item: "Gross Profit", amount: plData.grossProfit, section: "Gross Profit" },
+                { item: "Operating Expenses", amount: plData.operatingExpenses, section: "Expense" },
+                { item: "Net Profit", amount: plData.netProfit, section: "Net" },
+              ];
+              const columns: ColumnDef[] = [
+                { key: "item", label: "Item", type: "text" },
+                { key: "amount", label: "Amount", type: "currency" },
+                { key: "section", label: "Section", type: "text" },
+              ];
+              const vatMasked = isVatAuditor ? ["amount"] : [];
+              const period = plFrom || plTo ? `Period: ${plFrom || "\u2014"} to ${plTo || "\u2014"}` : undefined;
+              await doCopyToClipboard("Profit & Loss Statement", period, columns, rows, vatMasked);
+            }}><Copy className="w-4 h-4 mr-1" />Copy</Button>
             <Button variant="outline" size="sm" onClick={() => {
               if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
               importFromCSV({
@@ -1305,6 +1377,27 @@ export default function AccountingReportsPage({ initialTab }: { initialTab?: str
               const vatMasked = isVatAuditor ? ["amount"] : [];
               doExportCSV("Balance Sheet Report", columns, rows, vatMasked);
             }}><Download className="w-4 h-4 mr-1" />CSV</Button>
+            <Button variant="outline" size="sm" onClick={async () => {
+              if (!bsData) return;
+              const rows = [
+                { category: "ASSETS", item: "Bank Balance", amount: bsData.assets?.bankBalance || 0 },
+                { category: "ASSETS", item: "Receivables", amount: bsData.assets?.receivables || 0 },
+                { category: "ASSETS", item: "Supplier Advances", amount: bsData.assets?.supplierAdvances || 0 },
+                { category: "ASSETS", item: "Stock Value", amount: bsData.assets?.stock || 0 },
+                { category: "ASSETS", item: "Total Assets", amount: bsData.assets?.totalAssets || 0 },
+                { category: "LIABILITIES", item: "Payables", amount: bsData.liabilities?.payables || 0 },
+                { category: "LIABILITIES", item: "Customer Advances", amount: bsData.liabilities?.customerAdvances || 0 },
+                { category: "LIABILITIES", item: "Total Liabilities", amount: bsData.liabilities?.totalLiabilities || 0 },
+                { category: "EQUITY", item: "Retained Earnings", amount: bsData.liabilities?.retainedEarnings || 0 },
+              ];
+              const columns: ColumnDef[] = [
+                { key: "category", label: "Category", type: "text" },
+                { key: "item", label: "Item", type: "text" },
+                { key: "amount", label: "Amount", type: "currency" },
+              ];
+              const vatMasked = isVatAuditor ? ["amount"] : [];
+              await doCopyToClipboard("Balance Sheet Report", `As of ${bsAsOf ? fmtDate(bsAsOf) : fmtDate(new Date())}`, columns, rows, vatMasked);
+            }}><Copy className="w-4 h-4 mr-1" />Copy</Button>
             <Button variant="outline" size="sm" onClick={() => {
               if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
               importFromCSV({

@@ -38,12 +38,12 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmtBDT as _fmtBDT, fmtNumber as _fmtNumberVal } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
   const num = Number(v);
   if (isNaN(num) || v === null || v === undefined) return "—";
-  return `Tk. ${bdCurrencyFmt.format(num)}`;
+  return _fmtBDT(num);
 };
 
 const fmt = (v: any, type?: string) => {
@@ -54,7 +54,7 @@ const fmt = (v: any, type?: string) => {
   if (type === "number") {
     const num = Number(v);
     if (isNaN(num)) return "—";
-    return bdCurrencyFmt.format(num);
+    return _fmtNumberVal(num);
   }
   return String(v);
 };

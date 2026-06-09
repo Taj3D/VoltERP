@@ -12,7 +12,7 @@ import {
   FileDown, Shield, X, CheckCircle, RotateCcw, Package,
   AlertTriangle, ChevronDown, ChevronRight, Clock, DollarSign,
   ArrowRightLeft, Banknote, Warehouse, FileWarning, AlertCircle,
-  Loader2, PackageCheck, ArrowDownUp, BadgeDollarSign
+  Loader2, PackageCheck, ArrowDownUp, BadgeDollarSign, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,17 +37,18 @@ import {
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { apiFetch } from "@/lib/api-client";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
+  return _fmtBDT(Number(v));
 };
 
 const fmtDate = (d: string | Date) =>
@@ -729,6 +730,24 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               <Button variant="outline" size="sm" onClick={() => doExportPR("pdf")} className="h-9">
                 <FileDown className="h-4 w-4 mr-1" />PDF
               </Button>
+              <Button variant="outline" size="sm" onClick={async () => {
+                const columns: ExportColumnDef[] = [
+                  { key: "returnNo", label: "Return No", type: "text" },
+                  { key: "date", label: "Date", type: "date" },
+                  { key: "poNumber", label: "PO Number", type: "text" },
+                  { key: "supplierName", label: "Supplier", type: "text" },
+                  { key: "subTotal", label: "SubTotal", type: "currency" },
+                  { key: "discount", label: "Discount", type: "currency" },
+                  { key: "vatAmount", label: "VAT", type: "currency" },
+                  { key: "grandTotal", label: "Grand Total", type: "currency" },
+                  { key: "status", label: "Status", type: "text" },
+                ];
+                const data = prFiltered.map((r: any) => ({ ...r, poNumber: r.purchaseOrder?.poNumber || "—", supplierName: r.supplier?.name || r.purchaseOrder?.supplier?.name || "—", discount: r.discount || 0 }));
+                const result = await copyTableToClipboard({ title: "Purchase Return Registry", columns, data, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(columns) });
+                if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+              }} className="h-9">
+                <Copy className="h-4 w-4 mr-1" />Copy
+              </Button>
               {isAdmin && (
                 <Button variant="outline" size="sm" onClick={doImportPR} className="h-9">
                   <Upload className="h-4 w-4 mr-1" />Import
@@ -1130,6 +1149,24 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               <Button variant="outline" size="sm" onClick={() => doExportRPL("pdf")} className="h-9">
                 <FileDown className="h-4 w-4 mr-1" />PDF
               </Button>
+              <Button variant="outline" size="sm" onClick={async () => {
+                const columns: ExportColumnDef[] = [
+                  { key: "replacementNo", label: "Replacement No", type: "text" },
+                  { key: "date", label: "Date", type: "date" },
+                  { key: "salesOrderNo", label: "Sales Order", type: "text" },
+                  { key: "supplierName", label: "Supplier", type: "text" },
+                  { key: "customerName", label: "Customer", type: "text" },
+                  { key: "originalCostTotal", label: "Original Cost", type: "currency" },
+                  { key: "replacementCostTotal", label: "Replacement Cost", type: "currency" },
+                  { key: "adjustmentAmount", label: "Net Adjustment", type: "currency" },
+                  { key: "status", label: "Status", type: "text" },
+                ];
+                const data = rplFiltered.map((r: any) => ({ ...r, salesOrderNo: r.salesOrder?.orderNo || "—", supplierName: r.supplier?.name || "—", customerName: r.customer?.name || "—" }));
+                const result = await copyTableToClipboard({ title: "Replacement Order Registry", columns, data, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(columns) });
+                if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+              }} className="h-9">
+                <Copy className="h-4 w-4 mr-1" />Copy
+              </Button>
               {canCreate && (
                 <Button size="sm" onClick={openRplCreate} className="h-9 bg-[#2563eb] hover:bg-[#1d4ed8]">
                   <Plus className="h-4 w-4 mr-1" />Create Replacement
@@ -1459,7 +1496,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
   // ============================================================
 
   return (
-    <div className="page-enter flex flex-col bg-[#0a1628]">
+    <div className="page-enter flex flex-col bg-slate-50 dark:bg-slate-900">
       <main className="flex-1 p-4 sm:p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="bg-[#132240] mb-4">

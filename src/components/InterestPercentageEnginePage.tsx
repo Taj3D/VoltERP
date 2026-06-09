@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Percent, Calculator, TrendingUp, DollarSign, FileDown, FileUp,
   Search, Plus, Edit, Trash2, RefreshCw, Loader2, CheckCircle,
-  XCircle, AlertTriangle
+  XCircle, AlertTriangle, Copy
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   exportToPDF, exportToCSV, importFromCSV,
 } from '@/lib/export-utils';
+import { copyTableToClipboard } from '@/lib/clipboard-utils';
 import type { ColumnDef, FieldDef, CompanyProfile } from '@/lib/export-utils';
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
@@ -62,19 +63,16 @@ const RATE_TYPE_BADGE: Record<RateType, string> = {
   CUSTOM: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
 };
 
-const bdCurrencyFmt = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT } from '@/lib/number-format';
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined || v === '') return '\u2014';
-  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
+  return _fmtBDT(Number(v));
 };
 
 const fmtNumber = (v: any) => {
   if (v === null || v === undefined || v === '') return '\u2014';
-  return bdCurrencyFmt.format(Number(v));
+  return _fmtNumberVal(Number(v));
 };
 
 const bdDateFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -698,6 +696,36 @@ export default function InterestPercentageEnginePage({
                   <Button variant="outline" size="sm" onClick={exportRatePDF}>
                     <FileDown className="w-4 h-4 mr-1" />PDF
                   </Button>
+                  <Button variant="outline" size="sm" onClick={async () => {
+                    const columns: ColumnDef[] = [
+                      { key: 'code', label: 'Code', type: 'text' },
+                      { key: 'type', label: 'Type', type: 'text' },
+                      { key: 'percentage', label: 'Percentage', type: 'number' },
+                      { key: 'effectiveDate', label: 'Effective Date', type: 'date' },
+                      { key: 'expiryDate', label: 'Expiry Date', type: 'date' },
+                      { key: 'minimumAmount', label: 'Min Amount', type: 'currency' },
+                      { key: 'maximumAmount', label: 'Max Amount', type: 'currency' },
+                      { key: 'durationMonthsMin', label: 'Min Duration', type: 'number' },
+                      { key: 'durationMonthsMax', label: 'Max Duration', type: 'number' },
+                      { key: 'isActive', label: 'Status', type: 'boolean' },
+                    ];
+                    const data = filtered.map((r: any) => ({
+                      code: r.code,
+                      type: RATE_TYPE_LABELS[r.type as RateType] || r.type,
+                      percentage: r.percentage,
+                      effectiveDate: r.effectiveDate,
+                      expiryDate: r.expiryDate || '',
+                      minimumAmount: isVatAuditor ? 'N/A (Audit Mode)' : r.minimumAmount,
+                      maximumAmount: isVatAuditor ? 'N/A (Audit Mode)' : r.maximumAmount,
+                      durationMonthsMin: r.durationMonthsMin,
+                      durationMonthsMax: r.durationMonthsMax,
+                      isActive: r.isActive,
+                    }));
+                    const result = await copyTableToClipboard({ title: 'Interest Rate Configuration', columns, data, isVatAuditor, vatMaskedColumns: isVatAuditor ? ['minimumAmount', 'maximumAmount'] : [] });
+                    if (result.success) { toast({ title: 'Copied', description: result.message }); } else { toast({ title: 'Copy Failed', description: result.message, variant: 'destructive' }); }
+                  }}>
+                    <Copy className="w-4 h-4 mr-1" />Copy
+                  </Button>
                   {canCreateEdit && (
                     <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}>
                       <Plus className="w-4 h-4 mr-1" />Create Rate
@@ -707,21 +735,21 @@ export default function InterestPercentageEnginePage({
               </div>
 
               {/* Data Table */}
-              <div className="table-container overflow-x-auto overflow-y-auto max-h-[50vh] rounded-md border -mx-2 sm:mx-0">
-                <Table className="min-w-[900px]">
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[50vh] rounded-md border">
+                <Table className="min-w-[800px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="whitespace-nowrap">Code</TableHead>
-                      <TableHead className="whitespace-nowrap">Type</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">%</TableHead>
-                      <TableHead className="whitespace-nowrap">Effective</TableHead>
-                      <TableHead className="whitespace-nowrap">Expiry</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Min Amt</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Max Amt</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Min Dur</TableHead>
-                      <TableHead className="text-right whitespace-nowrap">Max Dur</TableHead>
-                      <TableHead className="whitespace-nowrap">Status</TableHead>
-                      <TableHead className="w-20 text-right whitespace-nowrap">Actions</TableHead>
+                      <TableHead className="text-xs">Code</TableHead>
+                      <TableHead className="text-xs">Type</TableHead>
+                      <TableHead className="text-right text-xs">%</TableHead>
+                      <TableHead className="text-xs">Effective</TableHead>
+                      <TableHead className="text-xs">Expiry</TableHead>
+                      <TableHead className="text-right text-xs">Min Amt</TableHead>
+                      <TableHead className="text-right text-xs">Max Amt</TableHead>
+                      <TableHead className="text-right text-xs">Min Dur</TableHead>
+                      <TableHead className="text-right text-xs">Max Dur</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                      <TableHead className="w-16 text-right text-xs">Act</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -740,30 +768,30 @@ export default function InterestPercentageEnginePage({
                     ) : (
                       filtered.map((r: any) => (
                         <TableRow key={r.id} className="data-table-row hover:bg-muted/50">
-                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white whitespace-nowrap text-xs">
+                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white text-xs">
                             {r.code}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap">
+                          <TableCell className="text-xs">
                             <Badge variant="secondary" className={`text-xs ${RATE_TYPE_BADGE[r.type as RateType] || ''}`}>
                               {RATE_TYPE_LABELS[r.type as RateType] || r.type}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right font-mono whitespace-nowrap text-xs">
+                          <TableCell className="text-right font-mono text-xs">
                             {Number(r.percentage).toFixed(2)}%
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.effectiveDate)}</TableCell>
-                          <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.expiryDate)}</TableCell>
-                          <TableCell className="text-right font-mono whitespace-nowrap text-xs">
+                          <TableCell className="text-xs">{fmtDate(r.effectiveDate)}</TableCell>
+                          <TableCell className="text-xs">{fmtDate(r.expiryDate)}</TableCell>
+                          <TableCell className="text-right font-mono text-xs">
                             {isVatAuditor ? 'N/A' : fmtCurrency(r.minimumAmount)}
                           </TableCell>
-                          <TableCell className="text-right font-mono whitespace-nowrap text-xs">
+                          <TableCell className="text-right font-mono text-xs">
                             {isVatAuditor ? 'N/A' : (r.maximumAmount === 0 ? 'Unlimited' : fmtCurrency(r.maximumAmount))}
                           </TableCell>
-                          <TableCell className="text-right whitespace-nowrap text-xs">{r.durationMonthsMin || 0} mo</TableCell>
-                          <TableCell className="text-right whitespace-nowrap text-xs">
+                          <TableCell className="text-right text-xs">{r.durationMonthsMin || 0} mo</TableCell>
+                          <TableCell className="text-right text-xs">
                             {r.durationMonthsMax === 0 ? 'Unlimited' : `${r.durationMonthsMax} mo`}
                           </TableCell>
-                          <TableCell className="whitespace-nowrap">
+                          <TableCell className="text-xs">
                             <Badge variant="secondary" className={`text-xs ${r.isActive
                               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                               : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
@@ -959,42 +987,58 @@ export default function InterestPercentageEnginePage({
                       <Button variant="outline" size="sm" onClick={exportAmortPDF}>
                         <FileDown className="w-4 h-4 mr-1" />PDF
                       </Button>
+                      <Button variant="outline" size="sm" onClick={async () => {
+                        if (!amortResult) return;
+                        const columns: ColumnDef[] = [
+                          { key: 'month', label: 'Month', type: 'number' },
+                          { key: 'openingBalance', label: 'Opening Balance', type: 'currency' },
+                          { key: 'installment', label: 'Installment', type: 'currency' },
+                          { key: 'interestComponent', label: 'Interest', type: 'currency' },
+                          { key: 'principalComponent', label: 'Principal', type: 'currency' },
+                          { key: 'closingBalance', label: 'Closing Balance', type: 'currency' },
+                        ];
+                        const data = amortResult.schedule.map((row: any) => ({
+                          month: row.month, openingBalance: row.openingBalance, installment: row.installment,
+                          interestComponent: row.interestComponent, principalComponent: row.principalComponent, closingBalance: row.closingBalance,
+                        }));
+                        const result = await copyTableToClipboard({ title: 'Amortization Schedule', columns, data, isVatAuditor });
+                        if (result.success) { toast({ title: 'Copied', description: result.message }); } else { toast({ title: 'Copy Failed', description: result.message, variant: 'destructive' }); }
+                      }}>
+                        <Copy className="w-4 h-4 mr-1" />Copy
+                      </Button>
                     </div>
                   </div>
                   <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-md border">
-                    <Table className="min-w-[500px]">
+                    <Table className="min-w-[400px]">
                       <TableHeader>
                         <TableRow className="bg-muted/50">
-                          <TableHead className="text-right whitespace-nowrap">#</TableHead>
-                          <TableHead className="text-right whitespace-nowrap">Opening</TableHead>
-                          <TableHead className="text-right whitespace-nowrap">Installment</TableHead>
-                          <TableHead className="text-right whitespace-nowrap">Interest</TableHead>
-                          <TableHead className="text-right whitespace-nowrap">Principal</TableHead>
-                          <TableHead className="text-right whitespace-nowrap">Closing</TableHead>
+                          <TableHead className="text-right text-xs">#</TableHead>
+                          <TableHead className="text-right text-xs">Open</TableHead>
+                          <TableHead className="text-right text-xs">Instl</TableHead>
+                          <TableHead className="text-right text-xs">Int</TableHead>
+                          <TableHead className="text-right text-xs">Prin</TableHead>
+                          <TableHead className="text-right text-xs">Close</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {amortResult.schedule.map((row: any) => (
                           <TableRow key={row.month} className="data-table-row hover:bg-muted/50">
-                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{row.month}</TableCell>
-                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.openingBalance)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.installment)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.interestComponent)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.principalComponent)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs whitespace-nowrap">{fmtNumber(row.closingBalance)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{row.month}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.openingBalance)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.installment)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.interestComponent)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.principalComponent)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{fmtNumber(row.closingBalance)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
                   {/* Totals row */}
-                  <div className="mt-2 grid grid-cols-6 gap-1 text-xs font-bold text-slate-900 dark:text-white bg-muted/30 rounded p-2 overflow-x-auto">
-                    <div className="text-right whitespace-nowrap">Total</div>
-                    <div></div>
-                    <div className="text-right font-mono truncate">{fmtNumber(amortResult.schedule.reduce((s: number, r: any) => s + r.installment, 0))}</div>
-                    <div className="text-right font-mono truncate">{fmtNumber(amortResult.totalInterest)}</div>
-                    <div className="text-right font-mono truncate">{fmtNumber(amortResult.netPrincipal)}</div>
-                    <div></div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs font-bold text-slate-900 dark:text-white bg-muted/30 rounded p-2 overflow-x-auto">
+                    <div className="text-right font-mono truncate">Installments: {fmtNumber(amortResult.schedule.reduce((s: number, r: any) => s + r.installment, 0))}</div>
+                    <div className="text-right font-mono truncate">Interest: {fmtNumber(amortResult.totalInterest)}</div>
+                    <div className="text-right font-mono truncate">Principal: {fmtNumber(amortResult.netPrincipal)}</div>
                   </div>
                 </CardContent>
               </Card>

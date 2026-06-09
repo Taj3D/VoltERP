@@ -14,7 +14,7 @@ import {
   Clock, Printer, CreditCard, Calculator, ChevronDown, ChevronRight,
   Banknote, Users, HandCoins, Percent, FileBarChart, ArrowDownUp,
   CalendarDays, CircleDollarSign, BadgeDollarSign, Wallet,
-  ClipboardCheck, FileWarning, AlertCircle, Info, Loader2
+  ClipboardCheck, FileWarning, AlertCircle, Info, Loader2, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { apiFetch } from "@/lib/api-client";
 
@@ -45,12 +46,12 @@ import { apiFetch } from "@/lib/api-client";
 // UTILITY FUNCTIONS
 // ============================================================
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)") return v;
-  return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
+  return _fmtBDT(Number(v));
 };
 
 const fmtDate = (d: string | Date) =>
@@ -814,6 +815,25 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     toast({ title: "Exported", description: `Sales Orders ${format.toUpperCase()} exported` });
   }, [soFiltered, isVatAuditor, userRole, getCompanyProfile, toast]);
 
+  const doCopySO = useCallback(async () => {
+    const columns: ExportColumnDef[] = [
+      { key: "invoiceNo", label: "Invoice No", type: "text" },
+      { key: "date", label: "Date", type: "date" },
+      { key: "customerName", label: "Customer", type: "text" },
+      { key: "grandTotal", label: "Grand Total", type: "currency" },
+      { key: "cogsTotal", label: "COGS", type: "currency" },
+      { key: "grossProfit", label: "Profit", type: "currency" },
+      { key: "profitMargin", label: "Margin%", type: "number" },
+      { key: "status", label: "Status", type: "text" },
+    ];
+    const data = soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "\u2014" }));
+    const maskedKeys = getVatMaskedKeys(columns);
+    try {
+      const result = await copyTableToClipboard({ title: "Sales Order Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  }, [soFiltered, isVatAuditor, toast]);
+
   const doExportHS = useCallback(async (format: "pdf" | "csv") => {
     const columns: ExportColumnDef[] = [
       { key: "invoiceNo", label: "Invoice No", type: "text" },
@@ -844,6 +864,25 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     }
     toast({ title: "Exported", description: `Hire Sales ${format.toUpperCase()} exported` });
   }, [hsFiltered, isVatAuditor, userRole, getCompanyProfile, toast]);
+
+  const doCopyHS = useCallback(async () => {
+    const columns: ExportColumnDef[] = [
+      { key: "invoiceNo", label: "Invoice No", type: "text" },
+      { key: "date", label: "Date", type: "date" },
+      { key: "customerName", label: "Customer", type: "text" },
+      { key: "totalHirePayable", label: "Total Payable", type: "currency" },
+      { key: "totalPaid", label: "Total Paid", type: "currency" },
+      { key: "outstandingBalance", label: "Outstanding", type: "currency" },
+      { key: "cogsTotal", label: "COGS", type: "currency" },
+      { key: "currentStatus", label: "Status", type: "text" },
+    ];
+    const data = hsFiltered.map((h: any) => ({ ...h, customerName: h.customer?.name || "\u2014" }));
+    const maskedKeys = getVatMaskedKeys(columns);
+    try {
+      const result = await copyTableToClipboard({ title: "Hire Sales Ledger", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  }, [hsFiltered, isVatAuditor, toast]);
 
   const doExportSR = useCallback(async (format: "pdf" | "csv") => {
     const columns: ExportColumnDef[] = [
@@ -910,7 +949,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     if (info.creditStatus === "Frozen") return { type: "error" as const, message: `Customer "${info.name}" account is FROZEN. Sales not allowed.` };
     if (info.creditLimit > 0) {
       const projected = info.currentBalance + soComputedTotals.grandTotal;
-      if (projected > info.creditLimit) return { type: "warning" as const, message: `Projected balance Tk. ${bdCurrencyFmt.format(projected)} exceeds credit limit Tk. ${bdCurrencyFmt.format(info.creditLimit)}` };
+      if (projected > info.creditLimit) return { type: "warning" as const, message: `Projected balance ${_fmtBDT(projected)} exceeds credit limit ${_fmtBDT(info.creditLimit)}` };
     }
     return null;
   }, [soForm.customerId, soComputedTotals.grandTotal, getCustomerCreditInfo]);
@@ -1003,6 +1042,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
           )}
           <Button variant="outline" size="sm" onClick={() => doExportSO("csv")}><Download className="h-4 w-4 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportSO("pdf")}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={doCopySO}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <Button variant="outline" size="sm" onClick={loadCOGSDashboard}><BarChart3 className="h-4 w-4 mr-1" /> COGS</Button>
           <label className="cursor-pointer">
             <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
@@ -1417,6 +1457,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
           )}
           <Button variant="outline" size="sm" onClick={() => doExportHS("csv")}><Download className="h-4 w-4 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportHS("pdf")}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={doCopyHS}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           {(isAdmin) && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/hire-sales", [], loadHireSales)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadHireSales}>
             <RefreshCw className={`h-4 w-4 ${hsLoading ? "animate-spin" : ""}`} />
@@ -1839,6 +1880,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
           )}
           <Button variant="outline" size="sm" onClick={() => doExportSR("csv")}><Download className="h-4 w-4 mr-1" /> CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportSR("pdf")}><FileDown className="h-4 w-4 mr-1" /> PDF</Button>
+          <Button variant="outline" size="sm" onClick={doCopySR}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <label className="cursor-pointer">
             <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import</span></Button>
             <input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/sales-returns", [], loadSalesReturns)} />
@@ -2105,10 +2147,10 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
   // ============================================================
 
   return (
-    <div className="page-enter flex flex-col bg-white dark:bg-[#0a1628]">
+    <div className="page-enter flex flex-col bg-white dark:bg-slate-900">
       <div className="flex-1">
         {/* ── Header ── */}
-        <div className="bg-gradient-to-r from-[#0a1628] to-[#132240] p-4 sm:p-6">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 p-4 sm:p-6">
           <div className="max-w-[1400px] mx-auto">
             <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
               <Receipt className="h-6 w-6 text-[#2563eb]" />

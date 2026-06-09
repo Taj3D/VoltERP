@@ -130,22 +130,15 @@ const MASKING_SENTINEL = "N/A (Audit Mode)";
 // ============================================================
 // UTILITY: Safe BDT Number Formatter
 // GUARANTEES Latin digits (0-9) in all environments.
-// The "en-US" locale is NOT a standard IETF locale tag and
-// causes engines to fall back to Bengali numerals (০-৯) which
-// appear garbled/corrupted in PDF output. We use a custom
-// formatter that always produces Latin digits with standard
-// grouping (1,234,567.89) and exactly 2 decimal places.
+// Delegates to centralized number-format module which includes
+// a Bengali-to-Latin digit replacement pass.
 // ============================================================
 
-const bdtFormatter = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-  useGrouping: true,
-});
+import { fmtCurrency } from '@/lib/number-format';
 
 /** Format a number as BDT currency string with guaranteed Latin digits and 2 decimal places */
 export function formatBDT(value: number): string {
-  return bdtFormatter.format(value);
+  return fmtCurrency(value);
 }
 
 // ============================================================
@@ -184,7 +177,7 @@ export function sanitizeCurrencyValue(value: any): number {
 /** Format a sanitized currency value for PDF display (right-aligned, guaranteed Latin digits) */
 export function formatSanitizedCurrency(value: any): string {
   const sanitized = sanitizeCurrencyValue(value);
-  return `Tk. ${formatBDT(sanitized)}`;
+  return `Tk. ${fmtCurrency(sanitized)}`;
 }
 
 // ============================================================
@@ -300,7 +293,7 @@ function formatCellValue(
   if (type === "currency") {
     const num = sanitizeCurrencyValue(value);
     if (num === 0 && (value === null || value === undefined || value === "")) return "\u2014";
-    return `Tk. ${formatBDT(num)}`;
+    return `Tk. ${fmtCurrency(num)}`;
   }
   if (type === "boolean") return value ? "Active" : "Inactive";
   if (type === "date") {
@@ -318,7 +311,7 @@ function formatCellValue(
   if (type === "number") {
     const num = Number(value);
     if (isNaN(num)) return String(value);
-    return formatBDT(num);
+    return fmtCurrency(num);
   }
   return String(value);
 }

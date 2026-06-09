@@ -7,6 +7,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, safeFinancialRound, safeFinancialAdd } from '@/lib/api-security';
+import { fmtCurrency } from '@/lib/number-format';
 import { computeCustomerBalance } from '@/app/api/customers/balances/route';
 import { computeSupplierBalance } from '@/app/api/suppliers/balances/route';
 
@@ -99,7 +100,7 @@ async function checkCustomerCredit(
         ? safeFinancialRound((safeFinancialAdd(balance.currentBalance, proposedAmount) / balance.creditLimit) * 100)
         : 0,
       creditStatus: balance.creditStatus,
-      message: `CREDIT FREEZE: Account is frozen. No new transactions allowed. Outstanding balance Tk. ${balance.currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+      message: `CREDIT FREEZE: Account is frozen. No new transactions allowed. Outstanding balance Tk. ${fmtCurrency(balance.currentBalance)}.`,
     };
     return NextResponse.json(response);
   }
@@ -135,7 +136,7 @@ async function checkCustomerCredit(
       projectedBalance,
       projectedUtilization,
       creditStatus: balance.creditStatus,
-      message: `CREDIT FREEZE: Outstanding balance Tk. ${projectedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} would exceed credit ceiling Tk. ${balance.creditLimit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      message: `CREDIT FREEZE: Outstanding balance Tk. ${fmtCurrency(projectedBalance)} would exceed credit ceiling Tk. ${fmtCurrency(balance.creditLimit)}`,
     };
     return NextResponse.json(response);
   }
@@ -179,7 +180,7 @@ async function checkSupplierCredit(
         ? safeFinancialRound((safeFinancialAdd(balance.currentBalance, proposedAmount) / balance.creditLimit) * 100)
         : 0,
       creditStatus: balance.creditStatus,
-      message: `CREDIT FREEZE: Account is frozen. No new transactions allowed. Outstanding balance Tk. ${balance.currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+      message: `CREDIT FREEZE: Account is frozen. No new transactions allowed. Outstanding balance Tk. ${fmtCurrency(balance.currentBalance)}.`,
     };
     return NextResponse.json(response);
   }
@@ -215,7 +216,7 @@ async function checkSupplierCredit(
       projectedBalance,
       projectedUtilization,
       creditStatus: balance.creditStatus,
-      message: `CREDIT FREEZE: Outstanding balance Tk. ${projectedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} would exceed credit ceiling Tk. ${balance.creditLimit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      message: `CREDIT FREEZE: Outstanding balance Tk. ${fmtCurrency(projectedBalance)} would exceed credit ceiling Tk. ${fmtCurrency(balance.creditLimit)}`,
     };
     return NextResponse.json(response);
   }

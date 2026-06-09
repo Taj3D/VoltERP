@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Lock, Search, RefreshCw, Download, FileDown, Upload, BarChart3, Filter,
   ArrowUpDown, ChevronDown, ChevronUp, ChevronRight, Calendar, TrendingUp,
-  PieChart as PieChartIcon, FileSpreadsheet, Eye, FileText, ClipboardList
+  PieChart as PieChartIcon, FileSpreadsheet, Eye, FileText, ClipboardList, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiFetch } from "@/lib/api-client";
-import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import { exportToPDFSimple, exportToCSVSimple, importFromCSV, ColumnDef } from "@/lib/export-utils";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell,
@@ -627,6 +628,30 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
     });
   }, [reportData, toast]);
 
+  const copyToClipboard = useCallback(async () => {
+    if (!reportData) {
+      toast({ title: "No Data", description: "Generate a report first", variant: "destructive" });
+      return;
+    }
+    try {
+      const columns: ColumnDef[] = reportData.columns.map((c) => {
+        const ct = detectColumnType(c.key);
+        return { key: c.key, label: c.label, type: ct === "currency" ? "currency" as const : ct === "date" ? "date" as const : ct === "number" ? "number" as const : "text" as const };
+      });
+      const vatMaskedColumns = isVatAuditor ? columns.filter(c => c.type === "currency").map(c => c.key) : [];
+      const result = await copyTableToClipboard({
+        title: reportData.title || "MIS Report",
+        columns,
+        data: sortedRows,
+        isVatAuditor,
+        vatMaskedColumns,
+      });
+      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+    } catch (e: any) {
+      toast({ title: "Copy Error", description: e.message, variant: "destructive" });
+    }
+  }, [reportData, sortedRows, isVatAuditor, toast]);
+
   // ============================================================
   // TABLE COLUMN CLICK SORT
   // ============================================================
@@ -706,6 +731,9 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
           </Button>
           <Button variant="outline" size="sm" onClick={exportPDF}>
             <FileDown className="w-4 h-4 mr-1" /> Export PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={copyToClipboard}>
+            <Copy className="w-4 h-4 mr-1" /> Copy
           </Button>
         </div>
       </div>

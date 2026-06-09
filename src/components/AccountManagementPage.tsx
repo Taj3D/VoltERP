@@ -5,7 +5,7 @@ import {
   DollarSign, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark,
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search, Lock,
   FileDown, CheckCircle, AlertTriangle, ChevronDown, ChevronRight,
-  FileText, Building2, Wallet, X, Shield, BookOpen
+  FileText, Building2, Wallet, X, Shield, BookOpen, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,14 +19,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import type { CompanyProfile, ColumnDef } from "@/lib/export-utils";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
 
 // ── Utility Functions ──────────────────────────────────────────────
 
-const bdCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtCurrency = (v: any): string => { if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return `Tk. ${bdCurrencyFmt.format(n)}`; };
+import { fmtBDT as _fmtBDT, fmtCurrency as _fmtCurrencyVal } from "@/lib/number-format";
+
+const fmtCurrency = (v: any): string => { if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return _fmtBDT(n); };
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const fmtEmpty = (v: any) => (v === null || v === undefined || v === "") ? "—" : String(v);
 const sanitizeCurrency = (val: any): number => { const num = Number(val); if (isNaN(num)) return 0; return Math.round(num * 100) / 100; };
@@ -414,7 +416,7 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
       const rows = filtered.map((item: any) => [
         item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || "—",
         item.head?.name || item.customer?.name || item.supplier?.name || item.bank?.bankName || item.name || "—",
-        fmtDate(item.date), isVatAuditor ? auditMask : bdCurrencyFmt.format(sanitizeCurrency(item.amount || 0)), item.status
+        fmtDate(item.date), isVatAuditor ? auditMask : _fmtCurrencyVal(sanitizeCurrency(item.amount || 0)), item.status
       ]);
       exportToCSVSimple(`Account_${activeTab}`, headers, rows);
       toast({ title: "Exported", description: "CSV exported successfully" });
@@ -651,6 +653,7 @@ export default function AccountManagementPage({ initialTab }: { initialTab?: str
             {canMutate && <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>}
             <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
             <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+            <Button variant="outline" size="sm" onClick={copyToClipboard}><Copy className="w-4 h-4 mr-1" />Copy</Button>
             {canCreate && <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openCreate(activeTab)}><Plus className="w-4 h-4 mr-1" />Create</Button>}
           </div>
         </div>
