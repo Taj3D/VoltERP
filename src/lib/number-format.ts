@@ -50,6 +50,7 @@ export function fmtBDT(value: number): string {
 
 /** Safely format any value as currency, returning "—" for null/undefined */
 export function fmtSafeCurrency(value: any): string {
+  if (value === 'N/A (Audit Mode)' || value === 'N/A (Restricted)') return value;
   if (value === null || value === undefined || value === '') return '—';
   const n = Number(value);
   if (isNaN(n)) return '—';
@@ -58,6 +59,7 @@ export function fmtSafeCurrency(value: any): string {
 
 /** Safely format any value as a number */
 export function fmtSafeNumber(value: any): string {
+  if (value === 'N/A (Audit Mode)' || value === 'N/A (Restricted)') return value;
   if (value === null || value === undefined || value === '') return '—';
   const n = Number(value);
   if (isNaN(n)) return '—';

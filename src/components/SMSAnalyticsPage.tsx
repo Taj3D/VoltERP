@@ -41,6 +41,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { fmtBDT as _fmtBDT, fmtNumber as _fmtNumberVal } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   const num = Number(v);
   if (isNaN(num) || v === null || v === undefined) return "—";
   return _fmtBDT(num);

@@ -44,7 +44,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
-  if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
+  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return _fmtBDT(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
@@ -54,7 +54,7 @@ const fmt = (v: any, type?: string) => {
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return _fmtBDT(Number(v));
 };
 

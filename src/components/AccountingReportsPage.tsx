@@ -37,10 +37,12 @@ import { useAuth } from "@/hooks/useAuth";
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
+const RESTRICTED_MASK = "N/A (Restricted)";
+
 import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
-  if (String(v) === AUDIT_MASK) return AUDIT_MASK;
+  if (String(v) === AUDIT_MASK || String(v) === RESTRICTED_MASK) return String(v);
   if (v === null || v === undefined) return "—";
   if (type === "currency") return _fmtBDT(Number(v));
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";

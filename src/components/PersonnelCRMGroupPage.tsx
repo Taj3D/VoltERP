@@ -43,7 +43,7 @@ const numberFormatter = new Intl.NumberFormat('en-US');
 const dateFormatter = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
 
 const fmt = (v: any, type?: string) => {
-  if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
+  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return `Tk. ${currencyFormatter.format(Number(v))}`;
   if (type === "date") return v ? dateFormatter.format(new Date(v)) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
@@ -53,7 +53,7 @@ const fmt = (v: any, type?: string) => {
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return `Tk. ${currencyFormatter.format(Number(v))}`;
 };
 
@@ -895,8 +895,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         config.columns.forEach(col => {
           let val = getNestedValue(item, col.key);
           if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
-          if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
-          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
+          if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Restricted)";
+          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Restricted)";
           row[col.key] = val;
         });
         return row;
@@ -922,8 +922,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         config.columns.forEach(col => {
           let val = getNestedValue(item, col.key);
           if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
-          if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
-          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
+          if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Restricted)";
+          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Restricted)";
           row[col.key] = val;
         });
         return row;
@@ -1650,8 +1650,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                           val = item.computedCurrentBalanceType ?? item.currentBalanceType ?? val;
                         }
                         if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
-                        if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Audit Mode)";
-                        if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Audit Mode)";
+                        if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Restricted)";
+                        if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Restricted)";
 
                         // Special rendering for isActive
                         if (col.key === "isActive") {
@@ -1815,8 +1815,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                     let textColor = "text-emerald-600";
                     if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
                     else if (pct > 80) { barColor = "bg-amber-500"; textColor = "text-amber-600"; }
-                    const maskedBalance = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(balance);
-                    const maskedLimit = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(limit);
+                    const maskedBalance = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(balance);
+                    const maskedLimit = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(limit);
                     return (
                       <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <TableCell className="text-xs font-medium whitespace-nowrap">{item.name}</TableCell>
@@ -1879,8 +1879,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                     let textColor = "text-emerald-600";
                     if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
                     else if (pct > 80) { barColor = "bg-amber-500"; textColor = "text-amber-600"; }
-                    const maskedBalance = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(balance);
-                    const maskedLimit = (isVatAuditor || shouldMaskCreditLimit) ? "N/A (Audit Mode)" : fmtCurrency(limit);
+                    const maskedBalance = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(balance);
+                    const maskedLimit = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(limit);
                     return (
                       <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <TableCell className="text-xs font-medium whitespace-nowrap">{item.name}</TableCell>

@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const masked = security.user.role === 'vat_auditor'
       ? maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit'])
       : security.user.role === 'sr'
-        ? maskForVatAuditor(item, security.user.role, ['creditLimit'])
+        ? maskForVatAuditor(item, security.user.role, ['creditLimit'], { creditLimit: ['sr'] })
         : item;
 
     return NextResponse.json(masked);

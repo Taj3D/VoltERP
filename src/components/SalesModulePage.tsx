@@ -50,7 +50,7 @@ import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return _fmtBDT(Number(v));
 };
 
@@ -59,7 +59,7 @@ const fmtDate = (d: string | Date) =>
 
 const fmtPercent = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return `${Number(v).toFixed(2)}%`;
 };
 

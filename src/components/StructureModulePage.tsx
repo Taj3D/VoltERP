@@ -40,7 +40,7 @@ const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximum
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";

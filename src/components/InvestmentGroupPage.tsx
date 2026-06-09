@@ -43,7 +43,7 @@ import { useAuth } from "@/hooks/useAuth";
 const safeNumberFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmt = (v: any, type?: string) => {
-  if (v === null || v === undefined || v === "N/A (Audit Mode)") return v || "—";
+  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return `Tk. ${safeNumberFmt.format(Number(v))}`;
   if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
@@ -55,13 +55,13 @@ const fmtDate = (d: string | Date) =>
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return `Tk. ${safeNumberFmt.format(Number(v))}`;
 };
 
 const fmtPct = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return `${Number(v).toFixed(2)}%`;
 };
 

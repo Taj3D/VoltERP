@@ -66,7 +66,7 @@ const RATE_TYPE_BADGE: Record<RateType, string> = {
 import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT } from '@/lib/number-format';
 
 const fmtCurrency = (v: any) => {
-  if (v === null || v === undefined || v === '') return '\u2014';
+  if (v === null || v === undefined || v === '' || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return '\u2014';
   return _fmtBDT(Number(v));
 };
 

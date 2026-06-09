@@ -28,7 +28,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 import { fmtBDT as _fmtBDT, fmtCurrency as _fmtCurrencyVal } from "@/lib/number-format";
 
-const fmtCurrency = (v: any): string => { if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return _fmtBDT(n); };
+const fmtCurrency = (v: any): string => { if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v; if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return _fmtBDT(n); };
 const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const fmtEmpty = (v: any) => (v === null || v === undefined || v === "") ? "—" : String(v);
 const sanitizeCurrency = (val: any): number => { const num = Number(val); if (isNaN(num)) return 0; return Math.round(num * 100) / 100; };

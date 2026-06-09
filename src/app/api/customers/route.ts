@@ -129,7 +129,7 @@ export async function GET(request: NextRequest) {
         return maskForVatAuditor(item, security.user.role, ['openingBalance', 'creditLimit', 'computedCurrentBalance', 'computedCreditUtilization']);
       }
       if (security.user.role === 'sr') {
-        return maskForVatAuditor(item, security.user.role, ['creditLimit']);
+        return maskForVatAuditor(item, security.user.role, ['creditLimit'], { creditLimit: ['sr'] });
       }
       return item;
     });

@@ -229,6 +229,7 @@ const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype:
 const misCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const fmt = (v: unknown, type?: string) => {
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return String(v);
   if (v === null || v === undefined) return "—";
   if (type === "currency")
     return `Tk. ${misCurrencyFmt.format(Number(v))}`;

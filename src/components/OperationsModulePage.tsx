@@ -50,7 +50,7 @@ const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximum
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
-  if (v === "N/A (Audit Mode)") return v;
+  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
   return `Tk. ${bdFmt.format(Number(v))}`;
 };
 
