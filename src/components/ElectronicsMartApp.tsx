@@ -580,7 +580,7 @@ function LoginPage() {
             </form>
           </CardContent>
         </Card>
-        <p className="text-center text-slate-500 text-xs mt-6">© {new Date().getFullYear()} NextGen Digital Studio — All Rights Reserved</p>
+        <p className="text-center text-slate-500 text-xs mt-6">© {new Date().getFullYear()} <a href="https://www.facebook.com/nextgendigitalstudio" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors underline underline-offset-2">NextGen Digital Studio</a> — All Rights Reserved</p>
       </div>
     </div>
   );
@@ -6328,7 +6328,7 @@ function AppLayout() {
 
       {/* Footer */}
       <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
-        <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<span className="text-slate-300 font-medium">NextGen Digital Studio</span>{" "}<span className="text-slate-500">— All Rights Reserved</span>
+        <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<a href="https://www.facebook.com/nextgendigitalstudio" target="_blank" rel="noopener noreferrer" className="text-slate-300 font-medium hover:text-white transition-colors"><span className="hover:underline underline-offset-2">NextGen Digital Studio</span></a>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>
   );
