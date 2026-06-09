@@ -6174,3 +6174,105 @@ Task: ধাপ ১৫ — Module Testing Batch 4 (MIS Reports + Settings)
 1. Dashboard analytics Prisma timeout (P1008) — SQLite under heavy load, pre-existing
 2. Audit Trail in SystemSettingsGroupPage is separate from AuditTrailViewer component — design choice, not bug
 3. MIS Reports Import CSV is validation-only (reports are read-only by design)
+
+---
+Task ID: 16
+Agent: Main Orchestrator
+Task: ধাপ ১৬ Module Testing — Batch 5 (Investment + Financial Audit)
+
+## Investment Module — API Routes Tested (15 routes, 5 roles each)
+
+| # | Route | Method | Admin | Manager | SR | Dealer | VAT Auditor |
+|---|-------|--------|-------|---------|-----|--------|-------------|
+| 1 | `/api/investment-heads` | GET | 200 | 200 | 200 ✅ | 403 | 200 ✅ |
+| 2 | `/api/investment-heads` | POST | 201 | 201 | 403 (WRITE_DENY) | 403 | 403 (WRITE_DENY) |
+| 3 | `/api/investments` | GET | 200 | 200 | 200 ✅ | 403 | 200 ✅ |
+| 4 | `/api/investments` | POST | 201 | 201 | 403 | 403 | 403 |
+| 5 | `/api/liabilities` | GET | 200 | 200 | 200 ✅ | 403 | 200 ✅ (masked) |
+| 6 | `/api/liabilities` | POST | 201 | 201 | 403 | 403 | 403 |
+| 7 | `/api/assets` | GET | 200 | 200 | 200 ✅ | 403 | 200 ✅ (masked) |
+| 8 | `/api/assets` | POST | 201 | 201 | 403 | 403 | 403 |
+| 9 | `/api/assets/[id]` | DELETE | 200 | **403 ✅** | 403 | 403 | 403 |
+| 10 | `/api/asset-depreciation` | GET | 200 | 200 | 200 ✅ | 403 | 200 ✅ (masked) |
+| 11 | `/api/interest-percentages` | GET | 200 | 200 | 200 | 200 | 200 |
+| 12 | `/api/interest-percentages/amortization` | GET | 200 | 200 | 200 | 200 | 200 ✅ (masked) |
+| 13 | `/api/liabilities` | POST (validation) | — | **400 ✅** | — | — | — |
+| 14 | `/api/assets` | POST (validation) | — | **400 ✅** | — | — | — |
+
+## Financial Audit Module — API Routes Tested (11 routes, 5 roles each)
+
+| # | Route | Method | Admin | Manager | SR | Dealer | VAT Auditor |
+|---|-------|--------|-------|---------|-----|--------|-------------|
+| 1 | `/api/financial-audit/fraud-detection` | GET | 200 | 200 | 403 (MODULE_DENY) | 403 | 200 (masked) |
+| 2 | `/api/financial-audit/commission-report` | GET | 200 | 200 | 403 | 403 | 200 (masked) |
+| 3 | `/api/financial-audit/hire-purchase-report` | GET | 200 | 200 | 403 | 403 | 200 (masked) |
+| 4 | `/api/financial-audit/collection-matrix` | GET | 200 | 200 | 403 | 403 | 200 (masked) |
+| 5 | `/api/ledger-auto-post` | GET | 200 | 200 | 403 | 403 | 200 (masked) |
+| 6 | `/api/inventory-aging` | GET | 200 | 200 | 403 | 403 | 200 (masked) |
+| 7 | `/api/product-lifecycle` | GET | 200 | 200 | 403 | 403 | 200 (masked) |
+| 8 | `/api/data-integrity` | GET | 200 | 200 | 403 | 403 | 200 ✅ (details masked) |
+| 9 | `/api/audit-trail` | GET | 200 | 200 | 403 | 403 | 200 ✅ (details masked) |
+| 10 | `/api/audit-logs` | GET | 200 | 200 | 403 | 403 | 200 ✅ (details masked) |
+| 11 | `/api/system-audit-logs` | GET | 200 | 200 | 403 | 403 | 200 ✅ (prev/newState masked) |
+| 12 | `/api/audit-logs` | POST | 201 | **403 ✅** | 403 | 403 | 403 |
+
+## Bugs Found & Fixed (12 total)
+
+### 🔴 CRITICAL (3)
+1. **RBAC: SR and VAT Auditor blocked from Investment Module** — Added `'investment'` and `'audit-integrity'` to SR's `ROLE_GROUP_ACCESS`, `'investment'` to VAT Auditor's
+2. **VAT Auditor: Audit Trail & Audit Logs `details` field leaks financial amounts** — Expanded keyword check from 7 to 34 comprehensive financial keywords
+3. **VAT Auditor: Data Integrity `details` JSON string leaks financial data** — Added `details` field masking for VAT Auditor
+
+### 🟠 HIGH (3)
+4. **Assets DELETE missing `checkFinancialDeletePermission()`** — Manager could delete assets; now restricted to admin-only
+5. **VAT Auditor: System Audit Logs had ZERO masking** — Added masking for `previousState`, `newState`, `metadata` fields
+6. **Missing VAT masked fields in hire-purchase-report and commission-report** — Added `totalOverdue`, `totalHirePayable`, `outstandingBalance`, `downPayment`, `earnedCommission`, `totalCommissions` to `ACCOUNTING_VAT_MASKED_FIELDS`
+
+### 🟡 MEDIUM (4)
+7. **Liabilities POST returns 500 for validation errors** — Now returns 400 for validation failures (missing fields, invalid amounts)
+8. **Assets POST missing `investmentHeadId` validation** — Added required field check, returns 400
+9. **Amortization API has no VAT masking** — Added masking for `principal`, `downPayment`, `netPrincipal`, `monthlyInstallment`, `totalPayable`, `totalInterest` and all schedule entry fields
+10. **Audit Logs POST allows manual log creation by non-admin** — Restricted to admin-only
+
+### 🟢 LOW (2, noted but not fixed)
+11. **Investments POST creates with different code prefix (INV- vs INVH-)** — Known issue from Phase 2
+12. **SR has MODULE_DENY for AuditDashboard/AuditTrail/LedgerAutoPost** — Design choice (SR shouldn't see sensitive audit data)
+
+## Files Changed
+1. `/home/z/my-project/src/lib/api-security.ts` — RBAC ROLE_GROUP_ACCESS update + 6 new ACCOUNTING_VAT_MASKED_FIELDS
+2. `/home/z/my-project/src/app/api/assets/[id]/route.ts` — Added checkFinancialDeletePermission
+3. `/home/z/my-project/src/app/api/assets/route.ts` — Added investmentHeadId validation
+4. `/home/z/my-project/src/app/api/liabilities/route.ts` — Fixed validation error status codes (500→400)
+5. `/home/z/my-project/src/app/api/audit-trail/route.ts` — Expanded VAT masking keywords (7→34)
+6. `/home/z/my-project/src/app/api/audit-logs/route.ts` — Expanded VAT masking keywords + admin-only POST
+7. `/home/z/my-project/src/app/api/data-integrity/route.ts` — Added details field masking for VAT Auditor
+8. `/home/z/my-project/src/app/api/system-audit-logs/route.ts` — Added VAT Auditor masking (previousState, newState, metadata)
+9. `/home/z/my-project/src/app/api/interest-percentages/amortization/route.ts` — Added VAT Auditor masking
+
+## UI Browser Testing Results (Admin login)
+- ✅ Investment Heads page loads with 7 tabs, real data, Import/Export CSV, Export PDF buttons
+- ✅ Investment Heads shows 16 heads, 9 active, Tk. 251,000.00 total opening balance
+- ✅ Financial Audit page loads with 7 tabs (KPI Dashboard, Fraud Detection, Ledger Auto-Post, Inventory Aging, Product Lifecycle, Specialized Reports, Notifications & Integrity)
+- ✅ Fraud Detection shows health score 78/100, Asset Valuation Metrics, Age Distribution Logs
+- ✅ No console errors or page errors
+- ✅ `bun run lint` passes clean
+- ✅ All API routes return 200 for authorized roles
+
+## API Verification Summary
+- SR now has read access to Investment Module (investment-heads, investments, liabilities, assets, asset-depreciation) ✅
+- VAT Auditor now has read access to Investment Module with proper financial masking ✅
+- Assets DELETE restricted to admin-only ✅
+- Liabilities POST validation returns 400 ✅
+- Assets POST validation returns 400 ✅
+- Amortization API masks all financial data for VAT Auditor ✅
+- Audit Trail/Logs mask details field with comprehensive financial keywords ✅
+- Data Integrity masks details JSON string for VAT Auditor ✅
+- System Audit Logs mask previousState/newState/metadata for VAT Auditor ✅
+- Audit Logs POST restricted to admin-only ✅
+- 6 new fields added to ACCOUNTING_VAT_MASKED_FIELDS ✅
+
+## Remaining Known Issues
+1. SR has MODULE_DENY for AuditDashboard, AuditTrail, LedgerAutoPost, DataIntegrityLog, InventoryAging — design choice, SR shouldn't see sensitive audit modules
+2. Investments POST creates with INV- prefix vs investment-heads INVH- — known low-priority issue
+3. Dashboard analytics Prisma timeout (P1008) — SQLite under heavy load, pre-existing
+4. MIS Reports Import CSV is validation-only (reports are read-only by design)

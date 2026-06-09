@@ -339,10 +339,15 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error('[Liabilities POST] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to create liability';
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Check for validation errors - return 400 instead of 500
+    const msg = error?.message || '';
+    if (msg.includes('required') || msg.includes('must be') || msg.includes('Invalid') || msg.includes('cannot be negative') || msg.includes('exceeds') || msg.includes('Cannot create') || msg.includes('Period is locked') || msg.includes('Insufficient')) {
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    if (error?.code === 'P2025') return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Failed to create liability' }, { status: 500 });
   }
 }
 

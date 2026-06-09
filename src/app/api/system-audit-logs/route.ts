@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, type UserRole } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import { sanitizeError } from '@/lib/exception-sanitizer';
 import { db } from '@/lib/db';
@@ -91,6 +91,16 @@ export async function GET(request: NextRequest) {
       newState: log.newState ? JSON.parse(log.newState) : null,
     }));
 
+    // Apply VAT Auditor masking on previousState and newState
+    const finalLogs = (userRole as UserRole) === 'vat_auditor'
+      ? parsedLogs.map((log) => ({
+          ...log,
+          previousState: log.previousState ? 'N/A (Audit Mode)' : null,
+          newState: log.newState ? 'N/A (Audit Mode)' : null,
+          metadata: log.metadata ? 'N/A (Audit Mode)' : log.metadata,
+        }))
+      : parsedLogs;
+
     // Log user activity with Sec-Audit-Overhaul module token
     await logUserActivity({
       action: 'EXPORT',
@@ -107,7 +117,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      logs: parsedLogs,
+      logs: finalLogs,
       total,
       page,
       pageSize,

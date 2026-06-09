@@ -33,6 +33,11 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+
+    // Validate investmentHeadId
+    if (!body.investmentHeadId) {
+      return NextResponse.json({ error: 'Investment Head is required' }, { status: 400 });
+    }
     
     // Period close check
     if (body.date) {

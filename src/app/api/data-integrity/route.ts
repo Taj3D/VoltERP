@@ -77,9 +77,14 @@ export async function GET(request: NextRequest) {
     ]);
 
     // VAT Auditor masking — mask discrepancy, expectedValue, actualValue fields
-    const masked = logs.map((log: Record<string, unknown>) =>
-      maskForVatAuditor(log, userRole, ['discrepancy', 'expectedValue', 'actualValue'])
-    );
+    const masked = logs.map((log: Record<string, unknown>) => {
+      const maskedLog = maskForVatAuditor(log, userRole, ['discrepancy', 'expectedValue', 'actualValue']);
+      // Also mask the details JSON string for VAT Auditor (contains financial data like totalDebit, totalCredit)
+      if (userRole === 'vat_auditor' && maskedLog.details) {
+        maskedLog.details = 'N/A (Audit Mode)';
+      }
+      return maskedLog;
+    });
 
     return NextResponse.json({ logs: masked, total, limit, offset });
   } catch (error) {

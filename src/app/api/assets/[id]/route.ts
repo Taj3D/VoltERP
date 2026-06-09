@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, checkPeriodClose, maskForVatAuditor } from '@/lib/api-security';
+import { withApiSecurity, checkPeriodClose, maskForVatAuditor, checkFinancialDeletePermission } from '@/lib/api-security';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Assets', 'GET');
@@ -88,6 +88,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Assets', 'DELETE');
   if (!security.authorized) return security.response;
+
+  // Admin-only financial delete check
+  const deleteCheck = checkFinancialDeletePermission(security.user.role);
+  if (deleteCheck) return deleteCheck;
+
   try {
     const { id } = await params;
     await db.$transaction(async (tx) => {

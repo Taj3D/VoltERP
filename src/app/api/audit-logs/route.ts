@@ -50,19 +50,46 @@ export async function GET(req: NextRequest) {
       orderBy: { action: "asc" },
     });
 
-    // VAT Auditor: mask details containing profit/margin/cost information
+    // VAT Auditor: mask details containing financial data
     const maskedLogs = logs.map((log: any) => {
       if (isVatAuditor && log.details) {
         const lower = (log.details as string).toLowerCase();
-        if (
+        const containsFinancialData =
           lower.includes('profit') ||
           lower.includes('margin') ||
           lower.includes('cost') ||
           lower.includes('writeoff') ||
           lower.includes('costprice') ||
           lower.includes('wholesaleprice') ||
-          lower.includes('dealerprice')
-        ) {
+          lower.includes('dealerprice') ||
+          lower.includes('amount') ||
+          lower.includes('balance') ||
+          lower.includes('total') ||
+          lower.includes('debit') ||
+          lower.includes('credit') ||
+          lower.includes('vat') ||
+          lower.includes('revenue') ||
+          lower.includes('payable') ||
+          lower.includes('receivable') ||
+          lower.includes('salary') ||
+          lower.includes('payment') ||
+          lower.includes('collection') ||
+          lower.includes('expense') ||
+          lower.includes('income') ||
+          lower.includes('purchase') ||
+          lower.includes('sales') ||
+          lower.includes('commission') ||
+          lower.includes('discount') ||
+          lower.includes('installment') ||
+          lower.includes('outstanding') ||
+          lower.includes('opening') ||
+          lower.includes('closing') ||
+          lower.includes('deposit') ||
+          lower.includes('withdrawal') ||
+          lower.includes('stockvalue') ||
+          lower.includes('quantity');
+        
+        if (containsFinancialData) {
           return { ...log, details: 'N/A (Audit Mode)' };
         }
       }
@@ -84,6 +111,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const security = await withApiSecurity(req, 'AuditLogs', 'POST');
   if (!security.authorized) return security.response;
+
+  // Restrict audit log creation to admin only (audit logs should be system-generated)
+  if (security.user.role !== 'admin') {
+    return NextResponse.json(
+      { error: 'Only administrators can create audit log entries' },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { action, module, recordId, recordLabel, userId, userName, details, ip } = body;

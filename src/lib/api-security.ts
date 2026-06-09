@@ -115,9 +115,9 @@ const MODULE_GROUP_MAP: Record<string, string> = {
 const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
   admin: ['*'],
   manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'audit-integrity', 'system-config', 'report', 'user-profile'],
-  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile'],
+  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile', 'investment', 'audit-integrity'],
   dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report', 'user-profile'],
-  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'account', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile'],
+  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'account', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile', 'investment'],
 };
 
 // Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
@@ -840,6 +840,13 @@ export const ACCOUNTING_VAT_MASKED_FIELDS = [
   'totalCost',
   // Ledger integrity / unbalanced amounts
   'difference',
+  // Commission & Hire Purchase report fields
+  'totalOverdue',
+  'totalHirePayable',
+  'outstandingBalance',
+  'downPayment',
+  'earnedCommission',
+  'totalCommissions',
 ];
 
 /**

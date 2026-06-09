@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity, safeFinancialRound } from '@/lib/api-security';
+import { withApiSecurity, safeFinancialRound, maskForVatAuditor } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 import { db } from '@/lib/db';
 
@@ -213,7 +213,9 @@ export async function GET(request: NextRequest) {
       }),
     });
 
-    return NextResponse.json({
+    // Apply VAT Auditor masking
+    const userRole = security.user.role;
+    let responseData: Record<string, unknown> = {
       principal,
       downPayment,
       netPrincipal,
@@ -224,7 +226,25 @@ export async function GET(request: NextRequest) {
       totalPayable,
       totalInterest,
       schedule,
-    });
+    };
+
+    if (userRole === 'vat_auditor') {
+      responseData = maskForVatAuditor(responseData, userRole, [
+        'principal', 'downPayment', 'netPrincipal', 'monthlyInstallment', 'totalPayable', 'totalInterest',
+      ]);
+      // Mask schedule entries
+      responseData.schedule = schedule.map((item: any) => ({
+        ...item,
+        month: item.month,
+        openingBalance: 'N/A (Audit Mode)',
+        installment: 'N/A (Audit Mode)',
+        interestComponent: 'N/A (Audit Mode)',
+        principalComponent: 'N/A (Audit Mode)',
+        closingBalance: 'N/A (Audit Mode)',
+      }));
+    }
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Error calculating amortization schedule:', error instanceof Error ? error.message : error);
     return NextResponse.json(
