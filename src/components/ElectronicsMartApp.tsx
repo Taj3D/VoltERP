@@ -6243,7 +6243,7 @@ function AppLayout() {
       "product-wise-benefit", "income-report", "adjustment-report", "transaction-summary",
       "monthly-transaction", "showroom-analysis", "bank-ledger-report", "transfer-report",
     ]);
-    if (misReportKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="MIS Reports"><React.Suspense fallback={<LazyFallback />}><MISReportEngine key={currentPage} initialReport={currentPage} /></React.Suspense></ModuleErrorBoundary>;
+    if (misReportKeys.has(currentPage)) return <ModuleErrorBoundary moduleName="MIS Reports"><React.Suspense fallback={<LazyFallback />}><MISReportEngine initialReport={currentPage} /></React.Suspense></ModuleErrorBoundary>;
 
     // Customer & Supplier Ledger - dedicated page with aging buckets
     const customerLedgerKeys = new Set(["customer-ledger-report"]);

@@ -739,6 +739,72 @@ Task: Fix ESLint config, verify roles, improve skeleton/login/error-boundary, ve
 - ✅ Password change flow verified end-to-end
 
 ---
+Task ID: 6
+Agent: VAT Masking Agent
+Task: Add maskVat() to all financial fields in MIS Reports API
+
+## Work Log
+
+Applied VAT masking (`maskVat(value, params.vatMode)`) to all financial fields across 30+ report functions in `/home/z/my-project/src/app/api/mis-reports/route.ts`. When `params.vatMode` is true (VAT Auditor role), financial values are replaced with `'N/A (Audit Mode)'` instead of actual amounts.
+
+### Reports Fixed (30 functions)
+
+1. **dailyPurchase** — totalValue in rows, summary (totalValue, avgDaily), chartData
+2. **supplierWisePurchase** — totalValue in rows, summary, chartData
+3. **supplierCashDelivery** — amount in rows, totalAmount in summary, chartData
+4. **supplierDue** — openingBalance, totalPurchase, totalDeliveries, totalReturns, outstanding in rows, totalOutstanding in summary, chartData
+5. **modelWisePurchase** — totalValue in rows, summary, chartData
+6. **vatReport** — vatAmount, grandTotal in rows, purchaseVAT, salesVAT, netVAT in summary, chartData
+7. **dailySales** — totalValue in rows, summary (totalValue, avgDaily), chartData
+8. **modelWiseSales** — totalValue in rows, summary, chartData
+9. **installmentCollection** — amount, paidAmount in rows, totalCollected in summary, chartData
+10. **upcomingInstallment** — amount in rows, totalDue in summary, chartData
+11. **defaultingCustomer** — amount in rows, totalOverdue in summary, chartData
+12. **defaultCustomerSummary** — totalOverdue in rows, summary, chartData
+13. **hireAccountDetails** — grandTotal, totalPaid, balanceAmount in rows, summary (totalGrand, totalPaid, totalBalance), chartData
+14. **srWiseSales** — totalValue in rows, summary, chartData
+15. **srWiseSalesDetails** — rate, total in rows, totalValue in summary, chartData
+16. **srWiseCustomerDue** — totalSales, totalPaid, totalReturns, outstanding in rows, totalOutstanding in summary, chartData
+17. **srWiseCustomerSummary** — totalRevenue, totalCollections, balance in rows
+18. **srWiseCashCollection** — amount in rows, totalAmount in summary, chartData
+19. **srCommissionReport** — totalSales, commission in rows, summary, chartData
+20. **customerWiseSales** — totalValue in rows, summary, chartData
+21. **categoryWiseCustomerDue** — totalDue in rows, summary, chartData
+22. **customerLedger** — summary fields (openingBalance, totalDebit, totalCredit, closingBalance) masked
+23. **customerDueReport** — openingBalance, totalSales, totalPaid, outstanding in rows, totalOutstanding in summary, chartData
+24. **customerCashCollection** — amount in rows, totalAmount in summary, chartData
+25. **customerLedgerSummary** — all financial fields in rows (openingBalance, totalSales, totalReturns, totalCollections, balance), all summary fields, chartData
+26. **expenseReport** — totalAmount in rows, summary (totalAmount, avgExpense), chartData
+27. **incomeReport** — totalAmount in rows, summary (totalAmount, avgIncome), chartData
+28. **adjustmentReport** — debit, credit in rows, totalDebit, totalCredit in summary
+29. **transactionSummary** — totalAmount in all 7 row types, chartData
+30. **monthlyTransaction** — expenses in rows (was missing), totalExpenses in summary (was missing), chartData expenses
+31. **managementReport** — revenue, otherIncome, totalRevenue, operatingExpenses in rows (previously partially masked), all summary fields now masked, chartData
+32. **bankTransactionReport** — amount, runningBalance in rows, all totals in summary, chartData
+33. **bankBalanceReport** — openingBalance, deposits, withdrawals, currentBalance in rows, summary totals, chartData
+34. **transferReport** — amount in rows, totalAmount in summary, chartData
+
+### Specific Bug Fixes
+
+1. **monthlyTransaction** — `expenses: v.expenses` was not masked → now `expenses: maskVat(v.expenses, params.vatMode)`. Summary `totalExpenses` was `fmt(...)` → now `params.vatMode ? 'N/A (Audit Mode)' : fmt(...)`. ChartData `expenses: v.expenses` → `expenses: params.vatMode ? 0 : v.expenses`.
+2. **managementReport** — `revenue`, `otherIncome`, `totalRevenue` rows were unmasked (`fmt(revenue)` etc.) → now `maskVat(fmt(revenue), params.vatMode)`. `operatingExpenses` row was `fmt(operatingExpenses)` → now `maskVat(fmt(operatingExpenses), params.vatMode)`. Summary `revenue` and `operatingExpenses` were unmasked → now masked. ChartData `revenue` and `expenses` now use `params.vatMode ? 0 :` prefix.
+3. **bankTransactionReport** — `runningBalance` was raw → now `maskVat(t.runningBalance, params.vatMode)`. All summary totals masked.
+
+### Pattern Applied
+
+- **Row financial fields**: `fieldName: maskVat(rawValue, params.vatMode)`
+- **Summary financial fields**: `fieldName: params.vatMode ? 'N/A (Audit Mode)' : fmt(rawValue)`
+- **ChartData numeric values**: `fieldName: params.vatMode ? 0 : rawValue`
+- **Filter adjustments**: For `.filter((r) => r.outstanding > 0)` patterns where outstanding is now masked, added `|| params.vatMode` to prevent filtering out all rows in audit mode
+
+### Files Changed
+- `/home/z/my-project/src/app/api/mis-reports/route.ts` — VAT masking added to 30+ report functions
+
+### Verification
+- ✅ `bun run lint` passes with zero errors
+- ✅ Dev server running on port 3000
+
+---
 Task ID: phase-1
 Agent: Main Orchestrator
 Task: ধাপ ১ — Password Hashing (bcrypt) ইমপ্লিমেন্টেশন
@@ -8412,3 +8478,292 @@ Task: Deep Audit Phase 4 — Products & Bank Modules (CRUD, API, Export/Import, 
 ## Remaining Minor Issues
 1. Duplicate ProductsPage implementations (inline vs BasicModulesGroupPage tab) — low priority, both work
 2. Product code generation in batch mode uses `maxNum + 1 + created.length` which could theoretically collide under concurrent imports
+---
+Task ID: 7
+Agent: Bug Fix Agent
+Task: Critical and high-priority bug fixes in MIS Report Engine frontend
+
+## Bugs Fixed
+
+### C1. Tab-change useEffect Overwrites initialReport-Derived Subtype (CRITICAL)
+- **Problem**: When a user clicks a sidebar report like "VAT Report", the initialReport prop correctly resolves to `{ category: "purchase", subtype: "vat-report" }`. But the useEffect that fires on activeTab change overrides the subtype with the first subtype of the tab ("supplier-ledger").
+- **Fix**: Added `initialReportProcessed` flag state. The initialReport sync useEffect sets this flag to true when it processes a report. The tab-change useEffect checks the flag — if true, it skips the override and resets the flag. This ensures the subtype from initialReport is preserved.
+- **File**: `/home/z/my-project/src/components/MISReportEngine.tsx`
+
+### C4. `key={currentPage}` Causes Full Remount (CRITICAL)
+- **Problem**: ElectronicsMartApp rendered `<MISReportEngine key={currentPage} initialReport={currentPage} />`. The `key` prop causes React to fully unmount and remount the component on every sidebar navigation, making the `useEffect [initialReport]` sync useless and losing all loaded data/filter selections.
+- **Fix**: Removed `key={currentPage}` from MISReportEngine rendering. The component now persists across sidebar navigation and uses the `useEffect [initialReport]` to sync state instead.
+- **File**: `/home/z/my-project/src/components/ElectronicsMartApp.tsx`
+
+### C5. Entity Filter Sends "all" as entityId to API (CRITICAL)
+- **Problem**: When user selects "All Suppliers" in entity filter, `entityFilter` becomes `"all"`, which gets sent as `&entityId=all` to the API. Similarly, groupBy="none" and sortField="default" were sent as API params.
+- **Fix**: Added guard conditions in `generateReport` function:
+  - `entityFilter && entityFilter !== "all"` — skip entityId when "all" is selected
+  - `groupBy && groupBy !== "none"` — skip groupBy when "none" is selected
+  - `sortField && sortField !== "default"` — skip sortField when "default" is selected
+- **File**: `/home/z/my-project/src/components/MISReportEngine.tsx`
+
+### C3. No Pagination for Large Datasets (CRITICAL)
+- **Problem**: The report table rendered all rows at once, causing performance issues with large datasets.
+- **Fix**: Added complete pagination system:
+  - `currentPageNum` and `pageSize` state variables (default 50 rows/page)
+  - `paginatedRows` useMemo that slices sortedRows for the current page
+  - `totalPages` computed from sortedRows.length / pageSize
+  - useEffect to reset currentPageNum when reportData changes
+  - Table now renders `paginatedRows` instead of `sortedRows`
+  - Row numbering uses global index (accounts for page offset)
+  - Pagination controls below table: Previous/Next buttons, page number display
+  - Page size selector (25/50/100/500 rows)
+  - Record count shows "Showing X–Y of Z records"
+- **File**: `/home/z/my-project/src/components/MISReportEngine.tsx`
+
+### H1. VAT Auditor Table Only Masks 4 Currency Fields (HIGH)
+- **Problem**: The table cell masking condition was too narrow — only masking columns whose keys contained "cost", "margin", "profit", or "internal". Other currency fields like "amount", "due", "balance", "vat", etc. were shown unmasked to VAT auditors.
+- **Fix**: Changed the masking condition from hardcoded column name checks to use `detectColumnType()`: `const isMasked = isVatAuditor && ct === "currency"`. This ensures ALL currency-type columns are masked for VAT auditors, consistent with the export CSV/PDF behavior.
+- **File**: `/home/z/my-project/src/components/MISReportEngine.tsx`
+
+### M1. Timezone Bug in Default Date Initialization + Bengali Digit Safety (MEDIUM)
+- **Problem**: Default dates used `toISOString().split("T")[0]` which converts to UTC, causing timezone-dependent date shifts (e.g., March 1 local time becomes Feb 28 in UTC+5:30+). Also, `toLocaleDateString("en-GB")` can produce Bengali digits on some systems.
+- **Fix**: 
+  - Replaced timezone-unsafe date initialization with manual date formatting: `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+  - Added `toLatinDigits()` helper function that converts Bengali digits (০-৯) to Latin (0-9)
+  - Wrapped `fmt()` currency output with `toLatinDigits()` 
+  - Wrapped `fmt()` date output with `toLatinDigits()`
+- **File**: `/home/z/my-project/src/components/MISReportEngine.tsx`
+
+## Files Changed
+1. `/home/z/my-project/src/components/MISReportEngine.tsx` — 6 bug fixes (C1, C3, C5, H1, M1 + pagination)
+2. `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Removed `key={currentPage}` from MISReportEngine (C4)
+
+## Verification
+- ✅ ESLint passes cleanly (`bun run lint` — 0 errors)
+- ✅ Dev server running on port 3000 (HTTP 200)
+- ✅ No TypeScript compilation errors
+
+---
+Task ID: 4
+Agent: MIS Reports Bug Fix Agent
+Task: Fix critical and high-priority bugs in MIS Reports API at /src/app/api/mis-reports/route.ts
+
+## CRITICAL FIXES (7)
+
+### C1. showroomAnalysis — Wrong field names cause NaN
+- **Bug**: `line.lineTotal` and `line.unitPrice` don't exist on SalesOrderLine (actual fields are `total` and `rate`), causing NaN in revenue calculations
+- **Fix**: Changed `line.lineTotal || line.quantity * line.unitPrice` → `line.total || safeFinancialRound(line.quantity * line.rate)` using safeFinancialAdd wrapper
+
+### C2. srWiseSales — Even distribution bug
+- **Bug**: Sales were distributed evenly across all SRs (`srData.totalOrders += 1 / srMap.size`), giving every SR the same credit
+- **Fix**: Replaced even distribution loop with actual SR attribution using `so.srId`. Now each SalesOrder is attributed to its actual SR. Changed query to `include: { sr: true }` and filter by `so.srId` in srMap.
+
+### C3. srCommissionReport — Same even distribution + hardcoded 2% commission
+- **Bug**: Same even distribution as C2, plus commission rate was hardcoded at 2%
+- **Fix**: 
+  - Replaced even distribution with `so.srId`-based attribution
+  - Added `db.sRTargetSetup.findMany()` query to fetch per-SR commission percentages
+  - Commission rate now uses `target.commissionPercentage` from SRTargetSetup instead of hardcoded 0.02
+
+### C4. monthlyTransaction — Regex bugs (3 occurrences)
+- **Bug**: All 3 regex patterns used `/d{2} (w{3}) (d{4})/` — missing backslash escapes for `\d` and `\w`
+- **Fix**: Changed all 3 to `/\d{2} (\w{3}) (\d{4})/`
+
+### C5. managementReport — Same regex bugs (2 occurrences)
+- **Bug**: Same missing backslash escapes as C4
+- **Fix**: Changed both to `/\d{2} (\w{3}) (\d{4})/`
+
+### C6. supplierLedger — Running balance sign inverted + summary order
+- **Bug**: `running += e.credit - e.debit` was inverted. In a supplier ledger, purchases (debit) increase what we owe, payments/returns (credit) decrease it.
+- **Fix**: Changed to `running += e.debit - e.credit`
+- **Summary fix**: Changed `netBalance: maskVat(totalCredit - totalDebit)` → `maskVat(safeFinancialRound(totalDebit - totalCredit))`
+
+### C7. bank-ledger-report missing implementation
+- **Bug**: Both bank-ledger-report and bank-balance-report fell through to `bankBalanceReport()`
+- **Fix**: Created new `bankLedgerReport()` function that:
+  - Fetches bank transactions for specified bank with date filtering
+  - Computes running balance (Deposits = credit, Withdrawals/Transfers = debit)
+  - Returns columns: date, code, bank, type, debit, credit, runningBalance, toBank, description
+  - Applies VAT masking and sortRows/groupRows
+  - Updated switch case to route bank-ledger-report to new function separately
+
+## HIGH FIXES (12)
+
+### H1. supplierDue — UUID vs Code filter
+- **Bug**: Filtered by `supplierCode === params.supplierId` which compared code to UUID, never matching
+- **Fix**: Added `_supplierId: s.id` to row data, filtered with `r._supplierId === params.supplierId`
+
+### H2. customerDueReport — UUID vs Code mismatch
+- **Bug**: Same as H1 — filtered by `customerCode === params.customerId`
+- **Fix**: Added `_customerId: c.id` to row data, filtered with `r._customerId === params.customerId`
+
+### H3. customerLedgerSummary — UUID vs Code mismatch
+- **Bug**: Same as H2
+- **Fix**: Added `_customerId: c.id`, filtered with `r._customerId === params.customerId`
+
+### H4. srWiseCustomerDue — Missing SR filtering
+- **Bug**: No filtering by employeeId/SR — showed all customers regardless
+- **Fix**: Added SR filtering — when `params.employeeId` is provided, only include customers whose cashCollections have `cc.srId === params.employeeId`
+
+### H5. srWiseCustomerSummary — Missing SR filtering
+- **Fix**: Same as H4 — pre-filters customers by SR-attributed cashCollections
+
+### H6. srWiseCustomerStatus — Missing SR filtering
+- **Fix**: Same pattern — pre-filters customers by SR-attributed cashCollections
+
+### H7. srWiseCashCollection — Missing SR filtering
+- **Fix**: Added `if (params.employeeId) where.srId = params.employeeId` to the Prisma query
+
+### H8. defaultingCustomer — Missing date filtering
+- **Bug**: No date filter applied to hire sales dates despite `params.from/params.to` being available
+- **Fix**: Added `buildDateFilter()` and applied it as `hireWhere` on the `hireSales` include
+
+### H9. defaultCustomerSummary — Missing date filtering
+- **Fix**: Same as H8 — applied date filter on hire sales include
+
+### H10. bankBalanceReport — Date filter unused
+- **Bug**: `buildDateFilter()` was called but never used in the bankTransactions query
+- **Fix**: Created `btWhere` object with date filter, applied to `bankTransactions: { where: btWhere }`
+
+### H11. Summary totals break when groupBy is active
+- **Bug**: In stockDetails, stockQty, stockForecastProduct, supplierDue, and upcomingInstallment, summary was calculated from `rows` AFTER `groupRows()`, which transforms rows into group objects — breaking `.reduce()` on original row fields
+- **Fix**: Moved summary calculations BEFORE `groupRows()` in all 5 affected reports
+
+### H12. categoryWiseCustomerDue — Due split evenly
+- **Bug**: `existing.totalDue += due / categories.size` split the customer's outstanding evenly across categories, which is incorrect
+- **Fix**: Changed to `existing.totalDue += due` — shows the full outstanding amount for each category the customer purchased from
+
+## ADDITIONAL FIXES
+
+### buildDateFilter called 3× per supplier in supplierLedger
+- **Bug**: `buildDateFilter(params.from, params.to)` was called 3 times per supplier inside the loop (once per PO, PR, CD iteration)
+- **Fix**: Moved `const dateFilter = buildDateFilter(params.from, params.to)` before the supplier loop
+
+### Missing groupRows() calls
+- **Fix**: Added `rows = groupRows(rows, params.groupBy)` to all 32 report functions that were missing it, ensuring consistent grouping support across all MIS reports
+
+## Verification
+- `bun run lint` passes with zero errors
+- Dev server running on port 3000 (HTTP 200)
+- No TypeScript compilation errors in the modified file
+
+---
+Task ID: phase13
+Agent: Main Orchestrator
+Task: Deep Audit Phase 13 — Financial Audit & MIS Report - Basic & Purchase Reports
+
+## Phase 13 Scope
+MIS Report Engine (9 category tabs, 47+ report subtypes) — deep audit and fix of all backend API reports and frontend components.
+
+## Reference Site Study (embd-j.com)
+- Studied all 46 sub-reports across 10 MIS categories on embd-j.com
+- Documented filter patterns, column structures, PDF formats, and UI patterns
+- Key patterns: Entity picker modals, date range filters, radio report types (Summary/Detail), server-side PDF rendering
+
+## Bugs Found & Fixed
+
+### 🔴 CRITICAL Backend Fixes (7)
+
+1. **showroomAnalysis NaN crash** — Used non-existent `line.lineTotal` and `line.unitPrice` fields. Fixed to `line.total || safeFinancialRound(line.quantity * line.rate)`. All revenue/avgOrderValue values were NaN before.
+
+2. **srWiseSales even-distribution bug** — Distributed ALL sales evenly across ALL SRs instead of using `so.srId`. Rewrote to attribute each SO to its actual SR via `so.srId`. Now includes `sr: true` in the query.
+
+3. **srCommissionReport same bug** — Same even-distribution pattern + hardcoded 2% commission. Fixed to use `so.srId` for attribution and `SRTargetSetup.commissionPercentage` for per-SR rates.
+
+4. **monthlyTransaction regex bug** — Three instances of `/d{2} (w{3}) (d{4})/` missing backslash escapes. Never matched, so monthly grouping was completely broken (each day was its own "month"). Fixed to `/\d{2} (\w{3}) (\d{4})/`.
+
+5. **managementReport same regex bug** — Two instances of same unescaped regex. Fixed identically.
+
+6. **supplierLedger inverted running balance** — `running += e.credit - e.debit` was wrong sign convention. Purchases (debit) should increase what we owe. Fixed to `running += e.debit - e.credit`. Also fixed summary to `totalDebit - totalCredit`.
+
+7. **bank-ledger-report missing implementation** — Both bank-ledger-report and bank-balance-report fell through to bankBalanceReport(). Created dedicated `bankLedgerReport()` function with transaction-level entries, running balance, debit/credit columns, and VAT masking.
+
+### 🟠 HIGH Backend Fixes (12)
+
+1. **supplierDue UUID vs Code filter** — Filtered by `supplierCode === supplierId` (UUID never matches code). Added `_supplierId: s.id` to row data and filter by it.
+
+2. **customerDueReport same UUID/Code bug** — Added `_customerId: c.id` to row data and filter by it.
+
+3. **customerLedgerSummary same UUID/Code bug** — Same fix pattern.
+
+4. **srWiseCustomerDue — no SR filtering** — Added SR filter via customer's `cashCollections.srId === params.employeeId`.
+
+5. **srWiseCustomerSummary — no SR filtering** — Same pattern.
+
+6. **srWiseCustomerStatus — no SR filtering** — Same pattern.
+
+7. **srWiseCashCollection — no SR filtering** — Added `where.srId = params.employeeId` to Prisma query.
+
+8. **defaultingCustomer — no date filtering** — Applied `buildDateFilter()` to hire sales include clause.
+
+9. **defaultCustomerSummary — no date filtering** — Same fix.
+
+10. **bankBalanceReport — date filter unused** — Applied `btWhere` with date filter to bankTransactions query.
+
+11. **Summary totals break when groupBy active** — Moved summary calculations before `groupRows()` in stockDetails, stockQty, stockForecastProduct, supplierDue, upcomingInstallment.
+
+12. **categoryWiseCustomerDue — due split evenly** — Changed `due / categories.size` to `due` (full outstanding per category).
+
+### 🟡 MEDIUM Backend Fixes (34 reports)
+
+1. **VAT masking added to all 34 reports** — Added `maskVat()` to all financial row fields, summary values, and chartData across all MIS report functions:
+   - dailyPurchase, supplierWisePurchase, supplierCashDelivery, supplierDue, modelWisePurchase
+   - vatReport, dailySales, modelWiseSales, installmentCollection, upcomingInstallment
+   - defaultingCustomer, defaultCustomerSummary, hireAccountDetails, srWiseSales, srWiseSalesDetails
+   - srWiseCustomerDue, srWiseCustomerSummary, srWiseCashCollection, srCommissionReport
+   - customerWiseSales, categoryWiseCustomerDue, customerLedger, customerDueReport
+   - customerCashCollection, customerLedgerSummary, expenseReport, incomeReport
+   - adjustmentReport, transactionSummary, monthlyTransaction, managementReport
+   - bankTransactionReport, bankBalanceReport, transferReport
+
+2. **monthlyTransaction expenses unmasked** — `expenses: v.expenses` was raw → now `maskVat(v.expenses, params.vatMode)`. Summary `totalExpenses` also masked.
+
+3. **managementReport revenue/expenses unmasked** — Revenue, otherIncome, totalRevenue, operatingExpenses rows and summary values now masked.
+
+4. **bankTransactionReport runningBalance unmasked** — Now properly masked.
+
+5. **buildDateFilter called 3× per supplier** — Moved `const dateFilter = buildDateFilter()` before the supplier loop.
+
+6. **Missing groupRows() calls** — Added to all 32 report functions that were missing it.
+
+### 🔴 CRITICAL Frontend Fixes (4)
+
+1. **Tab-change useEffect overwrites initialReport subtype** — When clicking sidebar "VAT Report", the tab-change effect overrode subtype with first tab option ("supplier-ledger"). Added `initialReportProcessed` flag to skip tab-change effect when navigating from sidebar. Also clears stale reportData and resets pagination.
+
+2. **`key={currentPage}` causes full remount** — Removed `key={currentPage}` from MISReportEngine in ElectronicsMartApp.tsx. Component now persists across sidebar navigation, preserving state (loaded data, filter selections, pagination).
+
+3. **Entity filter sends "all" as entityId** — Added guards: `entityFilter !== "all"`, `groupBy !== "none"`, `sortField !== "default"` before appending to API URL.
+
+4. **No pagination for large datasets** — Added `currentPageNum`/`pageSize` state, `paginatedRows` useMemo, pagination controls (Previous/Next, page size selector 25/50/100/500), record count display.
+
+### 🟠 HIGH Frontend Fixes (2)
+
+1. **VAT Auditor table only masks 4 currency fields** — Changed from hardcoded column name checks (cost/margin/profit/internal) to `detectColumnType(col.key) === "currency"` for consistent masking of ALL financial fields.
+
+2. **Timezone bug in default dates** — Replaced `toISOString().split("T")[0]` with manual date formatting to avoid UTC offset issues at Bangladesh midnight.
+
+### 🟡 MEDIUM Frontend Fixes (2)
+
+1. **Bengali digit safety** — Added `toLatinDigits()` helper to convert Bengali digits (০-৯) to Latin (0-9). Wrapped `fmt()` currency and date output.
+
+2. **Stale table after sidebar deep-link** — Added `setReportData(null)` and `setCurrentPageNum(1)` in the initialReport useEffect to clear stale data.
+
+## Files Changed
+1. `/home/z/my-project/src/app/api/mis-reports/route.ts` — 7 critical + 12 high + 34 VAT masking + 6 medium fixes
+2. `/home/z/my-project/src/components/MISReportEngine.tsx` — 4 critical + 2 high + 2 medium frontend fixes
+3. `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Removed `key={currentPage}` from MISReportEngine
+
+## Browser Test Results (Agent-Browser)
+- ✅ Admin login: MIS Report Engine loads with all 9 tabs
+- ✅ Employee Information report generates with data (2 employees), stat cards, chart, pagination
+- ✅ Stock Details report shows 3 products with IN/OUT/Balance
+- ✅ Bank Ledger shows transaction-level entries (not just balance summary)
+- ✅ Sidebar deep-links correctly switch tab AND subtype
+- ✅ VAT Auditor mode: All financial fields show "N/A (Audit Mode)" in dashboard
+- ✅ Pagination controls visible (page size selector, Previous/Next buttons)
+- ✅ No console errors during navigation
+- ⚠️ Many reports empty (no purchase/sales/expense data in DB for full verification)
+
+## Remaining Known Issues
+1. Some reports show empty data due to lack of transactional data in DB — need seed data for full testing
+2. Export PDF/CSV/Copy buttons need toast confirmation feedback
+3. Advance Search report needs IMEI-based search implementation
+4. No print CSS for MIS reports
+5. Cross-phase items still open: responsive design, sidebar, scrolling, PDF digits

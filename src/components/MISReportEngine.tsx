@@ -228,18 +228,21 @@ const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype:
 
 const misCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Bengali→Latin digit safety
+const toLatinDigits = (s: string): string => s.replace(/[০-৯]/g, (d) => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
+
 const fmt = (v: unknown, type?: string) => {
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return String(v);
   if (v === null || v === undefined) return "—";
   if (type === "currency")
-    return `Tk. ${misCurrencyFmt.format(Number(v))}`;
+    return toLatinDigits(`Tk. ${misCurrencyFmt.format(Number(v))}`);
   if (type === "date")
     return v
-      ? new Date(v as string).toLocaleDateString("en-GB", {
+      ? toLatinDigits(new Date(v as string).toLocaleDateString("en-GB", {
           day: "2-digit",
           month: "short",
           year: "numeric",
-        })
+        }))
       : "—";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -307,11 +310,11 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
 
   // --- Filter state ---
   const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const [fromDate, setFromDate] = useState(
-    monthStart.toISOString().split("T")[0]
-  );
-  const [toDate, setToDate] = useState(today.toISOString().split("T")[0]);
+  const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth()+1).padStart(2,'0')}-${String(monthStart.getDate()).padStart(2,'0')}`;
+  const [fromDate, setFromDate] = useState(monthStartStr);
+  const [toDate, setToDate] = useState(todayStr);
   const [subtype, setSubtype] = useState(resolved ? resolved.subtype : "");
   const [entityFilter, setEntityFilter] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -332,6 +335,10 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
   const [tableSortField, setTableSortField] = useState("");
   const [tableSortOrder, setTableSortOrder] = useState<"asc" | "desc">("asc");
 
+  // --- Pagination state ---
+  const [currentPageNum, setCurrentPageNum] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   // --- Entity options for filters ---
   const [entityOptions, setEntityOptions] = useState<
     { id: string; name: string }[]
@@ -340,6 +347,9 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
   // --- Derived: current category config ---
   const currentCategory = REPORT_CATEGORIES[activeTab];
 
+  // --- Flag to skip tab-change effect when mounting from initialReport ---
+  const [initialReportProcessed, setInitialReportProcessed] = useState(false);
+
   // --- Sync activeTab and subtype when initialReport prop changes (sidebar navigation) ---
   useEffect(() => {
     if (!initialReport) return;
@@ -347,11 +357,19 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
     if (mapped) {
       if (mapped.category !== activeTab) setActiveTab(mapped.category);
       setSubtype(mapped.subtype);
+      setInitialReportProcessed(true);
+      // BUG FIX: Clear stale report data when navigating via sidebar
+      setReportData(null);
+      setCurrentPageNum(1);
     }
   }, [initialReport]);
 
   // --- Set default subtype when tab changes ---
   useEffect(() => {
+    if (initialReportProcessed) {
+      setInitialReportProcessed(false);
+      return;
+    }
     const subs = REPORT_CATEGORIES[activeTab].subtypes;
     setSubtype(subs.length > 0 ? subs[0].value : "");
     setEntityFilter("");
@@ -448,6 +466,17 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
     return rows;
   }, [reportData, tableSortField, sortField, tableSortOrder]);
 
+  // --- Paginated rows for display ---
+  const paginatedRows = useMemo(() => {
+    const start = (currentPageNum - 1) * pageSize;
+    return sortedRows.slice(start, start + pageSize);
+  }, [sortedRows, currentPageNum, pageSize]);
+
+  const totalPages = Math.ceil(sortedRows.length / pageSize);
+
+  // --- Reset page when report data changes ---
+  useEffect(() => { setCurrentPageNum(1); }, [reportData]);
+
   // --- Summary stat cards ---
   const statCards = useMemo(() => {
     if (!reportData?.summary) return [];
@@ -523,12 +552,12 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
     try {
       const apiType = currentCategory.apiType;
       let url = `/api/mis-reports?type=${apiType}&subtype=${subtype}&from=${fromDate}&to=${toDate}`;
-      if (entityFilter && activeTab !== "advance-search" && activeTab !== "management")
+      if (entityFilter && entityFilter !== "all" && activeTab !== "advance-search" && activeTab !== "management")
         url += `&entityId=${entityFilter}`;
       if (keyword && activeTab === "advance-search")
         url += `&keyword=${encodeURIComponent(keyword)}`;
-      if (sortField) url += `&sortField=${sortField}&sortOrder=${sortOrder}`;
-      if (groupBy) url += `&groupBy=${groupBy}`;
+      if (groupBy && groupBy !== "none") url += `&groupBy=${groupBy}`;
+      if (sortField && sortField !== "default") url += `&sortField=${sortField}&sortOrder=${sortOrder}`;
       if (isVatAuditor) url += `&vatMode=true`;
 
       const data = await apiFetch(url);
@@ -1187,57 +1216,54 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
                         </TableCell>
                       </TableRow>
                     ) : (
-                      sortedRows.map((row, idx) => (
-                        <TableRow
-                          key={idx}
-                          className={
-                            idx % 2 === 0
-                              ? "bg-background"
-                              : "bg-muted/20 hover:bg-muted/40"
-                          }
-                        >
-                          <TableCell className="text-center text-xs text-muted-foreground font-mono">
-                            {idx + 1}
-                          </TableCell>
-                          {reportData.columns.map((col) => {
-                            const val = row[col.key];
-                            const ct = detectColumnType(col.key);
-                            const isMasked =
-                              isVatAuditor &&
-                              ct === "currency" &&
-                              (col.key.toLowerCase().includes("cost") ||
-                                col.key.toLowerCase().includes("margin") ||
-                                col.key.toLowerCase().includes("profit") ||
-                                col.key.toLowerCase().includes("internal"));
-                            return (
-                              <TableCell
-                                key={col.key}
-                                className={`whitespace-nowrap ${
-                                  ct === "currency"
-                                    ? "font-mono text-right"
-                                    : ct === "date"
-                                      ? "font-mono"
+                      paginatedRows.map((row, idx) => {
+                        const globalIdx = (currentPageNum - 1) * pageSize + idx;
+                        return (
+                          <TableRow
+                            key={globalIdx}
+                            className={
+                              globalIdx % 2 === 0
+                                ? "bg-background"
+                                : "bg-muted/20 hover:bg-muted/40"
+                            }
+                          >
+                            <TableCell className="text-center text-xs text-muted-foreground font-mono">
+                              {globalIdx + 1}
+                            </TableCell>
+                            {reportData.columns.map((col) => {
+                              const val = row[col.key];
+                              const ct = detectColumnType(col.key);
+                              const isMasked = isVatAuditor && ct === "currency";
+                              return (
+                                <TableCell
+                                  key={col.key}
+                                  className={`whitespace-nowrap ${
+                                    ct === "currency"
+                                      ? "font-mono text-right"
+                                      : ct === "date"
+                                        ? "font-mono"
+                                        : ""
+                                  } ${
+                                    isMasked
+                                      ? "text-amber-500 italic"
                                       : ""
-                                } ${
-                                  isMasked
-                                    ? "text-amber-500 italic"
-                                    : ""
-                                }`}
-                              >
-                                {isMasked
-                                  ? "N/A (Audit Mode)"
-                                  : ct === "currency"
-                                    ? fmt(val, "currency")
-                                    : ct === "date"
-                                      ? fmt(val, "date")
-                                      : ct === "percent"
-                                        ? fmt(val, "percent")
-                                        : String(val ?? "—")}
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      ))
+                                  }`}
+                                >
+                                  {isMasked
+                                    ? "N/A (Audit Mode)"
+                                    : ct === "currency"
+                                      ? fmt(val, "currency")
+                                      : ct === "date"
+                                        ? fmt(val, "date")
+                                        : ct === "percent"
+                                          ? fmt(val, "percent")
+                                          : String(val ?? "—")}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        );
+                      })
                     )}
 
                     {/* Grand Total Row */}
@@ -1264,17 +1290,46 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
                 </Table>
               </div>
 
-              {/* Record count */}
-              <div className="px-4 py-2 border-t text-xs text-muted-foreground flex items-center justify-between">
-                <span>
-                  Showing {sortedRows.length} record
-                  {sortedRows.length !== 1 ? "s" : ""}
-                </span>
-                {reportData.title && (
-                  <span className="text-muted-foreground/60">
-                    {reportData.title}
+              {/* Record count + Pagination */}
+              <div className="px-4 py-2 border-t text-xs text-muted-foreground flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <span>
+                    Showing {((currentPageNum - 1) * pageSize) + 1}–{Math.min(currentPageNum * pageSize, sortedRows.length)} of {sortedRows.length} record
+                    {sortedRows.length !== 1 ? "s" : ""}
                   </span>
-                )}
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs">Rows:</span>
+                    <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPageNum(1); }}>
+                      <SelectTrigger className="w-[80px] h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="25">25</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                        <SelectItem value="100">100</SelectItem>
+                        <SelectItem value="500">500</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {reportData.title && (
+                    <span className="text-muted-foreground/60 mr-2">
+                      {reportData.title}
+                    </span>
+                  )}
+                  {sortedRows.length > pageSize && (
+                    <>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setCurrentPageNum(p => Math.max(1, p - 1))} disabled={currentPageNum === 1}>
+                        Previous
+                      </Button>
+                      <span className="text-xs">Page {currentPageNum} of {totalPages}</span>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setCurrentPageNum(p => Math.min(totalPages, p + 1))} disabled={currentPageNum === totalPages}>
+                        Next
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

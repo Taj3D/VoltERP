@@ -275,12 +275,13 @@ async function stockDetails(params: QueryParams): Promise<ReportResult> {
     };
   });
 
-  rows = sortRows(rows, params.sortField, params.sortOrder);
-  rows = groupRows(rows, params.groupBy);
-
+  // H11 FIX: Calculate summary BEFORE groupRows() to avoid broken totals when groupBy is active
   const totalIn = rows.reduce((s, r) => s + (Number(r.stockIn) || 0), 0);
   const totalOut = rows.reduce((s, r) => s + (Number(r.stockOut) || 0), 0);
   const totalBal = rows.reduce((s, r) => s + (Number(r.balance) || 0), 0);
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Stock Details Report',
@@ -336,6 +337,7 @@ async function stockSummary(params: QueryParams): Promise<ReportResult> {
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalQty = Array.from(catMap.values()).reduce((s, v) => s + v.totalQty, 0);
   const totalVal = Array.from(catMap.values()).reduce((s, v) => s + v.totalValue, 0);
@@ -443,10 +445,11 @@ async function stockQty(params: QueryParams): Promise<ReportResult> {
     };
   });
 
+  // H11 FIX: Calculate summary BEFORE groupRows() to avoid broken totals when groupBy is active
+  const lowStock = rows.filter((r) => r.alert === 'LOW STOCK').length;
+
   rows = sortRows(rows, params.sortField, params.sortOrder);
   rows = groupRows(rows, params.groupBy);
-
-  const lowStock = rows.filter((r) => r.alert === 'LOW STOCK').length;
 
   return {
     title: 'Stock Quantity Report',
@@ -505,10 +508,11 @@ async function stockForecastProduct(params: QueryParams): Promise<ReportResult> 
     };
   });
 
+  // H11 FIX: Calculate summary BEFORE groupRows
+  const totalShortfall = rows.reduce((s, r) => s + (Number(r.shortfall) || 0), 0);
+
   rows = sortRows(rows, params.sortField, params.sortOrder);
   rows = groupRows(rows, params.groupBy);
-
-  const totalShortfall = rows.reduce((s, r) => s + (Number(r.shortfall) || 0), 0);
 
   return {
     title: 'Stock Forecast - Product',
@@ -564,6 +568,7 @@ async function stockForecastConcern(params: QueryParams): Promise<ReportResult> 
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Stock Forecast - Company',
@@ -1011,24 +1016,24 @@ async function supplierLedger(params: QueryParams): Promise<ReportResult> {
   ];
 
   const allRows: Record<string, unknown>[] = [];
+  // misc1 FIX: buildDateFilter called once before the loop, not 3× per supplier
+  const dateFilter = buildDateFilter(params.from, params.to);
 
   for (const supplier of suppliers) {
     const entries: { date: Date; type: string; ref: string; debit: number; credit: number }[] = [];
 
+    // misc1 FIX: buildDateFilter called once before the loop, not 3× per supplier
     for (const po of supplier.purchaseOrders) {
-      const dateFilter = buildDateFilter(params.from, params.to);
       if (dateFilter && po.date < dateFilter.gte!) continue;
       if (dateFilter && po.date > dateFilter.lte!) continue;
       entries.push({ date: po.date, type: 'Purchase', ref: po.poNumber, debit: po.grandTotal, credit: 0 });
     }
     for (const pr of supplier.purchaseReturns) {
-      const dateFilter = buildDateFilter(params.from, params.to);
       if (dateFilter && pr.date < dateFilter.gte!) continue;
       if (dateFilter && pr.date > dateFilter.lte!) continue;
       entries.push({ date: pr.date, type: 'Return', ref: pr.returnNo, debit: 0, credit: pr.grandTotal });
     }
     for (const cd of supplier.cashDeliveries) {
-      const dateFilter = buildDateFilter(params.from, params.to);
       if (dateFilter && cd.date < dateFilter.gte!) continue;
       if (dateFilter && cd.date > dateFilter.lte!) continue;
       entries.push({ date: cd.date, type: 'Cash Delivery', ref: cd.deliveryCode, debit: 0, credit: cd.amount });
@@ -1036,12 +1041,12 @@ async function supplierLedger(params: QueryParams): Promise<ReportResult> {
 
     entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     // LEDGER-001 FIX: Respect openingBalanceType for supplier ledger sign convention
-    // For suppliers: Cr means we owe them (positive balance), Dr means they owe us (negative)
+    // For suppliers: positive balance = we owe them, negative = they owe us
     let running = supplier.openingBalanceType === 'Dr' ? -supplier.openingBalance : supplier.openingBalance;
     for (const e of entries) {
-      // In supplier ledger: Purchase (credit - we owe more) increases balance,
-      // Cash Delivery / Return (debit - we pay/reduce) decreases balance
-      running += e.credit - e.debit;
+      // C6 FIX: In supplier ledger, purchases (debit) increase what we owe (positive balance),
+      // and payments/returns (credit) decrease what we owe
+      running += e.debit - e.credit;
       allRows.push({
         date: fmtDate(e.date),
         supplier: supplier.name,
@@ -1062,7 +1067,7 @@ async function supplierLedger(params: QueryParams): Promise<ReportResult> {
     title: 'Supplier Ledger Report',
     columns,
     rows: sortedRows,
-    summary: { totalEntries: allRows.length, totalDebit: maskVat(totalDebit, params.vatMode), totalCredit: maskVat(totalCredit, params.vatMode), netBalance: maskVat(totalDebit - totalCredit, params.vatMode) },
+    summary: { totalEntries: allRows.length, totalDebit: maskVat(totalDebit, params.vatMode), totalCredit: maskVat(totalCredit, params.vatMode), netBalance: maskVat(safeFinancialRound(totalDebit - totalCredit), params.vatMode) },
     chartData: allRows.slice(0, 30).map((r) => ({ date: r.date, debit: r.debit, credit: r.credit })),
   };
 }
@@ -1104,11 +1109,12 @@ async function dailyPurchase(params: QueryParams): Promise<ReportResult> {
   let rows = Array.from(dayMap.values()).map((v) => ({
     date: v.date,
     totalPOs: v.totalPOs,
-    totalValue: v.totalValue,
+    totalValue: maskVat(v.totalValue, params.vatMode),
     supplierBreakdown: v.suppliers.join(', '),
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalPOs = purchaseOrders.length;
   const totalValue = purchaseOrders.reduce((s, po) => s + po.grandTotal, 0);
@@ -1117,8 +1123,8 @@ async function dailyPurchase(params: QueryParams): Promise<ReportResult> {
     title: 'Daily Purchase Report',
     columns,
     rows,
-    summary: { totalDays: dayMap.size, totalPOs, totalValue: fmt(totalValue), avgDaily: dayMap.size > 0 ? fmt(totalValue / dayMap.size) : '0.00' },
-    chartData: Array.from(dayMap.values()).map((v) => ({ date: v.date, value: v.totalValue, pos: v.totalPOs })),
+    summary: { totalDays: dayMap.size, totalPOs, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalValue), avgDaily: params.vatMode ? 'N/A (Audit Mode)' : (dayMap.size > 0 ? fmt(totalValue / dayMap.size) : '0.00') },
+    chartData: Array.from(dayMap.values()).map((v) => ({ date: v.date, value: params.vatMode ? 0 : v.totalValue, pos: v.totalPOs })),
   };
 }
 
@@ -1151,8 +1157,9 @@ async function supplierWisePurchase(params: QueryParams): Promise<ReportResult> 
     { key: 'totalValue', label: 'Total Value' },
   ];
 
-  let rows = Array.from(supplierMap.values());
+  let rows = Array.from(supplierMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalValue = Array.from(supplierMap.values()).reduce((s, v) => s + v.totalValue, 0);
 
@@ -1160,8 +1167,8 @@ async function supplierWisePurchase(params: QueryParams): Promise<ReportResult> 
     title: 'Supplier-wise Purchase Report',
     columns,
     rows,
-    summary: { totalSuppliers: supplierMap.size, totalPOs: purchaseOrders.length, totalValue: fmt(totalValue) },
-    chartData: Array.from(supplierMap.values()).map((v) => ({ name: v.supplier, value: v.totalValue })),
+    summary: { totalSuppliers: supplierMap.size, totalPOs: purchaseOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalValue) },
+    chartData: Array.from(supplierMap.values()).map((v) => ({ name: v.supplier, value: params.vatMode ? 0 : v.totalValue })),
   };
 }
 
@@ -1191,12 +1198,13 @@ async function supplierCashDelivery(params: QueryParams): Promise<ReportResult> 
     date: fmtDate(d.date),
     deliveryCode: d.deliveryCode,
     supplier: d.supplier?.name || '',
-    amount: d.amount,
+    amount: maskVat(d.amount, params.vatMode),
     paymentOption: d.paymentOption?.name || '',
     bank: d.bank?.bankName || '',
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalAmount = deliveries.reduce((s, d) => s + d.amount, 0);
 
@@ -1204,8 +1212,8 @@ async function supplierCashDelivery(params: QueryParams): Promise<ReportResult> 
     title: 'Supplier Cash Delivery Report',
     columns,
     rows,
-    summary: { totalDeliveries: deliveries.length, totalAmount: fmt(totalAmount) },
-    chartData: rows.slice(0, 30).map((r) => ({ date: r.date, amount: r.amount })),
+    summary: { totalDeliveries: deliveries.length, totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalAmount) },
+    chartData: deliveries.slice(0, 30).map((d) => ({ date: fmtDate(d.date), amount: params.vatMode ? 0 : d.amount })),
   };
 }
 
@@ -1235,28 +1243,32 @@ async function supplierDue(params: QueryParams): Promise<ReportResult> {
     const totalReturns = s.purchaseReturns.reduce((sum, r) => sum + r.grandTotal, 0);
     const outstanding = s.openingBalance + totalPurchase - totalDeliveries - totalReturns;
     return {
+      _supplierId: s.id, // H1 FIX: Keep supplier UUID for filtering
       supplierCode: s.supplierCode,
       supplier: s.name,
-      openingBalance: s.openingBalance,
-      totalPurchase,
-      totalDeliveries,
-      totalReturns,
-      outstanding: Math.max(outstanding, 0),
+      openingBalance: maskVat(s.openingBalance, params.vatMode),
+      totalPurchase: maskVat(totalPurchase, params.vatMode),
+      totalDeliveries: maskVat(totalDeliveries, params.vatMode),
+      totalReturns: maskVat(totalReturns, params.vatMode),
+      outstanding: maskVat(Math.max(outstanding, 0), params.vatMode),
     };
   });
 
-  if (params.supplierId) rows = rows.filter((r) => r.supplierCode === params.supplierId || (r as Record<string, unknown>)._supplierId === params.supplierId);
+  // H1 FIX: Filter by supplier UUID instead of code
+  if (params.supplierId) rows = rows.filter((r) => r._supplierId === params.supplierId);
+
+  // H11 FIX: Calculate summary BEFORE groupRows
+  const totalOutstanding = rows.reduce((s, r) => s + (Number(r.outstanding) || 0), 0);
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
-
-  const totalOutstanding = rows.reduce((s, r) => s + (Number(r.outstanding) || 0), 0);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Supplier Due Report',
     columns,
     rows,
-    summary: { totalSuppliers: rows.length, totalOutstanding: fmt(totalOutstanding) },
-    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.supplier), outstanding: r.outstanding })),
+    summary: { totalSuppliers: rows.length, totalOutstanding: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalOutstanding) },
+    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.supplier), outstanding: params.vatMode ? 0 : r.outstanding })),
   };
 }
 
@@ -1295,8 +1307,9 @@ async function modelWisePurchase(params: QueryParams): Promise<ReportResult> {
     { key: 'totalValue', label: 'Total Value' },
   ];
 
-  let rows = Array.from(productMap.values());
+  let rows = Array.from(productMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Model-wise Purchase Report',
@@ -1305,9 +1318,9 @@ async function modelWisePurchase(params: QueryParams): Promise<ReportResult> {
     summary: {
       totalModels: productMap.size,
       totalQuantity: Array.from(productMap.values()).reduce((s, v) => s + v.quantity, 0),
-      totalValue: fmt(Array.from(productMap.values()).reduce((s, v) => s + v.totalValue, 0)),
+      totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(productMap.values()).reduce((s, v) => s + v.totalValue, 0)),
     },
-    chartData: Array.from(productMap.values()).slice(0, 20).map((v) => ({ name: v.product, quantity: v.quantity, value: v.totalValue })),
+    chartData: Array.from(productMap.values()).slice(0, 20).map((v) => ({ name: v.product, quantity: v.quantity, value: params.vatMode ? 0 : v.totalValue })),
   };
 }
 
@@ -1351,8 +1364,8 @@ async function vatReport(params: QueryParams): Promise<ReportResult> {
       reference: po.poNumber,
       date: fmtDate(po.date),
       vatPercentage: po.vatPercentage,
-      vatAmount: po.vatAmount,
-      grandTotal: po.grandTotal,
+      vatAmount: maskVat(po.vatAmount, params.vatMode),
+      grandTotal: maskVat(po.grandTotal, params.vatMode),
     });
   }
   for (const so of salesOrders) {
@@ -1361,8 +1374,8 @@ async function vatReport(params: QueryParams): Promise<ReportResult> {
       reference: so.invoiceNo,
       date: fmtDate(so.date),
       vatPercentage: so.vatPercentage,
-      vatAmount: so.vatAmount,
-      grandTotal: so.grandTotal,
+      vatAmount: maskVat(so.vatAmount, params.vatMode),
+      grandTotal: maskVat(so.grandTotal, params.vatMode),
     });
   }
 
@@ -1376,16 +1389,16 @@ async function vatReport(params: QueryParams): Promise<ReportResult> {
     columns,
     rows: sortedRows,
     summary: {
-      purchaseVAT: fmt(purchaseVAT),
-      salesVAT: fmt(salesVAT),
-      netVAT: fmt(salesVAT - purchaseVAT),
+      purchaseVAT: params.vatMode ? 'N/A (Audit Mode)' : fmt(purchaseVAT),
+      salesVAT: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesVAT),
+      netVAT: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesVAT - purchaseVAT),
       totalPurchaseOrders: purchaseOrders.length,
       totalSalesOrders: salesOrders.length,
     },
     chartData: [
-      { name: 'Purchase VAT', amount: purchaseVAT },
-      { name: 'Sales VAT', amount: salesVAT },
-      { name: 'Net VAT Payable', amount: salesVAT - purchaseVAT },
+      { name: 'Purchase VAT', amount: params.vatMode ? 0 : purchaseVAT },
+      { name: 'Sales VAT', amount: params.vatMode ? 0 : salesVAT },
+      { name: 'Net VAT Payable', amount: params.vatMode ? 0 : (salesVAT - purchaseVAT) },
     ],
   };
 }
@@ -1432,11 +1445,12 @@ async function dailySales(params: QueryParams): Promise<ReportResult> {
   let rows = Array.from(dayMap.values()).map((v) => ({
     date: v.date,
     totalOrders: v.totalOrders,
-    totalValue: v.totalValue,
+    totalValue: maskVat(v.totalValue, params.vatMode),
     customerBreakdown: v.customers.join(', '),
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalValue = salesOrders.reduce((s, so) => s + so.grandTotal, 0);
 
@@ -1444,8 +1458,8 @@ async function dailySales(params: QueryParams): Promise<ReportResult> {
     title: 'Daily Sales Report',
     columns,
     rows,
-    summary: { totalDays: dayMap.size, totalOrders: salesOrders.length, totalValue: fmt(totalValue), avgDaily: dayMap.size > 0 ? fmt(totalValue / dayMap.size) : '0.00' },
-    chartData: Array.from(dayMap.values()).map((v) => ({ date: v.date, value: v.totalValue, orders: v.totalOrders })),
+    summary: { totalDays: dayMap.size, totalOrders: salesOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalValue), avgDaily: params.vatMode ? 'N/A (Audit Mode)' : (dayMap.size > 0 ? fmt(totalValue / dayMap.size) : '0.00') },
+    chartData: Array.from(dayMap.values()).map((v) => ({ date: v.date, value: params.vatMode ? 0 : v.totalValue, orders: v.totalOrders })),
   };
 }
 
@@ -1486,6 +1500,7 @@ async function replacementReport(params: QueryParams): Promise<ReportResult> {
   }
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Replacement Report',
@@ -1534,8 +1549,9 @@ async function modelWiseSales(params: QueryParams): Promise<ReportResult> {
     { key: 'totalValue', label: 'Total Value' },
   ];
 
-  let rows = Array.from(productMap.values());
+  let rows = Array.from(productMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Model-wise Sales Report',
@@ -1544,9 +1560,9 @@ async function modelWiseSales(params: QueryParams): Promise<ReportResult> {
     summary: {
       totalModels: productMap.size,
       totalQuantity: Array.from(productMap.values()).reduce((s, v) => s + v.quantity, 0),
-      totalValue: fmt(Array.from(productMap.values()).reduce((s, v) => s + v.totalValue, 0)),
+      totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(productMap.values()).reduce((s, v) => s + v.totalValue, 0)),
     },
-    chartData: Array.from(productMap.values()).slice(0, 20).map((v) => ({ name: v.product, quantity: v.quantity, value: v.totalValue })),
+    chartData: Array.from(productMap.values()).slice(0, 20).map((v) => ({ name: v.product, quantity: v.quantity, value: params.vatMode ? 0 : v.totalValue })),
   };
 }
 
@@ -1584,11 +1600,12 @@ async function installmentCollection(params: QueryParams): Promise<ReportResult>
     product: i.hireSales?.lines?.[0]?.product?.name || '',
     dueDate: fmtDate(i.dueDate),
     paidDate: i.paidDate ? fmtDate(i.paidDate) : '',
-    amount: i.amount,
-    paidAmount: i.paidAmount,
+    amount: maskVat(i.amount, params.vatMode),
+    paidAmount: maskVat(i.paidAmount, params.vatMode),
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalCollected = installments.reduce((s, i) => s + i.paidAmount, 0);
 
@@ -1596,8 +1613,8 @@ async function installmentCollection(params: QueryParams): Promise<ReportResult>
     title: 'Installment Collection Report',
     columns,
     rows,
-    summary: { totalInstallments: installments.length, totalCollected: fmt(totalCollected) },
-    chartData: rows.slice(0, 30).map((r) => ({ date: r.paidDate, amount: r.paidAmount })),
+    summary: { totalInstallments: installments.length, totalCollected: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalCollected) },
+    chartData: installments.slice(0, 30).map((i) => ({ date: i.paidDate ? fmtDate(i.paidDate) : '', amount: params.vatMode ? 0 : i.paidAmount })),
   };
 }
 
@@ -1627,7 +1644,7 @@ async function upcomingInstallment(params: QueryParams): Promise<ReportResult> {
     customer: i.hireSales?.customer?.name || '',
     product: i.hireSales?.lines?.[0]?.product?.name || '',
     dueDate: fmtDate(i.dueDate),
-    amount: i.amount,
+    amount: maskVat(i.amount, params.vatMode),
     status: i.status,
   }));
 
@@ -1641,16 +1658,18 @@ async function upcomingInstallment(params: QueryParams): Promise<ReportResult> {
     });
   }
 
-  rows = sortRows(rows, params.sortField, params.sortOrder);
-
+  // H11 FIX: Calculate summary BEFORE groupRows
   const totalDue = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Upcoming Installment Report',
     columns,
     rows,
-    summary: { totalUpcoming: rows.length, totalDue: fmt(totalDue) },
-    chartData: rows.slice(0, 30).map((r) => ({ date: r.dueDate, amount: r.amount })),
+    summary: { totalUpcoming: rows.length, totalDue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalDue) },
+    chartData: rows.slice(0, 30).map((r) => ({ date: r.dueDate, amount: params.vatMode ? 0 : r.amount })),
   };
 }
 
@@ -1658,12 +1677,17 @@ async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+  // H8 FIX: Apply date filtering on hire sales dates using params.from/params.to
+  const hireWhere: Record<string, unknown> = { isActive: true };
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) hireWhere.date = dateFilter;
+
   const overdue = await db.hireInstallment.findMany({
     where: {
       status: { in: ['Pending', 'Overdue'] },
       dueDate: { lt: thirtyDaysAgo },
     },
-    include: { hireSales: { include: { customer: true, lines: { include: { product: true } } } } },
+    include: { hireSales: { where: hireWhere, include: { customer: true, lines: { include: { product: true } } } } },
   });
 
   const columns: ColumnDef[] = [
@@ -1683,7 +1707,7 @@ async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
       invoiceNo: i.hireSales?.invoiceNo || '',
       product: i.hireSales?.lines?.[0]?.product?.name || '',
       dueDate: fmtDate(i.dueDate),
-      amount: i.amount,
+      amount: maskVat(i.amount, params.vatMode),
       daysOverdue,
       phone: i.hireSales?.customer?.phone || '',
     };
@@ -1697,13 +1721,14 @@ async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
   }
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Defaulting Customer Report',
     columns,
     rows,
-    summary: { totalDefaulters: new Set(rows.map((r) => r.customer)).size, totalOverdue: fmt(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0)), avgDaysOverdue: rows.length > 0 ? Math.round(rows.reduce((s, r) => s + (Number(r.daysOverdue) || 0), 0) / rows.length) : 0 },
-    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), amount: r.amount, days: r.daysOverdue })),
+    summary: { totalDefaulters: new Set(rows.map((r) => r.customer)).size, totalOverdue: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0)), avgDaysOverdue: rows.length > 0 ? Math.round(rows.reduce((s, r) => s + (Number(r.daysOverdue) || 0), 0) / rows.length) : 0 },
+    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), amount: params.vatMode ? 0 : r.amount, days: r.daysOverdue })),
   };
 }
 
@@ -1711,9 +1736,14 @@ async function defaultCustomerSummary(params: QueryParams): Promise<ReportResult
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+  // H9 FIX: Apply date filtering on hire sales dates using params.from/params.to
+  const hireWhere: Record<string, unknown> = { isActive: true };
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) hireWhere.date = dateFilter;
+
   const overdue = await db.hireInstallment.findMany({
     where: { status: { in: ['Pending', 'Overdue'] }, dueDate: { lt: thirtyDaysAgo } },
-    include: { hireSales: { include: { customer: true } } },
+    include: { hireSales: { where: hireWhere, include: { customer: true } } },
   });
 
   const customerMap = new Map<string, { customer: string; phone: string; totalOverdue: number; installmentCount: number }>();
@@ -1736,15 +1766,16 @@ async function defaultCustomerSummary(params: QueryParams): Promise<ReportResult
     { key: 'totalOverdue', label: 'Total Overdue' },
   ];
 
-  let rows = Array.from(customerMap.values());
+  let rows = Array.from(customerMap.values()).map((v) => ({ ...v, totalOverdue: maskVat(v.totalOverdue, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Default Customer Summary',
     columns,
     rows,
-    summary: { totalDefaulters: customerMap.size, totalOverdue: fmt(rows.reduce((s, r) => s + r.totalOverdue, 0)) },
-    chartData: Array.from(customerMap.values()).slice(0, 20).map((v) => ({ name: v.customer, amount: v.totalOverdue })),
+    summary: { totalDefaulters: customerMap.size, totalOverdue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(customerMap.values()).reduce((s, r) => s + r.totalOverdue, 0)) },
+    chartData: Array.from(customerMap.values()).slice(0, 20).map((v) => ({ name: v.customer, amount: params.vatMode ? 0 : v.totalOverdue })),
   };
 }
 
@@ -1774,14 +1805,15 @@ async function hireAccountDetails(params: QueryParams): Promise<ReportResult> {
     invoiceNo: hs.invoiceNo,
     date: fmtDate(hs.date),
     customer: hs.customer?.name || '',
-    grandTotal: hs.grandTotal,
-    totalPaid: hs.totalPaid,
-    balanceAmount: hs.balanceAmount,
+    grandTotal: maskVat(hs.grandTotal, params.vatMode),
+    totalPaid: maskVat(hs.totalPaid, params.vatMode),
+    balanceAmount: maskVat(hs.balanceAmount, params.vatMode),
     duration: hs.duration,
     status: hs.currentStatus || hs.status,
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalGrand = hireSales.reduce((s, h) => s + h.grandTotal, 0);
   const totalPaid = hireSales.reduce((s, h) => s + h.totalPaid, 0);
@@ -1790,11 +1822,11 @@ async function hireAccountDetails(params: QueryParams): Promise<ReportResult> {
     title: 'Hire Account Details',
     columns,
     rows,
-    summary: { totalAccounts: hireSales.length, totalGrand: fmt(totalGrand), totalPaid: fmt(totalPaid), totalBalance: fmt(totalGrand - totalPaid) },
+    summary: { totalAccounts: hireSales.length, totalGrand: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalGrand), totalPaid: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalPaid), totalBalance: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalGrand - totalPaid) },
     chartData: [
-      { name: 'Total', amount: totalGrand },
-      { name: 'Paid', amount: totalPaid },
-      { name: 'Balance', amount: totalGrand - totalPaid },
+      { name: 'Total', amount: params.vatMode ? 0 : totalGrand },
+      { name: 'Paid', amount: params.vatMode ? 0 : totalPaid },
+      { name: 'Balance', amount: params.vatMode ? 0 : (totalGrand - totalPaid) },
     ],
   };
 }
@@ -1812,29 +1844,26 @@ async function srWiseSales(params: QueryParams): Promise<ReportResult> {
     include: { designation: true, department: true },
   });
 
-  const salesOrders = await db.salesOrder.findMany({
-    where: { isActive: true },
-    include: { customer: true, lines: { include: { product: true } } },
-  });
-
+  const salesWhere: Record<string, unknown> = { isActive: true };
   const dateFilter = buildDateFilter(params.from, params.to);
-  const filteredSO = dateFilter
-    ? salesOrders.filter((so) => {
-        const d = new Date(so.date).getTime();
-        return (!dateFilter.gte || d >= dateFilter.gte.getTime()) && (!dateFilter.lte || d <= dateFilter.lte.getTime());
-      })
-    : salesOrders;
+  if (dateFilter) salesWhere.date = dateFilter;
+
+  const salesOrders = await db.salesOrder.findMany({
+    where: salesWhere,
+    include: { sr: true },
+  });
 
   const srMap = new Map<string, { srName: string; srCode: string; totalOrders: number; totalValue: number }>();
   for (const sr of srs) {
     srMap.set(sr.id, { srName: sr.name, srCode: sr.employeeCode, totalOrders: 0, totalValue: 0 });
   }
 
-  // Distribute sales evenly across SRs since there's no direct SR-customer link
-  for (const so of filteredSO) {
-    for (const [, srData] of srMap) {
-      srData.totalOrders += 1 / srMap.size;
-      srData.totalValue += so.grandTotal / srMap.size;
+  // C2 FIX: Attribute each SO to its actual SR via so.srId instead of even distribution
+  for (const so of salesOrders) {
+    if (so.srId && srMap.has(so.srId)) {
+      const srData = srMap.get(so.srId)!;
+      srData.totalOrders += 1;
+      srData.totalValue = safeFinancialAdd(srData.totalValue, so.grandTotal);
     }
   }
 
@@ -1848,18 +1877,19 @@ async function srWiseSales(params: QueryParams): Promise<ReportResult> {
   let rows = Array.from(srMap.values()).map((v) => ({
     srCode: v.srCode,
     srName: v.srName,
-    totalOrders: Math.round(v.totalOrders),
-    totalValue: Math.round(v.totalValue * 100) / 100,
+    totalOrders: v.totalOrders,
+    totalValue: maskVat(safeFinancialRound(v.totalValue), params.vatMode),
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'SR-wise Sales Report',
     columns,
     rows,
-    summary: { totalSRs: srs.length, totalValue: fmt(rows.reduce((s, r) => s + (Number(r.totalValue) || 0), 0)) },
-    chartData: rows.map((r) => ({ name: String(r.srName), value: r.totalValue })),
+    summary: { totalSRs: srs.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.totalValue) || 0), 0)) },
+    chartData: Array.from(srMap.values()).map((v) => ({ name: String(v.srName), value: params.vatMode ? 0 : safeFinancialRound(v.totalValue) })),
   };
 }
 
@@ -1893,20 +1923,21 @@ async function srWiseSalesDetails(params: QueryParams): Promise<ReportResult> {
         customer: so.customer?.name || '',
         product: line.product?.name || '',
         quantity: line.quantity,
-        rate: line.rate,
-        total: line.total,
+        rate: maskVat(line.rate, params.vatMode),
+        total: maskVat(line.total, params.vatMode),
       });
     }
   }
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'SR-wise Sales Details',
     columns,
     rows,
-    summary: { totalOrders: salesOrders.length, totalValue: fmt(salesOrders.reduce((s, so) => s + so.grandTotal, 0)) },
-    chartData: salesOrders.slice(0, 20).map((so) => ({ name: so.invoiceNo, value: so.grandTotal })),
+    summary: { totalOrders: salesOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesOrders.reduce((s, so) => s + so.grandTotal, 0)) },
+    chartData: salesOrders.slice(0, 20).map((so) => ({ name: so.invoiceNo, value: params.vatMode ? 0 : so.grandTotal })),
   };
 }
 
@@ -1916,7 +1947,8 @@ async function srWiseCustomerDue(params: QueryParams): Promise<ReportResult> {
     include: {
       salesOrders: { where: { isActive: true } },
       salesReturns: { where: { isActive: true } },
-      cashCollections: { where: { isActive: true } },
+      // H4 FIX: Include cashCollections with srId for SR filtering
+      cashCollections: { where: { isActive: true }, include: { sr: true } },
     },
   });
 
@@ -1931,27 +1963,39 @@ async function srWiseCustomerDue(params: QueryParams): Promise<ReportResult> {
 
   let rows = customers.map((c) => {
     const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
-    const totalPaid = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
+    // H4 FIX: If employeeId param provided, only count cash collections from that SR
+    const totalPaid = c.cashCollections
+      .filter((cc) => !params.employeeId || cc.srId === params.employeeId)
+      .reduce((s, cc) => s + cc.amount, 0);
     const totalReturns = c.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
     const outstanding = c.openingBalance + totalSales - totalPaid - totalReturns;
     return {
       customer: c.name,
       customerCode: c.customerCode,
-      totalSales,
-      totalPaid,
-      totalReturns,
-      outstanding: Math.max(outstanding, 0),
+      totalSales: maskVat(totalSales, params.vatMode),
+      totalPaid: maskVat(totalPaid, params.vatMode),
+      totalReturns: maskVat(totalReturns, params.vatMode),
+      outstanding: maskVat(Math.max(outstanding, 0), params.vatMode),
     };
-  }).filter((r) => r.outstanding > 0);
+  }).filter((r) => r.outstanding > 0 || params.vatMode);
+
+  // H4 FIX: Filter customers to only those with cashCollections attributed to this SR
+  if (params.employeeId) {
+    rows = rows.filter((r) => {
+      const cust = customers.find((c) => c.name === r.customer);
+      return cust?.cashCollections.some((cc) => cc.srId === params.employeeId);
+    });
+  }
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'SR-wise Customer Due Report',
     columns,
     rows,
-    summary: { totalCustomers: rows.length, totalOutstanding: fmt(rows.reduce((s, r) => s + r.outstanding, 0)) },
-    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), outstanding: r.outstanding })),
+    summary: { totalCustomers: rows.length, totalOutstanding: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.outstanding) || 0), 0)) },
+    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), outstanding: params.vatMode ? 0 : r.outstanding })),
   };
 }
 
@@ -1960,6 +2004,7 @@ async function srWiseCustomerSummary(params: QueryParams): Promise<ReportResult>
     where: { isActive: true },
     include: {
       salesOrders: { where: { isActive: true } },
+      // H5 FIX: Include cashCollections with srId for SR filtering
       cashCollections: { where: { isActive: true } },
       hireSales: { where: { isActive: true } },
     },
@@ -1974,22 +2019,30 @@ async function srWiseCustomerSummary(params: QueryParams): Promise<ReportResult>
     { key: 'status', label: 'Status' },
   ];
 
-  let rows = customers.map((c) => {
+  // H5 FIX: Filter customers by SR if employeeId provided
+  const filteredCustomers = params.employeeId
+    ? customers.filter((c) => c.cashCollections.some((cc) => cc.srId === params.employeeId))
+    : customers;
+
+  let rows = filteredCustomers.map((c) => {
     const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
     const totalHire = c.hireSales.reduce((s, h) => s + h.grandTotal, 0);
-    const totalCollections = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
+    const totalCollections = c.cashCollections
+      .filter((cc) => !params.employeeId || cc.srId === params.employeeId)
+      .reduce((s, cc) => s + cc.amount, 0);
     const balance = c.openingBalance + totalSales + totalHire - totalCollections;
     return {
       customer: c.name,
       totalOrders: c.salesOrders.length + c.hireSales.length,
-      totalRevenue: totalSales + totalHire,
-      totalCollections,
-      balance,
+      totalRevenue: maskVat(totalSales + totalHire, params.vatMode),
+      totalCollections: maskVat(totalCollections, params.vatMode),
+      balance: maskVat(balance, params.vatMode),
       status: balance > 0 ? 'Has Due' : 'Clear',
     };
   });
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'SR-wise Customer Summary',
@@ -2032,6 +2085,7 @@ async function srVisitReport(params: QueryParams): Promise<ReportResult> {
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'SR Visit Report',
@@ -2047,6 +2101,7 @@ async function srWiseCustomerStatus(params: QueryParams): Promise<ReportResult> 
     where: { isActive: true },
     include: {
       salesOrders: { where: { isActive: true } },
+      // H6 FIX: Include cashCollections for SR filtering
       cashCollections: { where: { isActive: true } },
     },
   });
@@ -2060,7 +2115,12 @@ async function srWiseCustomerStatus(params: QueryParams): Promise<ReportResult> 
     { key: 'status', label: 'Status' },
   ];
 
-  let rows = customers.map((c) => {
+  // H6 FIX: Filter customers by SR if employeeId provided
+  const filteredCustomers = params.employeeId
+    ? customers.filter((c) => c.cashCollections.some((cc) => cc.srId === params.employeeId))
+    : customers;
+
+  let rows = filteredCustomers.map((c) => {
     const lastOrder = c.salesOrders.length > 0
       ? c.salesOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
       : null;
@@ -2075,6 +2135,7 @@ async function srWiseCustomerStatus(params: QueryParams): Promise<ReportResult> 
   });
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'SR-wise Customer Status',
@@ -2091,6 +2152,8 @@ async function srWiseCustomerStatus(params: QueryParams): Promise<ReportResult> 
 async function srWiseCashCollection(params: QueryParams): Promise<ReportResult> {
   const where: Record<string, unknown> = { isActive: true };
   if (params.customerId) where.customerId = params.customerId;
+  // H7 FIX: Filter cashCollections by SR if employeeId provided
+  if (params.employeeId) where.srId = params.employeeId;
   const dateFilter = buildDateFilter(params.from, params.to);
   if (dateFilter) where.date = dateFilter;
 
@@ -2113,12 +2176,13 @@ async function srWiseCashCollection(params: QueryParams): Promise<ReportResult> 
     date: fmtDate(c.date),
     collectionCode: c.collectionCode,
     customer: c.customer?.name || '',
-    amount: c.amount,
+    amount: maskVat(c.amount, params.vatMode),
     paymentOption: c.paymentOption?.name || '',
     bank: c.bank?.bankName || '',
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalCollected = collections.reduce((s, c) => s + c.amount, 0);
 
@@ -2126,8 +2190,8 @@ async function srWiseCashCollection(params: QueryParams): Promise<ReportResult> 
     title: 'SR-wise Cash Collection',
     columns,
     rows,
-    summary: { totalCollections: collections.length, totalAmount: fmt(totalCollected) },
-    chartData: rows.slice(0, 30).map((r) => ({ date: r.date, amount: r.amount })),
+    summary: { totalCollections: collections.length, totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalCollected) },
+    chartData: collections.slice(0, 30).map((c) => ({ date: fmtDate(c.date), amount: params.vatMode ? 0 : c.amount })),
   };
 }
 
@@ -2138,7 +2202,7 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
 
   const salesOrders = await db.salesOrder.findMany({
     where: salesWhere,
-    include: { customer: true, lines: { include: { product: true } } },
+    include: { sr: true },
   });
 
   const srs = await db.employee.findMany({
@@ -2146,7 +2210,10 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
     include: { designation: true },
   });
 
-  const commissionRate = 0.02; // 2% commission
+  // C3 FIX: Fetch SR target setups for commission percentages instead of hardcoded 2%
+  const srTargets = await db.sRTargetSetup.findMany({
+    where: { isActive: true, status: 'ACTIVE' },
+  });
 
   const columns: ColumnDef[] = [
     { key: 'srCode', label: 'SR Code' },
@@ -2157,28 +2224,52 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
     { key: 'commission', label: 'Commission' },
   ];
 
-  const totalSalesValue = salesOrders.reduce((s, so) => s + so.grandTotal, 0);
-  const salesPerSR = srs.length > 0 ? totalSalesValue / srs.length : 0;
+  // C3 FIX: Attribute each SO to its actual SR via so.srId instead of even distribution
+  const srSalesMap = new Map<string, { srCode: string; srName: string; totalSales: number; totalOrders: number }>();
+  for (const sr of srs) {
+    srSalesMap.set(sr.id, { srCode: sr.employeeCode, srName: sr.name, totalSales: 0, totalOrders: 0 });
+  }
 
-  let rows = srs.map((sr) => ({
-    srCode: sr.employeeCode,
-    srName: sr.name,
-    totalSales: Math.round(salesPerSR * 100) / 100,
-    totalOrders: Math.round(salesOrders.length / srs.length),
-    commissionRate: `${(commissionRate * 100).toFixed(0)}%`,
-    commission: Math.round(salesPerSR * commissionRate * 100) / 100,
-  }));
+  for (const so of salesOrders) {
+    if (so.srId && srSalesMap.has(so.srId)) {
+      const srData = srSalesMap.get(so.srId)!;
+      srData.totalOrders += 1;
+      srData.totalSales = safeFinancialAdd(srData.totalSales, so.grandTotal);
+    }
+  }
 
-  if (params.employeeId) rows = rows.filter((r) => r.srCode === params.employeeId || String(r.srName).includes(params.employeeId || ''));
+  let rows = Array.from(srSalesMap.values()).map((v) => {
+    // C3 FIX: Use commissionPercentage from SRTargetSetup instead of hardcoded 2%
+    const target = srTargets.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0]);
+    const commissionRate = target ? target.commissionPercentage / 100 : 0;
+    const commission = safeFinancialRound(v.totalSales * commissionRate);
+    return {
+      srCode: v.srCode,
+      srName: v.srName,
+      totalSales: maskVat(safeFinancialRound(v.totalSales), params.vatMode),
+      totalOrders: v.totalOrders,
+      commissionRate: `${(commissionRate * 100).toFixed(1)}%`,
+      commission: maskVat(commission, params.vatMode),
+    };
+  });
+
+  if (params.employeeId) rows = rows.filter((r) => r.srCode === params.employeeId);
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
+
+  const totalSalesValue = salesOrders.reduce((s, so) => s + so.grandTotal, 0);
 
   return {
     title: 'SR Commission Report',
     columns,
     rows,
-    summary: { totalSRs: srs.length, totalSales: fmt(totalSalesValue), totalCommission: fmt(rows.reduce((s, r) => s + (Number(r.commission) || 0), 0)) },
-    chartData: rows.map((r) => ({ name: String(r.srName), sales: r.totalSales, commission: r.commission })),
+    summary: { totalSRs: srs.length, totalSales: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalSalesValue), totalCommission: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.commission) || 0), 0)) },
+    chartData: Array.from(srSalesMap.values()).map((v) => {
+      const target = srTargets.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0]);
+      const commissionRate = target ? target.commissionPercentage / 100 : 0;
+      return { name: String(v.srName), sales: params.vatMode ? 0 : safeFinancialRound(v.totalSales), commission: params.vatMode ? 0 : safeFinancialRound(v.totalSales * commissionRate) };
+    }),
   };
 }
 
@@ -2216,15 +2307,16 @@ async function customerWiseSales(params: QueryParams): Promise<ReportResult> {
     { key: 'totalValue', label: 'Total Value' },
   ];
 
-  let rows = Array.from(customerMap.values());
+  let rows = Array.from(customerMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Customer-wise Sales Report',
     columns,
     rows,
-    summary: { totalCustomers: customerMap.size, totalOrders: salesOrders.length, totalValue: fmt(salesOrders.reduce((s, so) => s + so.grandTotal, 0)) },
-    chartData: Array.from(customerMap.values()).slice(0, 20).map((v) => ({ name: v.customer, value: v.totalValue })),
+    summary: { totalCustomers: customerMap.size, totalOrders: salesOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesOrders.reduce((s, so) => s + so.grandTotal, 0)) },
+    chartData: Array.from(customerMap.values()).slice(0, 20).map((v) => ({ name: v.customer, value: params.vatMode ? 0 : v.totalValue })),
   };
 }
 
@@ -2258,10 +2350,11 @@ async function categoryWiseCustomerDue(params: QueryParams): Promise<ReportResul
     for (const cat of categories) {
       const existing = catDueMap.get(cat);
       if (existing) {
-        existing.totalDue += due / categories.size;
+        // H12 FIX: Use full outstanding amount instead of even split across categories
+        existing.totalDue += due;
         existing.customerCount += 1;
       } else {
-        catDueMap.set(cat, { category: cat, totalDue: due / categories.size, customerCount: 1 });
+        catDueMap.set(cat, { category: cat, totalDue: due, customerCount: 1 });
       }
     }
   }
@@ -2272,15 +2365,16 @@ async function categoryWiseCustomerDue(params: QueryParams): Promise<ReportResul
     { key: 'totalDue', label: 'Total Due' },
   ];
 
-  let rows = Array.from(catDueMap.values());
+  let rows = Array.from(catDueMap.values()).map((v) => ({ ...v, totalDue: maskVat(v.totalDue, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Category-wise Customer Due',
     columns,
     rows,
-    summary: { totalCategories: catDueMap.size, totalDue: fmt(rows.reduce((s, r) => s + r.totalDue, 0)) },
-    chartData: Array.from(catDueMap.values()).map((v) => ({ name: v.category, due: v.totalDue })),
+    summary: { totalCategories: catDueMap.size, totalDue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(catDueMap.values()).reduce((s, r) => s + r.totalDue, 0)) },
+    chartData: Array.from(catDueMap.values()).map((v) => ({ name: v.category, due: params.vatMode ? 0 : v.totalDue })),
   };
 }
 
@@ -2352,7 +2446,7 @@ async function customerLedger(params: QueryParams): Promise<ReportResult> {
     title: `Customer Ledger - ${customer.name}`,
     columns,
     rows,
-    summary: { openingBalance: customer.openingBalance, totalDebit, totalCredit, closingBalance: runningBalance },
+    summary: { openingBalance: maskVat(customer.openingBalance, params.vatMode), totalDebit: maskVat(totalDebit, params.vatMode), totalCredit: maskVat(totalCredit, params.vatMode), closingBalance: maskVat(runningBalance, params.vatMode) },
     chartData: rows.slice(1).map((r) => ({ date: r.date, balance: r.balance })),
   };
 }
@@ -2384,26 +2478,29 @@ async function customerDueReport(params: QueryParams): Promise<ReportResult> {
     const totalReturns = c.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
     const outstanding = c.openingBalance + totalSales - totalPaid - totalReturns;
     return {
+      _customerId: c.id, // H2 FIX: Keep customer UUID for filtering
       customerCode: c.customerCode,
       customer: c.name,
       phone: c.phone || '',
-      openingBalance: c.openingBalance,
-      totalSales,
-      totalPaid,
-      outstanding: Math.max(outstanding, 0),
+      openingBalance: maskVat(c.openingBalance, params.vatMode),
+      totalSales: maskVat(totalSales, params.vatMode),
+      totalPaid: maskVat(totalPaid, params.vatMode),
+      outstanding: maskVat(Math.max(outstanding, 0), params.vatMode),
     };
-  }).filter((r) => r.outstanding > 0);
+  }).filter((r) => r.outstanding > 0 || params.vatMode);
 
-  if (params.customerId) rows = rows.filter((r) => r.customerCode === params.customerId);
+  // H2 FIX: Filter by customer UUID instead of code
+  if (params.customerId) rows = rows.filter((r) => r._customerId === params.customerId);
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Customer Due Report',
     columns,
     rows,
-    summary: { totalCustomers: rows.length, totalOutstanding: fmt(rows.reduce((s, r) => s + r.outstanding, 0)) },
-    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), outstanding: r.outstanding })),
+    summary: { totalCustomers: rows.length, totalOutstanding: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.outstanding) || 0), 0)) },
+    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), outstanding: params.vatMode ? 0 : r.outstanding })),
   };
 }
 
@@ -2433,20 +2530,21 @@ async function customerCashCollection(params: QueryParams): Promise<ReportResult
     date: fmtDate(c.date),
     collectionCode: c.collectionCode,
     customer: c.customer?.name || '',
-    amount: c.amount,
+    amount: maskVat(c.amount, params.vatMode),
     paymentOption: c.paymentOption?.name || '',
     bank: c.bank?.bankName || '',
     description: c.description || '',
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Customer Cash Collection Report',
     columns,
     rows,
-    summary: { totalCollections: collections.length, totalAmount: fmt(collections.reduce((s, c) => s + c.amount, 0)) },
-    chartData: rows.slice(0, 30).map((r) => ({ date: r.date, amount: r.amount })),
+    summary: { totalCollections: collections.length, totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(collections.reduce((s, c) => s + c.amount, 0)) },
+    chartData: collections.slice(0, 30).map((c) => ({ date: fmtDate(c.date), amount: params.vatMode ? 0 : c.amount })),
   };
 }
 
@@ -2477,19 +2575,22 @@ async function customerLedgerSummary(params: QueryParams): Promise<ReportResult>
     const totalCollections = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
     const balance = c.openingBalance + totalSales - totalReturns - totalCollections;
     return {
+      _customerId: c.id, // H3 FIX: Keep customer UUID for filtering
       customerCode: c.customerCode,
       customer: c.name,
-      openingBalance: c.openingBalance,
-      totalSales,
-      totalReturns,
-      totalCollections,
-      balance,
+      openingBalance: maskVat(c.openingBalance, params.vatMode),
+      totalSales: maskVat(totalSales, params.vatMode),
+      totalReturns: maskVat(totalReturns, params.vatMode),
+      totalCollections: maskVat(totalCollections, params.vatMode),
+      balance: maskVat(balance, params.vatMode),
     };
   });
 
-  if (params.customerId) rows = rows.filter((r) => r.customerCode === params.customerId);
+  // H3 FIX: Filter by customer UUID instead of code
+  if (params.customerId) rows = rows.filter((r) => r._customerId === params.customerId);
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Customer Ledger Summary',
@@ -2497,12 +2598,12 @@ async function customerLedgerSummary(params: QueryParams): Promise<ReportResult>
     rows,
     summary: {
       totalCustomers: rows.length,
-      totalOpening: fmt(rows.reduce((s, r) => s + (Number(r.openingBalance) || 0), 0)),
-      totalSales: fmt(rows.reduce((s, r) => s + (Number(r.totalSales) || 0), 0)),
-      totalCollections: fmt(rows.reduce((s, r) => s + (Number(r.totalCollections) || 0), 0)),
-      totalBalance: fmt(rows.reduce((s, r) => s + (Number(r.balance) || 0), 0)),
+      totalOpening: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.openingBalance) || 0), 0)),
+      totalSales: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.totalSales) || 0), 0)),
+      totalCollections: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.totalCollections) || 0), 0)),
+      totalBalance: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.balance) || 0), 0)),
     },
-    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), sales: r.totalSales, collections: r.totalCollections, balance: r.balance })),
+    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), sales: params.vatMode ? 0 : r.totalSales, collections: params.vatMode ? 0 : r.totalCollections, balance: params.vatMode ? 0 : r.balance })),
   };
 }
 
@@ -2539,8 +2640,9 @@ async function expenseReport(params: QueryParams): Promise<ReportResult> {
     { key: 'totalAmount', label: 'Total Amount' },
   ];
 
-  let rows = Array.from(headMap.values());
+  let rows = Array.from(headMap.values()).map((v) => ({ ...v, totalAmount: maskVat(v.totalAmount, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalAmount = expenses.reduce((s, e) => s + e.amount, 0);
 
@@ -2548,8 +2650,8 @@ async function expenseReport(params: QueryParams): Promise<ReportResult> {
     title: 'Expense Report',
     columns,
     rows,
-    summary: { totalExpenses: expenses.length, totalAmount: fmt(totalAmount), avgExpense: expenses.length > 0 ? fmt(totalAmount / expenses.length) : '0.00' },
-    chartData: Array.from(headMap.values()).map((v) => ({ name: v.head, amount: v.totalAmount })),
+    summary: { totalExpenses: expenses.length, totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalAmount), avgExpense: params.vatMode ? 'N/A (Audit Mode)' : (expenses.length > 0 ? fmt(totalAmount / expenses.length) : '0.00') },
+    chartData: Array.from(headMap.values()).map((v) => ({ name: v.head, amount: params.vatMode ? 0 : v.totalAmount })),
   };
 }
 
@@ -2617,6 +2719,7 @@ async function productWiseBenefit(params: QueryParams): Promise<ReportResult> {
   });
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalRevenue = Array.from(prodMap.values()).reduce((s, v) => safeFinancialAdd(s, v.totalRevenue), 0);
   const totalCost = Array.from(prodMap.values()).reduce((s, v) => safeFinancialAdd(s, v.totalCost), 0);
@@ -2670,8 +2773,9 @@ async function incomeReport(params: QueryParams): Promise<ReportResult> {
     { key: 'totalAmount', label: 'Total Amount' },
   ];
 
-  let rows = Array.from(headMap.values());
+  let rows = Array.from(headMap.values()).map((v) => ({ ...v, totalAmount: maskVat(v.totalAmount, params.vatMode) }));
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalAmount = incomes.reduce((s, i) => safeFinancialAdd(s, i.amount), 0);
 
@@ -2681,10 +2785,10 @@ async function incomeReport(params: QueryParams): Promise<ReportResult> {
     rows,
     summary: {
       totalIncomes: incomes.length,
-      totalAmount: fmt(safeFinancialRound(totalAmount)),
-      avgIncome: incomes.length > 0 ? fmt(safeFinancialRound(totalAmount / incomes.length)) : '0.00',
+      totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalAmount)),
+      avgIncome: params.vatMode ? 'N/A (Audit Mode)' : (incomes.length > 0 ? fmt(safeFinancialRound(totalAmount / incomes.length)) : '0.00'),
     },
-    chartData: Array.from(headMap.values()).map((v) => ({ name: v.head, amount: v.totalAmount })),
+    chartData: Array.from(headMap.values()).map((v) => ({ name: v.head, amount: params.vatMode ? 0 : v.totalAmount })),
   };
 }
 
@@ -2719,13 +2823,14 @@ async function adjustmentReport(params: QueryParams): Promise<ReportResult> {
   let rows = adjustments.map((le) => ({
     date: fmtDate(le.date),
     account: le.chartOfAccount?.name || '',
-    debit: le.debit,
-    credit: le.credit,
+    debit: maskVat(le.debit, params.vatMode),
+    credit: maskVat(le.credit, params.vatMode),
     narration: le.narration || '',
     voucherNo: le.journalVoucher || '',
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalDebit = adjustments.reduce((s, a) => safeFinancialAdd(s, a.debit), 0);
   const totalCredit = adjustments.reduce((s, a) => safeFinancialAdd(s, a.credit), 0);
@@ -2736,8 +2841,8 @@ async function adjustmentReport(params: QueryParams): Promise<ReportResult> {
     rows,
     summary: {
       totalAdjustments: adjustments.length,
-      totalDebit: fmt(safeFinancialRound(totalDebit)),
-      totalCredit: fmt(safeFinancialRound(totalCredit)),
+      totalDebit: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalDebit)),
+      totalCredit: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalCredit)),
     },
     chartData: [],
   };
@@ -2792,13 +2897,13 @@ async function transactionSummary(params: QueryParams): Promise<ReportResult> {
   ];
 
   const rows: Record<string, unknown>[] = [
-    { transactionType: 'Sales Orders', count: salesCount, totalAmount: salesTotal._sum.grandTotal || 0 },
-    { transactionType: 'Purchase Orders', count: purchaseCount, totalAmount: purchaseTotal._sum.grandTotal || 0 },
-    { transactionType: 'Expenses', count: expenseCount, totalAmount: expenseTotal._sum.amount || 0 },
-    { transactionType: 'Incomes', count: incomeCount, totalAmount: incomeTotal._sum.amount || 0 },
-    { transactionType: 'Cash Collections', count: collectionCount, totalAmount: collectionTotal._sum.amount || 0 },
-    { transactionType: 'Cash Deliveries', count: deliveryCount, totalAmount: deliveryTotal._sum.amount || 0 },
-    { transactionType: 'Bank Transactions', count: bankTxCount, totalAmount: bankTxTotal._sum.amount || 0 },
+    { transactionType: 'Sales Orders', count: salesCount, totalAmount: maskVat(salesTotal._sum.grandTotal || 0, params.vatMode) },
+    { transactionType: 'Purchase Orders', count: purchaseCount, totalAmount: maskVat(purchaseTotal._sum.grandTotal || 0, params.vatMode) },
+    { transactionType: 'Expenses', count: expenseCount, totalAmount: maskVat(expenseTotal._sum.amount || 0, params.vatMode) },
+    { transactionType: 'Incomes', count: incomeCount, totalAmount: maskVat(incomeTotal._sum.amount || 0, params.vatMode) },
+    { transactionType: 'Cash Collections', count: collectionCount, totalAmount: maskVat(collectionTotal._sum.amount || 0, params.vatMode) },
+    { transactionType: 'Cash Deliveries', count: deliveryCount, totalAmount: maskVat(deliveryTotal._sum.amount || 0, params.vatMode) },
+    { transactionType: 'Bank Transactions', count: bankTxCount, totalAmount: maskVat(bankTxTotal._sum.amount || 0, params.vatMode) },
   ];
 
   const totalTransactions = salesCount + purchaseCount + expenseCount + incomeCount + collectionCount + deliveryCount + bankTxCount;
@@ -2811,7 +2916,7 @@ async function transactionSummary(params: QueryParams): Promise<ReportResult> {
       totalTransactions,
       transactionTypes: 7,
     },
-    chartData: rows.map((r) => ({ name: String(r.transactionType), count: r.count, amount: r.totalAmount })),
+    chartData: rows.map((r) => ({ name: String(r.transactionType), count: r.count, amount: params.vatMode ? 0 : r.totalAmount })),
   };
 }
 
@@ -2832,19 +2937,19 @@ async function monthlyTransaction(params: QueryParams): Promise<ReportResult> {
   // Group by month
   const monthMap = new Map<string, { month: string; sales: number; purchases: number; expenses: number }>();
   for (const so of salesOrders) {
-    const key = fmtDate(so.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
+    const key = fmtDate(so.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
     const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
     existing.sales = safeFinancialAdd(existing.sales, so.grandTotal);
     monthMap.set(key, existing);
   }
   for (const po of purchaseOrders) {
-    const key = fmtDate(po.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
+    const key = fmtDate(po.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
     const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
     existing.purchases = safeFinancialAdd(existing.purchases, po.grandTotal);
     monthMap.set(key, existing);
   }
   for (const exp of expenses) {
-    const key = fmtDate(exp.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
+    const key = fmtDate(exp.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
     const existing = monthMap.get(key) || { month: key, sales: 0, purchases: 0, expenses: 0 };
     existing.expenses = safeFinancialAdd(existing.expenses, exp.amount);
     monthMap.set(key, existing);
@@ -2862,11 +2967,12 @@ async function monthlyTransaction(params: QueryParams): Promise<ReportResult> {
     month: v.month,
     sales: maskVat(v.sales, params.vatMode),
     purchases: maskVat(v.purchases, params.vatMode),
-    expenses: v.expenses,
+    expenses: maskVat(v.expenses, params.vatMode),
     net: maskVat(safeFinancialSubtract(v.sales, safeFinancialAdd(v.purchases, v.expenses)), params.vatMode),
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalSales = Array.from(monthMap.values()).reduce((s, v) => safeFinancialAdd(s, v.sales), 0);
   const totalPurchases = Array.from(monthMap.values()).reduce((s, v) => safeFinancialAdd(s, v.purchases), 0);
@@ -2880,13 +2986,13 @@ async function monthlyTransaction(params: QueryParams): Promise<ReportResult> {
       totalMonths: monthMap.size,
       totalSales: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalSales)),
       totalPurchases: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalPurchases)),
-      totalExpenses: fmt(safeFinancialRound(totalExpenses)),
+      totalExpenses: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalExpenses)),
     },
     chartData: Array.from(monthMap.values()).map((v) => ({
       month: v.month,
       sales: params.vatMode ? 0 : v.sales,
       purchases: params.vatMode ? 0 : v.purchases,
-      expenses: v.expenses,
+      expenses: params.vatMode ? 0 : v.expenses,
     })),
   };
 }
@@ -2910,7 +3016,7 @@ async function showroomAnalysis(params: QueryParams): Promise<ReportResult> {
       const existing = godownMap.get(godown) || { showroom: godown, totalOrders: 0, totalRevenue: 0, totalQty: 0 };
       existing.totalOrders += 1;
       existing.totalQty += line.quantity;
-      existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, line.lineTotal || line.quantity * line.unitPrice);
+      existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, line.total || safeFinancialRound(line.quantity * line.rate));
       godownMap.set(godown, existing);
     }
   }
@@ -2932,6 +3038,7 @@ async function showroomAnalysis(params: QueryParams): Promise<ReportResult> {
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalRevenue = Array.from(godownMap.values()).reduce((s, v) => safeFinancialAdd(s, v.totalRevenue), 0);
   const totalOrders = Array.from(godownMap.values()).reduce((s, v) => s + v.totalOrders, 0);
@@ -2979,11 +3086,12 @@ async function transferReport(params: QueryParams): Promise<ReportResult> {
     transactionCode: t.transactionCode,
     fromBank: t.bank?.bankName || '',
     toBank: t.toBank?.bankName || '',
-    amount: t.amount,
+    amount: maskVat(t.amount, params.vatMode),
     description: t.description || '',
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalAmount = transfers.reduce((s, t) => safeFinancialAdd(s, t.amount), 0);
 
@@ -3000,9 +3108,9 @@ async function transferReport(params: QueryParams): Promise<ReportResult> {
     rows,
     summary: {
       totalTransfers: transfers.length,
-      totalAmount: fmt(safeFinancialRound(totalAmount)),
+      totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalAmount)),
     },
-    chartData: Array.from(fromBankMap.entries()).map(([name, amount]) => ({ name, amount })),
+    chartData: Array.from(fromBankMap.entries()).map(([name, amount]) => ({ name, amount: params.vatMode ? 0 : amount })),
   };
 }
 
@@ -3051,12 +3159,12 @@ async function managementReport(params: QueryParams): Promise<ReportResult> {
   ];
 
   const rows: Record<string, unknown>[] = [
-    { metric: 'Sales Revenue', value: fmt(revenue) },
-    { metric: 'Other Income', value: fmt(otherIncome) },
-    { metric: 'Total Revenue', value: fmt(totalRevenue) },
+    { metric: 'Sales Revenue', value: maskVat(fmt(revenue), params.vatMode) },
+    { metric: 'Other Income', value: maskVat(fmt(otherIncome), params.vatMode) },
+    { metric: 'Total Revenue', value: maskVat(fmt(totalRevenue), params.vatMode) },
     { metric: 'Cost of Goods Sold', value: maskVat(fmt(cogs), params.vatMode) },
     { metric: 'Gross Profit', value: maskVat(fmt(grossProfit), params.vatMode) },
-    { metric: 'Operating Expenses', value: fmt(operatingExpenses) },
+    { metric: 'Operating Expenses', value: maskVat(fmt(operatingExpenses), params.vatMode) },
     { metric: 'Net Profit', value: maskVat(fmt(netProfit), params.vatMode) },
     { metric: 'Profit Margin', value: maskVat(`${profitMargin}%`, params.vatMode) },
     { metric: 'Total Sales Orders', value: salesOrders.length },
@@ -3068,13 +3176,13 @@ async function managementReport(params: QueryParams): Promise<ReportResult> {
   // Monthly breakdown chart
   const monthlyMap = new Map<string, { revenue: number; expenses: number; profit: number }>();
   for (const so of salesOrders) {
-    const key = fmtDate(so.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
+    const key = fmtDate(so.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
     const existing = monthlyMap.get(key) || { revenue: 0, expenses: 0, profit: 0 };
     existing.revenue += so.grandTotal;
     monthlyMap.set(key, existing);
   }
   for (const e of expenses) {
-    const key = fmtDate(e.date).replace(/d{2} (w{3}) (d{4})/, '$1 $2');
+    const key = fmtDate(e.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
     const existing = monthlyMap.get(key) || { revenue: 0, expenses: 0, profit: 0 };
     existing.expenses += e.amount;
     monthlyMap.set(key, existing);
@@ -3088,17 +3196,17 @@ async function managementReport(params: QueryParams): Promise<ReportResult> {
     columns,
     rows,
     summary: {
-      revenue: fmt(totalRevenue),
+      revenue: maskVat(fmt(totalRevenue), params.vatMode),
       cogs: maskVat(fmt(cogs), params.vatMode),
       grossProfit: maskVat(fmt(grossProfit), params.vatMode),
-      operatingExpenses: fmt(operatingExpenses),
+      operatingExpenses: maskVat(fmt(operatingExpenses), params.vatMode),
       netProfit: maskVat(fmt(netProfit), params.vatMode),
       profitMargin: maskVat(profitMargin, params.vatMode),
     },
     chartData: Array.from(monthlyMap.entries()).map(([month, v]) => ({
       month,
-      revenue: v.revenue,
-      expenses: v.expenses,
+      revenue: params.vatMode ? 0 : v.revenue,
+      expenses: params.vatMode ? 0 : v.expenses,
       profit: params.vatMode ? 0 : v.profit,
     })),
   };
@@ -3136,13 +3244,14 @@ async function bankTransactionReport(params: QueryParams): Promise<ReportResult>
     transactionCode: t.transactionCode,
     bank: t.bank?.bankName || '',
     type: t.type,
-    amount: t.amount,
-    runningBalance: t.runningBalance,
+    amount: maskVat(t.amount, params.vatMode),
+    runningBalance: maskVat(t.runningBalance, params.vatMode),
     toBank: t.toBank?.bankName || '',
     description: t.description || '',
   }));
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   const totalDeposits = transactions.filter((t) => t.type === 'Deposit').reduce((s, t) => s + t.amount, 0);
   const totalWithdrawals = transactions.filter((t) => t.type === 'Withdraw').reduce((s, t) => s + t.amount, 0);
@@ -3152,12 +3261,99 @@ async function bankTransactionReport(params: QueryParams): Promise<ReportResult>
     title: 'Bank Transaction Report',
     columns,
     rows,
-    summary: { totalTransactions: transactions.length, totalDeposits: fmt(totalDeposits), totalWithdrawals: fmt(totalWithdrawals), totalTransfers: fmt(totalTransfers) },
+    summary: { totalTransactions: transactions.length, totalDeposits: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalDeposits), totalWithdrawals: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalWithdrawals), totalTransfers: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalTransfers) },
     chartData: [
-      { name: 'Deposits', amount: totalDeposits },
-      { name: 'Withdrawals', amount: totalWithdrawals },
-      { name: 'Transfers', amount: totalTransfers },
+      { name: 'Deposits', amount: params.vatMode ? 0 : totalDeposits },
+      { name: 'Withdrawals', amount: params.vatMode ? 0 : totalWithdrawals },
+      { name: 'Transfers', amount: params.vatMode ? 0 : totalTransfers },
     ],
+  };
+}
+
+// C7 FIX: New bankLedgerReport function — previously bank-ledger-report fell through to bankBalanceReport
+async function bankLedgerReport(params: QueryParams): Promise<ReportResult> {
+  if (!params.bankId) {
+    return emptyReport('Bank Ledger', [
+      { key: 'date', label: 'Date' },
+      { key: 'code', label: 'Code' },
+      { key: 'bank', label: 'Bank' },
+      { key: 'type', label: 'Type' },
+      { key: 'debit', label: 'Debit' },
+      { key: 'credit', label: 'Credit' },
+      { key: 'runningBalance', label: 'Running Balance' },
+      { key: 'toBank', label: 'To Bank' },
+      { key: 'description', label: 'Description' },
+    ]);
+  }
+
+  const bank = await db.bank.findUnique({ where: { id: params.bankId } });
+  if (!bank) return emptyReport('Bank Ledger', []);
+
+  const where: Record<string, unknown> = { isActive: true, bankId: params.bankId };
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) where.date = dateFilter;
+
+  const transactions = await db.bankTransaction.findMany({
+    where,
+    include: { bank: true, toBank: true },
+    orderBy: { date: 'asc' },
+  });
+
+  const columns: ColumnDef[] = [
+    { key: 'date', label: 'Date' },
+    { key: 'code', label: 'Code' },
+    { key: 'bank', label: 'Bank' },
+    { key: 'type', label: 'Type' },
+    { key: 'debit', label: 'Debit' },
+    { key: 'credit', label: 'Credit' },
+    { key: 'runningBalance', label: 'Running Balance' },
+    { key: 'toBank', label: 'To Bank' },
+    { key: 'description', label: 'Description' },
+  ];
+
+  // Compute running balance: Deposits = credit, Withdrawals/Transfers = debit
+  let running = bank.openingBalance;
+  let rows = transactions.map((t) => {
+    const isCredit = t.type === 'Deposit';
+    const credit = isCredit ? t.amount : 0;
+    const debit = !isCredit ? t.amount : 0;
+    running = safeFinancialAdd(running, safeFinancialSubtract(credit, debit));
+    return {
+      date: fmtDate(t.date),
+      code: t.transactionCode,
+      bank: t.bank?.bankName || bank.bankName,
+      type: t.type,
+      debit: maskVat(debit, params.vatMode),
+      credit: maskVat(credit, params.vatMode),
+      runningBalance: maskVat(safeFinancialRound(running), params.vatMode),
+      toBank: t.toBank?.bankName || '',
+      description: t.description || '',
+    };
+  });
+
+  rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
+
+  const totalDebit = transactions.filter((t) => t.type !== 'Deposit').reduce((s, t) => s + t.amount, 0);
+  const totalCredit = transactions.filter((t) => t.type === 'Deposit').reduce((s, t) => s + t.amount, 0);
+
+  return {
+    title: `Bank Ledger — ${bank.bankName}`,
+    columns,
+    rows,
+    summary: {
+      bankName: bank.bankName,
+      accountNo: bank.accountNo,
+      openingBalance: maskVat(bank.openingBalance, params.vatMode),
+      totalDebit: maskVat(safeFinancialRound(totalDebit), params.vatMode),
+      totalCredit: maskVat(safeFinancialRound(totalCredit), params.vatMode),
+      closingBalance: maskVat(safeFinancialRound(bank.openingBalance + totalCredit - totalDebit), params.vatMode),
+    },
+    chartData: transactions.slice(0, 50).map((t) => ({
+      date: fmtDate(t.date),
+      credit: t.type === 'Deposit' ? t.amount : 0,
+      debit: t.type !== 'Deposit' ? t.amount : 0,
+    })),
   };
 }
 
@@ -3166,10 +3362,14 @@ async function bankBalanceReport(params: QueryParams): Promise<ReportResult> {
   if (params.bankId) where.id = params.bankId;
   const dateFilter = buildDateFilter(params.from, params.to);
 
+  // H10 FIX: Build bank transaction where clause with date filter
+  const btWhere: Record<string, unknown> = { isActive: true };
+  if (dateFilter) btWhere.date = dateFilter;
+
   const banks = await db.bank.findMany({
     where,
     include: {
-      bankTransactions: { where: { isActive: true } },
+      bankTransactions: { where: btWhere },
       expenses: { where: { isActive: true } },
       incomes: { where: { isActive: true } },
       cashCollections: { where: { isActive: true } },
@@ -3192,14 +3392,15 @@ async function bankBalanceReport(params: QueryParams): Promise<ReportResult> {
     return {
       bankName: b.bankName,
       accountNo: b.accountNo,
-      openingBalance: b.openingBalance,
-      deposits,
-      withdrawals,
-      currentBalance: b.currentBalance,
+      openingBalance: maskVat(b.openingBalance, params.vatMode),
+      deposits: maskVat(deposits, params.vatMode),
+      withdrawals: maskVat(withdrawals, params.vatMode),
+      currentBalance: maskVat(b.currentBalance, params.vatMode),
     };
   });
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
+  rows = groupRows(rows, params.groupBy);
 
   return {
     title: 'Bank Balance Report',
@@ -3207,10 +3408,10 @@ async function bankBalanceReport(params: QueryParams): Promise<ReportResult> {
     rows,
     summary: {
       totalBanks: banks.length,
-      totalOpening: fmt(banks.reduce((s, b) => s + b.openingBalance, 0)),
-      totalCurrent: fmt(banks.reduce((s, b) => s + b.currentBalance, 0)),
+      totalOpening: params.vatMode ? 'N/A (Audit Mode)' : fmt(banks.reduce((s, b) => s + b.openingBalance, 0)),
+      totalCurrent: params.vatMode ? 'N/A (Audit Mode)' : fmt(banks.reduce((s, b) => s + b.currentBalance, 0)),
     },
-    chartData: rows.map((r) => ({ name: String(r.bankName), opening: r.openingBalance, current: r.currentBalance })),
+    chartData: banks.map((b) => ({ name: String(b.bankName), opening: params.vatMode ? 0 : b.openingBalance, current: params.vatMode ? 0 : b.currentBalance })),
   };
 }
 
@@ -3573,6 +3774,8 @@ export async function GET(request: NextRequest) {
         result = await bankTransactionReport(params);
         break;
       case 'bank:bank-ledger-report':
+        result = await bankLedgerReport(params);
+        break;
       case 'bank:bank-balance-report':
         result = await bankBalanceReport(params);
         break;
