@@ -1411,14 +1411,14 @@ async function dailySales(params: QueryParams): Promise<ReportResult> {
   const where: Record<string, unknown> = { isActive: true };
   if (params.customerId) where.customerId = params.customerId;
   // MIS-002 FIX: Add missing filters for sales reports
-  if (params.employeeId) where.createdBy = params.employeeId;
+  if (params.employeeId) where.srId = params.employeeId;
   if (params.productId) where.lines = { some: { productId: params.productId } };
   const dateFilter = buildDateFilter(params.from, params.to);
   if (dateFilter) where.date = dateFilter;
 
   const salesOrders = await db.salesOrder.findMany({
     where,
-    include: { customer: true },
+    include: { customer: true, sr: true },
     orderBy: { date: 'desc' },
   });
 
@@ -1465,6 +1465,8 @@ async function dailySales(params: QueryParams): Promise<ReportResult> {
 
 async function replacementReport(params: QueryParams): Promise<ReportResult> {
   const where: Record<string, unknown> = { isActive: true };
+  if (params.customerId) where.customerId = params.customerId;
+  if (params.employeeId) where.salesOrder = { srId: params.employeeId };
   const dateFilter = buildDateFilter(params.from, params.to);
   if (dateFilter) where.date = dateFilter;
 
@@ -1517,6 +1519,7 @@ async function replacementReport(params: QueryParams): Promise<ReportResult> {
 async function modelWiseSales(params: QueryParams): Promise<ReportResult> {
   const where: Record<string, unknown> = { isActive: true };
   if (params.customerId) where.customerId = params.customerId;
+  if (params.employeeId) where.srId = params.employeeId;
   // MIS-002 FIX: Add missing categoryId filter
   if (params.categoryId) where.lines = { some: { product: { categoryId: params.categoryId } } };
   const dateFilter = buildDateFilter(params.from, params.to);
@@ -1621,6 +1624,8 @@ async function installmentCollection(params: QueryParams): Promise<ReportResult>
 async function upcomingInstallment(params: QueryParams): Promise<ReportResult> {
   const where: Record<string, unknown> = { status: 'Pending' };
   if (params.customerId) where.hireSales = { customerId: params.customerId };
+  const dateFilter = buildDateFilter(params.from, params.to);
+  if (dateFilter) where.dueDate = dateFilter;
 
   const installments = await db.hireInstallment.findMany({
     where,
@@ -1648,16 +1653,6 @@ async function upcomingInstallment(params: QueryParams): Promise<ReportResult> {
     status: i.status,
   }));
 
-  const dateFilter = buildDateFilter(params.from, params.to);
-  if (dateFilter) {
-    const fromTime = dateFilter.gte ? new Date(dateFilter.gte).getTime() : 0;
-    const toTime = dateFilter.lte ? new Date(dateFilter.lte).getTime() : Infinity;
-    rows = rows.filter((r) => {
-      const d = new Date(String(r.dueDate)).getTime();
-      return d >= fromTime && d <= toTime;
-    });
-  }
-
   // H11 FIX: Calculate summary BEFORE groupRows
   const totalDue = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
@@ -1677,18 +1672,16 @@ async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // H8 FIX: Apply date filtering on hire sales dates using params.from/params.to
-  const hireWhere: Record<string, unknown> = { isActive: true };
-  const dateFilter = buildDateFilter(params.from, params.to);
-  if (dateFilter) hireWhere.date = dateFilter;
-
+  // BUG 12 FIX: Remove hireWhere from include to avoid null hireSales
   const overdue = await db.hireInstallment.findMany({
     where: {
       status: { in: ['Pending', 'Overdue'] },
       dueDate: { lt: thirtyDaysAgo },
     },
-    include: { hireSales: { where: hireWhere, include: { customer: true, lines: { include: { product: true } } } } },
+    include: { hireSales: { include: { customer: true, lines: { include: { product: true } } } } },
   });
+
+  const dateFilter = buildDateFilter(params.from, params.to);
 
   const columns: ColumnDef[] = [
     { key: 'customer', label: 'Customer' },
@@ -1710,8 +1703,23 @@ async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
       amount: maskVat(i.amount, params.vatMode),
       daysOverdue,
       phone: i.hireSales?.customer?.phone || '',
+      _hireSalesDate: i.hireSales?.date,
     };
   });
+
+  // BUG 12 FIX: Apply date filter on hireSales date after fetching if needed
+  if (dateFilter) {
+    const fromTime = dateFilter.gte ? dateFilter.gte.getTime() : 0;
+    const toTime = dateFilter.lte ? dateFilter.lte.getTime() : Infinity;
+    rows = rows.filter((r) => {
+      if (!r._hireSalesDate) return false;
+      const d = new Date(r._hireSalesDate as Date).getTime();
+      return d >= fromTime && d <= toTime;
+    });
+  }
+
+  // Remove internal field before returning
+  rows = rows.map(({ _hireSalesDate, ...rest }) => rest);
 
   if (params.customerId) {
     rows = rows.filter((r) => {
@@ -1736,18 +1744,27 @@ async function defaultCustomerSummary(params: QueryParams): Promise<ReportResult
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // H9 FIX: Apply date filtering on hire sales dates using params.from/params.to
-  const hireWhere: Record<string, unknown> = { isActive: true };
+  // BUG 13 FIX: Remove hireWhere from include to avoid null hireSales
   const dateFilter = buildDateFilter(params.from, params.to);
-  if (dateFilter) hireWhere.date = dateFilter;
 
   const overdue = await db.hireInstallment.findMany({
     where: { status: { in: ['Pending', 'Overdue'] }, dueDate: { lt: thirtyDaysAgo } },
-    include: { hireSales: { where: hireWhere, include: { customer: true } } },
+    include: { hireSales: { include: { customer: true } } },
   });
 
+  // BUG 13 FIX: Filter by hireSales date after fetching if needed
+  const filteredOverdue = dateFilter
+    ? overdue.filter((i) => {
+        if (!i.hireSales) return false;
+        const d = new Date(i.hireSales.date).getTime();
+        const fromTime = dateFilter.gte ? dateFilter.gte.getTime() : 0;
+        const toTime = dateFilter.lte ? dateFilter.lte.getTime() : Infinity;
+        return d >= fromTime && d <= toTime;
+      })
+    : overdue;
+
   const customerMap = new Map<string, { customer: string; phone: string; totalOverdue: number; installmentCount: number }>();
-  for (const i of overdue) {
+  for (const i of filteredOverdue) {
     const name = i.hireSales?.customer?.name || 'Unknown';
     const phone = i.hireSales?.customer?.phone || '';
     const existing = customerMap.get(name);
@@ -1836,8 +1853,22 @@ async function hireAccountDetails(params: QueryParams): Promise<ReportResult> {
 // ============================================================
 
 async function srWiseSales(params: QueryParams): Promise<ReportResult> {
-  const where: Record<string, unknown> = { isActive: true, designation: { name: { contains: 'SR' } } };
-  if (params.employeeId) where.id = params.employeeId;
+  // BUG 15 FIX: Use SRTargetSetup to find SR employees instead of fragile designation name contains
+  const srTargets = await db.sRTargetSetup.findMany({
+    where: { isActive: true, status: 'ACTIVE' },
+    select: { employeeId: true },
+    distinct: ['employeeId'],
+  });
+  const srEmployeeIds = srTargets.map((t) => t.employeeId);
+  const where: Record<string, unknown> = { isActive: true };
+  if (params.employeeId) {
+    where.id = params.employeeId;
+  } else if (srEmployeeIds.length > 0) {
+    where.id = { in: srEmployeeIds };
+  } else {
+    // Fallback to exact designation match if no SRTargetSetup records exist
+    where.designation = { name: { in: ['SR', 'Sales Representative', 'Sales Rep'] } };
+  }
 
   const srs = await db.employee.findMany({
     where,
@@ -1896,17 +1927,19 @@ async function srWiseSales(params: QueryParams): Promise<ReportResult> {
 async function srWiseSalesDetails(params: QueryParams): Promise<ReportResult> {
   const dateFilter = buildDateFilter(params.from, params.to);
   const salesWhere: Record<string, unknown> = { isActive: true };
+  if (params.employeeId) salesWhere.srId = params.employeeId;
   if (dateFilter) salesWhere.date = dateFilter;
 
   const salesOrders = await db.salesOrder.findMany({
     where: salesWhere,
-    include: { customer: true, lines: { include: { product: true } } },
+    include: { customer: true, sr: true, lines: { include: { product: true } } },
     orderBy: { date: 'desc' },
   });
 
   const columns: ColumnDef[] = [
     { key: 'invoiceNo', label: 'Invoice No' },
     { key: 'date', label: 'Date' },
+    { key: 'srName', label: 'SR Name' },
     { key: 'customer', label: 'Customer' },
     { key: 'product', label: 'Product' },
     { key: 'quantity', label: 'Quantity' },
@@ -1920,6 +1953,7 @@ async function srWiseSalesDetails(params: QueryParams): Promise<ReportResult> {
       rows.push({
         invoiceNo: so.invoiceNo,
         date: fmtDate(so.date),
+        srName: so.sr?.name || 'N/A',
         customer: so.customer?.name || '',
         product: line.product?.name || '',
         quantity: line.quantity,
@@ -1961,6 +1995,7 @@ async function srWiseCustomerDue(params: QueryParams): Promise<ReportResult> {
     { key: 'outstanding', label: 'Outstanding' },
   ];
 
+  // BUG 14 FIX: Calculate raw outstanding before masking, filter on raw value
   let rows = customers.map((c) => {
     const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
     // H4 FIX: If employeeId param provided, only count cash collections from that SR
@@ -1968,16 +2003,17 @@ async function srWiseCustomerDue(params: QueryParams): Promise<ReportResult> {
       .filter((cc) => !params.employeeId || cc.srId === params.employeeId)
       .reduce((s, cc) => s + cc.amount, 0);
     const totalReturns = c.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
-    const outstanding = c.openingBalance + totalSales - totalPaid - totalReturns;
+    const rawOutstanding = c.openingBalance + totalSales - totalPaid - totalReturns;
     return {
       customer: c.name,
       customerCode: c.customerCode,
       totalSales: maskVat(totalSales, params.vatMode),
       totalPaid: maskVat(totalPaid, params.vatMode),
       totalReturns: maskVat(totalReturns, params.vatMode),
-      outstanding: maskVat(Math.max(outstanding, 0), params.vatMode),
+      outstanding: maskVat(Math.max(rawOutstanding, 0), params.vatMode),
+      _rawOutstanding: rawOutstanding,
     };
-  }).filter((r) => r.outstanding > 0 || params.vatMode);
+  }).filter((r) => r._rawOutstanding > 0);
 
   // H4 FIX: Filter customers to only those with cashCollections attributed to this SR
   if (params.employeeId) {
@@ -1986,6 +2022,9 @@ async function srWiseCustomerDue(params: QueryParams): Promise<ReportResult> {
       return cust?.cashCollections.some((cc) => cc.srId === params.employeeId);
     });
   }
+
+  // BUG 14 FIX: Remove _rawOutstanding from output rows before sort/group
+  rows = rows.map(({ _rawOutstanding, ...rest }) => rest);
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
   rows = groupRows(rows, params.groupBy);
@@ -2058,7 +2097,10 @@ async function srWiseCustomerSummary(params: QueryParams): Promise<ReportResult>
 
 async function srVisitReport(params: QueryParams): Promise<ReportResult> {
   const where: Record<string, unknown> = { module: 'Customer' };
-  if (params.employeeId) where.userName = params.employeeId;
+  if (params.employeeId) {
+    const emp = await db.employee.findUnique({ where: { id: params.employeeId } });
+    if (emp) where.userName = emp.name;
+  }
   const dateFilter = buildDateFilter(params.from, params.to);
   if (dateFilter) where.createdAt = dateFilter;
 
@@ -2198,6 +2240,7 @@ async function srWiseCashCollection(params: QueryParams): Promise<ReportResult> 
 async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
   const dateFilter = buildDateFilter(params.from, params.to);
   const salesWhere: Record<string, unknown> = { isActive: true, status: 'Confirmed' };
+  if (params.employeeId) salesWhere.srId = params.employeeId;
   if (dateFilter) salesWhere.date = dateFilter;
 
   const salesOrders = await db.salesOrder.findMany({
@@ -2205,14 +2248,24 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
     include: { sr: true },
   });
 
-  const srs = await db.employee.findMany({
-    where: { isActive: true, designation: { name: { contains: 'SR' } } },
-    include: { designation: true },
-  });
-
-  // C3 FIX: Fetch SR target setups for commission percentages instead of hardcoded 2%
-  const srTargets = await db.sRTargetSetup.findMany({
+  // BUG 16 FIX: Use SRTargetSetup to find SR employees and commission rates
+  const srTargetSetups = await db.sRTargetSetup.findMany({
     where: { isActive: true, status: 'ACTIVE' },
+  });
+  const srEmployeeIds = [...new Set(srTargetSetups.map((t) => t.employeeId))];
+  const srWhere: Record<string, unknown> = { isActive: true };
+  if (params.employeeId) {
+    srWhere.id = params.employeeId;
+  } else if (srEmployeeIds.length > 0) {
+    srWhere.id = { in: srEmployeeIds };
+  } else {
+    // Fallback to exact designation match if no SRTargetSetup records exist
+    srWhere.designation = { name: { in: ['SR', 'Sales Representative', 'Sales Rep'] } };
+  }
+
+  const srs = await db.employee.findMany({
+    where: srWhere,
+    include: { designation: true },
   });
 
   const columns: ColumnDef[] = [
@@ -2240,7 +2293,7 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
 
   let rows = Array.from(srSalesMap.values()).map((v) => {
     // C3 FIX: Use commissionPercentage from SRTargetSetup instead of hardcoded 2%
-    const target = srTargets.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0]);
+    const target = srTargetSetups.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0]);
     const commissionRate = target ? target.commissionPercentage / 100 : 0;
     const commission = safeFinancialRound(v.totalSales * commissionRate);
     return {
@@ -2253,7 +2306,10 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
     };
   });
 
-  if (params.employeeId) rows = rows.filter((r) => r.srCode === params.employeeId);
+  if (params.employeeId) rows = rows.filter((r) => {
+    const srEntry = [...srSalesMap.entries()].find(([, d]) => d.srCode === r.srCode);
+    return srEntry ? srEntry[0] === params.employeeId : false;
+  });
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
   rows = groupRows(rows, params.groupBy);
@@ -2266,7 +2322,7 @@ async function srCommissionReport(params: QueryParams): Promise<ReportResult> {
     rows,
     summary: { totalSRs: srs.length, totalSales: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalSalesValue), totalCommission: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.commission) || 0), 0)) },
     chartData: Array.from(srSalesMap.values()).map((v) => {
-      const target = srTargets.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0]);
+      const target = srTargetSetups.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0]);
       const commissionRate = target ? target.commissionPercentage / 100 : 0;
       return { name: String(v.srName), sales: params.vatMode ? 0 : safeFinancialRound(v.totalSales), commission: params.vatMode ? 0 : safeFinancialRound(v.totalSales * commissionRate) };
     }),
@@ -2380,13 +2436,8 @@ async function categoryWiseCustomerDue(params: QueryParams): Promise<ReportResul
 
 async function customerLedger(params: QueryParams): Promise<ReportResult> {
   if (!params.customerId) {
-    return emptyReport('Customer Ledger', [
-      { key: 'date', label: 'Date' },
-      { key: 'type', label: 'Type' },
-      { key: 'reference', label: 'Reference' },
-      { key: 'debit', label: 'Debit' },
-      { key: 'credit', label: 'Credit' },
-      { key: 'balance', label: 'Balance' },
+    return emptyReport('Customer Ledger — Select a Customer', [
+      { key: 'hint', label: 'Please select a customer from the filter above to view their ledger' },
     ]);
   }
 
@@ -2492,6 +2543,9 @@ async function customerDueReport(params: QueryParams): Promise<ReportResult> {
   // H2 FIX: Filter by customer UUID instead of code
   if (params.customerId) rows = rows.filter((r) => r._customerId === params.customerId);
 
+  // BUG 8 FIX: Remove _customerId from output rows before sort/group
+  rows = rows.map(({ _customerId, ...rest }) => rest);
+
   rows = sortRows(rows, params.sortField, params.sortOrder);
   rows = groupRows(rows, params.groupBy);
 
@@ -2588,6 +2642,9 @@ async function customerLedgerSummary(params: QueryParams): Promise<ReportResult>
 
   // H3 FIX: Filter by customer UUID instead of code
   if (params.customerId) rows = rows.filter((r) => r._customerId === params.customerId);
+
+  // BUG 9 FIX: Remove _customerId from output rows before sort/group
+  rows = rows.map(({ _customerId, ...rest }) => rest);
 
   rows = sortRows(rows, params.sortField, params.sortOrder);
   rows = groupRows(rows, params.groupBy);
