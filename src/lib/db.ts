@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { PrismaLibSql } from '@prisma/adapter-libsql'
+import { PrismaLibSQL } from '@prisma/adapter-libsql'
 import { createClient } from '@libsql/client'
 
 // Schema version: increment this after any Prisma schema change to force cache invalidation
@@ -53,7 +53,7 @@ function createPrismaClient(): PrismaClient {
       url: DATABASE_URL,
       authToken: process.env.DATABASE_AUTH_TOKEN || undefined,
     })
-    const adapter = new PrismaLibSql(libsql)
+    const adapter = new PrismaLibSQL(libsql)
     return new PrismaClient({
       adapter,
       log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
