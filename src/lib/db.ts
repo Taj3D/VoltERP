@@ -3,7 +3,7 @@ import { PrismaLibSql } from '@prisma/adapter-libsql'
 import { createClient } from '@libsql/client'
 
 // Schema version: increment this after any Prisma schema change to force cache invalidation
-const PRISMA_SCHEMA_VERSION = 11;
+const PRISMA_SCHEMA_VERSION = 12;
 
 // ── Database type detection ──
 // Turso/libsql URLs start with "libsql://" or "wss://"
@@ -28,11 +28,20 @@ if (globalForPrisma.prisma && globalForPrisma.prismaSchemaVersion !== PRISMA_SCH
 
 // ── Create PrismaClient with appropriate adapter ──
 function createPrismaClient(): PrismaClient {
+  // During build/SSG phase, DATABASE_URL may be undefined — use a fallback
+  // that won't crash the build but also won't actually connect
+  if (!DATABASE_URL) {
+    console.warn('[db] DATABASE_URL not set — using empty SQLite fallback for build');
+    return new PrismaClient({
+      log: ['error'],
+    })
+  }
+
   if (IS_TURSO) {
     // Turso (cloud SQLite) — use LibSQL adapter
     const libsql = createClient({
       url: DATABASE_URL,
-      authToken: process.env.DATABASE_AUTH_TOKEN,
+      authToken: process.env.DATABASE_AUTH_TOKEN || undefined,
     })
     const adapter = new PrismaLibSql(libsql)
     return new PrismaClient({
@@ -51,7 +60,7 @@ export const db = globalForPrisma.prisma ?? createPrismaClient()
 
 // ── SQLite performance pragmas (local SQLite only) ──
 // These PRAGMAs only work on local SQLite — not on Turso (HTTP-based)
-if (!IS_TURSO) {
+if (!IS_TURSO && DATABASE_URL) {
   db.$queryRawUnsafe('PRAGMA journal_mode=WAL').catch(() => {
     // WAL mode may not be supported in all environments
   })

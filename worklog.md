@@ -11721,3 +11721,33 @@ Stage Summary:
 - Vercel: Deployment successful at https://volterp-app.vercel.app ✅
 - Turso: Cloud database creation blocked by CAPTCHA — user must create manually ⏳
 - Once Turso DB is connected, the full ERP will be functional on Vercel
+
+---
+Task ID: 4
+Agent: Vercel Deployment Agent
+Task: Update Vercel env vars with Turso credentials and trigger redeployment
+
+Work Log:
+- Listed current Vercel env vars via API — found 3 existing vars: JWT_SECRET (id: iqnLuvJB6LvJUzj4), DATABASE_AUTH_TOKEN (id: 9MCWRRzsI4Uvx7EA), DATABASE_URL (id: hGHwCvlRSGdPdaIE)
+- Deleted old DATABASE_URL env var (id: hGHwCvlRSGdPdaIE) via DELETE /v9/projects/{id}/env/{envId}
+- Deleted old DATABASE_AUTH_TOKEN env var (id: 9MCWRRzsI4Uvx7EA) via DELETE /v9/projects/{id}/env/{envId}
+- Created new DATABASE_URL env var with Turso cloud URL: libsql://volterp-db-taj3d.aws-ap-northeast-1.turso.io (target: production, preview, development; type: encrypted; new id: GstcWSUmvbjIhPem)
+- Created new DATABASE_AUTH_TOKEN env var with Turso auth token (target: production, preview, development; type: encrypted; new id: EJp3FAuzmUozgSyN)
+- Verified JWT_SECRET already set (encrypted, target: all environments) — no changes needed
+- Verified all 3 env vars present and correctly targeted via GET /v9/projects/{id}/env
+- Updated .env.example with correct Turso URL format (aws-ap-northeast-1.turso.io)
+- Created DEPLOY.md marker file and committed: "feat: Configure Turso cloud database for production deployment"
+- Pushed commit (fdb7655) to GitHub main branch, triggering Vercel auto-deployment
+- Waited for deployment and confirmed status: READY (promoted to production)
+- Deployment ID: dpl_J3GfWiEpYd4Tksh1HTL4bvbCkWaW
+- Cleaned up temporary migration scripts: removed seed-turso.mjs and push-schema-turso.mjs
+- Committed and pushed cleanup: "chore: Remove temporary Turso migration scripts" (44193b6)
+
+Stage Summary:
+- Vercel env vars updated with new Turso cloud database credentials (DATABASE_URL + DATABASE_AUTH_TOKEN)
+- JWT_SECRET confirmed already set and encrypted
+- Deployment to Vercel succeeded — status: READY, promoted to production
+- Production URLs: volterp-app.vercel.app, volterp-app-electronics-mart.vercel.app
+- Deployment URL: volterp-3qr23slci-electronics-mart.vercel.app
+- Temporary migration scripts cleaned up from repo
+- Build confirmed using correct env vars (DATABASE_URL, DATABASE_AUTH_TOKEN, JWT_SECRET all present in build environment)
