@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { verifyPassword, hashPassword, needsRehash } from "@/lib/password-utils";
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from "@/lib/rate-limiter";
 import { signAccessToken, signRefreshToken } from "@/lib/jwt-utils";
+import { generateCsrfToken } from "@/lib/csrf";
 
 // Default credentials for all 5 RBAC roles
 const DEFAULT_USERS = [
@@ -128,6 +129,10 @@ export async function POST(req: NextRequest) {
       companyId: user.companyId,
     });
 
+    // ── Generate CSRF token for this session ──
+    // Tied to user ID — required for POST/PUT/DELETE requests as defense-in-depth
+    const csrfToken = generateCsrfToken(user.id);
+
     return NextResponse.json({
       id: user.id,
       email: user.email,
@@ -136,6 +141,7 @@ export async function POST(req: NextRequest) {
       role: user.role,
       accessToken,
       refreshToken,
+      csrfToken,
     });
   } catch (error) {
     console.error("Login error:", error);

@@ -134,7 +134,10 @@ const MASKING_SENTINEL = "N/A (Audit Mode)";
 // a Bengali-to-Latin digit replacement pass.
 // ============================================================
 
-import { fmtCurrency } from '@/lib/number-format';
+import { fmtCurrency, toLatinDigits, toEnglishDigits } from '@/lib/number-format';
+
+// Re-export toEnglishDigits for use across the application
+export { toEnglishDigits };
 
 /** Format a number as BDT currency string with guaranteed Latin digits and 2 decimal places */
 export function formatBDT(value: number): string {
@@ -299,13 +302,13 @@ function formatCellValue(
   if (type === "date") {
     if (!value) return "\u2014";
     try {
-      return new Date(value).toLocaleDateString("en-GB", {
+      return toLatinDigits(new Date(value).toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
-      });
+      }));
     } catch {
-      return String(value);
+      return toLatinDigits(String(value));
     }
   }
   if (type === "number") {
@@ -484,11 +487,11 @@ function drawCorporateHeader(
   doc.setFontSize(8);
   doc.setTextColor(255, 255, 255);
   const now = new Date();
-  const timestamp = `Generated: ${now.toLocaleDateString("en-GB", {
+  const timestamp = `Generated: ${toLatinDigits(now.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  })} ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  }))} ${toLatinDigits(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}`;
   const tsWidth = doc.getTextWidth(timestamp);
   doc.text(timestamp, pageWidth - margin - tsWidth, 11);
 
@@ -624,8 +627,8 @@ function drawFooter(
 
     // Printed By + Print Date (left-aligned)
     const now = new Date();
-    const printDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-    const printTime = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const printDate = toLatinDigits(now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+    const printTime = toLatinDigits(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
     const printedByText = `Printed By: ${financialFooter.printedBy}  |  Print Date: ${printDate} ${printTime}`;
     doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);

@@ -7,7 +7,7 @@ import {
   BarChart3, Users, Truck, Calendar, Send, Search, ArrowLeftRight, Plus, Clock,
   Activity, CreditCard, Landmark, Scale, Download, FileDown, Printer, Upload,
   UserCheck, Building2, BoxIcon, ShoppingBag, Coins, BarChart2, PieChart as PieChartIcon, Percent,
-  Wallet, Database, CircleDollarSign, Info, RotateCcw
+  Wallet, Database, CircleDollarSign, Info, RotateCcw, Loader2, CheckCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,12 +32,12 @@ const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (typeof v === "string" && (v === "N/A (Audit Mode)" || v === "N/A (Restricted)")) return v;
   if (type === "currency") return `Tk. ${safeNumberFormatter.format(Number(v))}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -137,20 +137,37 @@ function KpiCard({ label, value, icon: Icon, color, bg, change, isCurrency, form
         ? `Tk. ${safeNumberFormatter.format(animated)}`
         : String(animated);
 
+  // Derive gradient colors from bg prop
+  const gradientMap: Record<string, string> = {
+    "bg-green-50 dark:bg-green-900/30": "from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20",
+    "bg-purple-50 dark:bg-purple-900/30": "from-purple-50 to-violet-50 dark:from-purple-900/20 dark:to-violet-900/20",
+    "bg-teal-50 dark:bg-teal-900/30": "from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20",
+    "bg-blue-50 dark:bg-blue-900/30": "from-blue-50 to-sky-50 dark:from-blue-900/20 dark:to-sky-900/20",
+    "bg-red-50 dark:bg-red-900/30": "from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20",
+    "bg-emerald-50 dark:bg-emerald-900/30": "from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20",
+    "bg-cyan-50 dark:bg-cyan-900/30": "from-cyan-50 to-teal-50 dark:from-cyan-900/20 dark:to-teal-900/20",
+    "bg-orange-50 dark:bg-orange-900/30": "from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20",
+    "bg-amber-50 dark:bg-amber-900/30": "from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20",
+    "bg-yellow-50 dark:bg-yellow-900/30": "from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20",
+    "bg-rose-50 dark:bg-rose-900/30": "from-rose-50 to-pink-50 dark:from-rose-900/20 dark:to-pink-900/20",
+    "bg-indigo-50 dark:bg-indigo-900/30": "from-indigo-50 to-violet-50 dark:from-indigo-900/20 dark:to-violet-900/20",
+  };
+  const gradient = gradientMap[bg] || "from-gray-50 to-slate-50 dark:from-gray-900/20 dark:to-slate-900/20";
+
   return (
-    <Card className="kpi-card dashboard-kpi-card transition-all hover:shadow-lg">
+    <Card className={`kpi-card dashboard-kpi-card bg-gradient-to-br ${gradient} border shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5`}>
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-2">
-          <div className={`p-2 rounded-lg ${bg} ${color}`}><Icon className="w-5 h-5" /></div>
+          <div className={`p-2 rounded-lg ${bg} ${color} shadow-sm`}><Icon className="w-5 h-5" /></div>
           {change !== undefined && change !== null && (
-            <div className={`flex items-center text-xs font-medium ${change >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+            <div className={`flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full ${change >= 0 ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"}`}>
               {change >= 0 ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
               {Math.abs(change).toFixed(1)}%
             </div>
           )}
         </div>
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-xl font-bold text-slate-900 dark:text-white stat-value">{displayValue}</p>
+        <p className="text-2xl font-bold text-slate-900 dark:text-white stat-value">{displayValue}</p>
         {sparklineData && sparklineData.length > 1 && (
           <div className="mt-1">
             <Sparkline data={sparklineData} color={change !== undefined && change >= 0 ? "#10b981" : "#ef4444"} />
@@ -404,6 +421,11 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
   const [paymentMix, setPaymentMix] = useState<any[]>([]);
   const [receivablesAging, setReceivablesAging] = useState<any>({});
   const [installments, setInstallments] = useState<any[]>([]);
+  const [todaysInstallments, setTodaysInstallments] = useState<any[]>([]);
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [stockSearchResults, setStockSearchResults] = useState<any[]>([]);
+  const [stockSearchLoading, setStockSearchLoading] = useState(false);
+  const stockSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dailySalesTrend, setDailySalesTrend] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sectionErrors, setSectionErrors] = useState<Record<string, string>>({});
@@ -468,6 +490,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
     setPaymentMix(payRes.data || []);
     setReceivablesAging(agingRes);
     setInstallments(dashRes.hireInstallments || []);
+    setTodaysInstallments(dashRes.todaysInstallments || []);
     setDailySalesTrend(dailyRes.data || []);
     setSectionErrors(errors);
     setLastUpdated(new Date());
@@ -488,6 +511,54 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
     setFetchTrigger(prev => prev + 1);
     toast({ title: "Refreshed", description: "Dashboard data updated" });
   }, [toast]);
+
+  // Quick Stock Search with debounce
+  const handleStockSearch = useCallback((query: string) => {
+    setStockSearchQuery(query);
+    if (stockSearchTimerRef.current) clearTimeout(stockSearchTimerRef.current);
+    if (!query.trim()) {
+      setStockSearchResults([]);
+      setStockSearchLoading(false);
+      return;
+    }
+    setStockSearchLoading(true);
+    stockSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await apiFetch(`/api/products?search=${encodeURIComponent(query.trim())}&limit=10`);
+        setStockSearchResults(Array.isArray(results) ? results : []);
+      } catch {
+        setStockSearchResults([]);
+      } finally {
+        setStockSearchLoading(false);
+      }
+    }, 400);
+  }, []);
+
+  // Print Today's Installments
+  const handlePrintInstallments = useCallback(() => {
+    const headers = ['Sl', 'Invoice No', 'Customer', 'Code', 'Phone', 'Product', 'Installment Amt', 'Balance', 'Due Date', 'Status'];
+    const body = todaysInstallments.map((inst: any, i: number) => [
+      String(i + 1),
+      inst.invoiceNo || '—',
+      inst.customer?.name || inst.customerName || '—',
+      inst.customer?.customerCode || '—',
+      inst.customer?.phone || '—',
+      inst.products?.[0]?.name || inst.productName || '—',
+      fmt(inst.installmentAmount, 'currency'),
+      fmt(inst.balanceAmount ?? inst.defaultAmount ?? 0, 'currency'),
+      inst.nextPaymentDate ? fmtDate(inst.nextPaymentDate) : '—',
+      inst.currentStatus || '—',
+    ]);
+    exportToPDFSimple(
+      `Today's Installment Payments — ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+      headers,
+      body,
+      'landscape',
+      `Total: ${todaysInstallments.length} installment(s) due today`,
+      undefined,
+      { preparedBy: userName, checkedBy: '', authorizedBy: '', printedBy: userName },
+    );
+  }, [todaysInstallments, userName]);
 
   // Import CSV for reorder level configuration
   const importCSV = useCallback(() => {
@@ -651,11 +722,6 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
           {isVatAuditor && (
             <Badge className="bg-amber-500 text-black text-xs px-3 py-1">VAT AUDIT MODE</Badge>
           )}
-          {auth.user && (
-            <Badge className={`${ROLE_COLORS[auth.user.role]} text-xs`}>
-              {ROLE_LABELS[auth.user.role]}
-            </Badge>
-          )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {/* Export buttons */}
@@ -739,6 +805,79 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
           <Badge className="bg-amber-500 text-black">VAT AUDIT MODE</Badge>
           <span className="text-sm text-amber-700 dark:text-amber-400">Cost prices, profit margins, and internal adjustments are masked. All financial ratios compute purely from legal invoice tax records.</span>
         </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          QUICK STOCK SEARCH
+          ═══════════════════════════════════════════════════════════ */}
+      {!isSR && !isDealer && (
+        <Card className="shadow-sm hover:shadow-md transition-shadow border border-border">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                <Search className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">Quick Stock Search</p>
+                <p className="text-xs text-muted-foreground">Search by product name, code, SKU, or barcode</p>
+              </div>
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Type to search products..."
+                  value={stockSearchQuery}
+                  onChange={e => handleStockSearch(e.target.value)}
+                  className="pl-9 h-9"
+                />
+                {stockSearchLoading && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+            </div>
+            {stockSearchResults.length > 0 && (
+              <div className="mt-3 max-h-64 overflow-y-auto rounded-md border" style={{ scrollbarWidth: 'thin', scrollbarColor: '#94a3b8 transparent' }}>
+                <Table className="min-w-[500px]">
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead>Product Name</TableHead>
+                      <TableHead>Code</TableHead>
+                      <TableHead className="text-right">Stock</TableHead>
+                      <TableHead>Godown</TableHead>
+                      <TableHead className="text-right">MRP</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {stockSearchResults.map((p: any) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium text-slate-900 dark:text-white text-sm">{p.name}</TableCell>
+                        <TableCell className="font-mono text-xs">{p.productCode || p.sku || '—'}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">
+                          <Badge variant={p.currentStock === 0 ? 'destructive' : p.stockStatus === 'Low Stock' ? 'outline' : 'default'} className="text-xs">
+                            {p.currentStock ?? 0}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">{p.godown?.name || '—'}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{fmt(p.salePrice, 'currency')}</TableCell>
+                        <TableCell>
+                          <Badge variant={p.stockStatus === 'In Stock' ? 'default' : p.stockStatus === 'Low Stock' ? 'outline' : 'destructive'} className="text-xs">
+                            {p.stockStatus || '—'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {stockSearchQuery.trim() && stockSearchResults.length === 0 && !stockSearchLoading && (
+              <div className="mt-3 text-center py-4 text-muted-foreground text-sm">
+                <Package className="w-6 h-6 mx-auto mb-1 opacity-50" />
+                <p>No products found matching &quot;{stockSearchQuery}&quot;</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -1428,9 +1567,81 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          10. INSTALLMENT TRACKING TABLE
+          10a. TODAY'S INSTALLMENT PAYMENTS
           ═══════════════════════════════════════════════════════════ */}
-      <Card>
+      <Card className="shadow-sm hover:shadow-md transition-shadow border border-border">
+        <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2 text-white">
+              <Calendar className="w-4 h-4 text-green-300" />
+              Today&apos;s Installment Payments
+              {todaysInstallments.length > 0 && (
+                <Badge className="bg-green-500 text-white text-xs">{todaysInstallments.length} due</Badge>
+              )}
+            </CardTitle>
+            {todaysInstallments.length > 0 && (
+              <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10" onClick={handlePrintInstallments}>
+                <Printer className="w-4 h-4 mr-1" />Print
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {todaysInstallments.length > 0 ? (
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <Table className="min-w-[700px]">
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="w-10">Sl</TableHead>
+                    <TableHead>Invoice No</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Installment Amt</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {todaysInstallments.map((inst: any, i: number) => {
+                    const customerName = inst.customer?.name || inst.customerName || '—';
+                    const productName = inst.products?.[0]?.name || inst.productName || '—';
+                    const balanceAmount = inst.balanceAmount ?? inst.defaultAmount ?? 0;
+                    const dueDate = inst.nextPaymentDate;
+                    return (
+                      <TableRow key={inst.id || i} className="hover:bg-green-50/50 dark:hover:bg-green-900/10">
+                        <TableCell className="font-bold text-muted-foreground">{i + 1}</TableCell>
+                        <TableCell className="font-mono">{inst.invoiceNo || '—'}</TableCell>
+                        <TableCell className="font-medium text-slate-900 dark:text-white">{customerName}</TableCell>
+                        <TableCell>{productName}</TableCell>
+                        <TableCell className="text-right font-mono">{fmt(inst.installmentAmount, 'currency')}</TableCell>
+                        <TableCell className="text-right font-mono">{fmt(balanceAmount, 'currency')}</TableCell>
+                        <TableCell>{dueDate ? fmtDate(dueDate) : '—'}</TableCell>
+                        <TableCell>
+                          <Badge variant={inst.currentStatus === 'Overdue' ? 'destructive' : inst.currentStatus === 'Active' ? 'default' : 'outline'} className="text-xs">
+                            {inst.currentStatus || 'Due'}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No installments due today</p>
+              <p className="text-xs mt-1">All installment payments are up to date</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════════════
+          10b. RECENT INSTALLMENTS (all)
+          ═══════════════════════════════════════════════════════════ */}
+      <Card className="shadow-sm hover:shadow-md transition-shadow border border-border">
         <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg">
           <CardTitle className="text-base flex items-center gap-2 text-white">
             <Calendar className="w-4 h-4 text-blue-300" />
@@ -1476,7 +1687,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>No installments due today</p>
+              <p>No recent installments</p>
             </div>
           )}
         </CardContent>

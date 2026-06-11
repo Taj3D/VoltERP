@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { checkApiRateLimit, getClientIp } from '@/lib/rate-limiter';
 import { verifyToken, extractBearerToken } from '@/lib/jwt-utils';
 import { sanitizeObject } from '@/lib/sanitize';
+import { verifyCsrfToken, isCsrfEnforced } from '@/lib/csrf';
 
 export type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
 
@@ -113,20 +114,24 @@ const MODULE_GROUP_MAP: Record<string, string> = {
 };
 
 // Group-level access per role (mirrors frontend ROLE_ACCESS)
+// Internal-only groups ('dashboard', 'report', 'user-profile') are allowed for all authenticated roles
+// as they are needed for basic navigation and auth.
+// Frontend "financial-audit" maps to backend 'audit-integrity' + 'audit' group keys.
+// Frontend "system-settings" maps to backend 'system-config' group key.
 const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
   admin: ['*'],
-  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'mis-report', 'dashboard', 'audit', 'audit-integrity', 'system-config', 'report', 'user-profile'],
-  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile', 'investment', 'audit-integrity'],
+  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'financial-audit', 'mis-report', 'system-settings', 'dashboard', 'audit-integrity', 'audit', 'system-config', 'report', 'user-profile'],
+  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile'],
   dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report', 'user-profile'],
-  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'account', 'accounting-report', 'mis-report', 'dashboard', 'audit-integrity', 'system-config', 'audit', 'report', 'user-profile', 'investment'],
+  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'account', 'accounting-report', 'financial-audit', 'mis-report', 'system-settings', 'investment', 'dashboard', 'audit-integrity', 'audit', 'system-config', 'report', 'user-profile'],
 };
 
 // Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
 const MODULE_DENY: Record<UserRole, string[]> = {
   admin: [],
   manager: [],
-  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SmsSettings'],
-  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'MISReports', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'JournalVouchers', 'Cheques', 'FiscalYears', 'DamageLogs'],
+  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SmsSettings'],
+  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'JournalVouchers', 'Cheques', 'FiscalYears', 'DamageLogs'],
   vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
 };
 
@@ -319,6 +324,47 @@ export async function withApiSecurity(
     }
 
     // All checks passed — JWT authenticated
+
+    // ── CSRF Token Verification (defense-in-depth for state-changing requests) ──
+    // CSRF tokens protect against cross-site request forgery in browser sessions.
+    // Since JWT is sent via Authorization header (not cookies), CSRF is already
+    // inherently mitigated. This adds defense-in-depth for browser-based sessions.
+    //
+    // Enforcement mode (controlled by CSRF_ENFORCE env var):
+    // - Transitional (default): If token is missing, allow with warning. If present and invalid, block.
+    // - Strict (CSRF_ENFORCE=true): If token is missing or invalid, block.
+    if (method !== 'GET') {
+      const csrfHeader = request.headers.get('x-csrf-token');
+
+      if (csrfHeader) {
+        // Token present — verify it strictly
+        const csrfValid = verifyCsrfToken(user.id, csrfHeader);
+        if (!csrfValid) {
+          return {
+            authorized: false,
+            response: NextResponse.json(
+              { error: 'CSRF token validation failed. Please refresh the page and try again.', errorCode: 'CSRF_INVALID' },
+              { status: 403 }
+            ),
+          };
+        }
+      } else {
+        // Token absent — transitional mode: warn but allow; strict mode: block
+        if (isCsrfEnforced()) {
+          return {
+            authorized: false,
+            response: NextResponse.json(
+              { error: 'CSRF token is required for state-changing requests.', errorCode: 'CSRF_MISSING' },
+              { status: 403 }
+            ),
+          };
+        }
+        // Transitional mode: log warning but allow request
+        // This ensures existing clients without CSRF support continue to work
+        console.warn(`[CSRF] No X-CSRF-Token header for ${method} ${module} by user ${user.email}. Set CSRF_ENFORCE=true to enforce.`);
+      }
+    }
+
     return {
       authorized: true,
       user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId, displayName: user.name },

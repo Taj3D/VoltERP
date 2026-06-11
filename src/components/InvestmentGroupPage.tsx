@@ -45,13 +45,12 @@ const safeNumberFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2,
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return `Tk. ${safeNumberFmt.format(Number(v))}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) =>
-  d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
@@ -2100,6 +2099,29 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => doExportPDF("Liability-Report", reportExportColumns, reportData.heads || [], "landscape")}>
                       <FileDown className="w-4 h-4 mr-1" />Export PDF
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={async () => {
+                      try {
+                        const result = await importFromCSV({
+                          apiPath: "/api/investment-heads?import=true",
+                          formFields: [
+                            { key: "name", label: "Head Name", type: "text", required: true },
+                            { key: "type", label: "Type", type: "text", required: true },
+                            { key: "principalAmount", label: "Principal Amount", type: "number" },
+                            { key: "interestRate", label: "Interest Rate", type: "number" },
+                          ],
+                        });
+                        if (result.imported > 0) {
+                          toast({ title: "Import Complete", description: `${result.imported} reference entries imported, ${result.failed} failed` });
+                          generateLiabReport();
+                        } else if (result.errors.length > 0) {
+                          toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+                        }
+                      } catch (e: any) {
+                        toast({ title: "Import Error", description: e.message, variant: "destructive" });
+                      }
+                    }}>
+                      <Upload className="w-4 h-4 mr-1" />Import CSV
                     </Button>
                   </>
                 )}

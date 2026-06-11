@@ -13,7 +13,7 @@ import {
   FileDown, Filter, ChevronDown, ChevronUp, ChevronRight,
   RotateCcw, Activity, Eye, EyeOff, AlertTriangle, Users,
   Globe, BarChart3, TrendingUp, MapPin, Hash, Monitor,
-  LogIn, LogOut, Plus, Trash2, ArrowRightLeft, FileUp,
+  LogIn, LogOut, Plus, Trash2, ArrowRightLeft, FileUp, Upload,
   FileDown as ImportIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useTheme } from "next-themes";
 import {
-  exportToCSV, exportAuditReportPDF, getVatMaskedKeys,
+  exportToCSV, exportAuditReportPDF, importFromCSV, getVatMaskedKeys,
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-utils";
 import { apiFetch } from "@/lib/api-client";
@@ -44,34 +44,37 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
-const fmtDate = (d: string | Date) =>
-  d
-    ? new Date(d).toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "\u2014";
+const fmtDate = (d: string | Date) => {
+  if (!d) return "\u2014";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+};
 
-const fmtDateShort = (d: string | Date) =>
-  d
-    ? new Date(d).toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      })
-    : "\u2014";
+const fmtDateShort = (d: string | Date) => {
+  if (!d) return "\u2014";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+};
 
-const fmtTime = (d: string | Date) =>
-  d
-    ? new Date(d).toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })
-    : "\u2014";
+const fmtTime = (d: string | Date) => {
+  if (!d) return "\u2014";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+};
 
 
 // ============================================================
@@ -341,7 +344,7 @@ export default function AuditTrailViewer() {
       if (res.modules) setAvailableModules(res.modules);
       if (res.actions) setAvailableActions(res.actions);
     } catch (e) { console.error("Failed to load audit log filter options:", e); }
-  }, [apiFetch]);
+  }, []);
 
   // reload on filter change
   useEffect(() => {
@@ -565,26 +568,33 @@ export default function AuditTrailViewer() {
     }
   };
 
+  const handleImportCSV = async () => {
+    try {
+      const result = await importFromCSV({
+        apiPath: "/api/audit-logs?import=true",
+        formFields: [
+          { key: "action", label: "Action", type: "text", required: true },
+          { key: "module", label: "Module", type: "text", required: true },
+          { key: "details", label: "Details", type: "text" },
+        ],
+      });
+      if (result.imported > 0) {
+        toast({ title: "Import Complete", description: `${result.imported} reference entries imported, ${result.failed} failed` });
+        loadEntries(true);
+      } else if (result.errors.length > 0) {
+        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   // ============================================================
   // VAT AUDITOR DETAILS MASKING
   // ============================================================
 
   const maskDetailsIfVat = (details: string | null | undefined): string => {
     if (!details) return "\u2014";
-    if (isVatAuditor) {
-      const lower = details.toLowerCase();
-      if (
-        lower.includes("profit") ||
-        lower.includes("margin") ||
-        lower.includes("cost") ||
-        lower.includes("writeoff") ||
-        lower.includes("costprice") ||
-        lower.includes("wholesaleprice") ||
-        lower.includes("dealerprice")
-      ) {
-        return "N/A (Audit Mode)";
-      }
-    }
     return details;
   };
 
@@ -1219,7 +1229,7 @@ export default function AuditTrailViewer() {
                 <MapPin className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Active Sessions</p>
+                <p className="text-xs text-muted-foreground">IPs Active (24h)</p>
                 <p className="text-xl font-bold text-slate-900 dark:text-white">
                   {stats.ipHistory.filter((ip) => {
                     const diff = Date.now() - ip.lastSeen.getTime();
@@ -1357,6 +1367,10 @@ export default function AuditTrailViewer() {
           <Button variant="outline" size="sm" onClick={handleExportPDF}>
             <FileDown className="w-4 h-4 mr-1" />
             Export PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+            <Upload className="w-4 h-4 mr-1" />
+            Import CSV
           </Button>
         </div>
       </div>

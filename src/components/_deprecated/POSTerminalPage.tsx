@@ -1799,12 +1799,7 @@ export default function POSTerminalPage() {
                               {fmtCurrency(sale.grandTotal)}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {sale.date
-                                ? new Date(sale.date).toLocaleTimeString("en-GB", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })
-                                : ""}
+                              {(() => { if (!sale.date) return ""; const dt = new Date(sale.date); return isNaN(dt.getTime()) ? "" : dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); })()}
                             </div>
                           </div>
                         </div>

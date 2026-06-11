@@ -51,8 +51,7 @@ const fmtCurrency = (v: any) => {
   return _fmtBDT(Number(v));
 };
 
-const fmtDate = (d: string | Date) =>
-  d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 const safeNum = (v: any, fallback = 0) => {
   const n = Number(v);
@@ -656,6 +655,30 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
     }
   }, [toast, loadPurchaseReturns]);
 
+  const doImportRPL = useCallback(async () => {
+    const fields: ExportFieldDef[] = [
+      { key: "salesOrderNo", label: "Sales Order No", type: "text", required: true },
+      { key: "date", label: "Date", type: "date", required: true },
+      { key: "productCode", label: "Product Code", type: "text", required: true },
+      { key: "quantity", label: "Quantity", type: "number", required: true },
+      { key: "reason", label: "Reason", type: "text" },
+    ];
+    try {
+      const result = await importFromCSV({
+        apiPath: "/api/replacements?import=true",
+        formFields: fields,
+      });
+      if (result.imported > 0) {
+        toast({ title: "Import Complete", description: `${result.imported} rows imported, ${result.failed} failed` });
+        loadReplacements();
+      } else if (result.errors.length > 0) {
+        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+    }
+  }, [toast, loadReplacements]);
+
   // ============================================================
   // ACCESS DENIED COMPONENT
   // ============================================================
@@ -1167,6 +1190,11 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               }} className="h-9">
                 <Copy className="h-4 w-4 mr-1" />Copy
               </Button>
+              {isAdmin && (
+                <Button variant="outline" size="sm" onClick={doImportRPL} className="h-9">
+                  <Upload className="h-4 w-4 mr-1" />Import
+                </Button>
+              )}
               {canCreate && (
                 <Button size="sm" onClick={openRplCreate} className="h-9 bg-[#2563eb] hover:bg-[#1d4ed8]">
                   <Plus className="h-4 w-4 mr-1" />Create Replacement

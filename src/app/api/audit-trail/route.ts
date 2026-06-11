@@ -50,45 +50,17 @@ function actionColor(action: string): string {
   }
 }
 
-// Replace containsProfitDetails with a more comprehensive check
+// Only mask truly profit-sensitive terms — VAT auditors need general financial data
 function containsFinancialData(details: string | null): boolean {
   if (!details) return false;
   const lower = details.toLowerCase();
-  // Comprehensive keyword list for financial data
   return (
     lower.includes('profit') ||
     lower.includes('margin') ||
-    lower.includes('cost') ||
-    lower.includes('writeoff') ||
     lower.includes('costprice') ||
     lower.includes('wholesaleprice') ||
     lower.includes('dealerprice') ||
-    lower.includes('amount') ||
-    lower.includes('balance') ||
-    lower.includes('total') ||
-    lower.includes('debit') ||
-    lower.includes('credit') ||
-    lower.includes('vat') ||
-    lower.includes('revenue') ||
-    lower.includes('payable') ||
-    lower.includes('receivable') ||
-    lower.includes('salary') ||
-    lower.includes('payment') ||
-    lower.includes('collection') ||
-    lower.includes('expense') ||
-    lower.includes('income') ||
-    lower.includes('purchase') ||
-    lower.includes('sales') ||
-    lower.includes('commission') ||
-    lower.includes('discount') ||
-    lower.includes('installment') ||
-    lower.includes('outstanding') ||
-    lower.includes('opening') ||
-    lower.includes('closing') ||
-    lower.includes('deposit') ||
-    lower.includes('withdrawal') ||
-    lower.includes('stockvalue') ||
-    lower.includes('quantity')
+    lower.includes('writeoff')
   );
 }
 

@@ -30,6 +30,7 @@ export interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   tokenExpiry: number | null; // epoch ms when access token expires
+  csrfToken: string | null; // CSRF token from login (reusable within validity period)
 }
 
 // ============================================================
@@ -42,6 +43,7 @@ export let authState: AuthState = {
   accessToken: null,
   refreshToken: null,
   tokenExpiry: null,
+  csrfToken: null,
 };
 
 export let authListeners: Array<() => void> = [];
@@ -90,7 +92,7 @@ async function performTokenRefresh() {
 
     if (!res.ok) {
       // Refresh token expired — force re-login
-      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null, csrfToken: null };
       localStorage.removeItem("ems_auth");
       authListeners.forEach(l => l());
       return;
@@ -138,7 +140,7 @@ export function clearAuthState() {
     clearTimeout(refreshTimerRef);
     refreshTimerRef = null;
   }
-  authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+  authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null, csrfToken: null };
   localStorage.removeItem("ems_auth");
   authListeners.forEach(l => l());
 }
@@ -190,13 +192,18 @@ export function initAuthState() {
 // CSRF TOKEN CACHE
 // ============================================================
 
-let cachedCsrfToken: string | null = null;
-
 /**
- * fetchCsrfToken — Fetches a CSRF token from the server if not cached.
- * Token is cached per session and re-fetched after it's used (one-time-use tokens).
+ * getCsrfToken — Returns the cached CSRF token from login or fetches a new one.
+ * The token from login is reusable within its validity period (1 hour).
+ * Falls back to fetching from /api/csrf-token if no cached token is available.
  */
-async function fetchCsrfToken(): Promise<string | null> {
+async function getCsrfToken(): Promise<string | null> {
+  // Prefer token from login response (already cached in authState)
+  if (authState.csrfToken) {
+    return authState.csrfToken;
+  }
+
+  // Fallback: fetch a new token from the server
   if (!authState.accessToken) return null;
   try {
     const res = await fetch("/api/csrf-token", {
@@ -208,8 +215,9 @@ async function fetchCsrfToken(): Promise<string | null> {
     });
     if (res.ok) {
       const data = await res.json();
-      cachedCsrfToken = data.csrfToken;
-      return cachedCsrfToken;
+      // Cache in auth state for reuse
+      authState = { ...authState, csrfToken: data.csrfToken };
+      return data.csrfToken;
     }
   } catch {
     // CSRF token fetch failed — continue without it (log-only mode)
@@ -230,16 +238,15 @@ export async function apiFetch(path: string, opts?: RequestInit): Promise<any> {
 
   // ── CSRF Token for Write Operations ──
   // For POST/PUT/DELETE requests, include a CSRF token in the X-CSRF-Token header.
-  // The token is fetched lazily and cached until used (one-time-use).
+  // The token is sourced from login response (cached in authState) or fetched on-demand.
+  // Tokens are reusable within their 1-hour validity period.
   const method = (opts?.method || "GET").toUpperCase();
   const isWriteOp = method === "POST" || method === "PUT" || method === "DELETE";
 
   if (isWriteOp && authState.accessToken) {
-    // Fetch a new CSRF token for this write operation (one-time-use)
-    const csrfToken = await fetchCsrfToken();
+    const csrfToken = await getCsrfToken();
     if (csrfToken) {
       authHeaders["X-CSRF-Token"] = csrfToken;
-      cachedCsrfToken = null; // Clear cache since token is one-time-use
     }
   }
 

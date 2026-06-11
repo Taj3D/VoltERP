@@ -12,6 +12,7 @@ import { db } from '@/lib/db';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import { numberToWordsBDT } from '@/lib/invoice-engine';
+import { toLatinDigits } from '@/lib/number-format';
 
 // Types matching invoice-engine.ts
 interface InvoiceCompanyProfile {
@@ -91,17 +92,17 @@ function fmtCurrency(value: number | undefined | null): string {
   if (value === null || value === undefined) return '—';
   const num = Number(value);
   if (isNaN(num)) return '—';
-  return `Tk. ${bdtFormatter.format(num)}`;
+  return toLatinDigits(`Tk. ${bdtFormatter.format(num)}`);
 }
 
 function fmtDate(dateStr: string | undefined | null): string {
   if (!dateStr) return '—';
   try {
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr);
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    if (isNaN(d.getTime())) return toLatinDigits(String(dateStr));
+    return toLatinDigits(d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
   } catch {
-    return String(dateStr);
+    return toLatinDigits(String(dateStr));
   }
 }
 
@@ -488,7 +489,7 @@ function drawFooterSection(
   if (invoice.salesPerson) {
     systemParts.push(`Sales Person: ${invoice.salesPerson}`);
   }
-  systemParts.push(`Print Date: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+  systemParts.push(`Print Date: ${toLatinDigits(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }))}`);
   doc.text(systemParts.join('  |  '), MARGIN_LEFT + 2, y);
   y += 4;
 

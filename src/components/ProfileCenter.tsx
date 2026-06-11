@@ -32,7 +32,7 @@ import {
   Lock, CheckCircle, AlertTriangle, Activity, Eye, Camera,
   Pencil, Save, X, Upload, BarChart3, TrendingUp, Clock,
   Image as ImageIcon, ChevronDown, ChevronUp, Zap, Search,
-  ShieldAlert, ShieldCheck, History
+  ShieldAlert, ShieldCheck, History, Globe, Hash
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -66,6 +67,7 @@ interface ProfileUser {
   companyId: string | null;
   photo?: string | null;  // Maps to User.photo in Prisma
   phone?: string | null;
+  address?: string | null;  // Maps to User.address in Prisma
   designation?: string | null;  // Derived from Employee.designation, not stored on User
 }
 
@@ -90,6 +92,10 @@ interface CompanyInfo {
   email: string | null;
   logo?: string | null;
   brandLogo?: string | null;
+  mobile?: string | null;
+  website?: string | null;
+  vatNumber?: string | null;
+  tradeLicense?: string | null;
 }
 
 interface EmployeeInfo {
@@ -185,6 +191,7 @@ function getAuthUser(): ProfileUser | null {
           companyId: parsed.user.companyId || null,
           photo: parsed.user.photo || null,
           phone: parsed.user.phone || null,
+          address: parsed.user.address || null,
           designation: parsed.user.designation || null,
         };
       }
@@ -291,6 +298,7 @@ export default function ProfileCenter() {
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editDesignation, setEditDesignation] = useState("");
+  const [editAddress, setEditAddress] = useState("");
   const [editProfileImage, setEditProfileImage] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -301,6 +309,18 @@ export default function ProfileCenter() {
   const [companyLogoUploading, setCompanyLogoUploading] = useState(false);
   const [editCompanyLogo, setEditCompanyLogo] = useState<string | null>(null);
   const companyLogoInputRef = useRef<HTMLInputElement>(null);
+
+  // Company info editing state (Company Info tab)
+  const [isEditingCompany, setIsEditingCompany] = useState(false);
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editCompanyAddress, setEditCompanyAddress] = useState("");
+  const [editCompanyPhone, setEditCompanyPhone] = useState("");
+  const [editCompanyEmail, setEditCompanyEmail] = useState("");
+  const [editCompanyMobile, setEditCompanyMobile] = useState("");
+  const [editCompanyWebsite, setEditCompanyWebsite] = useState("");
+  const [editCompanyVatNumber, setEditCompanyVatNumber] = useState("");
+  const [editCompanyTradeLicense, setEditCompanyTradeLicense] = useState("");
+  const [savingCompanyInfo, setSavingCompanyInfo] = useState(false);
 
   // Action tracking state (client-side)
   const [actionTracking, setActionTracking] = useState<ActionTrackingSummary>({
@@ -349,6 +369,7 @@ export default function ProfileCenter() {
       setEditName(getSafeDisplayName(authUser.displayName || authUser.name));
       setEditPhone(authUser.phone || "");
       setEditDesignation(authUser.designation || "");
+      setEditAddress(authUser.address || "");
       setEditProfileImage(authUser.photo || null);
       loadCompanyAndEmployee(authUser);
       loadProfileFromServer();
@@ -399,12 +420,14 @@ export default function ProfileCenter() {
           companyId: serverProfile.companyId,
           photo: serverProfile.photo || null,
           phone: serverProfile.phone,
+          address: serverProfile.address || null,
           designation: serverProfile.designation || null,
         };
         setUser(updatedUser);
         setEditName(safeName);
         setEditPhone(updatedUser.phone || "");
         setEditDesignation(updatedUser.designation || "");
+        setEditAddress(updatedUser.address || "");
         setEditProfileImage(updatedUser.photo || null);
 
         // Update localStorage auth state
@@ -418,6 +441,7 @@ export default function ProfileCenter() {
               parsed.user.photo = serverProfile.photo;
               parsed.user.phone = serverProfile.phone;
               parsed.user.designation = serverProfile.designation;
+              parsed.user.address = serverProfile.address;
               localStorage.setItem("ems_auth", JSON.stringify(parsed));
             }
           }
@@ -446,6 +470,15 @@ export default function ProfileCenter() {
           if (userCompany) {
             setCompanyInfo(userCompany);
             setEditCompanyLogo(userCompany.logo || userCompany.brandLogo || null);
+            // Populate company edit fields
+            setEditCompanyName(userCompany.name || "");
+            setEditCompanyAddress(userCompany.address || "");
+            setEditCompanyPhone(userCompany.phone || "");
+            setEditCompanyEmail(userCompany.email || "");
+            setEditCompanyMobile(userCompany.mobile || "");
+            setEditCompanyWebsite(userCompany.website || "");
+            setEditCompanyVatNumber(userCompany.vatNumber || "");
+            setEditCompanyTradeLicense(userCompany.tradeLicense || "");
           }
         }
       }
@@ -664,8 +697,14 @@ export default function ProfileCenter() {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast({ title: "File Too Large", description: "Profile image must be smaller than 2MB.", variant: "destructive" });
+    const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      toast({ title: "Invalid Format", description: "Accepted formats: JPG, PNG, GIF, WebP.", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Profile photo must be smaller than 5MB.", variant: "destructive" });
       return;
     }
 
@@ -692,8 +731,14 @@ export default function ProfileCenter() {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast({ title: "File Too Large", description: "Company logo must be smaller than 2MB.", variant: "destructive" });
+    const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      toast({ title: "Invalid Format", description: "Accepted formats: JPG, PNG, GIF, WebP.", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Company logo must be smaller than 5MB.", variant: "destructive" });
       return;
     }
 
@@ -758,6 +803,7 @@ export default function ProfileCenter() {
           name: editName.trim(),
           photo: editProfileImage,
           phone: editPhone.trim() || null,
+          address: editAddress.trim() || null,
           designation: editDesignation.trim() || null,
         }),
       });
@@ -778,6 +824,7 @@ export default function ProfileCenter() {
           displayName: safeName,
           photo: data.user.photo,
           phone: data.user.phone,
+          address: data.user.address,
           designation: data.user.designation,
         };
         setUser(updatedUser);
@@ -794,6 +841,7 @@ export default function ProfileCenter() {
             parsed.user.photo = data.user.photo;
             parsed.user.phone = data.user.phone;
             parsed.user.designation = data.user.designation;
+            parsed.user.address = data.user.address;
             localStorage.setItem("ems_auth", JSON.stringify(parsed));
           }
         }
@@ -857,6 +905,58 @@ export default function ProfileCenter() {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to reset password", variant: "destructive" });
     } finally {
       setResetSaving(false);
+    }
+  };
+
+  // ────────────────────────────────────────────────────────
+  // SAVE COMPANY INFO UPDATES
+  // ────────────────────────────────────────────────────────
+  const handleSaveCompanyInfo = async () => {
+    if (!companyInfo) return;
+    if (!editCompanyName.trim()) {
+      toast({ title: "Validation Error", description: "Company name cannot be empty.", variant: "destructive" });
+      return;
+    }
+    setSavingCompanyInfo(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch(`/api/companies/${companyInfo.id}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          name: editCompanyName.trim(),
+          address: editCompanyAddress.trim() || null,
+          phone: editCompanyPhone.trim() || null,
+          email: editCompanyEmail.trim() || null,
+          mobile: editCompanyMobile.trim() || null,
+          website: editCompanyWebsite.trim() || null,
+          vatNumber: editCompanyVatNumber.trim() || null,
+          tradeLicense: editCompanyTradeLicense.trim() || null,
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setCompanyInfo(prev => prev ? {
+          ...prev,
+          name: editCompanyName.trim(),
+          address: editCompanyAddress.trim() || null,
+          phone: editCompanyPhone.trim() || null,
+          email: editCompanyEmail.trim() || null,
+          mobile: editCompanyMobile.trim() || null,
+          website: editCompanyWebsite.trim() || null,
+          vatNumber: editCompanyVatNumber.trim() || null,
+          tradeLicense: editCompanyTradeLicense.trim() || null,
+        } : prev);
+        setIsEditingCompany(false);
+        toast({ title: "Company Info Updated", description: "Company information has been saved successfully." });
+      } else {
+        const errData = await res.json().catch(() => ({ error: "Failed to update company info" }));
+        toast({ title: "Error", description: errData.error || "Failed to update company info", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to update company info", variant: "destructive" });
+    } finally {
+      setSavingCompanyInfo(false);
     }
   };
 
@@ -1022,6 +1122,7 @@ export default function ProfileCenter() {
                 setEditName(safeDisplayName);
                 setEditPhone(user.phone || "");
                 setEditDesignation(user.designation || "");
+                setEditAddress(user.address || "");
                 setEditProfileImage(user.photo || null);
               }}>
                 <X className="w-4 h-4 mr-2" />
@@ -1046,6 +1147,10 @@ export default function ProfileCenter() {
       <Tabs defaultValue="profile" className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="company">
+            <Building2 className="w-3.5 h-3.5 mr-1" />
+            Company Info
+          </TabsTrigger>
           <TabsTrigger value="tracking">
             <BarChart3 className="w-3.5 h-3.5 mr-1" />
             Action Tracking
@@ -1157,8 +1262,15 @@ export default function ProfileCenter() {
                   {/* Contact Details */}
                   <div className="w-full space-y-3 text-left">
                     <div className="flex items-center gap-2 text-sm">
+                      <Shield className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <span className="text-muted-foreground">{user.role ? ROLE_LABELS[user.role] : "User"}</span>
+                    </div>
+
+                    {/* Email (read-only) */}
+                    <div className="flex items-center gap-2 text-sm">
                       <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground truncate">{user.email}</span>
+                      <span className="text-muted-foreground truncate" title={user.email}>{user.email}</span>
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">Read-only</Badge>
                     </div>
 
                     {/* Phone (editable) */}
@@ -1176,6 +1288,24 @@ export default function ProfileCenter() {
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
                         <span className="text-muted-foreground">{user.phone || "—"}</span>
+                      </div>
+                    )}
+
+                    {/* Address (editable) */}
+                    {isEditing ? (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-1.5" />
+                        <Input
+                          value={editAddress}
+                          onChange={(e) => setEditAddress(e.target.value)}
+                          placeholder="Address"
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 text-sm">
+                        <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                        <span className="text-muted-foreground break-words">{user.address || "—"}</span>
                       </div>
                     )}
 
@@ -1508,7 +1638,292 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB B: ENHANCED ACTION TRACKING
+            TAB B: COMPANY INFO (EDITABLE)
+            ════════════════════════════════════════════════════ */}
+        <TabsContent value="company" className="space-y-6">
+          {companyInfo ? (
+            <>
+              {/* Company Branding Card */}
+              <Card className="border-0 shadow-md">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Building2 className="w-5 h-5 text-[#2563eb]" />
+                        Company Branding
+                      </CardTitle>
+                      <CardDescription>
+                        Edit company information and branding. Changes will appear in PDF invoices.
+                      </CardDescription>
+                    </div>
+                    {!isEditingCompany ? (
+                      <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => setIsEditingCompany(true)}>
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit Company Info
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setIsEditingCompany(false);
+                          setEditCompanyName(companyInfo.name || "");
+                          setEditCompanyAddress(companyInfo.address || "");
+                          setEditCompanyPhone(companyInfo.phone || "");
+                          setEditCompanyEmail(companyInfo.email || "");
+                          setEditCompanyMobile(companyInfo.mobile || "");
+                          setEditCompanyWebsite(companyInfo.website || "");
+                          setEditCompanyVatNumber(companyInfo.vatNumber || "");
+                          setEditCompanyTradeLicense(companyInfo.tradeLicense || "");
+                        }}>
+                          <X className="w-4 h-4 mr-2" />
+                          Cancel
+                        </Button>
+                        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSaveCompanyInfo} disabled={savingCompanyInfo}>
+                          {savingCompanyInfo ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                          Save Changes
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Company Logo Section */}
+                  <div className="flex flex-col sm:flex-row items-start gap-4 pb-4 border-b border-border/50">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Company Logo</Label>
+                      <div className="flex items-center gap-3">
+                        {editCompanyLogo ? (
+                          <div className="relative group">
+                            <img
+                              src={editCompanyLogo}
+                              alt="Company Logo"
+                              className="w-24 h-24 rounded-lg object-contain border border-border/50 bg-white p-1 shadow-sm"
+                            />
+                            <div
+                              className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                              onClick={() => companyLogoInputRef.current?.click()}
+                            >
+                              <Camera className="w-6 h-6 text-white" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className="w-24 h-24 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                            onClick={() => companyLogoInputRef.current?.click()}
+                          >
+                            <div className="text-center">
+                              <Upload className="w-6 h-6 mx-auto text-muted-foreground/50" />
+                              <span className="text-[10px] text-muted-foreground mt-1 block">Upload Logo</span>
+                            </div>
+                          </div>
+                        )}
+                        <div className="space-y-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => companyLogoInputRef.current?.click()}
+                            disabled={companyLogoUploading}
+                          >
+                            {companyLogoUploading ? (
+                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                              <Upload className="w-3 h-3 mr-1" />
+                            )}
+                            {editCompanyLogo ? "Replace" : "Upload"}
+                          </Button>
+                          {editCompanyLogo && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              onClick={async () => {
+                                setEditCompanyLogo(null);
+                                if (companyInfo) {
+                                  try {
+                                    const headers = getAuthHeaders();
+                                    await fetch(`/api/companies/${companyInfo.id}`, {
+                                      method: "PUT",
+                                      headers,
+                                      body: JSON.stringify({ logo: null }),
+                                    });
+                                    setCompanyInfo(prev => prev ? { ...prev, logo: null } : prev);
+                                    toast({ title: "Logo Removed", description: "Company logo has been removed." });
+                                  } catch {
+                                    toast({ title: "Error", description: "Failed to remove logo", variant: "destructive" });
+                                  }
+                                }
+                              }}
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Remove
+                            </Button>
+                          )}
+                          <p className="text-[10px] text-muted-foreground/60">Max 5MB • JPG, PNG, GIF, WebP</p>
+                        </div>
+                        <input
+                          ref={companyLogoInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/gif,image/webp"
+                          className="hidden"
+                          onChange={handleCompanyLogoUpload}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Company Details Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Company Name */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Building2 className="w-3 h-3" /> Company Name <span className="text-red-500">*</span>
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyName} onChange={(e) => setEditCompanyName(e.target.value)} placeholder="Company Name" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.name || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Company Email */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Mail className="w-3 h-3" /> Email
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input type="email" value={editCompanyEmail} onChange={(e) => setEditCompanyEmail(e.target.value)} placeholder="company@example.com" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.email || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Phone */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> Phone
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyPhone} onChange={(e) => setEditCompanyPhone(e.target.value)} placeholder="+880-..." />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.phone || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Mobile */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> Mobile (Invoice)
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyMobile} onChange={(e) => setEditCompanyMobile(e.target.value)} placeholder="+880-..." />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.mobile || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Website */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Globe className="w-3 h-3" /> Website
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyWebsite} onChange={(e) => setEditCompanyWebsite(e.target.value)} placeholder="https://example.com" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {companyInfo.website ? (
+                            <a href={companyInfo.website} target="_blank" rel="noopener noreferrer" className="text-[#2563eb] hover:underline">
+                              {companyInfo.website}
+                            </a>
+                          ) : "—"}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* VAT Number */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Hash className="w-3 h-3" /> VAT Number
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyVatNumber} onChange={(e) => setEditCompanyVatNumber(e.target.value)} placeholder="VAT-XXXXX" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.vatNumber || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Trade License */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <FileText className="w-3 h-3" /> Trade License
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyTradeLicense} onChange={(e) => setEditCompanyTradeLicense(e.target.value)} placeholder="TL-XXXXX" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.tradeLicense || "—"}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Address (full width) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> Address
+                    </Label>
+                    {isEditingCompany ? (
+                      <Textarea value={editCompanyAddress} onChange={(e) => setEditCompanyAddress(e.target.value)} placeholder="Full company address" rows={2} />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 dark:text-white whitespace-pre-line">{companyInfo.address || "—"}</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Logo in PDF Invoice Preview */}
+              <Card className="border-0 shadow-md border-l-4 border-l-green-500">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Eye className="w-5 h-5 text-green-500" />
+                    Invoice Logo Preview
+                  </CardTitle>
+                  <CardDescription>
+                    How your company logo will appear on PDF invoices
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-4 p-4 rounded-lg bg-white dark:bg-slate-900 border border-border/50">
+                    {editCompanyLogo ? (
+                      <img
+                        src={editCompanyLogo}
+                        alt="Company Logo Preview"
+                        className="h-12 object-contain"
+                      />
+                    ) : (
+                      <div className="h-12 w-20 rounded border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                        No Logo
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">{companyInfo.name}</p>
+                      <p className="text-xs text-muted-foreground">{companyInfo.address || companyInfo.phone || "—"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card className="border-0 shadow-md">
+              <CardContent className="p-8 text-center">
+                <Building2 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                <h3 className="text-base font-semibold">No Company Associated</h3>
+                <p className="text-sm text-muted-foreground mt-2">Your account is not linked to a company.</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Contact your administrator to link your account to a company.</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ════════════════════════════════════════════════════
+            TAB C: ENHANCED ACTION TRACKING
             ════════════════════════════════════════════════════ */}
         <TabsContent value="tracking" className="space-y-4">
           {/* Server-side Visual Summary Cards */}

@@ -176,7 +176,8 @@ const fmtNumber = (v: any): string => {
 
 const fmtDate = (d: string | Date | null | undefined): string => {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-GB", {
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",

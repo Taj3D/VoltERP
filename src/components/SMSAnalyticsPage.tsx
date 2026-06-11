@@ -50,7 +50,7 @@ const fmtCurrency = (v: any) => {
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return fmtCurrency(v);
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") {
     const num = Number(v);
@@ -65,7 +65,7 @@ const fmtEmpty = (v: any) => {
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 // SMS Character Bounds Computation (Client-side mirror)
 const computeClientSmsSegments = (message: string) => {
@@ -485,7 +485,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const dailySmsTrend = useMemo(() => {
     const dayMap = new Map<string, { date: string; sent: number; delivered: number; failed: number }>();
     smsLogs.forEach((log: any) => {
-      const dateStr = log.sentAt ? new Date(log.sentAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "Unknown";
+      const dateStr = (() => { if (!log.sentAt) return "Unknown"; const dt = new Date(log.sentAt); return isNaN(dt.getTime()) ? "Unknown" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); })();
       const existing = dayMap.get(dateStr) || { date: dateStr, sent: 0, delivered: 0, failed: 0 };
       existing.sent++;
       if (log.status === "Delivered" || log.status === "delivered") existing.delivered++;

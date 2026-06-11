@@ -2082,6 +2082,7 @@ model InvoiceTemplate {
   // Custom terms/notes
   termsAndConditions    String? // Custom terms & conditions text
   customFooterNote      String? // Custom footer note (overrides system note)
+  isDefault             Boolean  @default(false)
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt

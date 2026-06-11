@@ -35,25 +35,27 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
-const fmtDate = (d: string | Date) =>
-  d
-    ? new Date(d).toLocaleDateString("en-GB", {
+const fmtDate = (d: string | Date) => {
+    if (!d) return "—";
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
-      })
-    : "—";
+      });
+  };
 
-const fmtDateShort = (d: string | Date) =>
-  d
-    ? new Date(d).toLocaleDateString("en-GB", {
+const fmtDateShort = (d: string | Date) => {
+    if (!d) return "—";
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
-      })
-    : "—";
+      });
+  };
 
 const fmtSize = (bytes: number) => {
   if (bytes === 0) return "0 B";

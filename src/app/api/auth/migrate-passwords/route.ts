@@ -1,8 +1,23 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword, needsRehash } from '@/lib/password-utils';
+import { withApiSecurity } from '@/lib/api-security';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // RBAC: Only admin can trigger password migration
+  // Note: Using 'SystemConfig' module (NOT 'Auth') because 'Auth' is in AUTH_EXEMPT_MODULES
+  // which would bypass all authentication checks.
+  const security = await withApiSecurity(request, 'SystemConfig', 'POST');
+  if (!security.authorized) return security.response;
+
+  // Additional check: only admin role can migrate passwords
+  if (security.user.role !== 'admin') {
+    return NextResponse.json(
+      { error: 'Only administrators can trigger password migration.' },
+      { status: 403 }
+    );
+  }
+
   try {
     const users = await db.user.findMany({
       select: { id: true, email: true, password: true }

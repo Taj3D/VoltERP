@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiFetch } from "@/lib/api-client";
 import { exportToPDFSimple, exportToCSVSimple, importFromCSV, ColumnDef } from "@/lib/export-utils";
+import { toLatinDigits } from "@/lib/number-format";
 import { copyTableToClipboard } from "@/lib/clipboard-utils";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -137,6 +138,7 @@ const REPORT_CATEGORIES: Record<ReportCategoryKey, ReportCategory> = {
       { value: "transaction-summary", label: "Transaction Summary Report" },
       { value: "monthly-transaction", label: "Monthly Transaction Report" },
       { value: "showroom-analysis", label: "Showroom Analysis Report" },
+      { value: "management-report", label: "Management Report (Summary)" },
     ],
   },
   bank: {
@@ -145,6 +147,7 @@ const REPORT_CATEGORIES: Record<ReportCategoryKey, ReportCategory> = {
       { value: "bank-transaction-report", label: "Bank Transaction Report" },
       { value: "bank-ledger-report", label: "Bank Ledger" },
       { value: "transfer-report", label: "Transfer Report" },
+      { value: "bank-balance-report", label: "Bank Balance Report" },
     ],
   },
   "advance-search": {
@@ -212,10 +215,12 @@ const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype:
   "transaction-summary": { category: "management", subtype: "transaction-summary" },
   "monthly-transaction": { category: "management", subtype: "monthly-transaction" },
   "showroom-analysis": { category: "management", subtype: "showroom-analysis" },
+  "management-report": { category: "management", subtype: "management-report" },
   // Bank Report
   "bank-transaction-report": { category: "bank", subtype: "bank-transaction-report" },
   "bank-ledger-report": { category: "bank", subtype: "bank-ledger-report" },
   "transfer-report": { category: "bank", subtype: "transfer-report" },
+  "bank-balance-report": { category: "bank", subtype: "bank-balance-report" },
   // Advance Search
   "advance-search": { category: "advance-search", subtype: "advance-search" },
 };
@@ -228,22 +233,16 @@ const SIDEBAR_REPORT_MAP: Record<string, { category: ReportCategoryKey; subtype:
 
 const misCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Bengali→Latin digit safety
-const toLatinDigits = (s: string): string => s.replace(/[০-৯]/g, (d) => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
-
 const fmt = (v: unknown, type?: string) => {
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return String(v);
   if (v === null || v === undefined) return "—";
   if (type === "currency")
     return toLatinDigits(`Tk. ${misCurrencyFmt.format(Number(v))}`);
-  if (type === "date")
-    return v
-      ? toLatinDigits(new Date(v as string).toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        }))
-      : "—";
+  if (type === "date") {
+    if (!v) return "—";
+    const dt = new Date(v as string);
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+  }
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
 };
@@ -390,7 +389,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
       else if (cat === "sales" || cat === "hire-sales" || cat === "customer-wise")
         apiPath = "/api/customers";
       else if (cat === "sr") apiPath = "/api/employees";
-      else if (cat === "bank") apiPath = "/api/banks";
+      else if (cat === "bank" || cat === "management") apiPath = "/api/banks";
       else {
         setEntityOptions([]);
         return;
@@ -426,6 +425,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
       case "sr":
         return "Employee";
       case "bank":
+      case "management":
         return "Bank";
       default:
         return "Entity";
@@ -696,35 +696,6 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
   }, [tableSortField]);
 
   // ============================================================
-  // RBAC: SR and Dealer → 403 Forbidden
-  // ============================================================
-
-  if (isSR || isDealer) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md w-full border-red-300 dark:border-red-800">
-          <CardContent className="p-8 text-center">
-            <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <Lock className="w-8 h-8 text-red-500" />
-            </div>
-            <h3 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-2">
-              403 - Access Denied
-            </h3>
-            <p className="text-muted-foreground mb-4">
-              {isSR
-                ? "Sales Representatives do not have access to MIS Reports. Please contact your administrator for assistance."
-                : "Dealers do not have access to MIS Reports. This module is restricted to Admin, Manager, and VAT Auditor roles."}
-            </p>
-            <Badge variant="outline" className="text-red-500 border-red-300">
-              {isSR ? "SR Role" : "Dealer Role"} — No MIS Access
-            </Badge>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // ============================================================
   // MAIN RENDER
   // ============================================================
 
@@ -897,7 +868,7 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
                           onChange={(e) => setKeyword(e.target.value)}
                         />
                       </div>
-                    ) : tabKey === "management" ? null : (
+                    ) : (
                       <div className="space-y-1.5">
                         <Label className="text-xs">{entityFilterLabel}</Label>
                         <Select

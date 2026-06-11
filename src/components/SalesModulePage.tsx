@@ -55,8 +55,7 @@ const fmtCurrency = (v: any) => {
   return _fmtBDT(Number(v));
 };
 
-const fmtDate = (d: string | Date) =>
-  d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 const fmtPercent = (v: any) => {
   if (v === null || v === undefined) return "—";

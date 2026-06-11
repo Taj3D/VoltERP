@@ -193,6 +193,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const stockStatusFilter = searchParams.get('stockStatus');
+    const searchQuery = searchParams.get('search');
+    const searchLimit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 0;
 
     // ---- SUMMARY ACTION ----
     if (action === 'summary') {
@@ -287,11 +289,23 @@ export async function GET(request: NextRequest) {
     }
 
     // ---- REGULAR LIST WITH STOCK COMPUTATION ----
+    const searchWhere = searchQuery
+      ? {
+          OR: [
+            { name: { contains: searchQuery } },
+            { productCode: { contains: searchQuery } },
+            { sku: { contains: searchQuery } },
+            { barcode: { contains: searchQuery } },
+          ],
+        }
+      : {};
     const items = await db.product.findMany({
       where: {
         isActive: true,
         ...(companyId ? { companyId } : {}),
+        ...searchWhere,
       },
+      ...(searchLimit > 0 ? { take: searchLimit } : {}),
       orderBy: { createdAt: 'desc' },
       include: {
         category: { select: { id: true, name: true, code: true, isActive: true } },

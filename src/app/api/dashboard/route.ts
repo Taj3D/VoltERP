@@ -278,6 +278,29 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Today's Installments - hire sales with nextPaymentDate = today
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const todaysInstallmentRecords = await db.hireSales.findMany({
+      where: {
+        isActive: true,
+        ...companyFilter,
+        nextPaymentDate: { gte: todayStart, lte: todayEnd },
+      },
+      orderBy: { nextPaymentDate: 'asc' },
+      include: {
+        customer: { select: { id: true, name: true, customerCode: true, phone: true, address: true } },
+        lines: {
+          include: {
+            product: { select: { id: true, name: true, productCode: true } },
+          },
+        },
+      },
+    });
+
     const hireInstallments = hireSalesRecords.map((hs) => ({
       id: hs.id,
       invoiceNo: hs.invoiceNo,
@@ -340,6 +363,37 @@ export async function GET(request: NextRequest) {
         count: c._count.products,
       })),
       hireInstallments,
+      todaysInstallments: todaysInstallmentRecords.map((hs) => ({
+        id: hs.id,
+        invoiceNo: hs.invoiceNo,
+        date: hs.date.toISOString(),
+        customer: hs.customer
+          ? {
+              id: hs.customer.id,
+              name: hs.customer.name,
+              customerCode: hs.customer.customerCode,
+              phone: hs.customer.phone,
+              address: hs.customer.address,
+            }
+          : null,
+        hireRate: hs.hireRate,
+        duration: hs.duration,
+        installmentAmount: hs.installmentAmount,
+        totalPaid: hs.totalPaid,
+        grandTotal: hs.grandTotal,
+        balanceAmount: safeFinancialSubtract(hs.grandTotal, hs.totalPaid),
+        currentStatus: hs.currentStatus,
+        nextPaymentDate: hs.nextPaymentDate ? hs.nextPaymentDate.toISOString() : null,
+        returnDate: hs.returnDate ? hs.returnDate.toISOString() : null,
+        products: hs.lines.map((l) => ({
+          id: l.product?.id,
+          name: l.product?.name,
+          productCode: l.product?.productCode,
+          quantity: l.quantity,
+          rate: l.rate,
+          total: l.total,
+        })),
+      })),
     };
 
     // Stage 13: Apply deep recursive VAT Auditor masking

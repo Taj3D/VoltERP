@@ -2685,7 +2685,7 @@ async function expenseReport(params: QueryParams): Promise<ReportResult> {
     const existing = headMap.get(name);
     if (existing) {
       existing.count += 1;
-      existing.totalAmount += e.amount;
+      existing.totalAmount = safeFinancialAdd(existing.totalAmount, e.amount);
     } else {
       headMap.set(name, { head: name, count: 1, totalAmount: e.amount });
     }
@@ -3491,7 +3491,7 @@ async function advanceSearch(params: QueryParams): Promise<ReportResult> {
   const containsFilter = { contains: keyword };
   const dateFilter = buildDateFilter(params.from, params.to);
 
-  const [products, customers, suppliers, salesOrders, purchaseOrders] = await Promise.all([
+  const [products, customers, suppliers, salesOrders, purchaseOrders, employees, expenses, bankTransactions] = await Promise.all([
     db.product.findMany({
       where: { isActive: true, OR: [{ name: containsFilter }, { productCode: containsFilter }] },
       include: { category: true, company: true },
@@ -3521,6 +3521,28 @@ async function advanceSearch(params: QueryParams): Promise<ReportResult> {
         ...(dateFilter ? { date: dateFilter } : {}),
       },
       include: { supplier: true },
+      take: 20,
+    }),
+    db.employee.findMany({
+      where: { isActive: true, OR: [{ name: containsFilter }, { employeeCode: containsFilter }] },
+      take: 20,
+    }),
+    db.expense.findMany({
+      where: {
+        isActive: true,
+        OR: [{ description: containsFilter }],
+        ...(dateFilter ? { date: dateFilter } : {}),
+      },
+      include: { head: true },
+      take: 20,
+    }),
+    db.bankTransaction.findMany({
+      where: {
+        isActive: true,
+        OR: [{ transactionCode: containsFilter }, { description: containsFilter }],
+        ...(dateFilter ? { date: dateFilter } : {}),
+      },
+      include: { bank: true },
       take: 20,
     }),
   ]);
@@ -3556,18 +3578,30 @@ async function advanceSearch(params: QueryParams): Promise<ReportResult> {
   for (const po of purchaseOrders) {
     rows.push({ type: 'Purchase Order', code: po.poNumber, name: po.supplier?.name || '', details: `Total: ${po.grandTotal}, Status: ${po.status}` });
   }
+  for (const emp of employees) {
+    rows.push({ type: 'Employee', code: emp.employeeCode, name: emp.name, details: `Phone: ${emp.phone || 'N/A'}` });
+  }
+  for (const exp of expenses) {
+    rows.push({ type: 'Expense', code: String(exp.id), name: exp.head?.name || 'Unknown', details: `Amount: ${exp.amount}, Description: ${exp.description || 'N/A'}` });
+  }
+  for (const bt of bankTransactions) {
+    rows.push({ type: 'Bank Transaction', code: bt.transactionCode || '', name: bt.bank?.bankName || '', details: `Amount: ${bt.amount}, Description: ${bt.description || 'N/A'}` });
+  }
 
   return {
     title: `Advance Search: "${keyword}"`,
     columns,
     rows,
-    summary: { totalResults: rows.length, products: products.length, customers: customers.length, suppliers: suppliers.length, salesOrders: salesOrders.length, purchaseOrders: purchaseOrders.length },
+    summary: { totalResults: rows.length, products: products.length, customers: customers.length, suppliers: suppliers.length, salesOrders: salesOrders.length, purchaseOrders: purchaseOrders.length, employees: employees.length, expenses: expenses.length, bankTransactions: bankTransactions.length },
     chartData: [
       { name: 'Products', count: products.length },
       { name: 'Customers', count: customers.length },
       { name: 'Suppliers', count: suppliers.length },
       { name: 'Sales Orders', count: salesOrders.length },
       { name: 'Purchase Orders', count: purchaseOrders.length },
+      { name: 'Employees', count: employees.length },
+      { name: 'Expenses', count: expenses.length },
+      { name: 'Bank Transactions', count: bankTransactions.length },
     ],
   };
 }
@@ -3580,14 +3614,9 @@ export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'MISReports', 'GET');
   if (!security.authorized) return security.response;
 
-  // MIS-005 FIX: RBAC — SR and Dealer roles cannot access MIS Reports
+  // MIS-005 NOTE: SR/Dealer blanket 403 removed — sidebar ROLE_ACCESS already controls navigation
   const userRole = security.user.role as UserRole;
-  if (userRole === 'sr' || userRole === 'dealer') {
-    return NextResponse.json(
-      { error: 'Access denied. MIS Reports are not available for your role.' },
-      { status: 403 }
-    );
-  }
+  // Individual report access is controlled by frontend ROLE_ACCESS and ITEM_ACCESS_DENIED
 
   const { searchParams } = new URL(request.url);
 

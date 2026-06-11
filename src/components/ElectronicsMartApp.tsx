@@ -210,7 +210,11 @@ import { fmtBDT as _fmtBDT } from "@/lib/number-format";
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") {
+    if (!v) return "—";
+    const dt = new Date(v);
+    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
@@ -409,10 +413,12 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "transaction-summary", label: "Transaction Summary Report", parent: "Management Report", isReport: true, reportType: "transaction-summary" },
       { key: "monthly-transaction", label: "Monthly Transaction Report", parent: "Management Report", isReport: true, reportType: "monthly-transaction" },
       { key: "showroom-analysis", label: "Showroom Analysis Report", parent: "Management Report", isReport: true, reportType: "showroom-analysis" },
+      { key: "management-report", label: "Management Report (Summary)", parent: "Management Report", isReport: true, reportType: "management-report" },
       { key: "advance-search", label: "Advance Search", isReport: true, reportType: "advance-search" },
       { key: "bank-transaction-report", label: "Bank Transaction Report", parent: "Bank Report", isReport: true, reportType: "bank-transaction-report" },
       { key: "bank-ledger-report", label: "Bank Ledger", parent: "Bank Report", isReport: true, reportType: "bank-ledger-report" },
       { key: "transfer-report", label: "Transfer Report", parent: "Bank Report", isReport: true, reportType: "transfer-report" },
+      { key: "bank-balance-report", label: "Bank Balance Report", parent: "Bank Report", isReport: true, reportType: "bank-balance-report" },
     ],
   },
   {
@@ -789,7 +795,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
             </div>
             <Button variant="outline" size="sm" onClick={loadData}><RefreshCw className="w-4 h-4" /></Button>
           </div>
-          <div className="w-full overflow-x-auto">
+          <div className="w-full overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[65vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1340,6 +1346,7 @@ function ProductsPage() {
             </Select>
             <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
           </div>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1415,6 +1422,7 @@ function ProductsPage() {
                 })}
               </TableBody>
             </Table>
+          </div>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {data.length} products</div>
         </CardContent>
@@ -1523,6 +1531,7 @@ function StockPage() {
               <Input placeholder="Search stock..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
             </div>
           </div>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[65vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1547,13 +1556,14 @@ function StockPage() {
                     <TableCell className="font-mono text-xs">{item.productCode}</TableCell>
                     <TableCell className="font-medium text-slate-900 dark:text-white">{item.productName}</TableCell>
                     <TableCell>{item.category || "—"}</TableCell>
-                    <TableCell><span className={`font-mono font-medium ${(item.totalStock || 0) <= 0 ? "text-red-500" : (item.totalStock || 0) <= (item.reorderLevel || 5) ? "text-yellow-600" : "text-green-600"}`}>{item.totalStock || 0}</span></TableCell>
+                    <TableCell><span className={`font-mono font-medium ${((item.currentStock ?? item.totalStock) ?? 0) <= 0 ? "text-red-500" : ((item.currentStock ?? item.totalStock) ?? 0) <= (item.reorderLevel || 5) ? "text-yellow-600" : "text-green-600"}`}>{(item.currentStock ?? item.totalStock) ?? 0}</span></TableCell>
                     <TableCell className="font-mono">{fmt(item.costPrice, "currency")}</TableCell>
                     <TableCell className="font-mono">{fmt(item.salePrice, "currency")}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+          </div>
           </div>
         </CardContent>
       </Card>
@@ -1653,6 +1663,7 @@ function StockDetailsPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1684,6 +1695,7 @@ function StockDetailsPage() {
                 ))}
               </TableBody>
             </Table>
+          </div>
           </div>
         </CardContent>
       </Card>
@@ -1834,6 +1846,7 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
           ) : (
             <>
               <div className="mb-2 text-sm text-muted-foreground">Showing {data.length} records</div>
+              <div className="overflow-x-auto -mx-2 sm:mx-0">
               <div className="table-container overflow-auto max-h-[55vh] rounded-md border">
                 <Table>
                   <TableHeader>
@@ -1851,6 +1864,7 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
                     ))}
                   </TableBody>
                 </Table>
+              </div>
               </div>
             </>
           )}
@@ -2473,8 +2487,8 @@ function DashboardPage() {
         </Card>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* KPI Cards — 1 col mobile, 2 col tablet, 4 col desktop */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {visibleKpis.map((kpi, i) => (
           <Card key={i} className={`kpi-card dashboard-kpi-card relative overflow-hidden ${kpi.border}`}>
             <div className={`absolute inset-0 bg-gradient-to-br ${kpi.gradient} pointer-events-none`} />
@@ -2511,7 +2525,7 @@ function DashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
             {[
               { label: "New Sale", icon: Receipt, color: "text-green-600 bg-green-50 hover:bg-green-100 dark:text-green-400 dark:bg-green-900/30 dark:hover:bg-green-900/50" },
               { label: "New Purchase", icon: ShoppingCart, color: "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:text-purple-400 dark:bg-purple-900/30 dark:hover:bg-purple-900/50" },
@@ -2522,7 +2536,7 @@ function DashboardPage() {
               { label: "Send SMS", icon: Send, color: "text-teal-600 bg-teal-50 hover:bg-teal-100 dark:text-teal-400 dark:bg-teal-900/30 dark:hover:bg-teal-900/50" },
               { label: "Print Report", icon: Printer, color: "text-slate-600 bg-slate-50 hover:bg-slate-100 dark:text-slate-400 dark:bg-slate-900/30 dark:hover:bg-slate-900/50" },
             ].map((action, i) => (
-              <Button key={i} variant="ghost" size="sm" className={`justify-start gap-2 h-9 ${action.color} transition-all duration-200`}>
+              <Button key={i} variant="ghost" size="sm" className={`justify-start gap-2 min-h-[44px] sm:min-h-0 h-auto sm:h-9 ${action.color} transition-all duration-200`}>
                 <action.icon className="w-4 h-4" />
                 <span className="text-xs font-medium">{action.label}</span>
               </Button>
@@ -2588,7 +2602,7 @@ function DashboardPage() {
                   {(stats.hireInstallments || []).slice(0, 10).map((inst: any, i: number) => (
                     <TableRow key={i}>
                       <TableCell>{i + 1}</TableCell>
-                      <TableCell><Button variant="outline" size="sm" className="text-xs h-7">Update Remind Date</Button></TableCell>
+                      <TableCell><Button variant="outline" size="sm" className="text-xs min-h-[44px] sm:min-h-0 h-auto sm:h-7">Update Remind Date</Button></TableCell>
                       <TableCell className="font-mono">{inst.invoiceNo || "—"}</TableCell>
                       <TableCell>{inst.salesDate ? fmtDate(inst.salesDate) : "—"}</TableCell>
                       <TableCell>{inst.paymentDate ? fmtDate(inst.paymentDate) : "—"}</TableCell>
@@ -2646,8 +2660,8 @@ function DashboardPage() {
 // SIDEBAR COMPONENT
 // ============================================================
 
-function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
-  currentPage: string; onNavigate: (key: string) => void; collapsed: boolean; onToggle: () => void;
+function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
+  currentPage: string; onNavigate: (key: string) => void; collapsed: boolean; onToggle: () => void; embedded?: boolean;
 }) {
   const { hasAccess, user, isVatAuditor } = useAuth();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(SIDEBAR_CONFIG.map(g => g.key)));
@@ -2731,10 +2745,10 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
   };
 
   return (
-    <aside className={`fixed left-0 top-0 z-40 h-full bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} flex flex-col overflow-hidden shadow-xl`}>
+    <aside className={`${embedded ? "relative w-full h-full" : `fixed left-0 top-0 z-40 h-full ${collapsed ? "w-16" : "w-64"}`} bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 flex flex-col overflow-hidden shadow-xl`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-white/10">
-        {!collapsed && (
+        {(!collapsed || embedded) && (
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20">
               <Package className="w-4.5 h-4.5 text-white" />
@@ -2745,7 +2759,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
             </div>
           </div>
         )}
-        {collapsed && (
+        {collapsed && !embedded && (
           <button
             onClick={onToggle}
             className="w-11 h-11 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] active:scale-95 transition-all cursor-pointer"
@@ -2755,7 +2769,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
             <ChevronsRight className="w-5 h-5 text-white" />
           </button>
         )}
-        {!collapsed && (
+        {!collapsed && !embedded && (
           <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-11 w-11 min-w-11 min-h-11 p-0 cursor-pointer active:scale-95 transition-transform" onClick={onToggle} title="Collapse sidebar" aria-label="Collapse sidebar">
             <ChevronLeft className="w-5 h-5" />
           </Button>
@@ -6317,7 +6331,7 @@ function AppLayout() {
       {/* Mobile sidebar — Sheet component for proper drawer behavior */}
       <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
         <SheetContent side="left" className="p-0 w-[280px] sm:w-[300px] bg-sidebar border-sidebar-border">
-          <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} />
+          <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} embedded />
         </SheetContent>
       </Sheet>
 
@@ -6345,7 +6359,7 @@ function AppLayout() {
       </main>
 
       {/* Footer */}
-      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
+      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`} style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
         <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<a href="https://www.facebook.com/nextgendigitalstudio" target="_blank" rel="noopener noreferrer" className="text-slate-300 font-medium hover:text-white transition-colors"><span className="hover:underline underline-offset-2">NextGen Digital Studio</span></a>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>

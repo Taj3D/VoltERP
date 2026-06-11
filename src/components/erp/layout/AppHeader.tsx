@@ -711,7 +711,7 @@ export default function AppHeader({
                   <p className="text-sm font-medium">
                     {user?.displayName || user?.name || "User"}
                   </p>
-                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email || ""}</p>
                   {sessionTimeLeft && (
                     <div className={`flex items-center gap-1.5 mt-1.5 text-xs ${sessionWarning ? 'text-amber-500' : 'text-muted-foreground'}`}>
                       <Clock className="w-3 h-3" />

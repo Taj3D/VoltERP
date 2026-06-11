@@ -9,6 +9,7 @@ import {
   Database, Zap, Trash, RotateCcw, Info, Code,
   Image as ImageIcon, Phone, Globe, Receipt, StickyNote,
   HardDrive, Activity, Server, Cpu, MemoryStick, Clock,
+  ChevronDown, Star, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,7 +49,7 @@ const settingsNumberFmt = new Intl.NumberFormat("en-US");
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return `Tk. ${settingsCurrencyFmt.format(Number(v))}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return settingsNumberFmt.format(Number(v));
   return String(v);
@@ -63,6 +64,26 @@ function validateBDPhone(phone: string): { valid: boolean; message: string } {
     return { valid: true, message: "" };
   }
   return { valid: false, message: "Phone must use Bangladesh format: +880XXXXXXXXXX or 01XXXXXXXXX" };
+}
+
+/** Validate email address format */
+function validateEmail(email: string): { valid: boolean; message: string } {
+  if (!email) return { valid: true, message: "" };
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (emailRegex.test(email)) {
+    return { valid: true, message: "" };
+  }
+  return { valid: false, message: "Please enter a valid email address" };
+}
+
+/** Validate Bangladesh BIN/VAT number */
+function validateVATNumber(vat: string): { valid: boolean; message: string } {
+  if (!vat) return { valid: true, message: "" };
+  const cleaned = vat.replace(/[\s\-]/g, "");
+  if (/^\d{9,15}$/.test(cleaned) || /^[A-Za-z]{0,3}\d{9,15}$/.test(cleaned)) {
+    return { valid: true, message: "" };
+  }
+  return { valid: false, message: "BIN/VAT number should be 9-15 digits" };
 }
 
 /** Convert file to base64 data URL */
@@ -163,6 +184,7 @@ interface InvoiceTemplate {
   showPrintDate: boolean;
   termsAndConditions: string | null;
   customFooterNote: string | null;
+  isDefault: boolean;
   isActive: boolean;
 }
 
@@ -230,7 +252,7 @@ const TOGGLE_FIELDS: { key: keyof InvoiceTemplate; label: string; group: string 
 // All 28 toggle fields including showPrintDate
 const ALL_TOGGLE_FIELDS = [...TOGGLE_FIELDS, { key: "showPrintDate" as keyof InvoiceTemplate, label: "Print Date", group: "Footer" }];
 
-const TEMPLATE_TYPES = ["Invoice", "Receipt", "Email", "CreditMemo", "DebitNote", "Statement"];
+const TEMPLATE_TYPES = ["Invoice", "Receipt", "Email", "CreditMemo", "DebitNote", "Statement", "Mushok63", "Challan"];
 
 // ============================================================
 // 403 FORBIDDEN PAGE
@@ -265,6 +287,8 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
   const [companyEdits, setCompanyEdits] = useState<Partial<CompanyData>>({});
   const [phoneError, setPhoneError] = useState("");
   const [mobileError, setMobileError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [vatError, setVatError] = useState("");
 
   // Company branding is Admin-only for editing; Manager/VAT Auditor/other roles are read-only
   const isAdmin = userRole === "admin";
@@ -281,7 +305,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
         const c = result.company;
         setCompany({
           id: c.id,
-          code: "",
+          code: c.code || "",
           name: c.name || "",
           address: c.address || null,
           phone: c.phone || null,
@@ -289,7 +313,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           logo: c.logo || null,
           brandLogo: c.brandLogo || null,
           mobile: c.mobile || null,
-          website: null,
+          website: c.website || null,
           vatNumber: c.vatNumber || null,
           tradeLicense: c.tradeLicense || null,
           invoicePrefix: c.invoicePrefix || null,
@@ -352,8 +376,20 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
       const v = validateBDPhone(mobileVal);
       if (!v.valid) { setMobileError(v.message); return; }
     }
+    const emailVal = companyEdits.email !== undefined ? companyEdits.email : company.email;
+    if (emailVal) {
+      const v = validateEmail(emailVal);
+      if (!v.valid) { setEmailError(v.message); return; }
+    }
+    const vatVal = companyEdits.vatNumber !== undefined ? companyEdits.vatNumber : company.vatNumber;
+    if (vatVal) {
+      const v = validateVATNumber(vatVal);
+      if (!v.valid) { setVatError(v.message); return; }
+    }
     setPhoneError("");
     setMobileError("");
+    setEmailError("");
+    setVatError("");
     setSavingCompany(true);
     try {
       await apiFetch("/api/company-branding", {
@@ -665,10 +701,11 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
                 <Input
                   type="email"
                   value={getCompanyValue("email") as string}
-                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, email: e.target.value }))}
+                  onChange={(e) => { setCompanyEdits(prev => ({ ...prev, email: e.target.value })); const v = validateEmail(e.target.value); setEmailError(v.valid ? "" : v.message); }}
                   disabled={!canMutateBranding}
                   placeholder="info@company.com"
                 />
+                {emailError && <p className="text-xs text-red-500">{emailError}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium flex items-center gap-1">
@@ -706,10 +743,11 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
                 <Label className="text-sm font-medium">BIN / VAT Number</Label>
                 <Input
                   value={getCompanyValue("vatNumber") as string}
-                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, vatNumber: e.target.value }))}
+                  onChange={(e) => { setCompanyEdits(prev => ({ ...prev, vatNumber: e.target.value })); const v = validateVATNumber(e.target.value); setVatError(v.valid ? "" : v.message); }}
                   disabled={!canMutateBranding}
                   placeholder="e.g. 1234567890"
                 />
+                {vatError && <p className="text-xs text-red-500">{vatError}</p>}
                 <p className="text-xs text-slate-500 dark:text-slate-400">Business Identification Number for tax purposes</p>
               </div>
               <div className="space-y-1.5">
@@ -971,6 +1009,38 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
 // TAB 2: INVOICE TEMPLATES
 // ============================================================
 
+// Sample data for invoice template preview substitution
+const SAMPLE_DATA: Record<string, string> = {
+  '{{companyName}}': 'Electronics Mart',
+  '{{companyAddress}}': '123 Business Road, Dhaka 1207',
+  '{{companyPhone}}': '+880 1712-345678',
+  '{{companyEmail}}': 'info@electronicsmart.com.bd',
+  '{{invoiceNo}}': 'EM-00001',
+  '{{poNumber}}': 'PUR-00001',
+  '{{date}}': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+  '{{customerName}}': 'Rahim Uddin',
+  '{{supplierName}}': 'Sony Bangladesh Ltd',
+  '{{subTotal}}': 'Tk. 14,130.00',
+  '{{vatRate}}': '15',
+  '{{vatAmount}}': 'Tk. 2,119.50',
+  '{{grandTotal}}': 'Tk. 16,249.50',
+  '{{totalItems}}': '2',
+  '{{downPayment}}': 'Tk. 5,000.00',
+  '{{installmentAmount}}': 'Tk. 1,500.00',
+  '{{duration}}': '12',
+  '{{message}}': 'Thank you for your purchase!',
+  '{{vatNumber}}': 'VAT-1234567890',
+  '{{lineItems}}': '<tr><td style="border:1px solid #ccc;padding:4px">1</td><td style="border:1px solid #ccc;padding:4px">Sony Bravia 43&quot; TV</td><td style="border:1px solid #ccc;padding:4px">1</td><td style="border:1px solid #ccc;padding:4px">Tk. 14,130.00</td></tr>',
+};
+
+function substitutePlaceholders(html: string): string {
+  let result = html;
+  for (const [placeholder, value] of Object.entries(SAMPLE_DATA)) {
+    result = result.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), value);
+  }
+  return result;
+}
+
 function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
   const { toast } = useToast();
   const [templates, setTemplates] = useState<InvoiceTemplate[]>([]);
@@ -1133,6 +1203,41 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
     }
   };
 
+  const handleSetDefault = async (template: InvoiceTemplate) => {
+    try {
+      await apiFetch("/api/invoice-templates", {
+        method: "PUT",
+        body: JSON.stringify({ id: template.id, isDefault: true }),
+      });
+      toast({ title: "Default Set", description: `"${template.name}" is now the default ${template.templateType} template` });
+      loadTemplates();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleDuplicate = async (template: InvoiceTemplate) => {
+    setSaving(true);
+    try {
+      // Copy all template data, clear id, append "(Copy)" to name, set isDefault to false
+      const { id, code, createdAt, updatedAt, ...rest } = template;
+      await apiFetch("/api/invoice-templates", {
+        method: "POST",
+        body: JSON.stringify({
+          ...rest,
+          name: `${template.name} (Copy)`,
+          isDefault: false,
+        }),
+      });
+      toast({ title: "Duplicated", description: `"${template.name}" duplicated as "${template.name} (Copy)"` });
+      loadTemplates();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const updatePreview = useCallback(() => {
     if (!previewIframeRef.current) return;
     const css = editorData.cssStyles || "";
@@ -1144,13 +1249,13 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
         ${css}
       </style></head>
       <body>
-        ${editorData.headerHtml || "<!-- No header -->"}
+        ${substitutePlaceholders(editorData.headerHtml || "<!-- No header -->")}
         <hr style="border-color: #e2e8f0; margin: 12px 0;" />
-        ${editorData.bodyHtml || "<!-- No body -->"}
+        ${substitutePlaceholders(editorData.bodyHtml || "<!-- No body -->")}
         <hr style="border-color: #e2e8f0; margin: 12px 0;" />
-        ${editorData.footerHtml || "<!-- No footer -->"}
-        ${editorData.termsAndConditions ? `<div style="margin-top:16px;padding:8px;border:1px solid #e2e8f0;border-radius:4px;"><strong>Terms & Conditions:</strong><br/>${editorData.termsAndConditions}</div>` : ""}
-        ${editorData.customFooterNote ? `<div style="margin-top:8px;font-style:italic;color:#64748b;">${editorData.customFooterNote}</div>` : ""}
+        ${substitutePlaceholders(editorData.footerHtml || "<!-- No footer -->")}
+        ${editorData.termsAndConditions ? `<div style="margin-top:16px;padding:8px;border:1px solid #e2e8f0;border-radius:4px;"><strong>Terms & Conditions:</strong><br/>${substitutePlaceholders(editorData.termsAndConditions)}</div>` : ""}
+        ${editorData.customFooterNote ? `<div style="margin-top:8px;font-style:italic;color:#64748b;">${substitutePlaceholders(editorData.customFooterNote)}</div>` : ""}
       </body>
       </html>
     `;
@@ -1178,6 +1283,7 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
         { key: "code", label: "Code", type: "text" },
         { key: "name", label: "Name", type: "text" },
         { key: "templateType", label: "Type", type: "text" },
+        { key: "isDefault", label: "Default", type: "boolean" },
         { key: "paperSize", label: "Paper Size", type: "text" },
         { key: "orientation", label: "Orientation", type: "text" },
         { key: "isActive", label: "Active", type: "boolean" },
@@ -1204,6 +1310,7 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
         { key: "code", label: "Code", type: "text" },
         { key: "name", label: "Name", type: "text" },
         { key: "templateType", label: "Type", type: "text" },
+        { key: "isDefault", label: "Default", type: "boolean" },
         { key: "paperSize", label: "Paper Size", type: "text" },
         { key: "orientation", label: "Orientation", type: "text" },
         { key: "isActive", label: "Active", type: "boolean" },
@@ -1296,10 +1403,10 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                   <TableHead className="text-white font-semibold">Code</TableHead>
                   <TableHead className="text-white font-semibold">Name</TableHead>
                   <TableHead className="text-white font-semibold">Type</TableHead>
+                  <TableHead className="text-white font-semibold">Default</TableHead>
                   <TableHead className="text-white font-semibold">Paper</TableHead>
-                  <TableHead className="text-white font-semibold">Orientation</TableHead>
                   <TableHead className="text-white font-semibold">Active</TableHead>
-                  <TableHead className="text-white font-semibold w-40">Actions</TableHead>
+                  <TableHead className="text-white font-semibold w-48">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1312,10 +1419,25 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                     <TableRow key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                       <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs">{t.code}</TableCell>
-                      <TableCell className="font-medium text-slate-900 dark:text-white">{t.name}</TableCell>
+                      <TableCell className="font-medium text-slate-900 dark:text-white">
+                        <div className="flex items-center gap-1.5">
+                          {t.name}
+                          {t.isDefault && (
+                            <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] px-1.5 py-0 h-5">
+                              <Star className="h-3 w-3 mr-0.5" />Default
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell><Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{t.templateType}</Badge></TableCell>
+                      <TableCell>
+                        {t.isDefault ? (
+                          <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
+                        ) : (
+                          <Star className="h-4 w-4 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </TableCell>
                       <TableCell>{t.paperSize}</TableCell>
-                      <TableCell>{t.orientation}</TableCell>
                       <TableCell>
                         <Badge variant={t.isActive ? "default" : "secondary"} className={t.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}>
                           {t.isActive ? "Active" : "Inactive"}
@@ -1323,6 +1445,14 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          {!t.isDefault && canMutate && (
+                            <Button variant="ghost" size="sm" onClick={() => handleSetDefault(t)} className="h-7 px-2" title="Set as Default">
+                              <Star className="h-3.5 w-3.5 text-amber-500" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" onClick={() => handleDuplicate(t)} className="h-7 px-2" title="Duplicate Template">
+                            <Copy className="h-3.5 w-3.5 text-slate-500" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => openEditor(t)} className="h-7 px-2" title="Edit HTML/CSS">
                             <Code className="h-3.5 w-3.5 text-blue-500" />
                           </Button>
@@ -1576,11 +1706,23 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
   // Generate preview string from format
   const getPreview = (f: NumberFormat | Partial<NumberFormat>) => {
     const prefix = f.prefix || "";
-    const sep = f.separator || "";
+    const sep = f.separator || "-";
     const pad = f.paddingLength || 5;
     const seq = f.nextSequence || 1;
     const padded = String(seq).padStart(pad, "0");
-    return `${prefix}${sep}${padded}`;
+    let datePart = "";
+    if (f.dateFormat) {
+      const now = new Date();
+      datePart = f.dateFormat
+        .replace(/YYYY/g, String(now.getFullYear()))
+        .replace(/YY/g, String(now.getFullYear()).slice(-2))
+        .replace(/MM/g, String(now.getMonth() + 1).padStart(2, "0"))
+        .replace(/DD/g, String(now.getDate()).padStart(2, "0"));
+    }
+    const parts = [prefix || "PRE-"];
+    if (datePart) parts.push(datePart);
+    parts.push(padded);
+    return parts.join(sep);
   };
 
   const handleCreate = async () => {
@@ -1966,6 +2108,10 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
   const [entries, setEntries] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const offsetRef = useRef(0);
   const [filterModule, setFilterModule] = useState<string>("all");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -1976,11 +2122,21 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
   const [availableActions, setAvailableActions] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  const loadEntries = useCallback(async () => {
-    setLoading(true);
+  const BATCH_SIZE = 100;
+
+  const loadEntries = useCallback(async (reset: boolean = true) => {
+    if (reset) {
+      setLoading(true);
+      offsetRef.current = 0;
+      setOffset(0);
+    } else {
+      setLoadingMore(true);
+    }
     try {
+      const currentOffset = reset ? 0 : offsetRef.current;
       const params = new URLSearchParams();
-      params.set("limit", "200");
+      params.set("limit", String(BATCH_SIZE));
+      params.set("offset", String(currentOffset));
       if (appliedFilters.module) params.set("module", appliedFilters.module);
       if (appliedFilters.action) params.set("action", appliedFilters.action);
       if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
@@ -1988,12 +2144,25 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
       if (appliedFilters.search) params.set("search", appliedFilters.search);
 
       const res = await apiFetch(`/api/audit-trail?${params.toString()}`);
-      setEntries(res.entries || []);
-      setTotalCount(res.total || 0);
+      const newEntries = res.entries || [];
+      const total = res.total || 0;
+
+      if (reset) {
+        setEntries(newEntries);
+      } else {
+        setEntries(prev => [...prev, ...newEntries]);
+      }
+      setTotalCount(total);
+      setHasMore(reset ? newEntries.length < total : currentOffset + newEntries.length < total);
+
+      const newOffset = reset ? newEntries.length : offsetRef.current + newEntries.length;
+      offsetRef.current = newOffset;
+      setOffset(newOffset);
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, [appliedFilters, toast]);
 
@@ -2250,7 +2419,7 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
               <div className="absolute left-3.5 top-0 bottom-0 w-0.5 bg-slate-200 dark:bg-slate-700" />
 
               <div className="space-y-4">
-                {entries.slice(0, 100).map((entry, idx) => {
+                {entries.map((entry, idx) => {
                   const entryId = entry.id || `entry-${idx}`;
                   const isExpanded = expandedIds.has(entryId);
                   const action = (entry.action || "UNKNOWN").toUpperCase();
@@ -2305,8 +2474,37 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
                 })}
               </div>
 
-              {entries.length > 100 && (
-                <p className="text-xs text-slate-500 mt-4 text-center">Showing first 100 of {totalCount} entries. Use filters to narrow results.</p>
+              {/* Load More Button */}
+              {hasMore && !loading && entries.length > 0 && (
+                <div className="flex justify-center pt-4 pb-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => loadEntries(false)}
+                    disabled={loadingMore}
+                    className="min-w-[200px]"
+                  >
+                    {loadingMore ? (
+                      <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Loading More...</>
+                    ) : (
+                      <><ChevronDown className="h-4 w-4 mr-2" /> Load More ({totalCount - entries.length} remaining)</>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {/* End of Results */}
+              {!hasMore && entries.length > 0 && (
+                <div className="text-center py-4 text-sm text-slate-500">
+                  — End of audit trail —
+                </div>
+              )}
+
+              {/* Loading more indicator */}
+              {loadingMore && (
+                <div className="flex items-center justify-center py-4">
+                  <RefreshCw className="h-5 w-5 animate-spin text-[#2563eb] mr-2" />
+                  <span className="text-sm text-slate-500">Loading more entries...</span>
+                </div>
               )}
             </div>
           )}
@@ -2385,7 +2583,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
     try {
       // Force refresh by re-fetching all config data
       await loadStats();
-      toast({ title: "Cache Invalidated", description: "System cache has been cleared and refreshed" });
+      toast({ title: "Data Refreshed", description: "Statistics have been refreshed with latest data" });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
@@ -2470,7 +2668,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
         )}
         {canMutate && (
           <Button variant="outline" size="sm" onClick={handleInvalidateCache} disabled={invalidating}>
-            <Trash className={`h-4 w-4 mr-1 ${invalidating ? "animate-spin" : ""}`} /> Invalidate Cache
+            <RefreshCw className={`h-4 w-4 mr-1 ${invalidating ? "animate-spin" : ""}`} /> Refresh Data
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={loadStats}>
@@ -2552,7 +2750,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
               {dbHealth.journalMode && (
                 <div className="mt-3 text-xs text-slate-400 flex items-center gap-4">
                   <span>Journal: <span className="font-medium text-slate-600 dark:text-slate-300">{dbHealth.journalMode}</span></span>
-                  <span>Checked: {dbHealth.checkedAt ? new Date(dbHealth.checkedAt).toLocaleTimeString('en-GB') : '—'}</span>
+                  <span>Checked: {(() => { if (!dbHealth.checkedAt) return '—'; const dt = new Date(dbHealth.checkedAt); return isNaN(dt.getTime()) ? '—' : dt.toLocaleTimeString('en-GB'); })()}</span>
                 </div>
               )}
             </CardContent>
@@ -2563,7 +2761,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
               <CardTitle className="text-white flex items-center gap-2 text-base">
                 <Zap className="h-4 w-4 text-amber-400" />
-                Cache Statistics
+                Configuration Statistics
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 space-y-4">
@@ -2613,23 +2811,23 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
             </CardContent>
           </Card>
 
-          {/* Cache Invalidation Controls */}
+          {/* Data Refresh Controls */}
           <Card className="border-slate-200 dark:border-slate-700">
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
               <CardTitle className="text-white flex items-center gap-2 text-base">
                 <RotateCcw className="h-4 w-4 text-amber-400" />
-                Cache Invalidation
+                Data Refresh
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="flex-1">
-                  <p className="text-sm text-slate-900 dark:text-white font-medium">Clear System Configuration Cache</p>
-                  <p className="text-xs text-slate-500 mt-1">Forces re-fetch of all system configurations from the database. Use this when settings appear stale or after manual database modifications.</p>
+                  <p className="text-sm text-slate-900 dark:text-white font-medium">Refresh Configuration Statistics</p>
+                  <p className="text-xs text-slate-500 mt-1">Re-fetches all system configuration data and database health statistics from the server. Use this when data appears stale or after manual database modifications.</p>
                 </div>
                 {canMutate && (
-                  <Button variant="destructive" onClick={handleInvalidateCache} disabled={invalidating} className="shrink-0">
-                    {invalidating ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Clearing...</> : <><Trash className="h-4 w-4 mr-1" /> Clear Cache</>}
+                  <Button variant="outline" onClick={handleInvalidateCache} disabled={invalidating} className="shrink-0">
+                    {invalidating ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Refreshing...</> : <><RefreshCw className="h-4 w-4 mr-1" /> Clear & Refresh</>}
                   </Button>
                 )}
               </div>

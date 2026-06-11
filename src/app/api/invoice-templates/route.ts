@@ -83,6 +83,7 @@ const DEFAULT_TEMPLATES = [
   {
     name: 'Sales Invoice',
     templateType: 'Invoice',
+    isDefault: true,
     subject: 'Invoice {{invoiceNo}} from {{companyName}}',
     headerHtml: '<div style="text-align:center;"><h1>{{companyName}}</h1><p>{{companyAddress}} | {{companyPhone}}</p></div>',
     bodyHtml: '<h2>Invoice: {{invoiceNo}}</h2><p>Date: {{date}}</p><p>Customer: {{customerName}}</p><table>{{lineItems}}</table><p>Subtotal: {{subTotal}}</p><p>VAT ({{vatRate}}%): {{vatAmount}}</p><p>Grand Total: {{grandTotal}}</p>',
@@ -131,6 +132,7 @@ const DEFAULT_TEMPLATES = [
   {
     name: 'Purchase Invoice',
     templateType: 'Invoice',
+    isDefault: false,
     subject: 'Purchase Order {{poNumber}}',
     headerHtml: '<div style="text-align:center;"><h1>{{companyName}}</h1><p>Purchase Order</p></div>',
     bodyHtml: '<h2>PO: {{poNumber}}</h2><p>Date: {{date}}</p><p>Supplier: {{supplierName}}</p><table>{{lineItems}}</table><p>Subtotal: {{subTotal}}</p><p>VAT ({{vatRate}}%): {{vatAmount}}</p><p>Grand Total: {{grandTotal}}</p>',
@@ -179,6 +181,7 @@ const DEFAULT_TEMPLATES = [
   {
     name: 'Hire Receipt',
     templateType: 'Receipt',
+    isDefault: true,
     subject: 'Hire Purchase Receipt {{invoiceNo}}',
     headerHtml: '<div style="text-align:center;"><h1>{{companyName}}</h1><p>Hire Purchase Receipt</p></div>',
     bodyHtml: '<h2>Receipt: {{invoiceNo}}</h2><p>Date: {{date}}</p><p>Customer: {{customerName}}</p><p>Down Payment: {{downPayment}}</p><p>Installment: {{installmentAmount}} x {{duration}} months</p><p>Total: {{grandTotal}}</p>',
@@ -227,6 +230,7 @@ const DEFAULT_TEMPLATES = [
   {
     name: 'Email Notification',
     templateType: 'Email',
+    isDefault: true,
     subject: 'Notification from {{companyName}}',
     headerHtml: '',
     bodyHtml: '<p>Dear {{customerName}},</p><p>{{message}}</p><p>Thank you for choosing {{companyName}}.</p>',
@@ -271,6 +275,90 @@ const DEFAULT_TEMPLATES = [
     // Custom terms/notes
     termsAndConditions: null,
     customFooterNote: null,
+  },
+  {
+    name: 'Mushok 6.3 (VAT Return)',
+    templateType: 'Mushok63',
+    isDefault: true,
+    subject: 'Mushok 6.3 - VAT Return {{invoiceNo}}',
+    headerHtml: '<div style="text-align:center;"><h2>মুশক ৬.৩</h2><p>{{companyName}} | BIN: {{vatNumber}}</p></div>',
+    bodyHtml: '<h3>VAT Return: {{invoiceNo}}</h3><p>Date: {{date}}</p><p>Supplier: {{supplierName}}</p><table>{{lineItems}}</table><p>VAT Amount: {{vatAmount}}</p>',
+    footerHtml: '<p>This is a system generated VAT return document as per NBR regulations.</p>',
+    paperSize: 'A4',
+    orientation: 'Portrait',
+    companyName: null,
+    showLogo: true,
+    showBrandLogo: false,
+    showMobile: true,
+    showAddress: true,
+    showVatNumber: true,
+    showTradeLicense: true,
+    showCustomerCode: false,
+    showPrevDue: false,
+    showTotalDue: false,
+    showRemindDate: false,
+    showModel: true,
+    showColor: false,
+    showDescription: true,
+    showMRP: true,
+    showDiscountAmt: false,
+    showUnitPrice: true,
+    showDiscountPct: false,
+    showPPDiscount: false,
+    showAdjustment: false,
+    showDeliveryCost: false,
+    showPaymentDetails: false,
+    showCustomerSignature: false,
+    showPreparedBy: true,
+    showCheckedBy: true,
+    showAuthorizedBy: true,
+    showPrintedBy: false,
+    showSalesPerson: false,
+    showPrintDate: true,
+    termsAndConditions: 'This document is prepared as per National Board of Revenue (NBR) regulations.',
+    customFooterNote: 'Mushok 6.3 — VAT Return Form',
+  },
+  {
+    name: 'Delivery Challan',
+    templateType: 'Challan',
+    isDefault: true,
+    subject: 'Delivery Challan {{invoiceNo}}',
+    headerHtml: '<div style="text-align:center;"><h1>{{companyName}}</h1><p>DELIVERY CHALLAN</p></div>',
+    bodyHtml: '<h2>Challan: {{invoiceNo}}</h2><p>Date: {{date}}</p><p>Customer: {{customerName}}</p><table>{{lineItems}}</table><p>Items: {{totalItems}}</p>',
+    footerHtml: '<p>Received the above items in good condition.</p>',
+    paperSize: 'A4',
+    orientation: 'Portrait',
+    companyName: null,
+    showLogo: true,
+    showBrandLogo: false,
+    showMobile: true,
+    showAddress: true,
+    showVatNumber: false,
+    showTradeLicense: false,
+    showCustomerCode: true,
+    showPrevDue: false,
+    showTotalDue: false,
+    showRemindDate: false,
+    showModel: true,
+    showColor: true,
+    showDescription: true,
+    showMRP: false,
+    showDiscountAmt: false,
+    showUnitPrice: false,
+    showDiscountPct: false,
+    showPPDiscount: false,
+    showAdjustment: false,
+    showDeliveryCost: false,
+    showPaymentDetails: false,
+    showCustomerSignature: true,
+    showPreparedBy: true,
+    showCheckedBy: false,
+    showAuthorizedBy: true,
+    showPrintedBy: false,
+    showSalesPerson: false,
+    showPrintDate: true,
+    termsAndConditions: null,
+    customFooterNote: 'Delivery Challan — Not a Tax Invoice',
   },
 ];
 
@@ -353,6 +441,15 @@ export async function POST(request: NextRequest) {
     // Extract toggle fields with proper defaults
     const toggleData = extractToggleFields(body);
 
+    // If this template is being set as default, unset other defaults of same type
+    if (body.isDefault === true) {
+      const tplType = templateType || 'Invoice';
+      await db.invoiceTemplate.updateMany({
+        where: { templateType: tplType, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
     const template = await db.invoiceTemplate.create({
       data: {
         code,
@@ -367,6 +464,7 @@ export async function POST(request: NextRequest) {
         orientation: orientation || 'Portrait',
         defaultPrinter: defaultPrinter || null,
         isActive: isActive !== undefined ? isActive : true,
+        ...(body.isDefault !== undefined && { isDefault: Boolean(body.isDefault) }),
         // Toggle fields — use extracted values with schema-level defaults as fallback
         ...toggleData,
       },
@@ -446,6 +544,20 @@ export async function PUT(request: NextRequest) {
       if (body[field] !== undefined) {
         updateData[field] = body[field] === null ? null : stripHtml(String(body[field]));
       }
+    }
+
+    // isDefault field: ensure only one default per templateType
+    if (body.isDefault === true) {
+      // Unset default on other templates of same type
+      if (existing) {
+        await db.invoiceTemplate.updateMany({
+          where: { templateType: existing.templateType, isDefault: true, id: { not: id } },
+          data: { isDefault: false },
+        });
+      }
+      updateData.isDefault = true;
+    } else if (body.isDefault === false) {
+      updateData.isDefault = false;
     }
 
     const template = await db.invoiceTemplate.update({

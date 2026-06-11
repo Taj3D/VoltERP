@@ -15,6 +15,15 @@ export function toLatinDigits(s: string): string {
   return s.replace(BENGALI_DIGIT_RE, d => String(d.charCodeAt(0) - 0x09E6 + 0x0030));
 }
 
+/**
+ * Convert any Bengali digits (০১২৩৪৫৬৭৮৯) to English digits (0123456789).
+ * Alias for toLatinDigits — use this name for clarity in PDF/export contexts.
+ * Accepts string or number input; always returns a string with English digits.
+ */
+export function toEnglishDigits(str: string | number): string {
+  return toLatinDigits(String(str));
+}
+
 /** Format a number with guaranteed Latin digits and 2 decimal places (currency format) */
 export function fmtCurrency(value: number): string {
   const s = new Intl.NumberFormat('en-US', {
