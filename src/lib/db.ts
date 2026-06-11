@@ -3,7 +3,7 @@ import { PrismaLibSql } from '@prisma/adapter-libsql'
 import { createClient } from '@libsql/client'
 
 // Schema version: increment this after any Prisma schema change to force cache invalidation
-const PRISMA_SCHEMA_VERSION = 13;
+const PRISMA_SCHEMA_VERSION = 14;
 
 // ── Database type detection ──
 // Turso/libsql URLs start with "libsql://" or "wss://"
@@ -25,9 +25,9 @@ if (globalForPrisma.prisma && globalForPrisma.prismaSchemaVersion !== PRISMA_SCH
 }
 
 // ── Lazy PrismaClient creation ──
-// We use a Proxy to defer PrismaClient creation until first property access.
-// This prevents the "Collecting page data" build step from crashing when
-// DATABASE_URL is unavailable during Vercel's static generation phase.
+// Use a getter function to defer PrismaClient creation until first actual use.
+// This prevents crashes during Vercel's "Collecting page data" build phase
+// when DATABASE_URL may not be available.
 
 function getDatabaseUrl(): string {
   return process.env.DATABASE_URL || '';
@@ -43,7 +43,7 @@ function createPrismaClient(): PrismaClient {
 
   if (!DATABASE_URL) {
     // Build-time fallback: no database URL available
-    // This PrismaClient won't actually work but prevents build crashes
+    console.warn('[db] DATABASE_URL not set — creating PrismaClient without adapter');
     return new PrismaClient({ log: ['error'] })
   }
 
@@ -66,54 +66,65 @@ function createPrismaClient(): PrismaClient {
   })
 }
 
-// Use a lazy proxy that creates the PrismaClient only on first access
-// This avoids crash during Vercel build's "Collecting page data" phase
-let _prismaClient: PrismaClient | null = null;
+// ── Lazy singleton with getter ──
+let _prismaInstance: PrismaClient | null = null;
 
-function getDb(): PrismaClient {
+function getPrismaInstance(): PrismaClient {
   if (globalForPrisma.prisma) {
     return globalForPrisma.prisma;
   }
-  if (!_prismaClient) {
-    _prismaClient = createPrismaClient();
+  if (!_prismaInstance) {
+    _prismaInstance = createPrismaClient();
     if (process.env.NODE_ENV !== 'production') {
-      globalForPrisma.prisma = _prismaClient;
+      globalForPrisma.prisma = _prismaInstance;
       globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION;
     }
   }
-  return _prismaClient;
+  return _prismaInstance;
 }
 
-// Export a Proxy that lazily creates the PrismaClient on first property access
-export const db = new Proxy({} as PrismaClient, {
-  get(_target, prop, receiver) {
-    const actual = getDb();
-    const value = Reflect.get(actual, prop, receiver);
+// Export the lazy db instance
+// Using Object.defineProperty to make all PrismaClient properties available lazily
+export const db: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop: string | symbol) {
+    // Special handling for common Prisma properties
+    const instance = getPrismaInstance();
+    const value = (instance as any)[prop];
     if (typeof value === 'function') {
-      return value.bind(actual);
+      return value.bind(instance);
     }
     return value;
+  },
+  has(_target, prop) {
+    return prop in getPrismaInstance();
+  },
+  ownKeys() {
+    return Reflect.ownKeys(getPrismaInstance());
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    return Reflect.getOwnPropertyDescriptor(getPrismaInstance(), prop);
   },
 });
 
 // ── SQLite performance pragmas (local SQLite only) ──
-// Defer pragma execution to first request (not at import time)
+// Defer pragma execution to after first request
 let pragmasApplied = false;
 async function applyPragmas() {
   if (pragmasApplied || isTurso() || !getDatabaseUrl()) return;
   pragmasApplied = true;
   try {
-    await db.$queryRawUnsafe('PRAGMA journal_mode=WAL');
-    await db.$executeRawUnsafe('PRAGMA synchronous=NORMAL');
-    await db.$executeRawUnsafe('PRAGMA cache_size=-16000');
-    await db.$executeRawUnsafe('PRAGMA foreign_keys=ON');
-    await db.$executeRawUnsafe('PRAGMA temp_store=MEMORY');
+    const instance = getPrismaInstance();
+    await instance.$queryRawUnsafe('PRAGMA journal_mode=WAL');
+    await instance.$executeRawUnsafe('PRAGMA synchronous=NORMAL');
+    await instance.$executeRawUnsafe('PRAGMA cache_size=-16000');
+    await instance.$executeRawUnsafe('PRAGMA foreign_keys=ON');
+    await instance.$executeRawUnsafe('PRAGMA temp_store=MEMORY');
   } catch {
     // Pragmas may not be supported in all environments
   }
 }
 
-// Apply pragmas on next tick (after event loop is free)
+// Apply pragmas lazily
 if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
   setImmediate(() => applyPragmas());
 }
