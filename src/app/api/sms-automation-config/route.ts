@@ -23,19 +23,19 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      smsAlertOnPurchase: config?.smsAlertOnPurchase ?? false,
-      smsAlertOnCollection: config?.smsAlertOnCollection ?? false,
-      smsAlertOnStockReceive: config?.smsAlertOnStockReceive ?? false,
-      smsAlertOnHrLifecycle: config?.smsAlertOnHrLifecycle ?? false,
+      autoSmsOnPurchase: config?.autoSmsOnPurchase ?? false,
+      autoSmsOnReceipt: config?.autoSmsOnReceipt ?? false,
+      autoSmsOnStockReceive: config?.autoSmsOnStockReceive ?? false,
+      autoSmsOnEmployeeEvent: config?.autoSmsOnEmployeeEvent ?? false,
     });
   } catch (error) {
     console.error('[SmsAutomationConfig] GET error:', error);
     return NextResponse.json(
       {
-        smsAlertOnPurchase: false,
-        smsAlertOnCollection: false,
-        smsAlertOnStockReceive: false,
-        smsAlertOnHrLifecycle: false,
+        autoSmsOnPurchase: false,
+        autoSmsOnReceipt: false,
+        autoSmsOnStockReceive: false,
+        autoSmsOnEmployeeEvent: false,
       },
       { status: 200 } // Graceful fallback — never block UI on config fetch failure
     );

@@ -705,7 +705,7 @@ async function handleCreate(
   const shouldSendSms = (result && typeof result === 'object' && 'status' in result && (result as any).status === 'Confirmed') || sendSms;
   if (shouldSendSms && result && typeof result === 'object' && 'id' in result) {
     try {
-      // Check company SMS automation toggle (smsAlertOnPurchase) when using explicit sendSms
+      // Check company SMS automation toggle (autoSmsOnPurchase) when using explicit sendSms
       if (sendSms) {
         const automationConfig = await db.smsAutomationConfig.findFirst({
           where: {
@@ -716,9 +716,9 @@ async function handleCreate(
           },
           orderBy: { companyId: 'desc' },
         });
-        if (automationConfig && automationConfig.smsAlertOnPurchase === false) {
+        if (automationConfig && automationConfig.autoSmsOnPurchase === false) {
           // Company-wide toggle is OFF — skip SMS even if user checked the box
-          console.log('[SalesOrders] SMS skipped: company smsAlertOnPurchase toggle is OFF');
+          console.log('[SalesOrders] SMS skipped: company autoSmsOnPurchase toggle is OFF');
         } else {
           const { triggerSalesConfirmationSms } = await import('@/lib/sms-event-hooks');
           await triggerSalesConfirmationSms({

@@ -1,11 +1,17 @@
 // ============================================================
-// AUTH REFRESH API — JWT token refresh
+// AUTH REFRESH API — JWT token refresh with rotation
 // POST: Exchanges a valid refresh token for a new access token
 // Prevents users from being logged out during active sessions
+//
+// SECURITY: Refresh token rotation — the old refresh token is
+// revoked immediately after a new one is issued. This prevents
+// replay attacks where a stolen refresh token could be reused.
+// If a revoked token is presented, it indicates token theft
+// and ALL of the user's tokens are revoked as a precaution.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { verifyToken, signAccessToken, signRefreshToken } from "@/lib/jwt-utils";
+import { verifyToken, signAccessToken, signRefreshToken, revokeToken } from "@/lib/jwt-utils";
 import { db } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
@@ -42,6 +48,11 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
+
+    // ── Refresh Token Rotation: Revoke the old refresh token ──
+    // This prevents replay attacks. After issuing a new refresh token,
+    // the old one must never be accepted again.
+    await revokeToken(refreshToken);
 
     // Issue new tokens
     const newAccessToken = signAccessToken({

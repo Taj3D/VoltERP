@@ -747,18 +747,17 @@ export default function ProfileCenter() {
       const base64 = reader.result as string;
       setEditCompanyLogo(base64);
 
-      // Save to server immediately
+      // Save to server immediately via company-branding API (Admin-only)
       if (companyInfo) {
         setCompanyLogoUploading(true);
         try {
           const headers = getAuthHeaders();
-          const res = await fetch(`/api/companies/${companyInfo.id}`, {
+          const res = await fetch("/api/company-branding", {
             method: "PUT",
             headers,
             body: JSON.stringify({ logo: base64 }),
           });
           if (res.ok) {
-            const updated = await res.json();
             setCompanyInfo(prev => prev ? { ...prev, logo: base64 } : prev);
             toast({ title: "Logo Updated", description: "Company logo has been saved successfully." });
           } else {
@@ -917,10 +916,15 @@ export default function ProfileCenter() {
       toast({ title: "Validation Error", description: "Company name cannot be empty.", variant: "destructive" });
       return;
     }
+    // Only Admin can modify company branding
+    if (user?.role !== "admin") {
+      toast({ title: "Access Denied", description: "Only administrators can modify company branding.", variant: "destructive" });
+      return;
+    }
     setSavingCompanyInfo(true);
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`/api/companies/${companyInfo.id}`, {
+      const res = await fetch("/api/company-branding", {
         method: "PUT",
         headers,
         body: JSON.stringify({
@@ -935,17 +939,18 @@ export default function ProfileCenter() {
         }),
       });
       if (res.ok) {
-        const updated = await res.json();
+        const result = await res.json();
+        const updated = result.company || result;
         setCompanyInfo(prev => prev ? {
           ...prev,
-          name: editCompanyName.trim(),
-          address: editCompanyAddress.trim() || null,
-          phone: editCompanyPhone.trim() || null,
-          email: editCompanyEmail.trim() || null,
-          mobile: editCompanyMobile.trim() || null,
-          website: editCompanyWebsite.trim() || null,
-          vatNumber: editCompanyVatNumber.trim() || null,
-          tradeLicense: editCompanyTradeLicense.trim() || null,
+          name: updated.name || editCompanyName.trim(),
+          address: updated.address ?? (editCompanyAddress.trim() || null),
+          phone: updated.phone ?? (editCompanyPhone.trim() || null),
+          email: updated.email ?? (editCompanyEmail.trim() || null),
+          mobile: updated.mobile ?? (editCompanyMobile.trim() || null),
+          website: updated.website ?? (editCompanyWebsite.trim() || null),
+          vatNumber: updated.vatNumber ?? (editCompanyVatNumber.trim() || null),
+          tradeLicense: updated.tradeLicense ?? (editCompanyTradeLicense.trim() || null),
         } : prev);
         setIsEditingCompany(false);
         toast({ title: "Company Info Updated", description: "Company information has been saved successfully." });
@@ -1015,7 +1020,8 @@ export default function ProfileCenter() {
   const getDesignation = (): string => {
     if (employeeInfo?.designation?.name) return employeeInfo.designation.name;
     if (user?.designation) return user.designation;
-    if (user?.role) return ROLE_LABELS[user.role];
+    // Do NOT show role labels (Administrator, Manager, etc.) — return email domain instead
+    if (user?.email) return user.email;
     return "N/A";
   };
 
@@ -1249,22 +1255,13 @@ export default function ProfileCenter() {
                     </div>
                   )}
 
-                  {/* Role Badge */}
-                  <Badge
-                    className={`${user.role ? ROLE_BADGE_COLORS[user.role] : ""} px-3 py-1 text-xs font-medium border`}
-                  >
-                    <Shield className="w-3 h-3 mr-1" />
-                    {user.role ? ROLE_LABELS[user.role] : "User"}
-                  </Badge>
+                  {/* Role badge hidden per requirement — role names not visible in UI */}
 
                   <Separator />
 
                   {/* Contact Details */}
                   <div className="w-full space-y-3 text-left">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Shield className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground">{user.role ? ROLE_LABELS[user.role] : "User"}</span>
-                    </div>
+                    {/* Role label hidden per requirement — only email visible */}
 
                     {/* Email (read-only) */}
                     <div className="flex items-center gap-2 text-sm">
@@ -1361,7 +1358,7 @@ export default function ProfileCenter() {
               </CardContent>
             </Card>
 
-            {/* Company & Tenant Info + Company Logo Upload */}
+            {/* Company & Tenant Info + Company Logo Upload (Admin only for logo changes) */}
             <Card className="lg:col-span-2 border-0 shadow-md">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -1369,46 +1366,55 @@ export default function ProfileCenter() {
                     <Building2 className="w-5 h-5 text-[#2563eb]" />
                     Tenant Company Information
                   </CardTitle>
-                  {/* Company Logo Upload */}
-                  <div className="flex items-center gap-2">
-                    {editCompanyLogo ? (
-                      <div className="relative group">
-                        <img
-                          src={editCompanyLogo}
-                          alt="Company Logo"
-                          className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
-                        />
-                        <div
-                          className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                          onClick={() => companyLogoInputRef.current?.click()}
-                        >
-                          <Camera className="w-4 h-4 text-white" />
+                  {/* Company Logo Upload (Admin only) */}
+                  {user?.role === "admin" && (
+                    <div className="flex items-center gap-2">
+                      {editCompanyLogo ? (
+                        <div className="relative group">
+                          <img
+                            src={editCompanyLogo}
+                            alt="Company Logo"
+                            className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
+                          />
+                          <div
+                            className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            onClick={() => companyLogoInputRef.current?.click()}
+                          >
+                            <Camera className="w-4 h-4 text-white" />
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => companyLogoInputRef.current?.click()}
-                        disabled={companyLogoUploading}
-                      >
-                        {companyLogoUploading ? (
-                          <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <ImageIcon className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        Upload Logo
-                      </Button>
-                    )}
-                    <input
-                      ref={companyLogoInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleCompanyLogoUpload}
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          onClick={() => companyLogoInputRef.current?.click()}
+                          disabled={companyLogoUploading}
+                        >
+                          {companyLogoUploading ? (
+                            <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                          ) : (
+                            <ImageIcon className="w-3.5 h-3.5 mr-1" />
+                          )}
+                          Upload Logo
+                        </Button>
+                      )}
+                      <input
+                        ref={companyLogoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleCompanyLogoUpload}
+                      />
+                    </div>
+                  )}
+                  {user?.role !== "admin" && editCompanyLogo && (
+                    <img
+                      src={editCompanyLogo}
+                      alt="Company Logo"
+                      className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
                     />
-                  </div>
+                  )}
                 </div>
                 <CardDescription>
                   Company details associated with your account
@@ -1477,7 +1483,7 @@ export default function ProfileCenter() {
                                 if (companyInfo) {
                                   try {
                                     const headers = getAuthHeaders();
-                                    await fetch(`/api/companies/${companyInfo.id}`, {
+                                    await fetch("/api/company-branding", {
                                       method: "PUT",
                                       headers,
                                       body: JSON.stringify({ logo: null }),
@@ -1538,7 +1544,7 @@ export default function ProfileCenter() {
                   </div>
                   <h4 className="text-base font-semibold text-red-600 dark:text-red-400">403 Forbidden: Privilege Escalation Blocked</h4>
                   <p className="text-sm text-red-500/80 dark:text-red-400/80 mt-2 max-w-md mx-auto">
-                    Your role ({ROLE_LABELS[user.role]}) does not have permission to change passwords.
+                    You do not have permission to change passwords.
                     Only administrators can modify user credentials. Any attempt to bypass this interlock
                     will be logged and reported to the security audit trail.
                   </p>
@@ -1622,9 +1628,9 @@ export default function ProfileCenter() {
                     <div
                       className={`w-8 h-8 rounded-full ${ROLE_COLORS[role]} mx-auto flex items-center justify-center text-white text-xs font-bold mb-2`}
                     >
-                      {ROLE_LABELS[role].charAt(0)}
+                      {role.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-xs font-medium">{ROLE_LABELS[role]}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{role === 'vat_auditor' ? 'vat' : role}</p>
                     {user.role === role && (
                       <Badge className="mt-1 bg-[#2563eb] text-white text-[9px] px-1.5 py-0">
                         Current
@@ -1638,11 +1644,21 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB B: COMPANY INFO (EDITABLE)
+            TAB B: COMPANY INFO (ADMIN-ONLY EDITING)
             ════════════════════════════════════════════════════ */}
         <TabsContent value="company" className="space-y-6">
           {companyInfo ? (
             <>
+              {/* Read-Only Banner for Non-Admin Users */}
+              {user?.role !== "admin" && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                    READ-ONLY MODE — Company branding can only be modified by Admin users. Contact your administrator to request changes.
+                  </span>
+                </div>
+              )}
+
               {/* Company Branding Card */}
               <Card className="border-0 shadow-md">
                 <CardHeader className="pb-3">
@@ -1651,37 +1667,44 @@ export default function ProfileCenter() {
                       <CardTitle className="text-lg flex items-center gap-2">
                         <Building2 className="w-5 h-5 text-[#2563eb]" />
                         Company Branding
+                        {user?.role !== "admin" && (
+                          <Badge variant="outline" className="border-amber-400 text-amber-400 text-xs ml-2">Read Only</Badge>
+                        )}
                       </CardTitle>
                       <CardDescription>
-                        Edit company information and branding. Changes will appear in PDF invoices.
+                        {user?.role === "admin"
+                          ? "Edit company information and branding. Changes will appear in PDF invoices."
+                          : "View company information and branding. Only Admin users can make changes."}
                       </CardDescription>
                     </div>
-                    {!isEditingCompany ? (
-                      <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => setIsEditingCompany(true)}>
-                        <Pencil className="w-4 h-4 mr-2" />
-                        Edit Company Info
-                      </Button>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => {
-                          setIsEditingCompany(false);
-                          setEditCompanyName(companyInfo.name || "");
-                          setEditCompanyAddress(companyInfo.address || "");
-                          setEditCompanyPhone(companyInfo.phone || "");
-                          setEditCompanyEmail(companyInfo.email || "");
-                          setEditCompanyMobile(companyInfo.mobile || "");
-                          setEditCompanyWebsite(companyInfo.website || "");
-                          setEditCompanyVatNumber(companyInfo.vatNumber || "");
-                          setEditCompanyTradeLicense(companyInfo.tradeLicense || "");
-                        }}>
-                          <X className="w-4 h-4 mr-2" />
-                          Cancel
+                    {user?.role === "admin" && (
+                      !isEditingCompany ? (
+                        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => setIsEditingCompany(true)}>
+                          <Pencil className="w-4 h-4 mr-2" />
+                          Edit Company Info
                         </Button>
-                        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSaveCompanyInfo} disabled={savingCompanyInfo}>
-                          {savingCompanyInfo ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                          Save Changes
-                        </Button>
-                      </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => {
+                            setIsEditingCompany(false);
+                            setEditCompanyName(companyInfo.name || "");
+                            setEditCompanyAddress(companyInfo.address || "");
+                            setEditCompanyPhone(companyInfo.phone || "");
+                            setEditCompanyEmail(companyInfo.email || "");
+                            setEditCompanyMobile(companyInfo.mobile || "");
+                            setEditCompanyWebsite(companyInfo.website || "");
+                            setEditCompanyVatNumber(companyInfo.vatNumber || "");
+                            setEditCompanyTradeLicense(companyInfo.tradeLicense || "");
+                          }}>
+                            <X className="w-4 h-4 mr-2" />
+                            Cancel
+                          </Button>
+                          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSaveCompanyInfo} disabled={savingCompanyInfo}>
+                            {savingCompanyInfo ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                            Save Changes
+                          </Button>
+                        </div>
+                      )
                     )}
                   </div>
                 </CardHeader>
@@ -1698,40 +1721,50 @@ export default function ProfileCenter() {
                               alt="Company Logo"
                               className="w-24 h-24 rounded-lg object-contain border border-border/50 bg-white p-1 shadow-sm"
                             />
-                            <div
-                              className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                              onClick={() => companyLogoInputRef.current?.click()}
-                            >
-                              <Camera className="w-6 h-6 text-white" />
-                            </div>
+                            {user?.role === "admin" && (
+                              <div
+                                className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                onClick={() => companyLogoInputRef.current?.click()}
+                              >
+                                <Camera className="w-6 h-6 text-white" />
+                              </div>
+                            )}
                           </div>
                         ) : (
-                          <div
-                            className="w-24 h-24 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
-                            onClick={() => companyLogoInputRef.current?.click()}
-                          >
-                            <div className="text-center">
-                              <Upload className="w-6 h-6 mx-auto text-muted-foreground/50" />
-                              <span className="text-[10px] text-muted-foreground mt-1 block">Upload Logo</span>
+                          user?.role === "admin" ? (
+                            <div
+                              className="w-24 h-24 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                              onClick={() => companyLogoInputRef.current?.click()}
+                            >
+                              <div className="text-center">
+                                <Upload className="w-6 h-6 mx-auto text-muted-foreground/50" />
+                                <span className="text-[10px] text-muted-foreground mt-1 block">Upload Logo</span>
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="w-24 h-24 rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center">
+                              <span className="text-[10px] text-muted-foreground">No Logo</span>
+                            </div>
+                          )
                         )}
                         <div className="space-y-1.5">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-xs h-7"
-                            onClick={() => companyLogoInputRef.current?.click()}
-                            disabled={companyLogoUploading}
-                          >
-                            {companyLogoUploading ? (
-                              <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
-                            ) : (
-                              <Upload className="w-3 h-3 mr-1" />
-                            )}
-                            {editCompanyLogo ? "Replace" : "Upload"}
-                          </Button>
-                          {editCompanyLogo && (
+                          {user?.role === "admin" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => companyLogoInputRef.current?.click()}
+                              disabled={companyLogoUploading}
+                            >
+                              {companyLogoUploading ? (
+                                <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              ) : (
+                                <Upload className="w-3 h-3 mr-1" />
+                              )}
+                              {editCompanyLogo ? "Replace" : "Upload"}
+                            </Button>
+                          )}
+                          {editCompanyLogo && user?.role === "admin" && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1741,7 +1774,7 @@ export default function ProfileCenter() {
                                 if (companyInfo) {
                                   try {
                                     const headers = getAuthHeaders();
-                                    await fetch(`/api/companies/${companyInfo.id}`, {
+                                    await fetch("/api/company-branding", {
                                       method: "PUT",
                                       headers,
                                       body: JSON.stringify({ logo: null }),
@@ -1758,14 +1791,16 @@ export default function ProfileCenter() {
                               Remove
                             </Button>
                           )}
-                          <p className="text-[10px] text-muted-foreground/60">Max 5MB • JPG, PNG, GIF, WebP</p>
+                          <p className="text-[10px] text-muted-foreground/60">
+                            {user?.role === "admin" ? "Max 5MB • JPG, PNG, GIF, WebP" : "Contact admin to change logo"}
+                          </p>
                         </div>
                         <input
                           ref={companyLogoInputRef}
                           type="file"
                           accept="image/jpeg,image/png,image/gif,image/webp"
                           className="hidden"
-                          onChange={handleCompanyLogoUpload}
+                          onChange={user?.role === "admin" ? handleCompanyLogoUpload : undefined}
                         />
                       </div>
                     </div>
@@ -2414,7 +2449,6 @@ export default function ProfileCenter() {
                             <TableHead className="w-[40px]">#</TableHead>
                             <TableHead>User Name</TableHead>
                             <TableHead>Email / Login ID</TableHead>
-                            <TableHead>Role</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -2439,15 +2473,7 @@ export default function ProfileCenter() {
                               <TableCell>
                                 <span className="text-sm text-muted-foreground">{u.email}</span>
                               </TableCell>
-                              <TableCell>
-                                <Badge
-                                  className={`${
-                                    ROLE_BADGE_COLORS[u.role as UserRole] || ""
-                                  } text-[11px] px-2 py-0.5 border`}
-                                >
-                                  {ROLE_LABELS[u.role as UserRole] || u.role}
-                                </Badge>
-                              </TableCell>
+                              {/* Role column hidden per requirement — only email shown */}
                               <TableCell className="text-right">
                                 <Button
                                   size="sm"
@@ -2523,7 +2549,7 @@ export default function ProfileCenter() {
                   </div>
                   <h3 className="text-xl font-bold text-red-600 dark:text-red-400">403 — Access Denied</h3>
                   <p className="text-sm text-muted-foreground mt-3">
-                    Your role ({ROLE_LABELS[user.role]}) does not have permission to manage passwords.
+                    You do not have permission to manage passwords.
                   </p>
                   <p className="text-xs text-muted-foreground/60 mt-2">
                     Only users with the ADMIN role can reset passwords and view password activity. 
@@ -2568,13 +2594,7 @@ export default function ProfileCenter() {
                       <p className="text-sm font-medium">{getSafeDisplayName(resetTargetUser?.name)}</p>
                       <p className="text-xs text-muted-foreground">{resetTargetUser?.email}</p>
                     </div>
-                    <Badge
-                      className={`ml-auto ${
-                        ROLE_BADGE_COLORS[resetTargetUser?.role as UserRole] || ""
-                      } text-[10px] px-1.5 py-0 border`}
-                    >
-                      {resetTargetUser?.role ? ROLE_LABELS[resetTargetUser.role as UserRole] : ""}
-                    </Badge>
+                    {/* Role badge hidden per requirement */}
                   </div>
                 </div>
 

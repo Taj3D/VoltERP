@@ -27,6 +27,8 @@ export async function GET(request: NextRequest) {
         role: true,
         companyId: true,
         photo: true,
+        voterIdFront: true,
+        voterIdBack: true,
         phone: true,
         address: true,
         isActive: true,
@@ -62,7 +64,7 @@ export async function PUT(request: NextRequest) {
     if (!security.authorized) return security.response;
 
     const body = await request.json();
-    const { name, photo, phone, address } = body;
+    const { name, photo, phone, address, voterIdFront, voterIdBack } = body;
 
     // Build update data — only allow specific fields
     const updateData: Record<string, unknown> = {};
@@ -118,6 +120,44 @@ export async function PUT(request: NextRequest) {
       updateData.address = address;
     }
 
+    if (voterIdFront !== undefined) {
+      if (voterIdFront !== null && voterIdFront !== "") {
+        if (typeof voterIdFront !== "string") {
+          return NextResponse.json(
+            { error: "Voter ID front must be a valid base64 data URL." },
+            { status: 400 }
+          );
+        }
+        const maxBase64Length = 7 * 1024 * 1024;
+        if (voterIdFront.length > maxBase64Length) {
+          return NextResponse.json(
+            { error: "Voter ID front image must be smaller than 5MB." },
+            { status: 400 }
+          );
+        }
+      }
+      updateData.voterIdFront = voterIdFront;
+    }
+
+    if (voterIdBack !== undefined) {
+      if (voterIdBack !== null && voterIdBack !== "") {
+        if (typeof voterIdBack !== "string") {
+          return NextResponse.json(
+            { error: "Voter ID back must be a valid base64 data URL." },
+            { status: 400 }
+          );
+        }
+        const maxBase64Length = 7 * 1024 * 1024;
+        if (voterIdBack.length > maxBase64Length) {
+          return NextResponse.json(
+            { error: "Voter ID back image must be smaller than 5MB." },
+            { status: 400 }
+          );
+        }
+      }
+      updateData.voterIdBack = voterIdBack;
+    }
+
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
         { error: "No valid fields provided for update." },
@@ -143,6 +183,8 @@ export async function PUT(request: NextRequest) {
         name: true,
         role: true,
         photo: true,
+        voterIdFront: true,
+        voterIdBack: true,
         phone: true,
         address: true,
         pdfExports: true,

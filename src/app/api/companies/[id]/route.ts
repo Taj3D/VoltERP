@@ -23,11 +23,28 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const security = await withApiSecurity(request, 'Companies', 'PUT');
   if (!security.authorized) return security.response;
+
   try {
     const { id } = await params;
     const body = await request.json();
     const imgError = validateImageFields(body, ['logo', 'brandLogo']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
+
+    // Enforce Admin-only access for branding fields (logo, name, address, etc.)
+    const brandingFields = ['name', 'address', 'phone', 'email', 'logo', 'brandLogo',
+      'mobile', 'website', 'vatNumber', 'tradeLicense', 'invoicePrefix', 'thankYouMsg',
+      'systemNote', 'showBarcode', 'showPayInWord', 'logoWidth', 'logoHeight'];
+    const hasBrandingFields = brandingFields.some(f => body[f] !== undefined);
+    if (hasBrandingFields) {
+      const userRole = (security.user as any)?.role;
+      if (userRole !== 'admin') {
+        return NextResponse.json(
+          { error: 'Company branding fields can only be modified by Admin users. Use System Settings → Company Settings.' },
+          { status: 403 }
+        );
+      }
+    }
+
     const item = await db.$transaction(async (tx) => {
       const record = await tx.company.update({
         where: { id },

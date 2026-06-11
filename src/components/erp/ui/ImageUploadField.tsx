@@ -10,6 +10,8 @@ interface ImageUploadFieldProps {
   placeholder?: string;
   /** Maximum file size in MB (default: 5) */
   maxSizeMB?: number;
+  /** Optional callback when validation error occurs (for toast notifications) */
+  onError?: (message: string) => void;
 }
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -20,6 +22,7 @@ export default function ImageUploadField({
   label = "Image",
   placeholder,
   maxSizeMB = 5,
+  onError,
 }: ImageUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
@@ -32,13 +35,17 @@ export default function ImageUploadField({
 
       // Validate type
       if (!ACCEPTED_TYPES.includes(file.type)) {
-        setError("Only JPEG, PNG, and WebP files are allowed");
+        const msg = "Only JPEG, PNG, and WebP files are allowed";
+        setError(msg);
+        onError?.(msg);
         return;
       }
 
       // Validate size (maxSizeMB max)
       if (file.size > maxSizeMB * 1024 * 1024) {
-        setError(`File size must be less than ${maxSizeMB}MB`);
+        const msg = `File size must be less than ${maxSizeMB}MB (selected: ${(file.size / (1024 * 1024)).toFixed(1)}MB)`;
+        setError(msg);
+        onError?.(msg);
         return;
       }
 
@@ -55,7 +62,7 @@ export default function ImageUploadField({
       };
       reader.readAsDataURL(file);
     },
-    [onChange, maxSizeMB]
+    [onChange, maxSizeMB, onError]
   );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -24,9 +24,11 @@ model User {
   company   Company? @relation(fields: [companyId], references: [id])
 
   // Profile fields
-  phone      String? // User phone number
-  address    String? // User address
-  photo      String? // Profile photo (base64 or URL)
+  phone        String? // User phone number
+  address      String? // User address
+  photo        String? // Profile photo (base64 or URL)
+  voterIdFront String? // Voter ID front card image
+  voterIdBack  String? // Voter ID back card image
   pdfExports Int     @default(0) // Count of PDF exports performed
   csvImports Int     @default(0) // Count of CSV imports performed
   csvExports Int     @default(0) // Count of CSV exports performed
@@ -778,6 +780,7 @@ model Supplier {
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
   nidNumber          String? // National ID / Voter ID number
+  logoUrl            String? // Company/dealer logo URL
   companyId          String? // Multi-tenant isolation
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())
@@ -1711,16 +1714,16 @@ model SmsNotificationTrigger {
 // ============================================================
 
 model SmsAutomationConfig {
-  id                     String   @id @default(cuid())
-  smsAlertOnPurchase     Boolean  @default(false)
-  smsAlertOnCollection   Boolean  @default(false)
-  smsAlertOnStockReceive Boolean  @default(false)
-  smsAlertOnHrLifecycle  Boolean  @default(false)
-  companyId              String?
-  isActive               Boolean  @default(true)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  company                Company? @relation(fields: [companyId], references: [id])
+  id                      String   @id @default(cuid())
+  autoSmsOnPurchase       Boolean  @default(false)
+  autoSmsOnReceipt        Boolean  @default(false)
+  autoSmsOnStockReceive   Boolean  @default(false)
+  autoSmsOnEmployeeEvent  Boolean  @default(false)
+  companyId               String?
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  company                 Company? @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
 }

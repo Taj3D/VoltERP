@@ -1444,7 +1444,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                             </Button>
                           </TableCell>
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.code}</TableCell>
-                          <TableCell className="text-slate-900 dark:text-white">{item.name}</TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2">
+                              {item.profileImage ? (
+                                <img src={item.profileImage} alt={item.name || ""} className="w-8 h-8 rounded-full object-cover border border-border flex-shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                                  <span className="text-xs font-semibold text-emerald-600">{(item.name || "?")[0].toUpperCase()}</span>
+                                </div>
+                              )}
+                              <span className="truncate">{item.name}</span>
+                            </div>
+                          </TableCell>
                           <TableCell><Badge className={TYPE_BADGE[item.type] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>{item.type}</Badge></TableCell>
                           <TableCell className="hidden md:table-cell font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.openingBalance)}</TableCell>
                           <TableCell className="hidden lg:table-cell"><Badge variant="outline">{item.openingType || "None"}</Badge></TableCell>
@@ -2355,18 +2366,21 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, profileImage: base64 })}
                   label="Profile Photo"
                   placeholder="Upload profile photo"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
                 <ImageUploadField
                   value={headsFormData.nidFrontImage}
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, nidFrontImage: base64 })}
                   label="NID Front"
                   placeholder="Upload NID front"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
                 <ImageUploadField
                   value={headsFormData.nidBackImage}
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, nidBackImage: base64 })}
                   label="NID Back"
                   placeholder="Upload NID back"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
               </div>
             </div>

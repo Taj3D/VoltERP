@@ -21,10 +21,10 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 // Valid trigger types mapped to their config toggle field names
 const TRIGGER_TOGGLE_MAP: Record<string, string> = {
-  purchase: 'smsAlertOnPurchase',
-  collection: 'smsAlertOnCollection',
-  stock_receive: 'smsAlertOnStockReceive',
-  hr_lifecycle: 'smsAlertOnHrLifecycle',
+  purchase: 'autoSmsOnPurchase',
+  collection: 'autoSmsOnReceipt',
+  stock_receive: 'autoSmsOnStockReceive',
+  hr_lifecycle: 'autoSmsOnEmployeeEvent',
 };
 
 const VALID_TRIGGER_TYPES = Object.keys(TRIGGER_TOGGLE_MAP);

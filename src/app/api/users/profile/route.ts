@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
       phone: user.phone || "",
       address: user.address || "",
       photo: user.photo || "",
+      voterIdFront: user.voterIdFront || "",
+      voterIdBack: user.voterIdBack || "",
       role: user.role,
       isActive: user.isActive,
       createdAt: user.createdAt,
@@ -45,7 +47,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, phone, address, photo } = body;
+    const { name, phone, address, photo, voterIdFront, voterIdBack } = body;
 
     // Validate name
     if (name !== undefined && (!name || name.trim().length === 0)) {
@@ -56,12 +58,20 @@ export async function PUT(req: NextRequest) {
     if (photo && photo.length > 7 * 1024 * 1024) {
       return NextResponse.json({ error: "Profile photo is too large (max 5MB)" }, { status: 400 });
     }
+    if (voterIdFront && voterIdFront.length > 7 * 1024 * 1024) {
+      return NextResponse.json({ error: "Voter ID front image is too large (max 5MB)" }, { status: 400 });
+    }
+    if (voterIdBack && voterIdBack.length > 7 * 1024 * 1024) {
+      return NextResponse.json({ error: "Voter ID back image is too large (max 5MB)" }, { status: 400 });
+    }
 
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name.trim();
     if (phone !== undefined) updateData.phone = phone.trim() || null;
     if (address !== undefined) updateData.address = address.trim() || null;
     if (photo !== undefined) updateData.photo = photo || null;
+    if (voterIdFront !== undefined) updateData.voterIdFront = voterIdFront || null;
+    if (voterIdBack !== undefined) updateData.voterIdBack = voterIdBack || null;
 
     const updatedUser = await db.user.update({
       where: { id: user.id },
@@ -89,6 +99,8 @@ export async function PUT(req: NextRequest) {
       phone: updatedUser.phone || "",
       address: updatedUser.address || "",
       photo: updatedUser.photo || "",
+      voterIdFront: updatedUser.voterIdFront || "",
+      voterIdBack: updatedUser.voterIdBack || "",
       role: updatedUser.role,
       pdfExports: updatedUser.pdfExports,
       csvImports: updatedUser.csvImports,

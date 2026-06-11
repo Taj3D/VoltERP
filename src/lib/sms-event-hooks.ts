@@ -78,10 +78,10 @@ export async function triggerEventSms(
     // Step 0: Check company-wide SmsAutomationConfig toggle
     // Maps eventType to the corresponding automation config field
     const eventTypeToConfigField: Record<string, string> = {
-      'SalesConfirmation': 'smsAlertOnPurchase',
-      'FinancialCollection': 'smsAlertOnCollection',
-      'InventoryIngestion': 'smsAlertOnStockReceive',
-      'HRLifecycle': 'smsAlertOnHrLifecycle',
+      'SalesConfirmation': 'autoSmsOnPurchase',
+      'FinancialCollection': 'autoSmsOnReceipt',
+      'InventoryIngestion': 'autoSmsOnStockReceive',
+      'HRLifecycle': 'autoSmsOnEmployeeEvent',
     };
     const configField = eventTypeToConfigField[eventType];
     if (configField) {

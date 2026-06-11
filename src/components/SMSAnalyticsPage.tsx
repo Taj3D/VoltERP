@@ -2708,20 +2708,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             </CardContent>
           </Card>
 
-          {/* ── SMS Automation Master Toggles ── */}
+          {/* ── Auto SMS Triggers ── */}
           <div className="mt-6">
             <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                 <Zap className="w-5 h-5 text-amber-500" />
-                Auto SMS Toggles / স্বয়ংক্রিয় এসএমএস নিয়ন্ত্রণ
+                Auto SMS Triggers / স্বয়ংক্রিয় এসএমএস ট্রিগার
               </h3>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                { key: "smsAlertOnPurchase", label: "Sales Purchase / ক্রয় বিক্রয়", desc: "Auto-SMS on purchase/sales confirmation", icon: ShoppingCart, color: "blue" },
-                { key: "smsAlertOnCollection", label: "Payment Collection / পেমেন্ট সংগ্রহ", desc: "Auto-SMS on payment receipt", icon: DollarSign, color: "green" },
-                { key: "smsAlertOnStockReceive", label: "Godown Receive / গুডাম গ্রহণ", desc: "Auto-SMS when inventory received at godown", icon: Package, color: "orange" },
-                { key: "smsAlertOnHrLifecycle", label: "HR Lifecycle / কর্মী জীবনচক্র", desc: "Auto-SMS on employee joining/events", icon: Users, color: "purple" },
+                { key: "autoSmsOnPurchase", label: "Customer Purchase SMS / ক্রেতা ক্রয় এসএমএস", desc: "Auto SMS to customer when they purchase a product — includes product info, invoice number & amount", icon: ShoppingCart, color: "blue" },
+                { key: "autoSmsOnReceipt", label: "Cash/Bank Receipt SMS / নগদ/ব্যাংক রশিদ এসএমএস", desc: "Auto SMS to customer/dealer when cash or bank payment is received — includes payment method & amount", icon: DollarSign, color: "green" },
+                { key: "autoSmsOnStockReceive", label: "Stock Receipt SMS / স্টক গ্রহণ এসএমএস", desc: "Auto SMS to supplier when products are received at godown/showroom — includes product, quantity & location", icon: Package, color: "orange" },
+                { key: "autoSmsOnEmployeeEvent", label: "Employee Event SMS / কর্মী ইভেন্ট এসএমএস", desc: "Auto SMS for employee events — exam date, joining date, confirmation & other HR milestones", icon: Users, color: "purple" },
               ].map((toggle) => {
                 const isEnabled = automationConfig?.[toggle.key] ?? false;
                 return (
@@ -2738,8 +2738,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs font-medium ${isEnabled ? "text-emerald-600" : "text-slate-400"}`}>
-                            {isEnabled ? "ON / চালু" : "OFF / বন্ধ"}
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isEnabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                            {isEnabled ? "ON" : "OFF"}
                           </span>
                           {isAdmin ? (
                             <Switch
@@ -2751,14 +2751,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                                   await apiFetch("/api/sms-automation", {
                                     method: "PUT",
                                     body: JSON.stringify({
-                                      smsAlertOnPurchase: updated.smsAlertOnPurchase ?? false,
-                                      smsAlertOnCollection: updated.smsAlertOnCollection ?? false,
-                                      smsAlertOnStockReceive: updated.smsAlertOnStockReceive ?? false,
-                                      smsAlertOnHrLifecycle: updated.smsAlertOnHrLifecycle ?? false,
+                                      autoSmsOnPurchase: updated.autoSmsOnPurchase ?? false,
+                                      autoSmsOnReceipt: updated.autoSmsOnReceipt ?? false,
+                                      autoSmsOnStockReceive: updated.autoSmsOnStockReceive ?? false,
+                                      autoSmsOnEmployeeEvent: updated.autoSmsOnEmployeeEvent ?? false,
                                     }),
                                   });
                                   setAutomationConfig((prev: any) => ({ ...prev, [toggle.key]: checked }));
-                                  toast({ title: checked ? "Enabled / চালু" : "Disabled / বন্ধ", description: `${toggle.label} ${checked ? "enabled" : "disabled"}` });
+                                  toast({ title: checked ? "Enabled" : "Disabled", description: `${toggle.label} auto-SMS ${checked ? "enabled" : "disabled"}` });
                                 } catch (e: any) {
                                   toast({ title: "Error", description: e.message, variant: "destructive" });
                                 } finally {
@@ -2775,7 +2775,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Only administrators can modify automation toggles</p>
+                                <p>Only administrators can modify auto-SMS triggers</p>
                               </TooltipContent>
                             </Tooltip>
                           )}

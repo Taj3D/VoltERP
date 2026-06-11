@@ -2151,14 +2151,6 @@ function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  const roleLabels: Record<string, string> = {
-    admin: "Administrator",
-    manager: "Manager",
-    sr: "Sales Representative",
-    dealer: "Dealer",
-    vat_auditor: "VAT Auditor",
-  };
-
   if (loading) {
     return (
       <div className="page-enter space-y-6 flex items-center justify-center min-h-[400px]">
@@ -2229,10 +2221,7 @@ function ProfilePage() {
               <p className="text-sm text-muted-foreground">{profileData.email}</p>
             </div>
 
-            {/* Role badge */}
-            <Badge className="bg-[#2563eb] text-white px-3 py-1">
-              {roleLabels[profileData.role] || profileData.role}
-            </Badge>
+            {/* Role badge hidden per requirement — role names not visible in UI */}
 
             {/* Join date */}
             {profileData.createdAt && (
@@ -2299,11 +2288,7 @@ function ProfilePage() {
                     <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{profileData.phone || "--"}</p>
                   )}
                 </div>
-                <div className="space-y-2">
-                  <Label>Role</Label>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{roleLabels[profileData.role] || profileData.role}</p>
-                  <p className="text-xs text-muted-foreground">Role is managed by administrator</p>
-                </div>
+                {/* Role section hidden per requirement — role names not visible in UI */}
               </div>
               <div className="space-y-2">
                 <Label>Address</Label>
