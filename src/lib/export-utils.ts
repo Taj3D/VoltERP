@@ -6,9 +6,49 @@
 // Batch Insert, Row-Level Validation, Two-Pass Page Footer
 // ============================================================
 
-import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
-import Papa from "papaparse";
+// Type-only imports (erased at compile time, no runtime impact)
+import type { jsPDF as JsPDFType } from "jspdf";
+
+// ============================================================
+// LAZY IMPORTS: JsPDFType, autoTable, and Papa are loaded on-demand
+// to prevent "Invalid hook call" (React error #321) in production.
+//
+// Root cause: Top-level static imports of jsPDF/papaparse cause
+// Next.js webpack to bundle them in the initial chunk. In
+// production builds, the module resolution order can create a
+// scenario where React's internal module state detects a
+// duplicate or out-of-order module load, triggering error #321.
+//
+// Fix: Dynamic imports ensure these heavy client-side-only
+// libraries load ONLY when the user actually clicks
+// Export PDF / Export CSV / Import CSV — never during the
+// initial page render or hydration cycle.
+// ============================================================
+
+let jsPDFModule: typeof import("jspdf") | null = null;
+let autoTableModule: typeof import("jspdf-autotable") | null = null;
+let papaModule: typeof import("papaparse") | null = null;
+
+async function loadJsPDF(): Promise<typeof import("jspdf")> {
+  if (!jsPDFModule) {
+    jsPDFModule = await import("jspdf");
+  }
+  return jsPDFModule;
+}
+
+async function loadAutoTable(): Promise<typeof import("jspdf-autotable")> {
+  if (!autoTableModule) {
+    autoTableModule = await import("jspdf-autotable");
+  }
+  return autoTableModule;
+}
+
+async function loadPapa(): Promise<typeof import("papaparse")> {
+  if (!papaModule) {
+    papaModule = await import("papaparse");
+  }
+  return papaModule;
+}
 
 // NOTE: We use the standalone autoTable(doc, options) function instead of the
 // applyPlugin(jsPDF) + doc.autoTable() pattern. The applyPlugin approach patches
@@ -89,7 +129,7 @@ export interface PDFOptions {
   /** Optional summary rows rendered below the main table with different styling */
   summaryRows?: SummaryRow[];
   /** Custom header callback — called on each page after the standard header is drawn */
-  customHeader?: (doc: jsPDF, pageNumber: number, pageWidth: number, pageHeight: number) => void;
+  customHeader?: (doc: JsPDFType, pageNumber: number, pageWidth: number, pageHeight: number) => void;
   /** Optional company profile for dynamic branding in header/footer */
   company?: CompanyProfile;
   /** System notice statement rendered below the subtitle in the header */
@@ -401,7 +441,7 @@ function calculateColumnWidths(
 // ============================================================
 
 function drawCorporateHeader(
-  doc: jsPDF,
+  doc: JsPDFType,
   title: string,
   subtitle: string | undefined,
   isVatAuditor: boolean,
@@ -559,7 +599,7 @@ function drawCorporateHeader(
 // ============================================================
 
 function drawFooter(
-  doc: jsPDF,
+  doc: JsPDFType,
   pageNumber: number,
   totalPagesPlaceholder: string,
   pageWidth: number,
@@ -666,7 +706,7 @@ function drawFooter(
 // ============================================================
 
 function fixPageXOfY(
-  doc: jsPDF,
+  doc: JsPDFType,
   pageHeight: number,
   pageWidth: number,
   margin: number,
@@ -724,7 +764,7 @@ function fixPageXOfY(
 // Summary Rows, Custom Header Callback, Column Bounds
 // ============================================================
 
-export function exportToPDF(options: PDFOptions): void {
+export async function exportToPDF(options: PDFOptions): Promise<void> {
   const {
     title,
     subtitle,
@@ -738,6 +778,10 @@ export function exportToPDF(options: PDFOptions): void {
     customHeader,
     company,
   } = options;
+
+  // Lazy-load jsPDF and autoTable to prevent React error #321
+  const { jsPDF } = await loadJsPDF();
+  const { autoTable } = await loadAutoTable();
 
   try {
     const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
@@ -929,7 +973,7 @@ export function exportToPDF(options: PDFOptions): void {
 // For report pages that provide pre-formatted headers and rows
 // ============================================================
 
-export function exportToPDFSimple(
+export async function exportToPDFSimple(
   title: string,
   headers: string[],
   rows: string[][],
@@ -937,7 +981,11 @@ export function exportToPDFSimple(
   subtitle?: string,
   company?: CompanyProfile,
   financialFooter?: PDFOptions["financialFooter"]
-): void {
+): Promise<void> {
+  // Lazy-load jsPDF and autoTable to prevent React error #321
+  const { jsPDF } = await loadJsPDF();
+  const { autoTable } = await loadAutoTable();
+
   try {
     const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1021,7 +1069,7 @@ export interface AuditReportOptions {
 
 /** Draw a classification badge on the header area */
 function drawClassificationBadge(
-  doc: jsPDF,
+  doc: JsPDFType,
   classification: "CONFIDENTIAL" | "INTERNAL" | "PUBLIC",
   pageWidth: number,
   margin: number
@@ -1048,7 +1096,7 @@ function drawClassificationBadge(
 
 /** Draw an integrity score gauge on the PDF */
 function drawIntegrityScore(
-  doc: jsPDF,
+  doc: JsPDFType,
   score: number,
   startY: number,
   margin: number,
@@ -1097,7 +1145,7 @@ function drawIntegrityScore(
 
 /** Draw the system disclaimer at the bottom of the audit report */
 function drawSystemDisclaimer(
-  doc: jsPDF,
+  doc: JsPDFType,
   startY: number,
   margin: number,
   pageWidth: number,
@@ -1138,7 +1186,7 @@ function drawSystemDisclaimer(
   doc.text(lines, margin + 3 + labelWidth, y + 4.5);
 }
 
-export function exportAuditReportPDF(options: AuditReportOptions): void {
+export async function exportAuditReportPDF(options: AuditReportOptions): Promise<void> {
   const {
     title,
     subtitle,
@@ -1152,6 +1200,10 @@ export function exportAuditReportPDF(options: AuditReportOptions): void {
     financialFooter,
     classification = "INTERNAL",
   } = options;
+
+  // Lazy-load jsPDF and autoTable to prevent React error #321
+  const { jsPDF } = await loadJsPDF();
+  const { autoTable } = await loadAutoTable();
 
   try {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -1345,7 +1397,7 @@ export function exportAuditReportPDF(options: AuditReportOptions): void {
 // numeric values unquoted, proper escaping for Tk.  symbol
 // ============================================================
 
-export function exportToCSV(options: CSVOptions): void {
+export async function exportToCSV(options: CSVOptions): Promise<void> {
   const {
     title,
     columns,
@@ -1354,6 +1406,9 @@ export function exportToCSV(options: CSVOptions): void {
     vatMaskedColumns = [],
     filename,
   } = options;
+
+  // Papa is used for CSV generation
+  const Papa = (await loadPapa()).default;
 
   try {
     const vatMaskSet = new Set(vatMaskedColumns);
@@ -1411,11 +1466,11 @@ export function exportToCSV(options: CSVOptions): void {
 // EXPORT CSV — Simple header/body overload
 // ============================================================
 
-export function exportToCSVSimple(
+export async function exportToCSVSimple(
   title: string,
   headers: string[],
   rows: string[][]
-): void {
+): Promise<void> {
   try {
     const headerRow = headers.map((h) => escapeCSVField(h, false)).join(",");
     const dataRows = rows.map((row) =>
@@ -1653,6 +1708,9 @@ function formatDateForCSV(value: any): string {
 
 export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> {
   const { apiPath, formFields, onProgress, batchSize = 10 } = opts;
+
+  // Lazy-load Papa to prevent React error #321
+  const Papa = (await loadPapa()).default;
 
   return new Promise((resolve) => {
     const input = document.createElement("input");
