@@ -41,6 +41,7 @@ function createPrismaClient(): PrismaClient {
   if (isTurso()) {
     // Turso (cloud SQLite) — use LibSQL adapter
     // Pass config object directly to PrismaLibSQL factory
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PrismaLibSQL } = require('@prisma/adapter-libsql');
     const adapter = new PrismaLibSQL({
       url: DATABASE_URL,
