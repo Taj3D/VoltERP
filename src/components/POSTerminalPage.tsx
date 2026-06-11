@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toLatinDigits } from "@/lib/number-format";
 import {
   RefreshCw,
   ShoppingCart,
@@ -811,13 +812,13 @@ export default function POSTerminalPage() {
   // ============================================================
 
   const receiptNo = `POS-${String(Date.now()).slice(-5)}`;
-  const receiptDate = new Date().toLocaleString("en-GB", {
+  const receiptDate = toLatinDigits(new Date().toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }));
 
   const renderThermalReceipt = () => (
     <div
@@ -1799,7 +1800,7 @@ export default function POSTerminalPage() {
                               {fmtCurrency(sale.grandTotal)}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {(() => { if (!sale.date) return ""; const dt = new Date(sale.date); return isNaN(dt.getTime()) ? "" : dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); })()}
+                              {(() => { if (!sale.date) return ""; const dt = new Date(sale.date); return isNaN(dt.getTime()) ? "" : toLatinDigits(dt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })); })()}
                             </div>
                           </div>
                         </div>

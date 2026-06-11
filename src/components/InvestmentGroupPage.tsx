@@ -34,6 +34,7 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import { apiFetch, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -44,18 +45,18 @@ const safeNumberFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2,
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
-  if (type === "currency") return `Tk. ${safeNumberFmt.format(Number(v))}`;
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(safeNumberFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
-  return `Tk. ${safeNumberFmt.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(safeNumberFmt.format(Number(v)))}`;
 };
 
 const fmtPct = (v: any) => {
@@ -3085,7 +3086,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 <TableBody>
                   {activityLog.slice(0, 10).map((log: any) => (
                     <TableRow key={log.id}>
-                      <TableCell className="text-xs">{log.createdAt ? new Date(log.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</TableCell>
+                      <TableCell className="text-xs">{log.createdAt ? toLatinDigits(new Date(log.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })) : "—"}</TableCell>
                       <TableCell><Badge className={log.action === "CREATE" ? "bg-green-100 text-green-700" : log.action === "UPDATE" ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}>{log.action}</Badge></TableCell>
                       <TableCell className="text-xs">{log.module || "—"}</TableCell>
                       <TableCell className="text-xs max-w-[200px] truncate">{log.recordLabel || "—"}</TableCell>

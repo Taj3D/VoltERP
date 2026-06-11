@@ -69,6 +69,11 @@ interface ProfileUser {
   phone?: string | null;
   address?: string | null;  // Maps to User.address in Prisma
   designation?: string | null;  // Derived from Employee.designation, not stored on User
+  voterIdFront?: string | null;  // Voter ID front card image
+  voterIdBack?: string | null;   // Voter ID back card image
+  pdfExports?: number;    // Count of PDF exports performed
+  csvImports?: number;    // Count of CSV imports performed
+  csvExports?: number;    // Count of CSV exports performed
 }
 
 interface ActivityLog {
@@ -151,8 +156,9 @@ const DATE_RANGE_OPTIONS = [
 
 const TRACKING_STORAGE_KEY = "ems_action_tracking";
 
-// Comprehensive raw username pattern check
-const RAW_USERNAME_PATTERNS = /^(emart\.|admin\.|user\.|sys\.|test\.)/i;
+// Comprehensive raw username pattern check — no longer masks "emart." prefix
+// since user emails like emart.amit should be visible in the UI
+const RAW_USERNAME_PATTERNS = /^(admin\.|user\.|sys\.|test\.)/i;
 
 const CHART_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -359,6 +365,17 @@ export default function ProfileCenter() {
   // Recent password activity state
   const [passwordActivity, setPasswordActivity] = useState<ActivityLog[]>([]);
 
+  // Voter ID image upload state
+  const [editVoterIdFront, setEditVoterIdFront] = useState<string | null>(null);
+  const [editVoterIdBack, setEditVoterIdBack] = useState<string | null>(null);
+  const voterIdFrontInputRef = useRef<HTMLInputElement>(null);
+  const voterIdBackInputRef = useRef<HTMLInputElement>(null);
+
+  // Server-side export counters (from User model)
+  const [serverCounters, setServerCounters] = useState<{ pdfExports: number; csvImports: number; csvExports: number }>({
+    pdfExports: 0, csvImports: 0, csvExports: 0,
+  });
+
   // ────────────────────────────────────────────────────────
   // INITIAL LOAD
   // ────────────────────────────────────────────────────────
@@ -422,6 +439,11 @@ export default function ProfileCenter() {
           phone: serverProfile.phone,
           address: serverProfile.address || null,
           designation: serverProfile.designation || null,
+          voterIdFront: serverProfile.voterIdFront || null,
+          voterIdBack: serverProfile.voterIdBack || null,
+          pdfExports: serverProfile.pdfExports || 0,
+          csvImports: serverProfile.csvImports || 0,
+          csvExports: serverProfile.csvExports || 0,
         };
         setUser(updatedUser);
         setEditName(safeName);
@@ -429,6 +451,13 @@ export default function ProfileCenter() {
         setEditDesignation(updatedUser.designation || "");
         setEditAddress(updatedUser.address || "");
         setEditProfileImage(updatedUser.photo || null);
+        setEditVoterIdFront(updatedUser.voterIdFront || null);
+        setEditVoterIdBack(updatedUser.voterIdBack || null);
+        setServerCounters({
+          pdfExports: serverProfile.pdfExports || 0,
+          csvImports: serverProfile.csvImports || 0,
+          csvExports: serverProfile.csvExports || 0,
+        });
 
         // Update localStorage auth state
         try {
@@ -778,6 +807,76 @@ export default function ProfileCenter() {
   };
 
   // ────────────────────────────────────────────────────────
+  // VOTER ID IMAGE UPLOAD HANDLERS
+  // ────────────────────────────────────────────────────────
+  const handleVoterIdUpload = (side: "front" | "back") => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid File", description: "Please select an image file (PNG, JPG, GIF, WebP).", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Voter ID image must be smaller than 5MB.", variant: "destructive" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      if (side === "front") {
+        setEditVoterIdFront(base64);
+      } else {
+        setEditVoterIdBack(base64);
+      }
+    };
+    reader.onerror = () => {
+      toast({ title: "Upload Failed", description: "Failed to read image file. Please try again.", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Save voter ID images to server
+  const handleSaveVoterIdImages = async () => {
+    setSavingProfile(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch("/api/auth/profile", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          voterIdFront: editVoterIdFront,
+          voterIdBack: editVoterIdBack,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Failed to update voter ID images" }));
+        throw new Error(errData.error || "Failed to update voter ID images");
+      }
+
+      const data = await res.json();
+      if (user) {
+        setUser(prev => prev ? {
+          ...prev,
+          voterIdFront: data.user?.voterIdFront ?? editVoterIdFront,
+          voterIdBack: data.user?.voterIdBack ?? editVoterIdBack,
+        } : prev);
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+      toast({ title: "Voter ID Updated", description: "Voter ID images have been saved successfully." });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to update voter ID images", variant: "destructive" });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  // ────────────────────────────────────────────────────────
   // SAVE PROFILE UPDATES
   // ────────────────────────────────────────────────────────
   const handleSaveProfile = async () => {
@@ -1020,21 +1119,18 @@ export default function ProfileCenter() {
   const getDesignation = (): string => {
     if (employeeInfo?.designation?.name) return employeeInfo.designation.name;
     if (user?.designation) return user.designation;
-    // Do NOT show role labels (Administrator, Manager, etc.) — return email domain instead
+    // Return the user's email as the designation/identifier
     if (user?.email) return user.email;
     return "N/A";
   };
 
   const getInitials = (): string => {
-    if (!user?.displayName && !user?.name) return "U";
-    const name = user.displayName || user.name;
-    // Comprehensive raw username pattern check
-    if (RAW_USERNAME_PATTERNS.test(name)) return "U";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+    // Use email for initials since email is the primary display identifier
+    if (user?.email) {
+      // Take first two chars of email (e.g., "em" from "emart.amit")
+      return user.email.slice(0, 2).toUpperCase();
     }
-    return name.charAt(0).toUpperCase();
+    return "U";
   };
 
   const formatTimestamp = (dateStr: string): string => {
@@ -1170,10 +1266,12 @@ export default function ProfileCenter() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="admin-reset">
-            <KeyRound className="w-3.5 h-3.5 mr-1" />
-            Password Security
-          </TabsTrigger>
+          {user.role === ROLES.ADMIN && (
+            <TabsTrigger value="admin-reset">
+              <KeyRound className="w-3.5 h-3.5 mr-1" />
+              Password Security
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ════════════════════════════════════════════════════
@@ -1518,93 +1616,73 @@ export default function ProfileCenter() {
           </div>
 
           {/* Change Password Section (Admin-only with RBAC interlock) */}
+          {user.role === ROLES.ADMIN && (
           <Card className="border-0 shadow-md border-l-4 border-l-amber-500">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-amber-500" />
                 Change My Password
-                {user.role !== "admin" && (
-                  <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[10px] ml-2">
-                    <Lock className="w-3 h-3 mr-1" />
-                    ADMIN ONLY
-                  </Badge>
-                )}
               </CardTitle>
               <CardDescription>
-                {user.role === ROLES.ADMIN
-                  ? "Update your account password. All changes are audited."
-                  : "Only users with the ADMIN role can change passwords. This route is protected by a server-side RBAC interlock."}
+                Update your account password. All changes are audited.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {user.role !== "admin" ? (
-                <div className="p-6 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-center">
-                  <div className="w-14 h-14 mx-auto rounded-full bg-red-100 dark:bg-red-900/40 flex items-center justify-center mb-3">
-                    <Shield className="w-7 h-7 text-red-500" />
+              <div className="max-w-md space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="current-pw">Current Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="current-pw"
+                      type="password"
+                      placeholder="Enter current password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="pl-10"
+                    />
                   </div>
-                  <h4 className="text-base font-semibold text-red-600 dark:text-red-400">403 Forbidden: Privilege Escalation Blocked</h4>
-                  <p className="text-sm text-red-500/80 dark:text-red-400/80 mt-2 max-w-md mx-auto">
-                    You do not have permission to change passwords.
-                    Only administrators can modify user credentials. Any attempt to bypass this interlock
-                    will be logged and reported to the security audit trail.
-                  </p>
                 </div>
-              ) : (
-                <div className="max-w-md space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="current-pw">Current Password</Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="current-pw"
-                        type="password"
-                        placeholder="Enter current password"
-                        value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-pw">New Password</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="new-pw"
+                      type="password"
+                      placeholder="Minimum 6 characters"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="pl-10"
+                    />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-pw">New Password</Label>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="new-pw"
-                        type="password"
-                        placeholder="Minimum 6 characters"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirm-pw">Confirm New Password</Label>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="confirm-pw"
-                        type="password"
-                        placeholder="Confirm new password"
-                        value={confirmNewPassword}
-                        onChange={(e) => setConfirmNewPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    className="bg-[#2563eb] hover:bg-[#1d4ed8] w-full"
-                    onClick={handleSelfPasswordChange}
-                    disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
-                  >
-                    {changingPassword ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
-                    Change Password
-                  </Button>
                 </div>
-              )}
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-pw">Confirm New Password</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="confirm-pw"
+                      type="password"
+                      placeholder="Confirm new password"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                <Button
+                  className="bg-[#2563eb] hover:bg-[#1d4ed8] w-full"
+                  onClick={handleSelfPasswordChange}
+                  disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
+                >
+                  {changingPassword ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Change Password
+                </Button>
+              </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Role Access Summary */}
           <Card className="border-0 shadow-md">
@@ -1639,6 +1717,164 @@ export default function ProfileCenter() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Export/Import Counters from User Model */}
+          <Card className="border-0 shadow-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-[#2563eb]" />
+                Export / Import Counters
+              </CardTitle>
+              <CardDescription>
+                Server-side counters from your User record (pdfExports, csvImports, csvExports)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30 text-center">
+                  <FileDown className="w-6 h-6 text-red-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverCounters.pdfExports}</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF Exports</p>
+                </div>
+                <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/10 border border-green-200/50 dark:border-green-800/30 text-center">
+                  <FileDown className="w-6 h-6 text-green-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverCounters.csvExports}</p>
+                  <p className="text-xs text-muted-foreground mt-1">CSV Exports</p>
+                </div>
+                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 text-center">
+                  <FileUp className="w-6 h-6 text-blue-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverCounters.csvImports}</p>
+                  <p className="text-xs text-muted-foreground mt-1">CSV Imports</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Voter ID Image Uploads */}
+          <Card className="border-0 shadow-md">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-[#2563eb]" />
+                    Voter ID Images
+                  </CardTitle>
+                  <CardDescription>
+                    Upload front and back images of your Voter ID card
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+                  onClick={handleSaveVoterIdImages}
+                  disabled={savingProfile}
+                >
+                  {savingProfile ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save Voter ID
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* Voter ID Front */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Voter ID — Front</Label>
+                  {editVoterIdFront ? (
+                    <div className="relative group">
+                      <img
+                        src={editVoterIdFront}
+                        alt="Voter ID Front"
+                        className="w-full h-40 rounded-lg object-contain border border-border/50 bg-white p-1"
+                      />
+                      <div
+                        className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        onClick={() => voterIdFrontInputRef.current?.click()}
+                      >
+                        <Camera className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="w-full h-40 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                      onClick={() => voterIdFrontInputRef.current?.click()}
+                    >
+                      <div className="text-center">
+                        <Upload className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                        <span className="text-sm text-muted-foreground">Upload Front</span>
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={voterIdFrontInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleVoterIdUpload("front")}
+                  />
+                  {editVoterIdFront && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      onClick={() => setEditVoterIdFront(null)}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Remove Front
+                    </Button>
+                  )}
+                </div>
+
+                {/* Voter ID Back */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Voter ID — Back</Label>
+                  {editVoterIdBack ? (
+                    <div className="relative group">
+                      <img
+                        src={editVoterIdBack}
+                        alt="Voter ID Back"
+                        className="w-full h-40 rounded-lg object-contain border border-border/50 bg-white p-1"
+                      />
+                      <div
+                        className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        onClick={() => voterIdBackInputRef.current?.click()}
+                      >
+                        <Camera className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="w-full h-40 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                      onClick={() => voterIdBackInputRef.current?.click()}
+                    >
+                      <div className="text-center">
+                        <Upload className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                        <span className="text-sm text-muted-foreground">Upload Back</span>
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={voterIdBackInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleVoterIdUpload("back")}
+                  />
+                  {editVoterIdBack && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      onClick={() => setEditVoterIdBack(null)}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Remove Back
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground/60 mt-3">Max 5MB per image • Accepted: JPG, PNG, GIF, WebP</p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -2400,8 +2636,9 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB D: ENHANCED ADMIN PASSWORD SECURITY
+            TAB D: ENHANCED ADMIN PASSWORD SECURITY (ADMIN ONLY)
             ════════════════════════════════════════════════════ */}
+        {user.role === ROLES.ADMIN && (
         <TabsContent value="admin-reset" className="space-y-4">
           {/* Security Warning Banner */}
           <Card className="border-0 shadow-md bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 border-l-4 border-l-amber-500">
@@ -2422,7 +2659,7 @@ export default function ProfileCenter() {
             </CardContent>
           </Card>
 
-          {user.role === ROLES.ADMIN ? (
+          {user.role === ROLES.ADMIN && (
             <>
               {/* Admin: All Users List with Reset Password */}
               <Card className="border-0 shadow-md border-l-4 border-l-[#2563eb]">
@@ -2465,15 +2702,14 @@ export default function ProfileCenter() {
                                       ROLE_COLORS[u.role as UserRole] || "bg-gray-500"
                                     } flex items-center justify-center text-white text-[10px] font-bold shrink-0`}
                                   >
-                                    {getSafeDisplayName(u.name).charAt(0).toUpperCase()}
+                                    {u.email?.charAt(0).toUpperCase() || "U"}
                                   </div>
-                                  <span className="text-sm font-medium">{getSafeDisplayName(u.name)}</span>
+                                  <span className="text-sm font-medium">{u.email}</span>
                                 </div>
                               </TableCell>
                               <TableCell>
                                 <span className="text-sm text-muted-foreground">{u.email}</span>
                               </TableCell>
-                              {/* Role column hidden per requirement — only email shown */}
                               <TableCell className="text-right">
                                 <Button
                                   size="sm"
@@ -2539,30 +2775,6 @@ export default function ProfileCenter() {
                 </CardContent>
               </Card>
             </>
-          ) : (
-            /* Non-admin: Access Denied Card */
-            <Card className="border-0 shadow-md">
-              <CardContent className="p-8">
-                <div className="max-w-md mx-auto text-center">
-                  <div className="w-20 h-20 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
-                    <ShieldAlert className="w-10 h-10 text-red-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-red-600 dark:text-red-400">403 — Access Denied</h3>
-                  <p className="text-sm text-muted-foreground mt-3">
-                    You do not have permission to manage passwords.
-                  </p>
-                  <p className="text-xs text-muted-foreground/60 mt-2">
-                    Only users with the ADMIN role can reset passwords and view password activity. 
-                    All access attempts are logged.
-                  </p>
-                  <div className="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800">
-                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                      ERROR: PRIVILEGE_ESCALATION_BLOCKED
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           )}
 
           {/* Password Reset Dialog */}
@@ -2653,6 +2865,7 @@ export default function ProfileCenter() {
             </DialogContent>
           </Dialog>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   );

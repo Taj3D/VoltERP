@@ -205,7 +205,7 @@ function hasItemAccess(role: UserRole, itemKey: string): boolean {
 // UTILITY FUNCTIONS
 // ============================================================
 
-import { fmtBDT as _fmtBDT } from "@/lib/number-format";
+import { fmtBDT as _fmtBDT, toLatinDigits } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
@@ -213,13 +213,13 @@ const fmt = (v: any, type?: string) => {
   if (type === "date") {
     if (!v) return "—";
     const dt = new Date(v);
-    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
   }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => d ? toLatinDigits(new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })) : "—";
 
 // apiFetch is now imported from @/lib/api-client
 
@@ -2227,7 +2227,7 @@ function ProfilePage() {
             {profileData.createdAt && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Calendar className="w-3.5 h-3.5" />
-                <span>Joined {new Date(profileData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span>
+                <span>Joined {toLatinDigits(new Date(profileData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }))}</span>
               </div>
             )}
 
@@ -2465,8 +2465,8 @@ function DashboardPage() {
           <CardContent className="p-3 px-5 flex items-center gap-3">
             <Calendar className="w-5 h-5 text-blue-300" />
             <div>
-              <p className="text-xs text-blue-200">{clock.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
-              <p className="text-lg font-bold font-mono tabular-nums">{clock.toLocaleTimeString()}</p>
+              <p className="text-xs text-blue-200">{toLatinDigits(clock.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</p>
+              <p className="text-lg font-bold font-mono tabular-nums">{toLatinDigits(clock.toLocaleTimeString())}</p>
             </div>
           </CardContent>
         </Card>
@@ -2732,7 +2732,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
   return (
     <aside className={`${embedded ? "relative w-full h-full" : `fixed left-0 top-0 z-40 h-full ${collapsed ? "w-16" : "w-64"}`} bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 flex flex-col overflow-hidden shadow-xl`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-white/10">
+      <div className={`flex items-center justify-between border-b border-white/10 ${collapsed ? "p-2" : "p-4"}`}>
         {(!collapsed || embedded) && (
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20">
@@ -2747,11 +2747,11 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
         {collapsed && !embedded && (
           <button
             onClick={onToggle}
-            className="w-11 h-11 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] active:scale-95 transition-all cursor-pointer"
+            className="w-10 h-10 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] active:scale-95 transition-all cursor-pointer"
             title="Expand sidebar"
             aria-label="Expand sidebar"
           >
-            <ChevronsRight className="w-5 h-5 text-white" />
+            <ChevronsRight className="w-4 h-4 text-white" />
           </button>
         )}
         {!collapsed && !embedded && (
@@ -2837,7 +2837,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
             <UserCircle className="w-4 h-4" />
-            <span className="truncate">{user?.displayName || user?.name || "User"}</span>
+            <span className="truncate">{user?.email || "User"}</span>
           </div>
         </div>
       )}
@@ -2845,9 +2845,9 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
         <div className="p-2 border-t border-white/10 flex justify-center">
           <div
             className={`w-7 h-7 rounded-full ${user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"} flex items-center justify-center text-white text-[10px] font-bold`}
-            title={user?.displayName || user?.name || "User"}
+            title={user?.email || "User"}
           >
-            {(user?.displayName || user?.name)?.charAt(0).toUpperCase() || "U"}
+            {user?.email?.charAt(0).toUpperCase() || "U"}
           </div>
         </div>
       )}
@@ -6283,6 +6283,7 @@ function AppLayout() {
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         onNavigate={navigate}
         onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onOpenSearch={() => setSearchOpen(true)}
         onChangePassword={() => navigate("change-password")}
         onLogout={logout}
@@ -6358,7 +6359,7 @@ function AppLayout() {
       </main>
 
       {/* Footer */}
-      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`} style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
+      <footer className={`shrink-0 mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`} style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
         <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<a href="https://www.facebook.com/nextgendigitalstudio" target="_blank" rel="noopener noreferrer" className="text-slate-300 font-medium hover:text-white transition-colors"><span className="hover:underline underline-offset-2">NextGen Digital Studio</span></a>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>

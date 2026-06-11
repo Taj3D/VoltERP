@@ -52,7 +52,7 @@ export async function copyTableToClipboard(options: {
         if (c.type === 'date') {
           if (!value) return '';
           try {
-            return new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            return toLatinDigits(new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
           } catch {
             return String(value);
           }

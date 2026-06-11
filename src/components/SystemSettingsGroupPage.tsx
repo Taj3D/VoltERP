@@ -38,6 +38,7 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyP
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import { apiFetch, type UserRole, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -2769,7 +2770,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                     {Object.entries(dbHealth.keyRecords).map(([key, count]) => (
                       <div key={key} className="text-center p-2 rounded bg-slate-50 dark:bg-slate-800">
-                        <p className="text-lg font-bold text-slate-900 dark:text-white">{Number(count).toLocaleString('en-US')}</p>
+                        <p className="text-lg font-bold text-slate-900 dark:text-white">{toLatinDigits(Number(count).toLocaleString('en-US'))}</p>
                         <p className="text-xs text-slate-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
                       </div>
                     ))}

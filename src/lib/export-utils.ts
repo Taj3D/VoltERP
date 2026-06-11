@@ -163,11 +163,11 @@ export function sanitizeCurrencyValue(value: any): number {
   
   // Remove known corruption patterns:
   // - Currency prefix "Tk." (English notation)
-  // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯
+  // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯ → CONVERT to Latin 0-9
   // - Comma separators that may have digit corruption
   // - Any non-ASCII digits that might have been inserted
   raw = raw.replace(/Tk\.\s*/g, ''); // Remove Tk. currency prefix
-  raw = raw.replace(/[\u09E6-\u09EF]/g, ''); // Remove Bengali digits
+  raw = raw.replace(/[\u09E6-\u09EF]/g, d => String(d.charCodeAt(0) - 0x09E6 + 0x0030)); // Convert Bengali digits to Latin
   raw = raw.replace(/[^\d.\-]/g, ''); // Keep only digits, decimal point, and minus sign
   
   // Handle multiple decimal points (keep only the first)
