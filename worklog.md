@@ -11553,3 +11553,44 @@ Task: GitHub + Vercel Deployment Preparation — 3-Phase Safe Migration
 - Migrate localStorage auth to httpOnly cookies (security improvement)
 - Remove X-User-Email header fallback (JWT-only mode)
 - Consider Float → Decimal for financial fields (precision improvement)
+
+---
+Task ID: github-upload
+Agent: General Purpose Agent
+Task: GitHub Upload Preparation for VoltERP
+
+## Work Completed
+
+### 1. Created `.env.example`
+- New file at `/home/z/my-project/.env.example`
+- Contains DATABASE_URL (local SQLite), Turso config (commented), JWT_SECRET, NODE_ENV (commented)
+
+### 2. Updated `package.json`
+- `"name"`: `nextjs_tailwind_shadcn_ts` → `volterp`
+- `"version"`: `0.2.0` → `1.0.0`
+- `"private"`: `true` → `false`
+
+### 3. Updated `next.config.ts`
+- `typescript.ignoreBuildErrors`: `true` → `false` (required for production builds)
+
+### 4. Verified `.gitignore`
+- All required entries already present: `.env*` + `!.env.example`, `node_modules`, `db/*.db*`, `.vercel`, `mini-services/`, `scripts/`, `agent-ctx/`, `upload/`, `.z-ai-config`, `*.log`
+- No changes needed
+
+### 5. Git Commit
+- `git add -A` + `git rm --cached db/custom.db-shm db/custom.db-wal` (removed previously tracked DB files)
+- Commit: `feat: VoltERP v1.0.0 — production-ready ERP system with Turso support` (sha: fb651aa)
+
+### 6. GitHub Repository Created & Pushed
+- Created public repo `VoltERP` under user `Taj3D` via GitHub API
+- Added remote and pushed `main` branch
+- **Repo URL: https://github.com/Taj3D/VoltERP**
+
+### 7. Dev Server Verification
+- ✅ Server running on port 3000 (HTTP 200 response confirmed)
+
+## Files Changed
+1. `/home/z/my-project/.env.example` — Created (environment config template)
+2. `/home/z/my-project/package.json` — name, version, private updated
+3. `/home/z/my-project/next.config.ts` — ignoreBuildErrors set to false
+4. `/home/z/my-project/worklog.md` — This work record appended
