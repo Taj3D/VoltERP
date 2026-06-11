@@ -20,19 +20,8 @@ const nextConfig: NextConfig = {
     ],
   },
   allowedDevOrigins: [
-    "http://21.0.11.89:3000",
-    "http://21.0.11.89:81",
-    "http://21.0.10.229:3000",
-    "http://21.0.10.229:81",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:81",
-    "https://space-z.ai",
-    "http://space-z.ai",
-    "https://*.space-z.ai",
-    "http://*.space-z.ai",
-    "https://preview-chat-fa2c15ed-30fa-4327-b586-0adccc59d359.space-z.ai",
-    "http://preview-chat-fa2c15ed-30fa-4327-b586-0adccc59d359.space-z.ai",
   ],
 };
 

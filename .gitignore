@@ -32,10 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
@@ -46,9 +46,32 @@ local-*
 *.log
 dev.log
 dev.out.log
+server.log
+
+# test / temp / dev artifacts
 test
 prompt
+qa-screenshots/
+test-screenshots/
+screenshots/
 
-server.log
 # Skills directory
 /skills/
+
+# Database files (use migrations + seed instead)
+db/*.db
+db/*.db-shm
+db/*.db-wal
+db/*.db-journal
+
+# Upload folder (user-uploaded files — use cloud storage in production)
+upload/
+
+# Agent context
+agent-ctx/
+
+# Mini services
+mini-services/
+
+# Scripts (dev-only)
+scripts/
