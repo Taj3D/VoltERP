@@ -330,24 +330,44 @@ export async function withApiSecurity(
     // Since JWT is sent via Authorization header (not cookies), CSRF is already
     // inherently mitigated. This adds defense-in-depth for browser-based sessions.
     //
+    // IMPORTANT: On serverless platforms (Vercel), in-memory CSRF token stores
+    // are NOT shared across function instances. A token generated on Instance A
+    // during login won't exist on Instance B when a write request arrives.
+    // Therefore, CSRF validation failures on serverless are expected and should
+    // NOT block requests — JWT Bearer auth already provides CSRF protection.
+    //
     // Enforcement mode (controlled by CSRF_ENFORCE env var):
-    // - Transitional (default): If token is missing, allow with warning. If present and invalid, block.
-    // - Strict (CSRF_ENFORCE=true): If token is missing or invalid, block.
+    // - Transitional (default): Never block on CSRF — log warnings only.
+    //   JWT auth provides sufficient CSRF protection for API-based apps.
+    // - Strict (CSRF_ENFORCE=true): Block if token is missing or invalid.
+    //   Only use this with a persistent (database-backed) CSRF token store.
     if (method !== 'GET') {
       const csrfHeader = request.headers.get('x-csrf-token');
 
       if (csrfHeader) {
-        // Token present — verify it strictly
+        // Token present — attempt verification
         const csrfValid = verifyCsrfToken(user.id, csrfHeader);
         if (!csrfValid) {
-          return {
-            authorized: false,
-            response: NextResponse.json(
-              { error: 'CSRF token validation failed. Please refresh the page and try again.', errorCode: 'CSRF_INVALID' },
-              { status: 403 }
-            ),
-          };
+          // CSRF token not found in in-memory store.
+          // On serverless (Vercel), this is expected because each request
+          // may hit a different function instance with a fresh in-memory store.
+          // Since JWT Bearer auth already prevents CSRF, we only block
+          // when strict enforcement is explicitly enabled.
+          if (isCsrfEnforced()) {
+            return {
+              authorized: false,
+              response: NextResponse.json(
+                { error: 'CSRF token validation failed. Please refresh the page and try again.', errorCode: 'CSRF_INVALID' },
+                { status: 403 }
+              ),
+            };
+          }
+          // Transitional mode: log warning but allow request
+          // This handles serverless environments where in-memory tokens
+          // are not shared across instances
+          console.warn(`[CSRF] Token validation failed for ${method} ${module} by user ${user.email}. Likely serverless instance mismatch. JWT auth provides CSRF protection.`);
         }
+        // Token valid or transitional mode — proceed
       } else {
         // Token absent — transitional mode: warn but allow; strict mode: block
         if (isCsrfEnforced()) {
@@ -360,7 +380,6 @@ export async function withApiSecurity(
           };
         }
         // Transitional mode: log warning but allow request
-        // This ensures existing clients without CSRF support continue to work
         console.warn(`[CSRF] No X-CSRF-Token header for ${method} ${module} by user ${user.email}. Set CSRF_ENFORCE=true to enforce.`);
       }
     }
