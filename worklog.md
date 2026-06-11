@@ -11751,3 +11751,31 @@ Stage Summary:
 - Deployment URL: volterp-3qr23slci-electronics-mart.vercel.app
 - Temporary migration scripts cleaned up from repo
 - Build confirmed using correct env vars (DATABASE_URL, DATABASE_AUTH_TOKEN, JWT_SECRET all present in build environment)
+
+---
+Task ID: 5
+Agent: Deployment Fix Agent
+Task: Fix Vercel deployment — Prisma schema URL compatibility with Turso
+
+Work Log:
+- Read current project files: schema.prisma, vercel.json, db.ts, .env
+- Identified root cause #1: Prisma schema `url` and `directUrl` both pointed to `env("DATABASE_URL")`, which on Vercel is `libsql://...` — an invalid URL for Prisma's SQLite engine during `prisma generate`
+- Identified root cause #2: `/src/app/api/db-test/route.ts` used incorrect import `PrismaLibSql` (lowercase 'ql') — the correct export is `PrismaLibSQL` (uppercase 'QL'). Also used deprecated `createClient` + pass-client pattern instead of config-object pattern
+- Updated `prisma/schema.prisma`: Changed `url` and `directUrl` from `env("DATABASE_URL")` to `env("DIRECT_URL")` — DIRECT_URL points to `file:./db/direct.db` on Vercel (valid SQLite URL for `prisma generate`), while DATABASE_URL remains `libsql://...` for the adapter at runtime
+- Verified DIRECT_URL env var already exists on Vercel with value `file:./db/direct.db`
+- Fixed `/src/app/api/db-test/route.ts`: Changed `PrismaLibSql` → `PrismaLibSQL`, replaced `createClient` + pass-client pattern with `new PrismaLibSQL({ url, authToken })` config-object pattern
+- Verified .env already has `DIRECT_URL="file:./db/custom.db"` for local dev
+- Committed and pushed first fix (schema URL change) — Vercel build still failed due to PrismaLibSql import error
+- Committed and pushed second fix (db-test route) — Vercel build succeeded
+- Verified Vercel deployment: state=READY, no errors
+- Tested `/api/db-test` endpoint: Returns `{ status: "connected", dbType: "Turso (libSQL)", prismaUserCount: 5 }`
+- Tested `/api/auth` endpoint: Login successful with JWT tokens returned for emart.amit/Test_123
+- Verified local dev server starts and responds correctly
+- DIRECT_URL env var kept on Vercel (needed for build-time `prisma generate`)
+
+Stage Summary:
+- Vercel deployment now succeeds (state: READY)
+- Database connectivity confirmed: Turso (libSQL) with 5 users
+- Auth endpoint working: Returns access/refresh tokens
+- Two root causes fixed: (1) Schema URL incompatibility with libsql://, (2) PrismaLibSQL import typo
+- DIRECT_URL env var required on Vercel for `prisma generate` (must NOT be removed)
