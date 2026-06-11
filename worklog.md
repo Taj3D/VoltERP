@@ -523,3 +523,29 @@ Compared all model counts between local and Turso:
 - ✅ Dashboard KPIs show non-zero values (Revenue: Tk. 132,000)
 - ✅ Zero errors during sync
 - ✅ Script is idempotent (can be re-run safely, only adds missing records)
+
+---
+Task ID: 7
+Agent: Main Agent
+Task: Fix CSRF token validation failure popup on every save operation
+
+Work Log:
+- User reported: "প্রতিটি পেজে যেকোন তথ্য লিখে সেভ বাটনে ক্লিক করলে এই পপআপ আসছে" (popup appears on every save)
+- Screenshot analyzed via VLM: Error popup shows "CSRF token validation failed. Please refresh the page and try again."
+- Root cause identified: CSRF tokens are stored in an in-memory Map (`tokenStore` in `src/lib/csrf.ts`)
+- On Vercel serverless, each API request may hit a different function instance
+- Token generated on Instance A during login is not available on Instance B when write request arrives
+- The previous code strictly blocked when CSRF token was present but failed validation (line 342-350)
+- JWT Bearer auth already provides inherent CSRF protection (tokens in Authorization header, not cookies)
+- Fix: Changed CSRF verification to transitional mode — invalid tokens now log a warning but don't block
+- Only blocks on CSRF when `CSRF_ENFORCE=true` env var is set (requires persistent DB-backed store)
+- Tested locally: All 3 scenarios pass (valid token, no token, invalid token)
+- Tested on Vercel: All save operations work (categories, customers, banks, etc.)
+- Pushed to GitHub: commit a129b1b
+
+Stage Summary:
+- ✅ CSRF token validation failure popup FIXED
+- ✅ Root cause: serverless in-memory store not shared across instances
+- ✅ Fix: transitional mode by default, JWT provides CSRF protection
+- ✅ Verified working on both localhost and volterp-app.vercel.app
+- ✅ Pushed to GitHub and auto-deployed to Vercel
