@@ -227,3 +227,110 @@
 ### Lint Status:
 - All modified files pass ESLint (0 errors, 0 warnings)
 - Pre-existing lint error in `src/lib/db.ts` (unrelated to this task)
+
+---
+
+## Task ID: 4b
+## Agent: Fix Agent
+## Task: Fix empty employee names in the database and update with proper data
+
+### Work Log:
+
+#### Step 1: Authentication
+- Obtained auth token via `POST /api/auth` with credentials `emart.amit` / `Test_123`
+- Token successfully retrieved (JWT, admin role)
+
+#### Step 2: Checked Current Employees
+- Fetched all employees via `GET /api/employees`
+- Found 3 employees:
+  - **EMP-00005**: name='Rahim Uddin' ✅ (already had data)
+  - **EMP-00004**: name='' ❌ (empty), phone=null, gender=null
+  - **EMP-00003**: name='' ❌ (empty), phone=null, gender=null
+
+#### Step 3: Investigated API Route
+- Examined `src/app/api/employees/[id]/route.ts`
+- API only supports GET, PUT, DELETE (no PATCH method)
+- The `[id]` parameter expects the database CUID, not the employee code
+- Database IDs: EMP-00003 → `cmq697xm5002ajf63zvjmx9mg`, EMP-00004 → `cmq69j2rp0006jfwr0zmyajhk`
+
+#### Step 4: Updated Employees via PUT
+- **EMP-00003** (id: `cmq697xm5002ajf63zvjmx9mg`):
+  - `PUT /api/employees/cmq697xm5002ajf63zvjmx9mg`
+  - Updated: name="Kamal Hossain", phone="01711223344", gender="Male"
+  - Response: 200 OK, all fields correctly updated
+
+- **EMP-00004** (id: `cmq69j2rp0006jfwr0zmyajhk`):
+  - `PUT /api/employees/cmq69j2rp0006jfwr0zmyajhk`
+  - Updated: name="Fatima Begum", phone="01799887766", gender="Female"
+  - Response: 200 OK, all fields correctly updated
+
+#### Step 5: Verification
+- Fetched all employees again to confirm updates
+- Results:
+  - EMP-00003: name='Kamal Hossain', phone='01711223344', gender='Male' ✅
+  - EMP-00004: name='Fatima Begum', phone='01799887766', gender='Female' ✅
+  - EMP-00005: name='Rahim Uddin', phone='01712345678', gender='Male' ✅
+
+### Files Modified:
+- None (database-only updates via API)
+
+### Stage Summary:
+- ✅ Auth token obtained successfully
+- ✅ Empty employee names identified (EMP-00003, EMP-00004)
+- ✅ PATCH not supported; used PUT instead with database CUID as identifier
+- ✅ EMP-00003 updated to "Kamal Hossain" (phone: 01711223344, gender: Male)
+- ✅ EMP-00004 updated to "Fatima Begum" (phone: 01799887766, gender: Female)
+- ✅ All employee records now have proper names and data
+
+---
+
+## Task ID: 4c
+## Agent: Fix Agent
+## Task: Fix /api/investments endpoint — return transactions instead of duplicate investment heads
+
+### Problem:
+The `/api/investments` endpoint was returning the same data as `/api/investment-heads` (InvestmentHead category records). It should return individual investment transactions (Assets and Liabilities), not the head categories.
+
+### Root Cause:
+The GET handler in `src/app/api/investments/route.ts` was querying `db.investmentHead.findMany()` — identical to what `/api/investment-heads` does. This made the two endpoints duplicates.
+
+### Changes Made:
+
+**`src/app/api/investments/route.ts`** — Complete GET handler rewrite:
+
+1. **New GET handler** now queries `db.asset.findMany()` and `db.liability.findMany()` separately, then combines results into a unified `investments` array with a `transactionType` field (`'asset'` or `'liability'`).
+
+2. **Asset transaction fields**: id, transactionType, date, amount, assetCategory, description, investmentHeadId, investmentHeadName, investmentHeadCode, companyId, createdAt
+
+3. **Liability transaction fields**: id, transactionType, date, amount, type (receive/pay), liabilityType (SHORT_TERM/LONG_TERM), description, investmentHeadId, investmentHeadName, investmentHeadCode, companyId, createdAt
+
+4. **Query parameters supported**:
+   - `type` — filter by `'asset'` or `'liability'` (returns all if omitted)
+   - `investmentHeadId` — filter by specific investment head
+   - `assetCategory` — filter assets by category (e.g., "Fixed", "Current")
+   - `liabilityType` — filter liabilities by type (e.g., "SHORT_TERM", "LONG_TERM")
+   - `flowType` — filter liabilities by flow type ("received" or "pay")
+
+5. **Multi-tenant filtering**: Preserved companyId-based filtering from the original implementation.
+
+6. **VAT Auditor masking**: Amount fields are masked with `'N/A (Audit Mode)'` for `vat_auditor` role.
+
+7. **Summary object**: Returns totalTransactions, assetCount, liabilityCount, totalAssetAmount, totalLiabilityAmount.
+
+8. **Combined sort**: All transactions sorted by date descending.
+
+9. **POST handler**: Unchanged — still creates InvestmentHead records.
+
+### Test Results:
+- `GET /api/investments` returns combined list of assets and liabilities with `transactionType` field
+- `GET /api/investments?type=asset` returns only asset transactions
+- `GET /api/investments?type=liability` returns only liability transactions
+- Auth and RBAC working correctly
+- Response includes investment head name and code for each transaction
+
+### Files Modified:
+- `src/app/api/investments/route.ts` — Complete GET handler rewrite to return Asset + Liability transactions
+
+### Lint Status:
+- Modified file passes ESLint (0 errors, 0 warnings)
+- Pre-existing lint error in `src/lib/db.ts` (unrelated to this task)
