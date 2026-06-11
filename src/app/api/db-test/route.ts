@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { PrismaLibSQL } from '@prisma/adapter-libsql';
+import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { createClient } from '@libsql/client';
 
 export async function GET() {
@@ -22,7 +22,7 @@ export async function GET() {
       const rawCount = testResult.rows[0]?.count;
       
       // Now test with Prisma adapter
-      const adapter = new PrismaLibSQL(libsql);
+      const adapter = new PrismaLibSql(libsql);
       const prisma = new PrismaClient({ adapter, log: ['error'] });
       const userCount = await prisma.user.count();
       await prisma.$disconnect();

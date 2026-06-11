@@ -1,13 +1,7 @@
 import { PrismaClient } from '@prisma/client'
-import { PrismaLibSQL } from '@prisma/adapter-libsql'
-import { createClient } from '@libsql/client'
 
 // Schema version: increment this after any Prisma schema change to force cache invalidation
-const PRISMA_SCHEMA_VERSION = 14;
-
-// ── Database type detection ──
-// Turso/libsql URLs start with "libsql://" or "wss://"
-// Local SQLite URLs start with "file:"
+const PRISMA_SCHEMA_VERSION = 16;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -24,11 +18,7 @@ if (globalForPrisma.prisma && globalForPrisma.prismaSchemaVersion !== PRISMA_SCH
   globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION
 }
 
-// ── Lazy PrismaClient creation ──
-// Use a getter function to defer PrismaClient creation until first actual use.
-// This prevents crashes during Vercel's "Collecting page data" build phase
-// when DATABASE_URL may not be available.
-
+// ── Database type detection ──
 function getDatabaseUrl(): string {
   return process.env.DATABASE_URL || '';
 }
@@ -38,6 +28,7 @@ function isTurso(): boolean {
   return url.startsWith('libsql://') || url.startsWith('wss://');
 }
 
+// ── Lazy PrismaClient creation ──
 function createPrismaClient(): PrismaClient {
   const DATABASE_URL = getDatabaseUrl();
 
@@ -49,15 +40,16 @@ function createPrismaClient(): PrismaClient {
 
   if (isTurso()) {
     // Turso (cloud SQLite) — use LibSQL adapter
-    const libsql = createClient({
+    // Pass config object directly to PrismaLibSQL factory
+    const { PrismaLibSQL } = require('@prisma/adapter-libsql');
+    const adapter = new PrismaLibSQL({
       url: DATABASE_URL,
       authToken: process.env.DATABASE_AUTH_TOKEN || undefined,
-    })
-    const adapter = new PrismaLibSQL(libsql)
+    });
     return new PrismaClient({
       adapter,
       log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-    })
+    });
   }
 
   // Local SQLite — standard PrismaClient
@@ -84,10 +76,8 @@ function getPrismaInstance(): PrismaClient {
 }
 
 // Export the lazy db instance
-// Using Object.defineProperty to make all PrismaClient properties available lazily
 export const db: PrismaClient = new Proxy({} as PrismaClient, {
   get(_target, prop: string | symbol) {
-    // Special handling for common Prisma properties
     const instance = getPrismaInstance();
     const value = (instance as any)[prop];
     if (typeof value === 'function') {
@@ -98,16 +88,9 @@ export const db: PrismaClient = new Proxy({} as PrismaClient, {
   has(_target, prop) {
     return prop in getPrismaInstance();
   },
-  ownKeys() {
-    return Reflect.ownKeys(getPrismaInstance());
-  },
-  getOwnPropertyDescriptor(_target, prop) {
-    return Reflect.getOwnPropertyDescriptor(getPrismaInstance(), prop);
-  },
 });
 
 // ── SQLite performance pragmas (local SQLite only) ──
-// Defer pragma execution to after first request
 let pragmasApplied = false;
 async function applyPragmas() {
   if (pragmasApplied || isTurso() || !getDatabaseUrl()) return;
@@ -124,7 +107,6 @@ async function applyPragmas() {
   }
 }
 
-// Apply pragmas lazily
 if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
   setImmediate(() => applyPragmas());
 }
