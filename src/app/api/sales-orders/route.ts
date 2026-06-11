@@ -368,6 +368,7 @@ async function handleCreate(
     status = 'Draft',
     srId,
     lines,
+    sendSms = false,
   } = body;
 
   // ── Validation ──
@@ -700,17 +701,47 @@ async function handleCreate(
   }
 
   // Automated SMS: Sales Confirmation Event
-  if (result && typeof result === 'object' && 'status' in result && (result as any).status === 'Confirmed') {
+  // Trigger if: status is Confirmed (auto-trigger) OR sendSms checkbox is explicitly checked
+  const shouldSendSms = (result && typeof result === 'object' && 'status' in result && (result as any).status === 'Confirmed') || sendSms;
+  if (shouldSendSms && result && typeof result === 'object' && 'id' in result) {
     try {
-      const { triggerSalesConfirmationSms } = await import('@/lib/sms-event-hooks');
-      await triggerSalesConfirmationSms({
-        id: (result as any).id,
-        invoiceNo: (result as any).invoiceNo,
-        customerId: (result as any).customerId,
-        grandTotal: (result as any).grandTotal,
-        date: (result as any).date,
-        companyId: (result as any).companyId || undefined,
-      });
+      // Check company SMS automation toggle (smsAlertOnPurchase) when using explicit sendSms
+      if (sendSms) {
+        const automationConfig = await db.smsAutomationConfig.findFirst({
+          where: {
+            OR: [
+              { companyId: (result as any).companyId ?? null },
+              { companyId: null },
+            ],
+          },
+          orderBy: { companyId: 'desc' },
+        });
+        if (automationConfig && automationConfig.smsAlertOnPurchase === false) {
+          // Company-wide toggle is OFF — skip SMS even if user checked the box
+          console.log('[SalesOrders] SMS skipped: company smsAlertOnPurchase toggle is OFF');
+        } else {
+          const { triggerSalesConfirmationSms } = await import('@/lib/sms-event-hooks');
+          await triggerSalesConfirmationSms({
+            id: (result as any).id,
+            invoiceNo: (result as any).invoiceNo,
+            customerId: (result as any).customerId,
+            grandTotal: (result as any).grandTotal,
+            date: (result as any).date,
+            companyId: (result as any).companyId || undefined,
+          });
+        }
+      } else {
+        // Auto-trigger for Confirmed status (existing behavior)
+        const { triggerSalesConfirmationSms } = await import('@/lib/sms-event-hooks');
+        await triggerSalesConfirmationSms({
+          id: (result as any).id,
+          invoiceNo: (result as any).invoiceNo,
+          customerId: (result as any).customerId,
+          grandTotal: (result as any).grandTotal,
+          date: (result as any).date,
+          companyId: (result as any).companyId || undefined,
+        });
+      }
     } catch (smsError) {
       console.error('[SalesOrders] SMS trigger failed (non-blocking):', smsError);
     }

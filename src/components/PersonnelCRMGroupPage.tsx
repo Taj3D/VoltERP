@@ -330,6 +330,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "creditLimit", label: "Credit Limit", type: "currency" },
       { key: "creditStatus", label: "Credit Status", type: "text" },
       { key: "_count.salesOrders", label: "Sales Orders", type: "number" },
+      { key: "guarantorName", label: "Guarantor", type: "text" },
       { key: "isActive", label: "Status", type: "boolean" },
     ],
     formFields: [
@@ -348,6 +349,10 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
+      { key: "guarantorName", label: "Guarantor Name", type: "text", placeholder: "Full name of guarantor" },
+      { key: "guarantorContact", label: "Guarantor Contact", type: "text", placeholder: "Phone number of guarantor" },
+      { key: "guarantorAddress", label: "Guarantor Address", type: "text", placeholder: "Address of guarantor" },
+      { key: "guarantorFatherName", label: "Guarantor Father Name", type: "text", placeholder: "Father's name of guarantor" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
@@ -355,6 +360,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
       { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
+      { title: "Guarantor Information", fields: ["guarantorName", "guarantorContact", "guarantorAddress", "guarantorFatherName"] },
     ],
   },
   // ── Supplier CRM ──

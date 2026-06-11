@@ -30,12 +30,16 @@ export interface ColumnDef {
 export interface FieldDef {
   key: string;
   label: string;
-  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image";
+  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image" | "section" | "warrantyGroup";
   required?: boolean;
   options?: { value: string; label: string }[];
   placeholder?: string;
   defaultValue?: any;
   step?: string;
+  /** For section type: icon name to display */
+  sectionIcon?: string;
+  /** For warrantyGroup type: the unit field key (e.g. "compressorWarrantyUnit") */
+  unitKey?: string;
 }
 
 /** Company profile for dynamic branding in PDF header/footer */

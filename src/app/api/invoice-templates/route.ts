@@ -281,7 +281,7 @@ const DEFAULT_TEMPLATES = [
     templateType: 'Mushok63',
     isDefault: true,
     subject: 'Mushok 6.3 - VAT Return {{invoiceNo}}',
-    headerHtml: '<div style="text-align:center;"><h2>মুশক ৬.৩</h2><p>{{companyName}} | BIN: {{vatNumber}}</p></div>',
+    headerHtml: '<div style="text-align:center;"><h2>Mushok 6.3</h2><p>{{companyName}} | BIN: {{vatNumber}}</p></div>',
     bodyHtml: '<h3>VAT Return: {{invoiceNo}}</h3><p>Date: {{date}}</p><p>Supplier: {{supplierName}}</p><table>{{lineItems}}</table><p>VAT Amount: {{vatAmount}}</p>',
     footerHtml: '<p>This is a system generated VAT return document as per NBR regulations.</p>',
     paperSize: 'A4',

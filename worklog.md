@@ -10432,3 +10432,908 @@ Stage Summary:
 5. PDF currency digits: English only (verify in all PDF generators)
 6. Company customization for buyers
 7. Final comprehensive testing of all module pages
+
+---
+Task ID: 19-ref-study
+Agent: Reference Site Study Agent
+Task: Study reference ERP site (https://embd-j.com/) — Document all module pages, table columns, form fields, buttons, and unique features
+
+## Methodology
+- Logged into reference site with session "ref" (admin: emart.amit)
+- Navigated all sidebar menu groups and sub-items
+- For each module: captured screenshot, documented table columns, buttons, search/filter options, create/edit form fields
+- Attempted to expand all collapsible sidebar groups; some sub-menus (Account management, Inventory Management, SMS, Reports) did not expand in snapshot — navigated by URL discovery
+
+---
+
+## MODULE-BY-MODULE DOCUMENTATION
+
+### 1. INVESTMENT HEADS
+- **URL**: /InvestmentHead
+- **Table Columns**: Sl, Code, Name, Investment Type, Action
+- **Buttons**: Create new, refresh, toggle, columns, export type, Search textbox
+- **Pagination**: 10 per page, multi-page
+- **Actions**: Edit, Delete (per row), + (expand row details)
+- **Create Form Fields**: Code (auto), Name, Head (dropdown: --Select Head--), Opening Balance (number), Opening Type (dropdown: Payment/Receive), Add button
+- **Investment Types**: Liability, CurrentAsset (visible in data)
+
+### 2. FIXED ASSET
+- **URL**: /FixedAsset
+- **Table Columns**: Sl, Entry Date, Head Name, Purpose, Amount, Action
+- **Filter**: Date range (From/To with date picker), Search button
+- **Buttons**: Create new, refresh, toggle, columns, export type, Search textbox
+- **Create Form Fields**: Entry Date (date picker), Head (dropdown), Purpose (text), Amount (number), Add button
+
+### 3. CURRENT ASSET
+- **URL**: /CurrentAsset
+- **Table Columns**: Sl, Entry Date, Head Name, Purpose, Amount, Action
+- **Filter**: Date range (From/To), Search button
+- **Buttons**: Same as Fixed Asset
+- **Create Form Fields**: Same as Fixed Asset (Entry Date, Head dropdown, Purpose, Amount, Add)
+
+### 4. LIABILITY RECEIVE
+- **URL**: /LiabilityRec
+- **Table Columns**: Sl, Entry Date, Head Name, Purpose, Amount, Action
+- **Filter**: Date range (From/To), Search button
+- **Create Form**: Same pattern as Fixed/Current Asset
+
+### 5. LIABILITY PAY
+- **URL**: /LiabilityPay
+- **Table Columns**: Sl, Entry Date, Head Name, Purpose, Amount, Action
+- **Filter**: Date range, Search
+- **Create Form**: Same pattern
+
+### 6. LIABILITY REPORT
+- **URL**: /LiabilityReport
+- **Type**: Report-only page (no table, no CRUD)
+- **Filter**: Date range (From/To), Head dropdown (Select Head), Preview button
+- **No Create/Edit/Delete**
+
+### 7. COMPANIES
+- **URL**: /Company
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Buttons**: Create new company, refresh, toggle, columns, export type, Search
+- **Pagination**: 10 per page
+- **Create Form**: Code (auto), Name, Add Company button
+- **Unique**: Very simple form — only Code + Name
+
+### 8. CATEGORIES
+- **URL**: /Category (listed as "Categories" in sidebar)
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Pagination**: 10 per page, 5 pages
+- **Create Form**: Code (auto), Name, Add button
+- **Same pattern as Companies**
+
+### 9. COLOR
+- **URL**: /Color
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Create Form**: Code (auto), Name, Add button
+- **Heading**: "Existing product colors"
+
+### 10. PRODUCTS
+- **URL**: /Product
+- **Table Columns**: Sl, Code, Name, Category, Company, Segment, Capacities, DD Lifting Price, MRP Rate
+- **Search**: "Enter Product Name" search box + general Search
+- **Pagination**: 15 per page, 605 total items (40+ pages)
+- **Buttons**: Create new product, refresh, toggle, columns, export type
+- **Create Form Fields**:
+  - Code (auto-generated: 00606)
+  - Name
+  - Company (dropdown with Pick button)
+  - Category (dropdown with Pick button)
+  - Segment (dropdown with Pick button)
+  - Capacity (dropdown with Pick button)
+  - Color (dropdown with Pick button)
+  - DD Lifting Price (number)
+  - MRP (number)
+  - Product Type (dropdown: ExistingBC, NoBarcode, AutoBC)
+  - **Warranty fields**: Compressor Warranty (number + Years/Months), Panel Warranty (number + Years/Months), Service Warranty (number + Years/Months), Motor Warranty (number + Years/Months), SpareParts Warranty (number + Years/Months)
+  - Add Product button
+- **UNIQUE**: Product Type barcode options, 5 separate warranty fields with Years/Months toggle
+
+### 11. BANK
+- **URL**: /Bank
+- **Table Columns**: Account Name, Account No., Bank Name, Branch Name, Balance
+- **Actions**: Edit only (no Delete)
+- **Create Form Fields**:
+  - Code (auto)
+  - Bank Name
+  - Account No.
+  - Branch Name
+  - Account Name
+  - Opening Balance (number)
+  - Balance (number)
+  - Is CC Loan Applicable? (checkbox)
+  - CC Loan Amount Limit (number)
+  - Is Payment Bank? (checkbox, disabled)
+  - Add Bank button
+- **UNIQUE**: CC Loan fields, Payment Bank checkbox, Balance display in list
+
+### 12. DEPARTMENT
+- **URL**: /Department
+- **Table Columns**: Department Code, Department Name, Status, Action (Edit | Delete)
+- **Create Form**: Code, Name, Add button
+- **UNIQUE**: Status column (Active/Inactive)
+
+### 13. GODOWNS
+- **URL**: /Godown
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Create Form**: Code (auto), Name, ISCommon (checkbox), Add Godown button
+- **UNIQUE**: ISCommon checkbox for shared godowns
+
+### 14. INTEREST PERCENTAGE
+- **URL**: /CreditInterestPercentage
+- **Table Columns**: Sl, Code, Int. Percentage, Effect Date
+- **Create Form**: Code (auto), Int. Percentage (number), Effect Date (date picker), Add button
+
+### 15. SEGMENT
+- **URL**: /Segment
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Create Form**: Code (auto), Name, Add button
+- **Heading incorrectly shows**: "Existing product colors" (likely copy-paste bug in ref site)
+
+### 16. CAPACITY
+- **URL**: /Capacity
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Create Form**: Code (auto), Name, Add button
+- **15 pages of data**
+
+### 17. SR TARGET SETUP
+- **URL**: /CategoryTargetSetup
+- **Table Columns**: Sl, Employee, Designation, Department, Target Month, Quantity, Status, Action
+- **Filter**: Date range (From/To), Search
+- **Create Form**: Month (text), Employee (Pick dropdown), KPI (number), Target Type (Category dropdown), multiple category quantity spinbuttons, Save button
+
+### 18. PAYMENT OPTION
+- **URL**: /PaymentOption
+- **Table Columns**: Sl, Code, Name, Charge
+- **Actions**: Edit only (no Delete)
+- **Data**: Cash (0.00), Bank (0.00)
+
+### 19. CARDTYPE
+- **URL**: /CardType
+- **Table Columns**: Sl, Code, Description, Sequence, Status
+- **Create**: Create New button
+- **No data currently**
+
+### 20. CARDTYPE SETUP
+- **URL**: /CardTypeSetup
+- **Table Columns**: Sl, Code, Bank, Account No, Card Type, Percentage, Action
+- **Create**: Create new button
+
+### 21. DESIGNATIONS
+- **URL**: /Designation
+- **Table Columns**: Sl, Code, Name, Action (Edit | Delete)
+- **Create Form**: Code (auto), Name, Add Designation button
+
+### 22. EMPLOYEES
+- **URL**: /Employee
+- **Table Columns**: Sl, Code, Name, Contact No., Joining Date, Designation Name, Account No., Status, Action
+- **Actions**: Edit, Delete, Active (status toggle)
+- **Create Form Fields**:
+  - Code (auto)
+  - Name
+  - Contact No.
+  - Account No. (number)
+  - Designation (dropdown)
+  - Religion Name (dropdown)
+  - Department (dropdown)
+  - Gross Salary (number)
+  - SR Due Limit (number)
+  - **Photo upload** (Choose File button)
+  - National Id
+  - Father Name
+  - Mother Name
+  - Joining Date (date picker)
+  - Blood Group
+  - Email
+  - Birth Date (date picker)
+  - Present Address
+  - Permanent Address
+  - Add Employee button
+- **UNIQUE**: Photo upload, Religion field, SR Due Limit, Active status toggle
+
+### 23. CUSTOMERS
+- **URL**: /Customer
+- **Table Columns**: Sl, Code, DMS Code, Name, Contact No., Address, Customer Type, Total Due, Actions, Details
+- **Search**: Name search, Mobile No search (two separate search boxes)
+- **Actions**: Edit, Details (button per row)
+- **Customer Types**: Dealer (D-code), Retail (R-code)
+- **Create Form Fields**:
+  - Code (auto: D00141 for Dealer)
+  - DMS Code
+  - Name
+  - Customer Type (dropdown: Dealer/Retail)
+  - Contact No.
+  - Address
+  - Father Name
+  - Email
+  - Opening Due (number)
+  - Total Due (number)
+  - **Photo upload** (Choose File + preview image)
+  - Guarantor Name
+  - Guarantor Contact No.
+  - Guarantor Address
+  - Employee/SR (Pick dropdown with code + name)
+  - National Id
+  - Due Limit (number)
+  - Guarantor Father Name
+  - Remarks
+  - Company Name
+  - Company Wise Due (number)
+  - Add Customer button
+  - Add Company Wise Due button
+- **UNIQUE**: DMS Code, Guarantor fields (3+), Employee/SR picker, Company Wise Due, photo upload with preview, Dealer/Retail code prefix
+
+### 24. SUPPLIERS
+- **URL**: /Supplier
+- **Table Columns**: Sl, Code, Name, Contact No., Total Due, Owner Name, Action (Edit | Delete)
+- **Create Form Fields**:
+  - Code (auto)
+  - Contact No.
+  - Opening Due (number)
+  - **Photo upload** (Choose File)
+  - Name
+  - Owner Name
+  - Total Due (number)
+  - Address
+  - Add Supplier button
+- **UNIQUE**: Owner Name field, simpler than Customer form
+
+### 25. PURCHASE ORDER
+- **URL**: /PurchaseOrder
+- **Table Columns**: Sl, Challan No, Order Date, Supplier, Company, Contact No, Status, Action
+- **Filter**: Date range (From/To), Search
+- **Actions**: Edit, Return, Print Invoice
+- **Create Form Fields**:
+  - Challan No (auto)
+  - Order Date (date picker)
+  - Supplier (Pick dropdown)
+  - Previous Due (number)
+  - P.Challan (text)
+  - Is Scanner (checkbox)
+  - DO (text)
+  - Product fields: Category (Pick), Company (Pick), Product (button), Prv. Stock (number), Pur.Rate (number), DD Lifting Price (number), Cash Sales Rate (number), Color, Qty (number), Total Amt (number)
+  - Line items table: Sl, Product, Qty, DD Lifting Price, Dis.Per., Dis. Amt, Pur.Rate, Total Amt
+  - IMEI tracking table: Sl, Name, IMEI
+  - Add to order, Clear buttons
+  - Total Dis., Vat Percentage, AIT Percentage, Grand Total, Net Total (all numbers)
+  - Remarks
+  - Pay Amount, Vat Amount, AIT Amount, Adj. Amt, Payment Due
+  - Preview, Save order buttons
+- **UNIQUE**: Scanner checkbox, IMEI tracking, AIT (Advance Income Tax), DD Lifting Price in PO, Cash Sales Rate setting
+
+### 26. SALES ORDER
+- **URL**: /SalesOrder
+- **Table Columns**: Sl, Invoice No, Sales Date, A/C, Customer, Contact No, Inv. Amt, Customer Actual Due, Invoice Due Amt, Status, Actions
+- **Filter**: Date range (From/To), additional filter fields, Account No search
+- **Actions**: Edit, Invoice, Invoice 2, Mushok 6.3, Challan, Return
+- **Create Form Fields**:
+  - Inv. No. (auto)
+  - Sales Date (date picker)
+  - Customer (Pick dropdown)
+  - Add Customer button
+  - Previous Due (number)
+  - Manual (checkbox)
+  - DO (text)
+  - Product: Category (Pick), Product (Pick), Stock (read-only), IMEI, Qty, Dis. Per., Color, Sales Rate, Dis. Amt., Total
+  - Line items table: Sl, Product, IMEI, Qty, Sales Rate, Dis (%), Dis.Amt, Total
+  - Add to order, Clear buttons
+  - Payment Details table: Id, Name (dropdown), Bank Name (dropdown), Cheque No, Paid Amount (dynamic rows with add/delete)
+  - Flat Dis. Per., Net Discount, VAT Percent., Delivery Date (date picker)
+  - Flat Dis. Amt., Adjust. Amt, VAT Amount, Delivery Cost, Remarks
+  - Net Total, Pay Amount, Payment Due
+  - Send SMS (checkbox, default ON)
+  - Save order button
+- **UNIQUE**: Multiple invoice formats (Invoice, Invoice 2, Mushok 6.3), Challan generation, Send SMS checkbox, Manual price override, Delivery Cost field, multiple payment methods per order, IMEI tracking
+
+### 27. STOCK
+- **URL**: /Stock
+- **Table Columns**: Sl, Code, GodownName, Product Name, ColorName, Company Name, Quantity, Cash Sales Rate, S.Rate Update
+- **Actions**: Update (per row, for sales rate)
+- **No Create/Delete** (stock is derived from PO/SO)
+- **UNIQUE**: Cash Sales Rate + S.Rate Update button per row
+
+### 28. INCOME
+- **URL**: /Income
+- **Table Columns**: Sl, Entry Date, Voucher No, Head, Purpose, Amount, Action
+- **Filter**: Date range (From/To), Search
+- **Create Form Fields**:
+  - Voucher No (auto)
+  - Entry Date (date picker)
+  - Head (Pick dropdown)
+  - Purpose (text)
+  - Amount (number)
+  - Prevent this Item for Cash In Hand Report! (checkbox)
+  - Add Income button
+- **UNIQUE**: Cash In Hand exclusion checkbox
+
+### 29. CASH COLLECTION
+- **URL**: /CashCollection
+- **Table Columns**: Sl, Receipt No, Entry Date, A/C, Transaction Type, Name, AccountNo, Amount, Remarks, Actions
+- **Filter**: Date range, Search
+- **Actions**: Money Receipt (print), Delete
+- **Create Form Fields**:
+  - Entry Date (date picker)
+  - Receipt No (auto)
+  - Transaction Type (dropdown: Normal + others)
+  - Customer (Pick dropdown with code + name)
+  - Account (Pick dropdown)
+  - Total Due (number)
+  - Received Amount (number)
+  - Due Amt. (number)
+  - Adjustment (number)
+  - Remarks
+  - Save Cash Collection button
+  - Is EMI? (checkbox)
+  - Payment Details table: Id, Name (dropdown), Bank Name (dropdown), Cheque No, Paid Amount (dynamic rows)
+  - Add row button
+- **UNIQUE**: Money Receipt print, EMI checkbox, Adjustment field, dynamic payment details rows
+
+### 30. BANK TRANSACTION
+- **URL**: /BankTransaction
+- **Table Columns**: Sl, TranDate, Trans. No, Bank Name, AccountName, Account No, Trans. Type, Amount, Status, Remarks, Actions
+- **Filter**: Date range, Search
+- **Actions**: Money Rcpt., Edit, Delete, Info button (ℹ)
+- **Status values**: Approved
+- **Create Form Fields**:
+  - Transaction No (auto)
+  - Transaction Date (date picker)
+  - Bank (Pick dropdown)
+  - Transaction Type (dropdown: Deposit, Withdraw, Cash Collection, Cash Delivery, Fund Transfer, Bank Expense, Bank Income, Liability Pay, Liability Receive, Customer Collection Return)
+  - From Account (Pick, disabled for some types)
+  - To Account (Pick, disabled for some types)
+  - Head (dropdown from Investment Heads)
+  - Customer (Pick, disabled for some types)
+  - Amount (number)
+  - Cheque No
+  - Remarks
+  - Add BankTransaction button
+- **UNIQUE**: 10 transaction types, dynamic field enable/disable based on type, approval status, Investment Head link
+
+### 31. SMS SERVICE (SMS Inbox)
+- **URL**: /SmsService
+- **Table Columns**: Sl, Code, Type, Status, NoOfSMS, CustomerCode, CustomerName, SMS
+- **Filter**: Date range (From/To), Status dropdown (Success/Fail/Pending)
+- **Actions**: SMS button (view per row)
+- **Status values**: OK, Success
+- **SMS Types**: CashCollection, Sales
+- **NO Create/Delete** (auto-generated from events)
+
+### 32-34. ACCOUNTING REPORT, MIS REPORT, USER PROFILE
+- **Could not access** via direct URL — these pages may require specific sidebar navigation that the browser automation couldn't trigger
+- Based on worklog context, our clone already has: Chart of Accounts, Cash In Hand, Trial Balance, P&L, Balance Sheet, Basic Reports
+- The reference site likely has similar report pages
+
+### HOME PAGE (Dashboard)
+- **Stock Info table**: Sl, Action, Invoice No, Sales Date, Payment Date, Remind Date, Code, Customer Name, Address & Contact, Product Name, Installment, Default Amount
+- **Search Stock** button
+- **Advance Search** button
+- **Print** button
+- **This is essentially the Hire Sales installment tracking view**
+
+---
+
+## KEY DIFFERENCES: REFERENCE vs OUR CLONE
+
+### Features Reference Has That Our Clone May Be Missing:
+
+1. **Product Warranty Fields** (5 types): Compressor, Panel, Service, Motor, SpareParts — each with number + Years/Months toggle
+2. **Product Type Barcode Options**: ExistingBC, NoBarcode, AutoBC
+3. **DMS Code** field on Customer (likely Dealer Management System code)
+4. **Guarantor Fields** on Customer: Name, Contact No., Address, Father Name
+5. **Company Wise Due** on Customer: Company Name + Company Wise Due amount + "Add Company Wise Due" button
+6. **Employee/SR Picker** on Customer: Links customer to specific sales representative
+7. **Customer Details button**: Per-row expandable details view
+8. **Customer Type Code Prefix**: D00001 for Dealer, R00001 for Retail
+9. **ISCommon checkbox** on Godowns
+10. **SR Due Limit** on Employee
+11. **Religion Name** dropdown on Employee
+12. **Scanner checkbox** on Purchase Order
+13. **AIT (Advance Income Tax)** fields on Purchase Order: AIT Percentage, AIT Amount
+14. **Cash Sales Rate** set during Purchase Order entry
+15. **DD Lifting Price** in both PO and Stock
+16. **IMEI Tracking**: Dedicated IMEI table in both PO and SO
+17. **Multiple Invoice Formats**: Invoice, Invoice 2, Mushok 6.3, Challan — 4 different print formats
+18. **Send SMS checkbox** on Sales Order (default ON)
+19. **Manual price override** checkbox on Sales Order
+20. **Delivery Cost** field on Sales Order
+21. **Flat Discount** percentage + amount fields on Sales Order
+22. **VAT Percentage** field on both PO and SO (configurable per order)
+23. **Is EMI? checkbox** on Cash Collection
+24. **Adjustment field** on Cash Collection
+25. **Money Receipt** print on Cash Collection and Bank Transaction
+26. **Prevent Cash In Hand Report** checkbox on Income
+27. **10 Bank Transaction Types**: Deposit, Withdraw, Cash Collection, Cash Delivery, Fund Transfer, Bank Expense, Bank Income, Liability Pay, Liability Receive, Customer Collection Return
+28. **Approval Status** on Bank Transactions
+29. **Dynamic field enable/disable** on Bank Transaction based on transaction type
+30. **Investment Head link** on Bank Transaction (for liability transactions)
+31. **PO Return** action on Purchase Orders
+32. **Sales Return** action on Sales Orders
+33. **Row expand (+) button** on list tables for additional details
+34. **Column visibility toggle** and **Export type selector** on all table pages
+35. **SR Target Setup** module with KPI targets per employee per month
+36. **Payment Option** module with charge configuration
+37. **CardType + CardType Setup** modules for card payment processing
+38. **CC Loan** fields on Bank (Is CC Loan Applicable, CC Loan Amount Limit)
+
+### UI/UX Differences:
+
+1. **Breadcrumb navigation**: Home > Module > Create (reference has breadcrumbs, our clone may not)
+2. **Row expand (+) button**: Reference has collapsible row details; our clone may not
+3. **Column visibility toggle**: Reference has "columns" button to show/hide columns
+4. **Export type selector**: Separate dropdown for export format selection
+5. **Date range filters**: Reference uses date pickers prominently on most list pages
+6. **"Pick" buttons**: Reference uses Pick buttons next to dropdown fields (company, category, etc.) — likely open a search/select popup
+7. **Table action layout**: Reference uses "Edit | Delete" text links in Action column
+8. **Pagination style**: Reference uses ‹ 1 2 3 › with item count
+9. **Simple forms**: Reference uses very simple forms (Code + Name) for basic modules — our clone may have more complex forms
+10. **Heading inconsistencies**: Reference has some copy-paste bugs (e.g., Segment page says "Existing product colors")
+11. **Color scheme**: Dark blue/white theme with blue action buttons
+12. **Sidebar structure**: Collapsible groups with sub-items (Asset > Fixed Asset, Current Asset; Liability > Receive, Pay, Report)
+
+---
+
+## PRIORITY MISSING FEATURES TO ADD
+
+### HIGH PRIORITY (Core Business Logic):
+1. **Product Warranty Fields** — Critical for electronics store (5 warranty types)
+2. **IMEI Tracking** in PO and SO — Essential for electronics inventory
+3. **Multiple Invoice Formats** (Invoice, Invoice 2, Mushok 6.3, Challan) — Legal requirement in Bangladesh
+4. **Guarantor Fields** on Customer — Important for credit sales
+5. **Send SMS checkbox** on Sales Order — Auto-SMS feature
+6. **Bank Transaction Types** (10 types with dynamic fields) — Core accounting
+7. **Customer Type Code Prefix** (D/R) — Business convention
+8. **PO Return and Sales Return** actions — Essential operations
+
+### MEDIUM PRIORITY (Operational):
+9. **DMS Code** on Customer
+10. **Company Wise Due** on Customer
+11. **Employee/SR Picker** on Customer
+12. **AIT fields** on Purchase Order
+13. **Delivery Cost** on Sales Order
+14. **Is EMI?** on Cash Collection
+15. **Adjustment** field on Cash Collection
+16. **Money Receipt** print
+17. **Prevent Cash In Hand** checkbox on Income
+18. **CC Loan** fields on Bank
+19. **Scanner checkbox** on PO
+20. **SR Target Setup** module
+
+### LOW PRIORITY (Nice to Have):
+21. **ISCommon** on Godowns
+22. **Religion** on Employee
+23. **SR Due Limit** on Employee
+24. **Payment Option** with charge
+25. **CardType + CardType Setup**
+26. **Row expand (+) button** on tables
+27. **Column visibility toggle**
+28. **Pick buttons** (search popups for dropdowns)
+29. **Flat Discount** fields on SO
+30. **Manual price override** on SO
+
+---
+
+## Screenshots Captured
+All screenshots saved to /tmp/ref_*.png:
+- ref_investment_heads.png, ref_investment_heads_create.png
+- ref_fixed_asset.png, ref_fixed_asset_create.png
+- ref_current_asset.png
+- ref_liability_receive.png, ref_liability_pay.png, ref_liability_report.png
+- ref_companies.png, ref_companies_create.png
+- ref_categories.png
+- ref_color.png
+- ref_products.png, ref_products_create.png
+- ref_bank.png, ref_bank_create.png
+- ref_department.png
+- ref_godowns.png, ref_godowns_create.png
+- ref_interest_pct.png
+- ref_segment.png
+- ref_capacity.png
+- ref_sr_target.png
+- ref_payment_option2.png
+- ref_cardtype2.png, ref_cardtype_setup.png
+- ref_designations.png, ref_designation_create.png
+- ref_employees.png, ref_employees_create.png
+- ref_customers.png, ref_customers_create.png
+- ref_suppliers.png, ref_supplier_create.png
+- ref_purchase_order.png, ref_purchase_order_create.png
+- ref_sales_order.png, ref_sales_order_create.png
+- ref_stock.png
+- ref_income.png, ref_income_create.png
+- ref_cash_collection.png, ref_cash_collection_create.png
+- ref_bank_transaction.png, ref_bank_transaction_create.png
+- ref_sms_service.png
+- ref_user_profile.png (could not access profile page)
+
+
+---
+Task ID: 19-guarantor-sms
+Agent: Code Agent
+Task: Add Guarantor fields to Customer + Send SMS checkbox to Sales Order
+
+## Feature 1: Guarantor Fields on Customer
+
+### Changes Made:
+
+1. **Prisma Schema** (`prisma/schema.prisma`):
+   - Added 4 optional fields to Customer model after `nidNumber`:
+     - `guarantorName String?` — Guarantor full name
+     - `guarantorContact String?` — Guarantor phone number
+     - `guarantorAddress String?` — Guarantor address
+     - `guarantorFatherName String?` — Guarantor father name
+   - Ran `bun run db:push` successfully to sync schema to database
+
+2. **Customer Form** (`src/components/PersonnelCRMGroupPage.tsx`):
+   - Added 4 form fields: guarantorName, guarantorContact, guarantorAddress, guarantorFatherName
+   - Added new form section "Guarantor Information" with all 4 fields after "Security & Documents"
+   - Each field has placeholder text for guidance
+   - All fields are optional (no `required: true`)
+
+3. **Customer Table** (`src/components/PersonnelCRMGroupPage.tsx`):
+   - Added "Guarantor" column (`guarantorName` field) after "Sales Orders" column
+
+4. **Customer API — POST** (`src/app/api/customers/route.ts`):
+   - Added guarantor fields to both batch mode and single mode create handlers
+   - All guarantor fields sanitized with `stripHtml()` before storage
+   - Null-safe: empty values stored as `null`
+
+5. **Customer API — PUT** (`src/app/api/customers/[id]/route.ts`):
+   - Added 4 guarantor fields to the update handler
+   - Only updates fields that are explicitly provided in the body
+   - Sanitized with `stripHtml()`, null-safe
+
+## Feature 2: Send SMS Checkbox on Sales Order
+
+### Changes Made:
+
+1. **Sales Order Form** (`src/components/SalesModulePage.tsx`):
+   - Added `soSendSms` state variable (default: `false`)
+   - Added `Checkbox` import from shadcn/ui
+   - Added `MessageSquare` icon import from lucide-react
+   - Added "Send SMS to Customer" checkbox in the form footer (before Cancel/Save buttons)
+   - Checkbox includes `MessageSquare` icon and proper label with `htmlFor`
+   - `sendSms` field included in the payload when saving
+
+2. **Sales Order API** (`src/app/api/sales-orders/route.ts`):
+   - Added `sendSms` destructured from request body (default: `false`)
+   - SMS is triggered when:
+     - Status is "Confirmed" (existing auto-trigger behavior, unchanged)
+     - OR `sendSms` is `true` AND company `smsAlertOnPurchase` toggle is ON
+   - When `sendSms` is true but company toggle is OFF, SMS is skipped with console log
+   - Uses existing `triggerSalesConfirmationSms()` from `src/lib/sms-event-hooks.ts`
+
+## Verification Results
+- `bun run db:push` — Schema synced successfully
+- `bun run lint` — Zero errors
+- Dev server — HTTP 200 on localhost:3000
+- All fields are OPTIONAL — existing customers and sales orders work without changes
+- No breaking changes to existing functionality
+
+
+---
+Task ID: 19-product-warranty
+Agent: Code Agent
+Task: Add Product Warranty Fields — 5 warranty types with Years/Months toggle
+
+## Implementation Summary
+
+### 1. Prisma Schema — Added 10 warranty fields to Product model
+- `compressorWarranty` Int? + `compressorWarrantyUnit` String? @default("years")
+- `panelWarranty` Int? + `panelWarrantyUnit` String? @default("years")
+- `serviceWarranty` Int? + `serviceWarrantyUnit` String? @default("years")
+- `motorWarranty` Int? + `motorWarrantyUnit` String? @default("years")
+- `sparePartsWarranty` Int? + `sparePartsWarrantyUnit` String? @default("years")
+- Ran `bun run db:push` — all 10 columns synced to SQLite
+- Verified: existing products have null values, unit defaults are "years"
+
+### 2. Products API — POST and PUT handlers updated
+- `/api/products/route.ts` — Added warranty fields to single-mode POST and batch-mode POST
+- `/api/products/[id]/route.ts` — Added warranty fields to PUT update handler
+- All warranty fields are optional (null-safe: empty → null for Int?, "years" default for unit)
+
+### 3. FieldDef Type — Extended with `section` and `warrantyGroup` types
+- `export-utils.ts` — Added `"section" | "warrantyGroup"` to FieldDef type union
+- Added `sectionIcon?: string` property for section header icons
+- Added `unitKey?: string` property for warranty group unit field key reference
+
+### 4. BasicModulesGroupPage.tsx — Full UI implementation
+- Added `ChevronDown` icon import + `Collapsible` component import
+- Added `warrantyOpen` state for collapsible section toggle
+- Products columns: Added `_warranty` virtual column showing compact badge format (e.g., "Comp: 5Y", "Parts: 6M")
+- Products formFields: Added `_warrantySection` (section type) + 5 warrantyGroup fields
+- `openCreate`: Handles warranty fields (initializes unit to "years", value to "")
+- `openEdit`: Loads warranty values from item, populates unit fields
+- `handleSave`: Cleans warranty data (empty → null for Int?, validates units)
+- `renderFormField`: New `section` type renders Collapsible with Shield icon header
+- `renderFormField`: New `warrantyGroup` type returns null (rendered inside section)
+- Table rendering: `_warranty` column shows blue badges per warranty type or "—" if none
+- Form dialog: Skips warrantyGroup fields in main loop, skips Label for section type
+
+### Files Changed
+1. `/home/z/my-project/prisma/schema.prisma` — 10 warranty fields on Product model
+2. `/home/z/my-project/src/app/api/products/route.ts` — POST batch + single warranty fields
+3. `/home/z/my-project/src/app/api/products/[id]/route.ts` — PUT warranty fields
+4. `/home/z/my-project/src/lib/export-utils.ts` — Extended FieldDef type
+5. `/home/z/my-project/src/components/BasicModulesGroupPage.tsx` — Full warranty UI
+
+## Verification Results
+- ✅ `bun run db:push` — Schema synced, all 10 columns exist in DB
+- ✅ `bun run lint` — Zero errors
+- ✅ `npx tsc --noEmit` — No new component errors (BasicModulesGroupPage.tsx clean)
+- ✅ Dev server running on port 3000 (HTTP 200)
+- ✅ Direct DB test: Product updated with warranty values (compressorWarranty: 5, panelWarranty: 2, motorWarranty: 10, sparePartsWarranty: 6 months)
+- ✅ All warranty fields are OPTIONAL — existing products work without changes
+- ✅ No breaking changes to existing product functionality
+
+---
+Task ID: 19-breadcrumb-pdf
+Agent: Code Agent
+Task: Breadcrumb Navigation + PDF English Digits + Multiple Invoice Format Support
+
+## Feature 1: Breadcrumb Navigation
+
+### Implementation:
+- Added breadcrumb navigation above the page content in `ElectronicsMartApp.tsx` main content area
+- Breadcrumb shows: "Home" (clickable → Dashboard) → Group Label → Page Name (bold)
+- Hidden on Dashboard page (no need for "Home → Dashboard")
+- Uses existing `currentGroupLabel` and `currentPageConfig?.label` derived from `SIDEBAR_CONFIG`
+- `ChevronRight` icon already imported in the file
+- Structure: `<button>Home</button> → <span>{groupLabel}</span> → <span className="font-medium">{pageLabel}</span>`
+
+### Files Changed:
+- `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Added breadcrumb div inside `<main>` above `<ErrorBoundary>`
+
+## Feature 2: PDF English Digits Verification
+
+### Audit Results:
+- ✅ `/home/z/my-project/src/app/api/sales-orders/invoice-pdf/route.ts` — Uses `toLatinDigits()` + `Intl.NumberFormat('en-US')` throughout
+- ✅ `/home/z/my-project/src/lib/invoice-engine.ts` — Uses `toLatinDigits()` + `Intl.NumberFormat('en-US')` throughout
+- ✅ `numberToWordsBDT()` — Uses English words only ("One", "Two", etc.)
+- ✅ `/home/z/my-project/src/lib/number-format.ts` — `toLatinDigits()` correctly converts Bengali digits to Latin
+- ✅ `/home/z/my-project/src/lib/export-utils.ts` — Only contains Bengali digits in comments explaining the issue
+
+### Fix Applied:
+- `/home/z/my-project/src/app/api/invoice-templates/route.ts` line 284: Replaced Bengali text "মুশক ৬.৩" with English "Mushok 6.3" in Mushok 6.3 template headerHtml. The Bengali digits ৬ and ৩ were replaced with 6 and 3 for PDF safety (jsPDF cannot render Bengali script).
+
+## Feature 3: Multiple Invoice Format Support
+
+### Implementation:
+- Replaced single Print Invoice button with a `DropdownMenu` containing 3 format options:
+  1. **Invoice** (standard sales invoice) — Shows full pricing, discounts, payment details, signatures
+  2. **Mushok 6.3** (Bangladesh VAT form) — Shows VAT info, trade license, NBR terms, checked-by signature
+  3. **Delivery Challan** (delivery receipt) — Shows model/color but hides prices, focuses on quantities
+- Modified `handlePrintInvoice()` to accept a `format` parameter: `"invoice" | "mushok63" | "challan"`
+- Each format uses different `InvoiceTemplateConfig` and `invoiceType`:
+  - Invoice: `"Sales Invoice"` — full template with payment details, discounts, all signatures
+  - Mushok 6.3: `"Mushok 6.3"` — shows VAT/BIN, trade license, checked-by, NBR regulations footer
+  - Challan: `"Delivery Challan"` — hides prices/discounts, shows model+color, "received in good condition" footer
+- Each format generates a differently named PDF file: `Invoice_*.pdf`, `Mushok63_*.pdf`, `Challan_*.pdf`
+- Toast notification shows the format name: "INV-001 — Sales Invoice PDF generated successfully"
+
+### Files Changed:
+- `/home/z/my-project/src/components/SalesModulePage.tsx` — Added DropdownMenu import, replaced Print button with dropdown, extended handlePrintInvoice with format parameter
+
+## Verification:
+- ✅ `bun run lint` — No errors
+- ✅ Dev server running on port 3000 (HTTP 200)
+- ✅ Breadcrumb visible on module pages (hidden on Dashboard)
+- ✅ PDF generation uses English-only digits throughout
+- ✅ Invoice format dropdown functional with 3 options
+
+## Summary of All Files Changed:
+1. `/home/z/my-project/src/components/ElectronicsMartApp.tsx` — Breadcrumb navigation
+2. `/home/z/my-project/src/app/api/invoice-templates/route.ts` — Bengali digit fix in Mushok template
+3. `/home/z/my-project/src/components/SalesModulePage.tsx` — Invoice format dropdown + multi-format support
+
+---
+Task ID: 19-export-verify
+Agent: Export Verify Agent
+Task: Verify and fix Export PDF/CSV/Import CSV buttons on ALL module pages
+
+## Comprehensive Audit Results
+
+### 1. InvestmentGroupPage.tsx (7 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Investment Heads | ✅ | ✅ | ✅ |
+| Investment | ✅ | ✅ | ✅ |
+| Fixed Asset | ✅ | ✅ | ✅ |
+| Current Asset | ✅ | ✅ | ✅ |
+| Liability Receive | ✅ | ✅ | ✅ |
+| Liability Pay | ✅ | ✅ | ✅ |
+| Liability Report | ✅ | ✅ | ✅ |
+
+### 2. BasicModulesGroupPage.tsx (7 tabs via ModuleTab component)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Companies | ✅ | ✅ | ✅ |
+| Categories | ✅ | ✅ | ✅ |
+| Colors | ✅ | ✅ | ✅ |
+| Brands | ✅ | ✅ | ✅ |
+| Units | ✅ | ✅ | ✅ |
+| Products | ✅ | ✅ | ✅ |
+| Banks | ✅ | ✅ | ✅ |
+
+### 3. StructureModulePage.tsx (4 tabs via shared toolbar)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Departments | ✅ | ✅ | ✅ |
+| Godowns | ✅ | ✅ | ✅ |
+| Segments | ✅ | ✅ | ✅ |
+| Capacities | ✅ | ✅ | ✅ |
+
+### 4. InterestPercentageEnginePage.tsx (standalone page)
+| Section | Export CSV | Export PDF | Import CSV |
+|---------|-----------|-----------|-----------|
+| Rate Management | ✅ | ✅ | ✅ |
+| Amortization Table | ✅ | ✅ | N/A (computed) |
+
+### 5. OperationsModulePage.tsx (4 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| SR Target Setup | ✅ | ✅ | ✅ |
+| Payment Options | ✅ | ✅ | ✅ |
+| Card Types | ✅ | ✅ | ✅ |
+| CardType Setup | ✅ | ✅ | ✅ |
+
+### 6. PersonnelCRMGroupPage.tsx (5 tabs via ModuleTab component)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Designations | ✅ | ✅ | ✅ |
+| Employees | ✅ | ✅ | ✅ |
+| Employee Leave | ✅ | ✅ | ✅ |
+| Customers | ✅ | ✅ | ✅ |
+| Suppliers | ✅ | ✅ | ✅ |
+
+### 7. SalesModulePage.tsx (3 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Sales Orders | ✅ | ✅ | ✅ |
+| Hire Sales | ✅ | ✅ | ✅ |
+| Sales Returns | ✅ | ✅ | ✅ |
+
+### 8. ReturnReplacementModulePage.tsx (2 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Purchase Returns | ✅ | ✅ | ✅ |
+| Replacements | ✅ | ✅ | ✅ |
+
+### 9. StockModulePage.tsx (6 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Stock | ✅ | ✅ | ✅ |
+| Stock Details | ✅ | ✅ | ✅ |
+| Transfer | ✅ | ✅ | ✅ |
+| Opening Stock | ✅ | ✅ | ✅ |
+| Batch Master | ✅ | ✅ | ✅ |
+| Valuation | ✅ | ✅ | ✅ |
+
+### 10. AccountManagementPage.tsx (6 tabs via shared toolbar)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Expense/Income Head | ✅ | ✅ | ✅ |
+| Expenses | ✅ | ✅ | ✅ |
+| Income | ✅ | ✅ | ✅ |
+| Cash Collections | ✅ | ✅ | ✅ |
+| Cash Deliveries | ✅ | ✅ | ✅ |
+| Bank Transactions | ✅ | ✅ | ✅ |
+
+### 11. SMSAnalyticsPage.tsx (7 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Dashboard/Report | ✅ | ✅ | N/A (report view) |
+| Inbox | ✅ | ✅ | ✅ |
+| Logs | ✅ | ✅ | ✅ |
+| Billing | ✅ | ✅ | ✅ |
+| Send SMS | N/A (form) | N/A (form) | N/A (form) |
+| Campaigns | ✅ | ✅ | ✅ |
+| Settings | ✅ | ✅ | N/A (config page) |
+
+### 12. AccountingReportsPage.tsx (5 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Chart of Accounts | ✅ | ✅ | ✅ |
+| Cash In Hand | ✅ | ✅ | ✅ |
+| Trial Balance | ✅ | ✅ | ✅ |
+| P&L | ✅ | ✅ | ✅ |
+| Balance Sheet | ✅ | ✅ | ✅ |
+
+### 13. FinancialAuditGroupPage.tsx (9 tabs/sub-tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Audit Dashboard | ✅ | ✅ | ✅ |
+| Fraud Detection | ✅ | ✅ | ✅ |
+| Ledger Auto-Post | ✅ | ✅ | ✅ |
+| Inventory Aging | ✅ | ✅ | ✅ |
+| Product Lifecycle | ✅ | ✅ | ✅ |
+| Notifications | ✅ | ✅ | ✅ |
+| Data Integrity | ✅ | ✅ | ✅ |
+| Hire Purchase (sub) | ✅ | ✅ | ✅ |
+| Commission (sub) | ✅ | ✅ | ✅ |
+| Collections (sub) | ✅ | ✅ | ✅ |
+
+### 14. MISReportEngine.tsx (global toolbar for all reports)
+| Feature | Export CSV | Export PDF | Import CSV |
+|---------|-----------|-----------|-----------|
+| All report types | ✅ | ✅ | ✅ (validation-only) |
+
+### 15. SystemSettingsGroupPage.tsx (5 tabs)
+| Tab | Export CSV | Export PDF | Import CSV |
+|-----|-----------|-----------|-----------|
+| Company Settings | ✅ | ✅ | ✅ |
+| Invoice Templates | ✅ | ✅ | ✅ |
+| Number Formats | ✅ | ✅ | ✅ |
+| Audit Trail | ✅ | ✅ | 📝 ADDED |
+| Performance & Cache | ✅ | ✅ | ✅ |
+
+### 16. AuditTrailViewer.tsx (standalone component, separate route)
+| Feature | Export CSV | Export PDF | Import CSV |
+|---------|-----------|-----------|-----------|
+| All entries | ✅ | ✅ | ✅ |
+
+## Fix Applied
+
+### 📝 Added Import CSV to AuditTrailTab in SystemSettingsGroupPage.tsx
+- **Issue**: Audit Trail tab in System Settings was missing Import CSV button (noted as known issue in worklog)
+- **Fix**: Added `handleImportCSV` function using `/api/audit-logs?import=true` endpoint with fields: action (required), module (required), details
+- **Role guard**: Admin-only (matches pattern from AuditTrailViewer.tsx)
+- **VAT Auditor guard**: Import blocked with "Access Denied" toast
+- **Also fixed**: TypeScript error where `loadEntries` function with optional parameter was passed directly as onClick handler — wrapped in arrow function `() => loadEntries()`
+
+## Files Changed
+1. `/home/z/my-project/src/components/SystemSettingsGroupPage.tsx` — Added Import CSV handler + button to AuditTrailTab; fixed loadEntries onClick type error
+
+## Summary
+- **Total module pages checked**: 15 component files covering 70+ tabs
+- **All 3 buttons present**: 69/70 tabs ✅
+- **Missing buttons found**: 1 (Audit Trail tab Import CSV)
+- **Missing buttons fixed**: 1 (Audit Trail tab Import CSV)
+- **Tabs where Import CSV is appropriately absent**: SMS Dashboard (report view), SMS Send (form), SMS Settings (config), Amortization table (computed)
+- **Dev server**: Running on port 3000, HTTP 200 ✅
+- **TypeScript**: No new errors introduced ✅
+
+---
+Task ID: 19-main
+Agent: Main Orchestrator
+Task: Phase 19 - Dashboard, UI/UX Polish & Final Bug Fixes
+
+Work Log:
+- Studied reference site embd-j.com - documented 31 module pages with all features
+- Tested all 19+ module pages in our app - ALL PASS with zero errors
+- Added Product Warranty Fields (5 types: Compressor, Panel, Service, Motor, Spare Parts)
+  - Each with duration value + Years/Months unit toggle
+  - Collapsible "Warranty Information" section in product form
+  - Compact warranty badges in product table
+- Added Guarantor Fields on Customer (Name, Contact, Address, Father Name)
+  - "Guarantor Information" section in customer form
+  - Guarantor column in customer table
+- Added Send SMS Checkbox on Sales Order form
+  - Triggers SMS when checked AND company toggle is ON
+- Added Breadcrumb Navigation on all module pages
+  - Home → Group Name → Page Name format
+  - Home is clickable (navigates to Dashboard)
+- Added Multiple Invoice Format Dropdown on Sales Order
+  - Invoice (standard), Mushok 6.3 (VAT form), Delivery Challan
+  - Each format generates appropriately named PDF
+- Fixed Bengali digits in PDF: "মুশক ৬.৩" → "Mushok 6.3"
+- Verified Export PDF/CSV/Import CSV on ALL 70+ tabs across 15 component files
+  - Added Import CSV to AuditTrailTab (was the only missing one)
+- Mobile responsive verified (375x812 viewport)
+- Lint: Clean (zero errors)
+- Dev server: Running on port 3000
+
+Stage Summary:
+- Phase 19 COMPLETE - Dashboard polished, UI/UX improved, bugs fixed
+- New features: Product Warranty, Customer Guarantor, SMS Checkbox, Breadcrumbs, Invoice Formats
+- All module pages tested and working
+- All Export/Import buttons verified
+- PDF digits English-only confirmed
+- Mobile responsive working
+
+### Phase 20 Remaining Items:
+1. Final comprehensive testing of all 5 roles
+2. Verify PDF generation works correctly for all invoice formats
+3. Profile page photo upload verification
+4. Final UI/UX polish pass
+5. Comprehensive handover documentation

@@ -110,6 +110,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.profileImage !== undefined) updateData.profileImage = body.profileImage || null;
       if (body.nidFrontImage !== undefined) updateData.nidFrontImage = body.nidFrontImage || null;
       if (body.nidBackImage !== undefined) updateData.nidBackImage = body.nidBackImage || null;
+      if (body.guarantorName !== undefined) updateData.guarantorName = body.guarantorName ? stripHtml(String(body.guarantorName)) : null;
+      if (body.guarantorContact !== undefined) updateData.guarantorContact = body.guarantorContact ? stripHtml(String(body.guarantorContact)) : null;
+      if (body.guarantorAddress !== undefined) updateData.guarantorAddress = body.guarantorAddress ? stripHtml(String(body.guarantorAddress)) : null;
+      if (body.guarantorFatherName !== undefined) updateData.guarantorFatherName = body.guarantorFatherName ? stripHtml(String(body.guarantorFatherName)) : null;
       if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
       // Only update creditLimit if provided in body (preserves existing value when SR edits)

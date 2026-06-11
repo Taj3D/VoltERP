@@ -6350,6 +6350,20 @@ function AppLayout() {
       {/* Main content */}
       <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
         <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8">
+          {/* Breadcrumb Navigation */}
+          {currentPage !== "dashboard" && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-1 pt-1">
+              <button onClick={() => setCurrentPage("dashboard")} className="hover:text-foreground transition-colors">Home</button>
+              {currentGroupLabel && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  <span>{currentGroupLabel}</span>
+                </>
+              )}
+              <ChevronRight className="w-3.5 h-3.5" />
+              <span className="text-foreground font-medium">{currentPageConfig?.label || currentPage}</span>
+            </div>
+          )}
           <ErrorBoundary fallbackTitle={currentPageConfig?.label || "Page"}>
             <React.Suspense fallback={<LazyFallback name={currentPageConfig?.label} />}>
               {renderPage()}

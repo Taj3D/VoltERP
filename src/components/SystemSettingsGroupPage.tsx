@@ -2292,6 +2292,30 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
     }
   };
 
+  const handleImportCSV = async () => {
+    if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+    try {
+      const result = await importFromCSV({
+        apiPath: "/api/audit-logs?import=true",
+        formFields: [
+          { key: "action", label: "Action", type: "text", required: true },
+          { key: "module", label: "Module", type: "text", required: true },
+          { key: "details", label: "Details", type: "text" },
+        ],
+      });
+      if (result.imported > 0) {
+        toast({ title: "Import Complete", description: `${result.imported} reference entries imported, ${result.failed} failed` });
+        loadEntries(true);
+      } else if (result.errors.length > 0) {
+        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const isAdmin = userRole === "admin";
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -2302,7 +2326,12 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
         <Button variant="outline" size="sm" onClick={handleExportPDF}>
           <FileDown className="h-4 w-4 mr-1" /> Export PDF
         </Button>
-        <Button variant="ghost" size="sm" onClick={loadEntries}>
+        {isAdmin && (
+          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+            <Upload className="h-4 w-4 mr-1" /> Import CSV
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={() => loadEntries()}>
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>

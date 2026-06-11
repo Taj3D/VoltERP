@@ -555,6 +555,18 @@ model Product {
   posSaleLines            PosSaleLine[]
   damageLogs              DamageLog[]
 
+  // Warranty fields — Phase 19: Product warranty (years/months per type)
+  compressorWarranty      Int?
+  compressorWarrantyUnit  String?   @default("years")  // "years" or "months"
+  panelWarranty           Int?
+  panelWarrantyUnit       String?   @default("years")
+  serviceWarranty         Int?
+  serviceWarrantyUnit     String?   @default("years")
+  motorWarranty           Int?
+  motorWarrantyUnit       String?   @default("years")
+  sparePartsWarranty      Int?
+  sparePartsWarrantyUnit  String?   @default("years")
+
   @@index([categoryId])
   @@index([brandId])
   @@index([godownId])
@@ -722,6 +734,10 @@ model Customer {
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
   nidNumber          String? // National ID / Voter ID number
+  guarantorName      String? // Guarantor full name
+  guarantorContact   String? // Guarantor phone number
+  guarantorAddress   String? // Guarantor address
+  guarantorFatherName String? // Guarantor's father name
   companyId          String? // Multi-tenant isolation
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())
