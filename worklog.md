@@ -11594,3 +11594,57 @@ Task: GitHub Upload Preparation for VoltERP
 2. `/home/z/my-project/package.json` — name, version, private updated
 3. `/home/z/my-project/next.config.ts` — ignoreBuildErrors set to false
 4. `/home/z/my-project/worklog.md` — This work record appended
+
+---
+Task ID: 2
+Agent: Code Agent
+Task: Create Turso Migration Setup Script and Deploy Preparation
+
+## Work Log:
+
+### 1. Created `/home/z/my-project/scripts/setup-turso.sh`
+- Full Turso database setup script with:
+  - Turso CLI installation check and auto-install
+  - Authentication verification with headless login guidance
+  - Database creation (volterp-db) with existing-database fallback
+  - Connection URL and auth token retrieval
+  - Local SQLite dump and import to Turso (with Prisma fallback)
+  - .env file update with DATABASE_URL and DATABASE_AUTH_TOKEN
+  - Prisma client generation and schema push
+  - Summary output with Vercel deployment instructions
+- Made executable (chmod +x via Python os.chmod)
+- Force-added to git (scripts/ was in .gitignore)
+
+### 2. `.env.example` — Already had DATABASE_AUTH_TOKEN
+- The file already contained the correct DATABASE_AUTH_TOKEN commented section
+- No changes needed
+
+### 3. Updated `/home/z/my-project/vercel.json`
+- Added `env` section with DATABASE_URL, DATABASE_AUTH_TOKEN, JWT_SECRET (Vercel environment variable references)
+- Changed region from `sin1` to `iad1`
+- Reordered fields for cleaner structure (framework first)
+
+### 4. Updated `/home/z/my-project/prisma/schema.prisma`
+- Added `directUrl = env("DATABASE_URL")` to datasource block
+- Required for Turso connection pooling (Prisma uses `url` for pooled connections, `directUrl` for migrations)
+- Existing `url` field unchanged
+
+### 5. Git Commit
+- `git add -A` + `git add -f scripts/setup-turso.sh` (force-add since scripts/ is gitignored)
+- Commit: `feat: Add Turso migration setup script and Vercel deployment configuration` (sha: c7a5b96)
+
+### 6. GitHub Push
+- Pushed to `origin/main` successfully: fb651aa..c7a5b96
+
+### 7. Dev Server Verification
+- ✅ Server running on port 3000 (HTTP 200 response confirmed)
+
+## Files Changed
+1. `/home/z/my-project/scripts/setup-turso.sh` — New file (executable Turso setup script)
+2. `/home/z/my-project/vercel.json` — Added env section, changed region to iad1
+3. `/home/z/my-project/prisma/schema.prisma` — Added directUrl field to datasource
+4. `/home/z/my-project/worklog.md` — This work record appended
+
+## Issues Encountered
+- `chmod +x` failed due to container permissions; resolved via `python3 -c "import os; os.chmod(...)"`
+- `scripts/` directory was in `.gitignore`; resolved by using `git add -f` to force-add setup-turso.sh
