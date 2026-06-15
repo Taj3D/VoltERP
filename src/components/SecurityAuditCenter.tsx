@@ -969,7 +969,7 @@ export default function SecurityAuditCenter() {
                       {/* Verification Button with Spin-Lock */}
                       <div className="flex items-center gap-4 pt-2">
                         <Button
-                          className={`min-w-[400px] h-12 text-sm font-semibold ${ledgerStatus?.chainIntact !== false ? 'bg-[#2563eb] hover:bg-[#1d4ed8]' : 'bg-red-600 hover:bg-red-700'}`}
+                          className={`min-w-0 sm:min-w-[400px] h-12 text-sm font-semibold ${ledgerStatus?.chainIntact !== false ? 'bg-[#2563eb] hover:bg-[#1d4ed8]' : 'bg-red-600 hover:bg-red-700'}`}
                           onClick={handleRunLedgerVerification}
                           disabled={isVerifyingLedger}
                         >
@@ -1269,7 +1269,7 @@ export default function SecurityAuditCenter() {
                       </h3>
                       <p className="text-sm text-slate-500">Encrypted full-system backups with SHA-256 integrity verification</p>
                     </div>
-                    <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-[200px]" onClick={handleTriggerBackup} disabled={isBackingUp}>
+                    <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-0 sm:min-w-[200px]" onClick={handleTriggerBackup} disabled={isBackingUp}>
                       {isBackingUp ? (<><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Encrypting and Pushing Data to Secure Cloud Vault...</>) : (<><CloudUpload className="w-4 h-4 mr-2" />Trigger Backup</>)}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={loadBackups}><RefreshCw className={`w-4 h-4 ${backupLoading ? "animate-spin" : ""}`} /></Button>
@@ -1372,7 +1372,7 @@ export default function SecurityAuditCenter() {
 
                   <div className="flex items-center gap-4">
                     <Button
-                      className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-[350px] h-12"
+                      className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-0 sm:min-w-[350px] h-12"
                       onClick={handleGenerateSecurityPDF}
                       disabled={isGeneratingReport}
                     >

@@ -1622,7 +1622,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
 
       {/* Data Table */}
       <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -1823,7 +1823,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
               Credit Utilization Overview
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto max-h-64 overflow-y-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -1887,7 +1887,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
               Credit Utilization Overview
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto max-h-64 overflow-y-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>

@@ -853,7 +853,7 @@ function StructureModuleTab({
 
       {/* Data Table */}
       <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>

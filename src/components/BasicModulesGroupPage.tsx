@@ -1143,7 +1143,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     <div className="space-y-4">
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
               <Icon className="h-5 w-5 text-[#2563eb]" />
@@ -1154,7 +1154,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
               <CheckCircle className="h-5 w-5 text-emerald-500" />
@@ -1165,7 +1165,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
               <X className="h-5 w-5 text-red-500" />
@@ -1239,8 +1239,8 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
       )}
 
       {/* Data Table */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>

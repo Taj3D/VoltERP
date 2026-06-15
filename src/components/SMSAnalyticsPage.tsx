@@ -1411,7 +1411,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
           {/* Inbox Table */}
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="max-h-[500px] overflow-x-auto overflow-y-auto -mx-2 sm:mx-0">
                 <Table className="min-w-[600px]">
                   <TableHeader>
@@ -1600,7 +1600,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 <Badge variant="secondary" className="ml-2">{filteredLogs.length} records</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-b-md">
                 <Table>
                   <TableHeader>
@@ -1793,7 +1793,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 <Badge variant="secondary" className="ml-2">{filteredBills.length} records</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-b-md">
                 <Table>
                   <TableHeader>
@@ -1897,7 +1897,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                 Payment History
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-b-md">
                 <Table className="min-w-[600px]">
                   <TableHeader>
@@ -2284,7 +2284,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     Recent SMS
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-0 overflow-hidden">
                   <div className="max-h-64 overflow-y-auto">
                     {smsLogs.length === 0 ? (
                       <div className="p-4 text-center text-muted-foreground text-sm">
@@ -2420,7 +2420,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
           {/* Campaigns Table */}
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="max-h-[500px] overflow-x-auto overflow-y-auto -mx-2 sm:mx-0">
                 <Table className="min-w-[600px]">
                   <TableHeader>

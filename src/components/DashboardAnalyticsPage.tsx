@@ -835,7 +835,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
               </div>
             </div>
             {stockSearchResults.length > 0 && (
-              <div className="mt-3 max-h-64 overflow-y-auto rounded-md border" style={{ scrollbarWidth: 'thin', scrollbarColor: '#94a3b8 transparent' }}>
+              <div className="mt-3 max-h-64 overflow-x-auto overflow-y-auto rounded-md border" style={{ scrollbarWidth: 'thin', scrollbarColor: '#94a3b8 transparent' }}>
                 <Table className="min-w-[500px]">
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -1178,7 +1178,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
           </CardHeader>
           <CardContent className="p-4">
             {stockAlerts.data && stockAlerts.data.length > 0 ? (
-              <div className="max-h-96 overflow-y-auto rounded-md border" style={{ scrollbarWidth: "thin", scrollbarColor: "#94a3b8 transparent" }}>
+              <div className="max-h-96 overflow-x-auto overflow-y-auto rounded-md border" style={{ scrollbarWidth: "thin", scrollbarColor: "#94a3b8 transparent" }}>
               <div className="overflow-x-auto">
                 <Table className="min-w-[600px]">
                   <TableHeader>

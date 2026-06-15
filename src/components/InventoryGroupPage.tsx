@@ -126,7 +126,7 @@ function StatCard({ label, value, icon: Icon, color, bg }: {
   label: string; value: any; icon: React.ElementType; color: string; bg: string;
 }) {
   return (
-    <Card className="border-slate-200 dark:border-slate-700">
+    <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
       <CardContent className="p-4 flex items-center gap-3">
         <div className={`h-10 w-10 rounded-lg ${bg} flex items-center justify-center`}>
           <Icon className={`h-5 w-5 ${color}`} />
@@ -967,8 +967,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         }}
         onImportCSV={() => doImportCSV("/api/order-sheets?import=true", orderSheetImportFields, loadCompanyOrdersheets)}
         canCreate={isAdmin} onCreate={openCoCreate} createLabel="Add Ordersheet" />
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -1129,7 +1129,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
               </div>
             </div>
             {/* Financial Summary */}
-            <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
               <CardContent className="p-4">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                   <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold text-slate-900 dark:text-white">{fmtCurrency(coFinancials.subTotal)}</p></div>
@@ -1209,7 +1209,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 </Table>
               </div>
               <Separator />
-              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
                 <CardContent className="p-4">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                     <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold">{fmtCurrency(coViewDetail.subTotal || 0)}</p></div>
@@ -1398,8 +1398,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           }}
           onImportCSV={() => doImportCSV("/api/order-sheets?import=true", orderSheetImportFields, loadCustomerOrdersheets)}
           canCreate={isAdmin || isSR} onCreate={openCustOCreate} createLabel="Add Ordersheet" />
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -1560,7 +1560,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 </div>
               </div>
               {/* Financial Summary */}
-              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
                 <CardContent className="p-4">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                     <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold text-slate-900 dark:text-white">{fmtCurrency(custOFinancials.subTotal)}</p></div>
@@ -1640,7 +1640,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                   </Table>
                 </div>
                 <Separator />
-                <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
                   <CardContent className="p-4">
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                       <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold">{fmtCurrency(custOViewDetail.subTotal || 0)}</p></div>
@@ -1724,19 +1724,19 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       </div>
       {/* Fulfillment Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-3 text-center">
             <FulfillmentBadge status="Fulfilled" />
             <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.fulfilled}</p>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-3 text-center">
             <FulfillmentBadge status="Partial" />
             <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.partial}</p>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-3 text-center">
             <FulfillmentBadge status="Unfulfilled" />
             <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.unfulfilled}</p>
@@ -1744,7 +1744,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Card>
       </div>
       {/* Filters */}
-      <Card className="border-slate-200 dark:border-slate-700">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
         <CardHeader className="bg-[#132240] dark:bg-[#0a1628]"><CardTitle className="text-white text-sm">Filters &amp; Report Generation</CardTitle></CardHeader>
         <CardContent className="p-4">
           <div className="flex flex-wrap items-end gap-4">
@@ -1834,8 +1834,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </Card>
         ))}
       </div>
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -2132,8 +2132,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <Button variant="ghost" size="sm" onClick={loadPurchaseOrders}><RefreshCw className={`h-4 w-4 ${poLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={openPoCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add PO</Button>}
         </div>
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -2539,7 +2539,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO by Supplier (${autoPoSelected.size})`}</Button>}
         </div>
         {/* Formula Explanation Card */}
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-b-lg">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
               <p className="text-xs text-slate-500 dark:text-slate-400"><strong>Formula:</strong> Suggested PO = Avg Sales × Lead Time − Stock + Safety Stock</p>
@@ -2550,9 +2550,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </Card>
         {/* Supplier Grouped Summary */}
         {autoPoGroupedBySupplier.length > 0 && (
-          <Card className="border-slate-200 dark:border-slate-700">
+          <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
             <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Supplier Grouped View</CardTitle></CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="overflow-x-auto">
                 <Table className="min-w-[600px]">
                   <TableHeader>
@@ -2578,8 +2578,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             </CardContent>
           </Card>
         )}
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -2812,8 +2812,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onCopyToClipboard={() => doCopyToClipboard("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
           onImportCSV={() => doImportCSV("/api/sales-orders", [], loadSalesOrders)}
           canCreate={isAdmin || isSR} onCreate={openSoCreate} createLabel="Add SO" />
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -2984,8 +2984,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onCopyToClipboard={() => doCopyToClipboard("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
           onImportCSV={() => doImportCSV("/api/hire-sales", [], loadHireSales)}
           canCreate={isAdmin || isSR} onCreate={openHsCreate} createLabel="Add Hire Sale" />
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -3213,8 +3213,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onCopyToClipboard={() => doCopyToClipboard("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
           onImportCSV={() => doImportCSV("/api/sales-returns", [], loadSalesReturns)}
           canCreate={isAdmin || isSR} onCreate={openSrCreate} createLabel="Add Return" />
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -3430,8 +3430,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onCopyToClipboard={() => doCopyToClipboard("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
           onImportCSV={() => doImportCSV("/api/purchase-returns", [], loadPurchaseReturns)}
           canCreate={isAdmin} onCreate={openPrCreate} createLabel="Add Return" />
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -3605,8 +3605,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onCopyToClipboard={() => doCopyToClipboard("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onImportCSV={() => doImportCSV("/api/replacements", [], loadReplacements)}
           canCreate={isAdmin || isSR} onCreate={openRplCreate} createLabel="Add Replacement" />
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>

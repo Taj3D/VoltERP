@@ -1269,7 +1269,7 @@ export default function AuditTrailViewer() {
                 No IP address data available in the current entries
               </p>
             ) : (
-              <ScrollArea className="max-h-[500px]">
+              <div className="max-h-[500px] overflow-x-auto overflow-y-auto">
                 <Table className="min-w-[600px]">
                   <TableHeader>
                     <TableRow>
@@ -1320,7 +1320,7 @@ export default function AuditTrailViewer() {
                     ))}
                   </TableBody>
                 </Table>
-              </ScrollArea>
+              </div>
             )}
           </CardContent>
         </Card>

@@ -597,7 +597,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
     <div className="space-y-4">
       {/* ── KPI Performance Dashboard ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
               <Target className="h-5 w-5 text-[#2563eb]" />
@@ -608,7 +608,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
               <DollarSign className="h-5 w-5 text-emerald-500" />
@@ -619,7 +619,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
               <BarChart3 className="h-5 w-5 text-amber-500" />
@@ -630,7 +630,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
               <TrendingUp className="h-5 w-5 text-violet-500" />
@@ -641,7 +641,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-rose-500/10 flex items-center justify-center">
               <Percent className="h-5 w-5 text-rose-500" />
@@ -709,8 +709,8 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       )}
 
       {/* ── Data Table ── */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -1202,7 +1202,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
     <div className="space-y-4">
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
               <CreditCard className="h-5 w-5 text-[#2563eb]" />
@@ -1213,7 +1213,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
               <CheckCircle className="h-5 w-5 text-emerald-500" />
@@ -1224,7 +1224,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
               <X className="h-5 w-5 text-slate-500" />
@@ -1235,7 +1235,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
               <Settings className="h-5 w-5 text-violet-500" />
@@ -1276,8 +1276,8 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
       )}
 
       {/* ── Data Table ── */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -1608,7 +1608,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
     <div className="space-y-4">
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
               <CreditCard className="h-5 w-5 text-[#2563eb]" />
@@ -1619,7 +1619,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
               <CheckCircle className="h-5 w-5 text-emerald-500" />
@@ -1630,7 +1630,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
               <X className="h-5 w-5 text-slate-500" />
@@ -1641,7 +1641,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
               <Settings className="h-5 w-5 text-violet-500" />
@@ -1668,8 +1668,8 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
       </div>
 
       {/* Data Table */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -2066,7 +2066,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
     <div className="space-y-4">
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
               <Settings className="h-5 w-5 text-[#2563eb]" />
@@ -2077,7 +2077,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
               <CheckCircle className="h-5 w-5 text-emerald-500" />
@@ -2088,7 +2088,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
               <X className="h-5 w-5 text-slate-500" />
@@ -2099,7 +2099,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
               <Percent className="h-5 w-5 text-amber-500" />
@@ -2110,7 +2110,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
               <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -2145,8 +2145,8 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
       )}
 
       {/* Data Table */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>

@@ -1442,7 +1442,7 @@ function ProductsPage() {
 
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Product</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Product</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the product details" : "Create a new product"}</DialogDescription></DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
             {fields.map(field => (
               <div key={field.key} className={field.key === "isActive" ? "col-span-2" : field.type === "image" ? "col-span-2 sm:col-span-1" : ""}>
@@ -2534,9 +2534,9 @@ function DashboardPage() {
             <CardTitle className="text-base flex items-center gap-2"><Package className="w-4 h-4 text-blue-500" />Stock Info</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-2">
-              <Input placeholder="Search product or code..." className="flex-1" />
-              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Search className="w-4 h-4 mr-1" />Search Stock</Button>
+            <div className="flex gap-2 flex-wrap">
+              <Input placeholder="Search product or code..." className="flex-1 min-w-[140px]" />
+              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] whitespace-nowrap"><Search className="w-4 h-4 mr-1" />Search Stock</Button>
             </div>
           </CardContent>
         </Card>
@@ -2545,9 +2545,9 @@ function DashboardPage() {
             <CardTitle className="text-base flex items-center gap-2"><Search className="w-4 h-4 text-green-500" />Advance Search</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-2">
-              <Input placeholder="Search by product, invoice, customer..." className="flex-1" />
-              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Search className="w-4 h-4 mr-1" />Advance Search</Button>
+            <div className="flex gap-2 flex-wrap">
+              <Input placeholder="Search by product, invoice, customer..." className="flex-1 min-w-[140px]" />
+              <Button className="bg-[#2563eb] hover:bg-[#1d4ed8] whitespace-nowrap"><Search className="w-4 h-4 mr-1" />Advance Search</Button>
             </div>
           </CardContent>
         </Card>
@@ -2563,8 +2563,8 @@ function DashboardPage() {
         </CardHeader>
         <CardContent>
           {(stats.hireInstallments || []).length > 0 ? (
-            <div className="table-container overflow-auto max-h-60 rounded-md border">
-              <Table>
+            <div className="table-container overflow-x-auto overflow-y-auto max-h-60 rounded-md border">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     <TableHead>Sl</TableHead>
@@ -2764,7 +2764,16 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
           {visibleGroups.map(group => (
             <div key={group.key}>
               <button
-                onClick={() => collapsed ? onNavigate(group.items[0]?.key || group.key) : toggleGroup(group.key)}
+                onClick={() => {
+                  if (collapsed) {
+                    onNavigate(group.items[0]?.key || group.key);
+                  } else if (expandedGroups.has(group.key)) {
+                    // Already expanded — navigate to first child
+                    onNavigate(group.items[0]?.key || group.key);
+                  } else {
+                    toggleGroup(group.key);
+                  }
+                }}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/10 hover:text-white ${expandedGroups.has(group.key) ? "text-blue-300" : ""} ${collapsed ? "justify-center" : ""}`}
                 title={collapsed ? group.label : undefined}
               >
@@ -3220,7 +3229,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Purchase Order</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Purchase Order</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the purchase order details" : "Create a new purchase order"}</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             {/* Header Fields */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -3726,7 +3735,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Sales Order</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Sales Order</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the sales order details" : "Create a new sales order"}</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             {/* Header Fields */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -4305,7 +4314,7 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Hire Sale</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Hire Sale</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the hire sale details" : "Create a new hire sale"}</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             {/* Header Fields */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -4910,7 +4919,7 @@ function SalesReturnsPage({ onNavigate }: { onNavigate?: (page: string) => void 
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Sales Return</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Sales Return</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the sales return details" : "Create a new sales return"}</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -5480,7 +5489,7 @@ function PurchaseReturnsPage({ onNavigate }: { onNavigate?: (page: string) => vo
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Purchase Return</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Purchase Return</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the purchase return details" : "Create a new purchase return"}</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -5976,7 +5985,7 @@ function StockTransfersPage() {
       {/* Create/Edit Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Stock Transfer</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Stock Transfer</DialogTitle><DialogDescription className="sr-only">{editItem ? "Edit the stock transfer details" : "Create a new stock transfer"}</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
@@ -6138,8 +6147,33 @@ function AppLayout() {
     return items;
   }, [hasAccess, user]);
 
+  // Build a map from parent labels AND group keys/labels to their first child item key,
+  // so navigating to a parent label (e.g. "Configuration") or group key (e.g. "account") auto-redirects to the first child.
+  const parentFirstChildMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const group of SIDEBAR_CONFIG) {
+      // Map group key and group label to first item key
+      if (group.items.length > 0) {
+        if (!map[group.key.toLowerCase()]) {
+          map[group.key.toLowerCase()] = group.items[0].key;
+        }
+        if (!map[group.label.toLowerCase()]) {
+          map[group.label.toLowerCase()] = group.items[0].key;
+        }
+      }
+      for (const item of group.items) {
+        if (item.parent && !map[item.parent.toLowerCase()]) {
+          map[item.parent.toLowerCase()] = item.key;
+        }
+      }
+    }
+    return map;
+  }, []);
+
   const navigate = (key: string) => {
-    setCurrentPage(key);
+    // If the key matches a parent label, navigate to its first child instead
+    const resolvedKey = parentFirstChildMap[key.toLowerCase()] || key;
+    setCurrentPage(resolvedKey);
     setMobileMenuOpen(false);
     setSearchOpen(false);
   };
@@ -6331,8 +6365,8 @@ function AppLayout() {
       )}
 
       {/* Main content */}
-      <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
-        <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8">
+      <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`} style={{ overflowX: 'clip' }}>
+        <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8 min-w-0 overflow-hidden">
           {/* Breadcrumb Navigation */}
           {currentPage !== "dashboard" && (
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-1 pt-1">

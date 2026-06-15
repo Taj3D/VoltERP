@@ -592,7 +592,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           SECTION 1: COMPANY IDENTITY
           ============================================================ */}
       {company && (
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
             <CardTitle className="text-white flex items-center gap-2 text-base">
               <Building2 className="h-4 w-4 text-emerald-400" />
@@ -649,7 +649,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           SECTION 2: COMPANY ADDRESS
           ============================================================ */}
       {company && (
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
             <CardTitle className="text-white flex items-center gap-2 text-base">
               <Globe className="h-4 w-4 text-cyan-400" />
@@ -728,7 +728,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           SECTION 3: LEGAL INFORMATION
           ============================================================ */}
       {company && (
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
             <CardTitle className="text-white flex items-center gap-2 text-base">
               <Receipt className="h-4 w-4 text-amber-400" />
@@ -770,7 +770,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           SECTION 4: INVOICE CUSTOMIZATION
           ============================================================ */}
       {company && (
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
             <CardTitle className="text-white flex items-center gap-2 text-base">
               <FileText className="h-4 w-4 text-pink-400" />
@@ -822,7 +822,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           SECTION 5: DISPLAY OPTIONS
           ============================================================ */}
       {company && (
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
             <CardTitle className="text-white flex items-center gap-2 text-base">
               <Palette className="h-4 w-4 text-violet-400" />
@@ -881,7 +881,7 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
           SECTION 6: PDF HEADER PREVIEW
           ============================================================ */}
       {company && (
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
             <CardTitle className="text-white flex items-center gap-2 text-base">
               <Eye className="h-4 w-4 text-sky-400" />
@@ -1394,8 +1394,8 @@ function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
       )}
 
       {/* Templates Table */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -1907,8 +1907,8 @@ function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; u
       </div>
 
       {/* Number Formats Table */}
-      <Card className="border-slate-200 dark:border-slate-700">
-        <CardContent className="p-0">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+        <CardContent className="p-0 overflow-hidden">
           <div className="overflow-x-auto -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -2338,7 +2338,7 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
       </div>
 
       {/* Filters */}
-      <Card className="border-slate-200 dark:border-slate-700">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
         <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
           <CardTitle className="text-white flex items-center gap-2 text-base">
             <Search className="h-4 w-4 text-cyan-400" />
@@ -2428,7 +2428,7 @@ function AuditTrailTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; user
       </div>
 
       {/* Timeline */}
-      <Card className="border-slate-200 dark:border-slate-700">
+      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
         <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
           <CardTitle className="text-white flex items-center gap-2 text-base">
             <Shield className="h-4 w-4 text-emerald-400" />
@@ -2714,7 +2714,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
       ) : (
         <>
           {/* System Health Card */}
-          <Card className="border-slate-200 dark:border-slate-700">
+          <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
               <CardTitle className="text-white flex items-center gap-2 text-base">
                 <Activity className="h-4 w-4 text-emerald-400" />
@@ -2787,7 +2787,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
           </Card>
 
           {/* Cache Statistics Card */}
-          <Card className="border-slate-200 dark:border-slate-700">
+          <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
               <CardTitle className="text-white flex items-center gap-2 text-base">
                 <Zap className="h-4 w-4 text-amber-400" />
@@ -2842,7 +2842,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
           </Card>
 
           {/* Data Refresh Controls */}
-          <Card className="border-slate-200 dark:border-slate-700">
+          <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
             <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
               <CardTitle className="text-white flex items-center gap-2 text-base">
                 <RotateCcw className="h-4 w-4 text-amber-400" />

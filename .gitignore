@@ -75,3 +75,8 @@ mini-services/
 
 # Scripts (dev-only)
 scripts/
+db/*.db
+db/*.db-shm
+db/*.db-wal
+prisma/db/*.db-shm
+prisma/db/*.db-wal

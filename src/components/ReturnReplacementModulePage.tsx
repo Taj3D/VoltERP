@@ -92,7 +92,7 @@ function StatCard({ label, value, icon: Icon, color, bg }: {
   label: string; value: any; icon: React.ElementType; color: string; bg: string;
 }) {
   return (
-    <Card className="border-slate-200 dark:border-slate-700">
+    <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
       <CardContent className="p-4 flex items-center gap-3">
         <div className={`h-10 w-10 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
           <Icon className={`h-5 w-5 ${color}`} />
@@ -718,7 +718,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
         </div>
 
         {/* Filter Bar */}
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4">
             <div className="flex flex-wrap gap-3 items-center">
               <Select value={prStatusFilter} onValueChange={setPrStatusFilter}>
@@ -786,8 +786,8 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
         </Card>
 
         {/* Table */}
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -1131,7 +1131,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
         </div>
 
         {/* Filter Bar */}
-        <Card className="border-slate-200 dark:border-slate-700">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-4">
             <div className="flex flex-wrap gap-3 items-center">
               <Select value={rplStatusFilter} onValueChange={setRplStatusFilter}>
@@ -1205,8 +1205,8 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
         </Card>
 
         {/* Table */}
-        <Card className="border-slate-200 dark:border-slate-700">
-          <CardContent className="p-0">
+        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+          <CardContent className="p-0 overflow-hidden">
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>

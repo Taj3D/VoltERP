@@ -451,7 +451,7 @@ export default function CustomerSupplierLedgerPage({
               Transaction Statement
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-hidden">
             <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -676,7 +676,7 @@ export default function CustomerSupplierLedgerPage({
             Customer Summary
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-hidden">
           <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -880,7 +880,7 @@ export default function CustomerSupplierLedgerPage({
               Transaction Statement
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-hidden">
             <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
               <Table className="min-w-[600px]">
                 <TableHeader>
@@ -1105,7 +1105,7 @@ export default function CustomerSupplierLedgerPage({
             Supplier Summary
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-hidden">
           <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border -mx-2 sm:mx-0">
             <Table className="min-w-[600px]">
               <TableHeader>
@@ -1346,7 +1346,7 @@ export default function CustomerSupplierLedgerPage({
                 Aging Analysis
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-hidden">
               <div className="table-container overflow-x-auto overflow-y-auto max-h-[55vh] rounded-b-lg border">
                 <Table>
                   <TableHeader>

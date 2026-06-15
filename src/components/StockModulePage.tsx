@@ -136,7 +136,7 @@ function StatCard({ label, value, icon: Icon, color, bg }: {
   label: string; value: any; icon: React.ElementType; color: string; bg: string;
 }) {
   return (
-    <Card className="border-slate-200 dark:border-slate-700">
+    <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
       <CardContent className="p-4 flex items-center gap-3">
         <div className={`h-10 w-10 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
           <Icon className={`h-5 w-5 ${color}`} />
@@ -1188,7 +1188,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
 
         {/* Product Info Card */}
         {sdProductInfo && (
-          <Card className="border-slate-200 dark:border-slate-700">
+          <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
             <CardContent className="p-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 text-xs">
                 <div><span className="text-slate-500">Product:</span> <span className="font-medium">{sdProductInfo.name}</span></div>
