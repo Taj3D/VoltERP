@@ -931,7 +931,7 @@ export async function exportToPDF(options: PDFOptions): Promise<void> {
           styles: {
             fontSize: rowStyle.fontSize || 8,
             cellPadding: 3,
-            textColor: rowStyle.textColor || [255, 255, 255],
+            textColor: (rowStyle.textColor as [number, number, number]) || [255, 255, 255],
             fontStyle: rowStyle.fontStyle || "bold",
             lineWidth: 0.1,
             lineColor: [203, 213, 225],
@@ -1344,7 +1344,7 @@ export async function exportAuditReportPDF(options: AuditReportOptions): Promise
           styles: {
             fontSize: rowStyle.fontSize || 8,
             cellPadding: 3,
-            textColor: rowStyle.textColor || [255, 255, 255],
+            textColor: (rowStyle.textColor as [number, number, number]) || [255, 255, 255],
             fontStyle: rowStyle.fontStyle || "bold",
             lineWidth: 0.1,
             lineColor: [203, 213, 225],
@@ -1408,7 +1408,8 @@ export async function exportToCSV(options: CSVOptions): Promise<void> {
   } = options;
 
   // Papa is used for CSV generation
-  const Papa = (await loadPapa()).default;
+  const PapaModule = await loadPapa();
+  const Papa = PapaModule.default || PapaModule;
 
   try {
     const vatMaskSet = new Set(vatMaskedColumns);
@@ -1710,7 +1711,8 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
   const { apiPath, formFields, onProgress, batchSize = 10 } = opts;
 
   // Lazy-load Papa to prevent React error #321
-  const Papa = (await loadPapa()).default;
+  const PapaModule = await loadPapa();
+  const Papa = (PapaModule as any).default || PapaModule;
 
   return new Promise((resolve) => {
     const input = document.createElement("input");

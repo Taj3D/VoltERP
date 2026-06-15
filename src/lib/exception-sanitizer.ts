@@ -65,7 +65,7 @@ export function sanitizeError(
           message: error.message,
           stack: error.stack,
           // Capture Prisma-specific metadata if present
-          ...(error as Record<string, unknown>),
+          ...(error as unknown as Record<string, unknown>),
         }
       : error,
   });

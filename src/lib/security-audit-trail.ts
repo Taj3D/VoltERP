@@ -66,7 +66,6 @@ export async function logForensicAudit(params: ForensicAuditParams): Promise<voi
         companyId: params.companyId || null,
         branchId: params.branchId || null,
         ipAddress: params.ipAddress || null,
-        userAgent: params.userAgent || null,
         httpMethod: params.httpMethod || null,
         endpoint: params.endpoint || null,
         actionType: params.actionType,
@@ -77,7 +76,10 @@ export async function logForensicAudit(params: ForensicAuditParams): Promise<voi
         diffSummary: diff ? JSON.stringify(diff) : null,
         moduleToken: params.moduleToken || 'Sys-Ops-Security-Vault',
         severity: params.severity || 'INFO',
-        metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+        metadata: JSON.stringify({
+          ...(params.metadata || {}),
+          ...(params.userAgent ? { userAgent: params.userAgent } : {}),
+        }),
       },
     });
 

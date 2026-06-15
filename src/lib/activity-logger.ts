@@ -27,7 +27,7 @@ import { db } from '@/lib/db';
  * @param params - Activity log parameters
  */
 export async function logUserActivity(params: {
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'IMPORT';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'IMPORT' | 'AUTO_SMS_SKIPPED' | 'AUTO_SMS_DISPATCH';
   module: string;  // Module token e.g., "SMS-Gateway-Dispatch"
   recordId?: string;
   recordLabel?: string;

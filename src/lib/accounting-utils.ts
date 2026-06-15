@@ -204,16 +204,18 @@ export async function checkFiscalYearInterlock(
 ): Promise<string | null> {
   try {
     const year = date.getFullYear();
-    // Check if a PeriodClose record exists for this year
+    const month = date.getMonth() + 1;
+    // Check if a PeriodClose record exists for this month/year with isLocked=true
     const periodClose = await db.periodClose.findFirst({
       where: {
-        period: String(year),
-        status: 'Closed',
+        periodYear: year,
+        periodMonth: month,
+        isLocked: true,
         ...(companyId ? { companyId } : {}),
       },
     });
     if (periodClose) {
-      return `Fiscal year ${year} is closed. No modifications allowed for closed periods.`;
+      return `Period ${month}/${year} is closed. No modifications allowed for locked periods.`;
     }
     return null;
   } catch {

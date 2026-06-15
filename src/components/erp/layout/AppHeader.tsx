@@ -252,12 +252,12 @@ export default function AppHeader({
         await notifFetch("/api/notifications", {
           method: "POST",
           body: JSON.stringify({ action: "generate" }),
-        }, user.email, accessToken);
+        }, user.email ?? undefined, accessToken);
       }
       const res = await notifFetch(
         `/api/notifications?limit=50&isRead=false`,
         undefined,
-        user.email,
+        user.email ?? undefined,
         accessToken
       );
       if (res.success) {
@@ -309,8 +309,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ id, action: "mark-read" }),
-      }, user.email, accessToken);
-      // Optimistic update
+      }, user.email ?? undefined, accessToken);
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (err) {
@@ -328,7 +327,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ action: "mark-all-read" }),
-      }, user.email, accessToken);
+      }, user.email ?? undefined, accessToken);
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch (err) {
@@ -345,7 +344,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ id, action: "dismiss" }),
-      }, user.email, accessToken);
+      }, user.email ?? undefined, accessToken);
       setNotifications(prev => prev.filter(n => n.id !== id));
       setUnreadCount(prev => {
         const dismissed = notifications.find(n => n.id === id);

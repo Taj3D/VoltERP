@@ -260,14 +260,11 @@ export async function logSecurityThreat(params: {
       data: {
         threatType: params.threatType,
         ipAddress: params.ipAddress || null,
-        userAgent: params.userAgent || null,
         endpoint: params.endpoint || null,
-        httpMethod: params.httpMethod || null,
         payload: params.payload ? String(params.payload).substring(0, 5000) : null,
-        blockedAction: params.blockedAction || null,
+        notes: [params.userAgent, params.httpMethod, params.blockedAction].filter(Boolean).join(' | ') || null,
         severity: params.severity || 'HIGH',
         companyId: params.companyId || null,
-        userId: params.userId || null,
       },
     });
   } catch (error) {
