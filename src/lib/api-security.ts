@@ -11,6 +11,50 @@ import { verifyToken, extractBearerToken } from '@/lib/jwt-utils';
 import { sanitizeObject } from '@/lib/sanitize';
 import { verifyCsrfToken, isCsrfEnforced } from '@/lib/csrf';
 
+// ── User Lookup Cache (5-minute TTL) ──
+// Avoids db.user.findUnique on every API request (saves 100-200ms on Vercel)
+const userCache = new Map<string, { user: any; expiresAt: number }>();
+const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_USER_CACHE_SIZE = 200;
+
+function getCachedUser(userId: string): any | null {
+  const entry = userCache.get(userId);
+  if (entry && Date.now() < entry.expiresAt) {
+    return entry.user;
+  }
+  if (entry) userCache.delete(userId); // expired
+  return null;
+}
+
+function setCachedUser(userId: string, user: any): void {
+  // Evict oldest entries if cache is full
+  if (userCache.size >= MAX_USER_CACHE_SIZE) {
+    const oldestKey = userCache.keys().next().value;
+    if (oldestKey) userCache.delete(oldestKey);
+  }
+  userCache.set(userId, { user, expiresAt: Date.now() + USER_CACHE_TTL });
+}
+
+/**
+ * invalidateUserCache — Remove a user from the lookup cache.
+ * Call this whenever user data changes (password reset, profile update, deactivation, etc.)
+ * so the next request fetches fresh data from the database.
+ */
+export function invalidateUserCache(userId: string): void {
+  userCache.delete(userId);
+}
+
+/**
+ * getCacheHeaders — Returns Cache-Control headers for API responses.
+ * Use on read-heavy, rarely-changing endpoints to enable browser caching.
+ * `private` ensures responses are not cached by shared/CDN proxies (user-specific data).
+ */
+export function getCacheHeaders(maxAge: number = 30, staleWhileRevalidate: number = 60): Record<string, string> {
+  return {
+    'Cache-Control': `private, max-age=${maxAge}, stale-while-revalidate=${staleWhileRevalidate}`,
+  };
+}
+
 export type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
 
 // Module → Sidebar Group mapping (mirrors frontend ROLE_ACCESS)
@@ -253,11 +297,15 @@ export async function withApiSecurity(
       };
     }
 
-    // Verify user still exists and is active in the database
-    const user = await db.user.findUnique({
-      where: { id: tokenResult.payload.userId },
-      select: { id: true, email: true, name: true, role: true, isActive: true, companyId: true },
-    });
+    // Verify user still exists and is active in the database (cache first)
+    let user = getCachedUser(tokenResult.payload.userId);
+    if (!user) {
+      user = await db.user.findUnique({
+        where: { id: tokenResult.payload.userId },
+        select: { id: true, email: true, name: true, role: true, isActive: true, companyId: true },
+      });
+      if (user) setCachedUser(tokenResult.payload.userId, user);
+    }
 
     if (!user || !user.isActive) {
       return {

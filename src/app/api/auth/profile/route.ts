@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { withApiSecurity } from "@/lib/api-security";
+import { withApiSecurity, invalidateUserCache } from "@/lib/api-security";
 import { logUserActivity } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
@@ -173,6 +173,9 @@ export async function PUT(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    // Invalidate cached user so next request fetches fresh data
+    invalidateUserCache(existingUser.id);
 
     const updatedUser = await db.user.update({
       where: { id: existingUser.id },

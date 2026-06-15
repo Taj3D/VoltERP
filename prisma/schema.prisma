@@ -576,6 +576,7 @@ model Product {
   @@index([godownId])
   @@index([companyId])
   @@index([isActive])
+  @@index([companyId, isActive])
   @@index([sku])
   @@index([barcode])
 }
@@ -760,6 +761,7 @@ model Customer {
   @@index([companyId])
   @@index([creditStatus]) // Fast lookup for credit-frozen accounts
   @@index([coaAccountId])
+  @@index([companyId, isActive])
 }
 
 model Supplier {
@@ -795,6 +797,7 @@ model Supplier {
 
   @@index([companyId])
   @@index([creditStatus]) // Fast lookup for credit-frozen accounts
+  @@index([companyId, isActive])
 }
 
 // ============================================================
@@ -893,6 +896,8 @@ model PurchaseOrder {
   @@index([companyId])
   @@index([fulfillmentStatus])
   @@index([receivingStatus])
+  @@index([companyId, status, isActive])
+  @@index([companyId, date, status])
 }
 
 model PurchaseOrderLine {
@@ -912,6 +917,9 @@ model PurchaseOrderLine {
   notes            String?
   purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   product          Product       @relation(fields: [productId], references: [id])
+
+  @@index([purchaseOrderId])
+  @@index([productId])
 }
 
 // ============================================================
@@ -961,6 +969,8 @@ model SalesOrder {
   @@index([companyId])
   @@index([srId])
   @@index([arPosted])
+  @@index([companyId, status, isActive])
+  @@index([companyId, date, status])
 }
 
 model SalesOrderLine {
@@ -979,6 +989,9 @@ model SalesOrderLine {
   grossProfit     Float      @default(0) // total - cogsAmount — line-level gross profit
   salesOrder      SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
   product         Product    @relation(fields: [productId], references: [id])
+
+  @@index([salesOrderId])
+  @@index([productId])
 }
 
 // ============================================================
@@ -1445,6 +1458,7 @@ model Expense {
   @@index([chartOfAccountId])
   @@index([ledgerPosted])
   @@index([referenceKey])
+  @@index([companyId, isActive, date])
 }
 
 model Income {
@@ -1482,6 +1496,7 @@ model Income {
   @@index([chartOfAccountId])
   @@index([ledgerPosted])
   @@index([referenceKey])
+  @@index([companyId, isActive, date])
 }
 
 model CashCollection {
@@ -1523,6 +1538,7 @@ model CashCollection {
   @@index([chartOfAccountId])
   @@index([ledgerPosted])
   @@index([referenceKey])
+  @@index([companyId, isActive, date])
 }
 
 model CashDelivery {
@@ -1561,6 +1577,7 @@ model CashDelivery {
   @@index([chartOfAccountId])
   @@index([ledgerPosted])
   @@index([referenceKey])
+  @@index([companyId, isActive, date])
 }
 
 model BankTransaction {
@@ -1648,6 +1665,7 @@ model SmsLog {
   @@index([companyId])
   @@index([status])
   @@index([sentAt])
+  @@index([companyId, status])
 }
 
 model SmsBill {

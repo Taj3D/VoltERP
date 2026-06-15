@@ -6,7 +6,7 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { withApiSecurity } from "@/lib/api-security";
+import { withApiSecurity, invalidateUserCache } from "@/lib/api-security";
 import { logUserActivity } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
@@ -103,6 +103,9 @@ export async function POST(request: NextRequest) {
       where: { id: targetUser.id },
       data: { password: hashedNewPassword },
     });
+
+    // Invalidate cached user so next request fetches fresh data
+    invalidateUserCache(targetUser.id);
 
     // Create audit log entry
     await logUserActivity({

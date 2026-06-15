@@ -5,10 +5,11 @@ import {
   safeFinancialAdd,
   safeFinancialSubtract,
   safeFinancialRound,
-  type UserRole,
   maskDashboardForVatAuditor,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Dashboard', 'GET');
@@ -22,49 +23,170 @@ export async function GET(request: NextRequest) {
     // FIX 4: Consistent revenue status filter - exclude Draft and Cancelled
     const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-    // Core counts - batch together (all with companyId filter)
+    // ── SINGLE PARALLEL BATCH: All queries in one Promise.all ──────────────
+    // Previously 5 sequential rounds → now 1 round
+    // Deduplicated: salesOrderLine (was 2→1), product (was 2→1), hireSales (was 2→1)
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const now = new Date();
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
     const [
-      totalProducts, activeProducts,
+      // Core counts (6)
+      totalProducts, activeProductsCount,
       totalCustomers, activeCustomers,
       totalSuppliers, activeSuppliers,
+
+      // Financial aggregates (4)
+      confirmedSalesAgg,
+      totalExpensesAgg,
+      totalIncomeAgg,
+      confirmedPurchasesAgg,
+
+      // Bank balance (1)
+      bankBalance,
+
+      // Category distribution (1)
+      categoryDistribution,
+
+      // Receivables/Payables raw data (10)
+      collectionsAgg, returnsAgg, deliveriesAgg, purchaseReturnsAgg,
+      custOpenDrAgg, custOpenCrAgg, suppOpenCrAgg, suppOpenDrAgg,
+
+      // Single salesOrderLine query for BOTH COGS and top-selling products (1)
+      allSalesLines,
+
+      // Single product query for BOTH stock value AND low stock detection (1)
+      allActiveProducts,
+
+      // Recent activities / audit logs (1)
+      auditLogs,
+
+      // Monthly data (2)
+      salesOrders, purchaseOrders,
+
+      // Pending orders (2)
+      pendingPOCount, pendingSOCount,
+
+      // Single hireSales query for BOTH recent installments AND today's installments (1)
+      allHireSales,
     ] = await Promise.all([
+      // ── Core counts ──
       db.product.count({ where: { ...companyFilter } }),
       db.product.count({ where: { isActive: true, ...companyFilter } }),
       db.customer.count({ where: { ...companyFilter } }),
       db.customer.count({ where: { isActive: true, ...companyFilter } }),
       db.supplier.count({ where: { ...companyFilter } }),
       db.supplier.count({ where: { isActive: true, ...companyFilter } }),
-    ]);
 
-    // Financials - batch together (all with companyId filter)
-    const [
-      confirmedSalesAgg,
-      totalExpensesAgg,
-      totalIncomeAgg,
-      confirmedPurchasesAgg,
-    ] = await Promise.all([
+      // ── Financial aggregates ──
       db.salesOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
       db.expense.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
       db.income.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
       db.purchaseOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+
+      // ── Bank balance ──
+      db.bank.aggregate({
+        where: { ...companyFilter },
+        _sum: { currentBalance: true },
+      }),
+
+      // ── Category distribution ──
+      db.category.findMany({
+        where: { isActive: true },
+        include: { _count: { select: { products: { where: { isActive: true, ...companyFilter } } } } },
+        orderBy: { name: 'asc' },
+      }),
+
+      // ── Receivables/Payables raw data ──
+      // salesAgg already fetched as confirmedSalesAgg above, purchasesAgg as confirmedPurchasesAgg
+      db.cashCollection.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
+      db.salesReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+      db.cashDelivery.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
+      db.purchaseReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+      db.customer.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+      db.customer.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+      db.supplier.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+      db.supplier.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+
+      // ── Single salesOrderLine query (deduplicated: was 2 queries) ──
+      // Used for BOTH COGS calculation AND top-selling products
+      db.salesOrderLine.findMany({
+        where: {
+          salesOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter },
+        },
+        include: {
+          product: { select: { id: true, name: true, productCode: true, costPrice: true } },
+        },
+      }),
+
+      // ── Single product query (deduplicated: was 2 queries) ──
+      // Used for BOTH stock value AND low stock detection
+      db.product.findMany({
+        where: { isActive: true, ...companyFilter },
+        select: {
+          id: true,
+          name: true,
+          productCode: true,
+          costPrice: true,
+          openingStock: true,
+          reorderLevel: true,
+          category: { select: { name: true } },
+        },
+      }),
+
+      // ── Recent Activities ──
+      db.auditLog.findMany({
+        where: companyId ? { userId: { not: null } } : {},
+        take: 8,
+        orderBy: { createdAt: 'desc' },
+      }),
+
+      // ── Monthly data ──
+      db.salesOrder.findMany({
+        where: { date: { gte: sixMonthsAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+        select: { date: true, grandTotal: true },
+      }),
+      db.purchaseOrder.findMany({
+        where: { date: { gte: sixMonthsAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+        select: { date: true, grandTotal: true },
+      }),
+
+      // ── Pending Orders ──
+      db.purchaseOrder.count({ where: { status: { in: ['Draft', 'Pending'] }, ...companyFilter } }),
+      db.salesOrder.count({ where: { status: { in: ['Draft', 'Pending'] }, ...companyFilter } }),
+
+      // ── Single hireSales query (deduplicated: was 2 queries) ──
+      // Fetch recent records; filter today's in JS
+      db.hireSales.findMany({
+        where: { isActive: true, ...companyFilter },
+        take: 50,
+        orderBy: { date: 'desc' },
+        include: {
+          customer: { select: { id: true, name: true, customerCode: true, phone: true, address: true } },
+          lines: {
+            include: {
+              product: { select: { id: true, name: true, productCode: true } },
+            },
+          },
+        },
+      }),
     ]);
+
+    // ── Compute derived values ─────────────────────────────────────────────
 
     const totalRevenue = Number(confirmedSalesAgg._sum.grandTotal || 0);
     const totalExpenses = Number(totalExpensesAgg._sum.amount || 0);
     const totalIncome = Number(totalIncomeAgg._sum.amount || 0);
     const totalPurchases = Number(confirmedPurchasesAgg._sum.grandTotal || 0);
 
-    // FIX: COGS = sum of (quantity × costPrice) from sales order lines for confirmed sales
-    // Filter by salesOrder with companyId
-    const salesLinesForCOGS = await db.salesOrderLine.findMany({
-      where: {
-        salesOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-      },
-      include: {
-        product: { select: { costPrice: true } },
-      },
-    });
-    const cogs = salesLinesForCOGS.reduce((sum, line) => {
+    // COGS from single salesOrderLine query (was a separate query before)
+    const cogs = allSalesLines.reduce((sum, line) => {
       const costPrice = Number(line.product?.costPrice || 0);
       return safeFinancialAdd(sum, safeFinancialRound(Number(line.quantity) * costPrice));
     }, 0);
@@ -72,26 +194,11 @@ export async function GET(request: NextRequest) {
     const grossProfit = safeFinancialSubtract(totalRevenue, cogs);
     const netProfit = safeFinancialSubtract(safeFinancialAdd(totalRevenue, totalIncome), safeFinancialAdd(cogs, totalExpenses));
 
-    // FIX: Compute totalReceivables and totalPayables for KPI accuracy
-    // All with companyId filtering
-    const [salesAgg, collectionsAgg, returnsAgg, purchasesAgg, deliveriesAgg, purchaseReturnsAgg, custOpenDrAgg, custOpenCrAgg, suppOpenCrAgg, suppOpenDrAgg] = await Promise.all([
-      db.salesOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
-      db.cashCollection.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
-      db.salesReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
-      db.purchaseOrder.aggregate({ where: { status: revenueStatusFilter, isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
-      db.cashDelivery.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
-      db.purchaseReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
-      db.customer.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
-      db.customer.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
-      db.supplier.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
-      db.supplier.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
-    ]);
-
     // Receivables: openingDr + sales - collections - returns - openingCr
     const receivablesBase = safeFinancialAdd(
       Number(custOpenDrAgg._sum.openingBalance || 0),
       safeFinancialSubtract(
-        Number(salesAgg._sum.grandTotal || 0),
+        totalRevenue,
         safeFinancialAdd(
           Number(collectionsAgg._sum.amount || 0),
           safeFinancialAdd(
@@ -107,7 +214,7 @@ export async function GET(request: NextRequest) {
     const payablesBase = safeFinancialAdd(
       Number(suppOpenCrAgg._sum.openingBalance || 0),
       safeFinancialSubtract(
-        Number(purchasesAgg._sum.grandTotal || 0),
+        totalPurchases,
         safeFinancialAdd(
           Number(deliveriesAgg._sum.amount || 0),
           safeFinancialAdd(
@@ -119,30 +226,13 @@ export async function GET(request: NextRequest) {
     );
     const totalPayables = Math.max(0, payablesBase);
 
-    // FIX 1: Compute stock value as SUM(costPrice * openingStock) per product
-    // With companyId filter
-    const activeProductsForStock = await db.product.findMany({
-      where: { isActive: true, ...companyFilter },
-      select: { costPrice: true, openingStock: true },
-    });
-    const stockValue = activeProductsForStock.reduce(
+    // Stock value from single product query (was a separate query before)
+    const stockValue = allActiveProducts.reduce(
       (sum, p) => safeFinancialAdd(sum, safeFinancialRound(Number(p.costPrice) * Number(p.openingStock))),
       0
     );
 
-    // FIX 3: Bank balance - use currentBalance with companyId filter
-    const bankBalance = await db.bank.aggregate({
-      where: { ...companyFilter },
-      _sum: { currentBalance: true },
-    });
-
-    // Recent Activities - limit to 8 (AuditLog is global, no companyId needed)
-    const auditLogs = await db.auditLog.findMany({
-      where: companyId ? { userId: { not: null } } : {},
-      take: 8,
-      orderBy: { createdAt: 'desc' },
-    });
-
+    // Recent Activities
     const recentActivities = auditLogs.map((log) => ({
       id: log.id,
       type: log.action.toLowerCase(),
@@ -153,18 +243,9 @@ export async function GET(request: NextRequest) {
       userName: log.userName,
     }));
 
-    // Top Selling Products - with companyId filter via salesOrder
-    const salesLines = await db.salesOrderLine.findMany({
-      where: {
-        salesOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-      },
-      include: {
-        product: { select: { id: true, name: true, productCode: true } },
-      },
-    });
-
+    // Top Selling Products from single salesOrderLine query (was a separate query before)
     const productSalesMap: Record<string, { productId: string; name: string; productCode: string; totalQuantity: number; totalRevenue: number }> = {};
-    for (const line of salesLines) {
+    for (const line of allSalesLines) {
       const pid = line.productId;
       if (!productSalesMap[pid]) {
         productSalesMap[pid] = {
@@ -183,22 +264,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.totalQuantity - a.totalQuantity)
       .slice(0, 5);
 
-    // Monthly Data - last 6 months, with companyId filter
-    const now = new Date();
-    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    const [salesOrders, purchaseOrders] = await Promise.all([
-      db.salesOrder.findMany({
-        where: { date: { gte: sixMonthsAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-        select: { date: true, grandTotal: true },
-      }),
-      db.purchaseOrder.findMany({
-        where: { date: { gte: sixMonthsAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-        select: { date: true, grandTotal: true },
-      }),
-    ]);
-
+    // Monthly Data
     const monthlyMap: Record<string, { month: string; sales: number; purchase: number; expenses: number }> = {};
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -220,19 +286,7 @@ export async function GET(request: NextRequest) {
 
     const monthlySalesData = Object.values(monthlyMap);
 
-    // FIX 2: Low Stock Products - with companyId filter
-    const allActiveProducts = await db.product.findMany({
-      where: { isActive: true, ...companyFilter },
-      select: {
-        id: true,
-        name: true,
-        productCode: true,
-        openingStock: true,
-        reorderLevel: true,
-        category: { select: { name: true } },
-      },
-    });
-
+    // Low Stock Products from single product query (was a separate query before)
     const lowStockProducts = allActiveProducts
       .filter((p) => Number(p.openingStock) <= Number(p.reorderLevel))
       .sort((a, b) => {
@@ -250,58 +304,8 @@ export async function GET(request: NextRequest) {
         category: p.category?.name || 'Unknown',
       }));
 
-    // Category Distribution (global per task spec)
-    const categoryDistribution = await db.category.findMany({
-      where: { isActive: true },
-      include: { _count: { select: { products: { where: { isActive: true, ...companyFilter } } } } },
-      orderBy: { name: 'asc' },
-    });
-
-    // Pending Orders - with companyId filter
-    const [pendingPOCount, pendingSOCount] = await Promise.all([
-      db.purchaseOrder.count({ where: { status: { in: ['Draft', 'Pending'] }, ...companyFilter } }),
-      db.salesOrder.count({ where: { status: { in: ['Draft', 'Pending'] }, ...companyFilter } }),
-    ]);
-
-    // Hire Sales Installments - with companyId filter
-    const hireSalesRecords = await db.hireSales.findMany({
-      where: { isActive: true, ...companyFilter },
-      take: 10,
-      orderBy: { date: 'desc' },
-      include: {
-        customer: { select: { id: true, name: true, customerCode: true, phone: true } },
-        lines: {
-          include: {
-            product: { select: { id: true, name: true, productCode: true } },
-          },
-        },
-      },
-    });
-
-    // Today's Installments - hire sales with nextPaymentDate = today
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const todaysInstallmentRecords = await db.hireSales.findMany({
-      where: {
-        isActive: true,
-        ...companyFilter,
-        nextPaymentDate: { gte: todayStart, lte: todayEnd },
-      },
-      orderBy: { nextPaymentDate: 'asc' },
-      include: {
-        customer: { select: { id: true, name: true, customerCode: true, phone: true, address: true } },
-        lines: {
-          include: {
-            product: { select: { id: true, name: true, productCode: true } },
-          },
-        },
-      },
-    });
-
-    const hireInstallments = hireSalesRecords.map((hs) => ({
+    // Hire Sales Installments - split from single query (was 2 queries before)
+    const hireInstallments = allHireSales.slice(0, 10).map((hs) => ({
       id: hs.id,
       invoiceNo: hs.invoiceNo,
       date: hs.date.toISOString(),
@@ -332,10 +336,17 @@ export async function GET(request: NextRequest) {
       })),
     }));
 
+    // Today's Installments - filtered in JS from the same query
+    const todaysInstallmentRecords = allHireSales.filter((hs) => {
+      if (!hs.nextPaymentDate) return false;
+      const npd = new Date(hs.nextPaymentDate);
+      return npd >= todayStart && npd <= todayEnd;
+    });
+
     // Build response data (no manual VAT masking - maskDashboardForVatAuditor handles it)
     const responseData: Record<string, unknown> = {
       totalProducts,
-      activeProducts,
+      activeProducts: activeProductsCount,
       totalCustomers,
       activeCustomers,
       totalSuppliers,
@@ -399,16 +410,20 @@ export async function GET(request: NextRequest) {
     // Stage 13: Apply deep recursive VAT Auditor masking
     const maskedData = maskDashboardForVatAuditor(responseData, security.user.role);
 
-    // Stage 13: Log user activity with precise audit token
-    await logUserActivity({
+    // Stage 13: Log user activity - fire-and-forget (don't await)
+    logUserActivity({
       action: 'EXPORT',
       module: 'Audit-Dashboard-KPI',
       userId: security.user.id,
       userName: security.user.name,
       details: 'Dashboard KPI data loaded',
-    });
+    }).catch(console.error);
 
-    return NextResponse.json(maskedData);
+    return NextResponse.json(maskedData, {
+      headers: {
+        'Cache-Control': 'private, max-age=10, stale-while-revalidate=30',
+      },
+    });
   } catch (error) {
     console.error('Dashboard API error:', error);
     return NextResponse.json({ error: 'Failed to load dashboard' }, { status: 500 });

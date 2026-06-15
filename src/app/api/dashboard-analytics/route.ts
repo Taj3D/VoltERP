@@ -10,6 +10,17 @@ import {
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
 
+export const maxDuration = 60;
+
+/** Helper to add cache headers to a response */
+function withCacheHeaders(data: unknown) {
+  return NextResponse.json(data, {
+    headers: {
+      'Cache-Control': 'private, max-age=10, stale-while-revalidate=30',
+    },
+  });
+}
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'DashboardAnalytics', 'GET');
   if (!security.authorized) return security.response;
@@ -82,7 +93,13 @@ async function handleKPI(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  // Performance: Run all independent DB queries in parallel with Promise.all
+  // Optimization: All queries in a SINGLE Promise.all (was 3 sequential rounds)
+  // Inlined calculateTotalReceivables/calculateTotalPayables to eliminate 10 redundant queries
+  // Also inlined YoY and sparkline queries that were in separate rounds
+  const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
+  const lastYearEnd = new Date(now.getFullYear() - 1, 11, 31);
+  const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+
   const [
     salesAgg, purchasesAgg, expensesAgg, incomeAgg,
     totalCustomers, totalSuppliers, totalProducts,
@@ -92,8 +109,14 @@ async function handleKPI(
     allProductsForStock,
     salesLinesForCOGS,
     activeProducts,
-    totalReceivables,
-    totalPayables,
+    // Inlined receivables data (was calculateTotalReceivables - 5 queries)
+    collectionsAgg, salesReturnsAgg, custOpenDrAgg, custOpenCrAgg,
+    // Inlined payables data (was calculateTotalPayables - 5 queries)
+    deliveriesAgg, purchaseReturnsAgg, suppOpenCrAgg, suppOpenDrAgg,
+    // YoY (was round 2)
+    lastYearSalesAgg, lastYearPurchasesAgg,
+    // Sparkline (was round 3)
+    sevenDaySales,
   ] = await Promise.all([
     // Core revenue aggregates
     db.salesOrder.aggregate({
@@ -161,9 +184,30 @@ async function handleKPI(
       where: { isActive: true, ...companyFilter },
       select: { costPrice: true, openingStock: true },
     }),
-    // Receivables and Payables
-    calculateTotalReceivables(companyFilter),
-    calculateTotalPayables(companyFilter),
+    // ── Inlined receivables data (eliminates 5 redundant queries) ──
+    db.cashCollection.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
+    db.salesReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+    db.customer.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    db.customer.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    // ── Inlined payables data (eliminates 5 redundant queries) ──
+    db.cashDelivery.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
+    db.purchaseReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+    db.supplier.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    db.supplier.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    // ── YoY data (was separate round 2) ──
+    db.salesOrder.aggregate({
+      where: { date: { gte: lastYearStart, lte: lastYearEnd }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    db.purchaseOrder.aggregate({
+      where: { date: { gte: lastYearStart, lte: lastYearEnd }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+    }),
+    // ── Sparkline data (was separate round 3) ──
+    db.salesOrder.findMany({
+      where: { date: { gte: sevenDaysAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
+      select: { date: true, grandTotal: true },
+    }),
   ]);
 
   // Compute derived values from parallel results
@@ -190,33 +234,48 @@ async function handleKPI(
     (sum, p) => safeFinancialAdd(sum, safeFinancialRound(Number(p.costPrice) * Number(p.openingStock))),
     0
   );
+
+  // Compute receivables inline (was calculateTotalReceivables - eliminates re-querying salesAgg, etc.)
+  const receivablesBase = safeFinancialAdd(
+    Number(custOpenDrAgg._sum.openingBalance || 0),
+    safeFinancialSubtract(
+      totalRevenue,
+      safeFinancialAdd(
+        Number(collectionsAgg._sum.amount || 0),
+        safeFinancialAdd(
+          Number(salesReturnsAgg._sum.grandTotal || 0),
+          Number(custOpenCrAgg._sum.openingBalance || 0)
+        )
+      )
+    )
+  );
+  const totalReceivables = Math.max(0, receivablesBase);
+
+  // Compute payables inline (was calculateTotalPayables - eliminates re-querying purchasesAgg, etc.)
+  const payablesBase = safeFinancialAdd(
+    Number(suppOpenCrAgg._sum.openingBalance || 0),
+    safeFinancialSubtract(
+      totalPurchases,
+      safeFinancialAdd(
+        Number(deliveriesAgg._sum.amount || 0),
+        safeFinancialAdd(
+          Number(purchaseReturnsAgg._sum.grandTotal || 0),
+          Number(suppOpenDrAgg._sum.openingBalance || 0)
+        )
+      )
+    )
+  );
+  const totalPayables = Math.max(0, payablesBase);
+
   const totalAssets = safeFinancialAdd(safeFinancialAdd(totalBankBalance, totalInventoryValue), totalReceivables);
 
   const assetTurnoverRatio = totalAssets > 0 ? totalRevenue / totalAssets : 0;
   const returnOnSales = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
 
-  // YoY: Get last year's revenue and purchases for comparison
-  const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
-  const lastYearEnd = new Date(now.getFullYear() - 1, 11, 31);
-  const [lastYearSalesAgg, lastYearPurchasesAgg] = await Promise.all([
-    db.salesOrder.aggregate({
-      where: { date: { gte: lastYearStart, lte: lastYearEnd }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-      _sum: { grandTotal: true },
-    }),
-    db.purchaseOrder.aggregate({
-      where: { date: { gte: lastYearStart, lte: lastYearEnd }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-      _sum: { grandTotal: true },
-    }),
-  ]);
   const lastYearRevenue = Number(lastYearSalesAgg._sum.grandTotal || 0);
   const lastYearPurchases = Number(lastYearPurchasesAgg._sum.grandTotal || 0);
 
-  // 7-day sparkline data for trend mini-charts
-  const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
-  const sevenDaySales = await db.salesOrder.findMany({
-    where: { date: { gte: sevenDaysAgo }, status: revenueStatusFilter, isActive: true, ...companyFilter },
-    select: { date: true, grandTotal: true },
-  });
+  // Sparkline
   const sparklineData: number[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
@@ -263,16 +322,16 @@ async function handleKPI(
   // Stage 13: Apply deep recursive VAT Auditor masking
   const maskedResult = maskDashboardForVatAuditor(result, role);
 
-  // Stage 13: Log user activity
-  await logUserActivity({
+  // Stage 13: Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json(maskedResult);
+  return withCacheHeaders(maskedResult);
 }
 
 // ─── Monthly Trend ───────────────────────────────────────────────────────────
@@ -370,16 +429,16 @@ async function handleMonthlyTrend(
     data = data.map(d => maskDashboardForVatAuditor(d as Record<string, unknown>, role)) as Record<string, unknown>[];
   }
 
-  // Stage 13: Log user activity
-  await logUserActivity({
+  // Stage 13: Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json({ type: 'monthly-trend', data });
+  return withCacheHeaders({ type: 'monthly-trend', data });
 }
 
 // ─── Category Turnover ───────────────────────────────────────────────────────
@@ -461,16 +520,16 @@ async function handleCategoryTurnover(
     resultData = resultData.map(d => maskDashboardForVatAuditor(d, role));
   }
 
-  // Stage 13: Log user activity
-  await logUserActivity({
+  // Stage 13: Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json({ type: 'category-turnover', data: resultData });
+  return withCacheHeaders({ type: 'category-turnover', data: resultData });
 }
 
 // ─── Stock Alerts ────────────────────────────────────────────────────────────
@@ -517,7 +576,7 @@ async function handleStockAlerts(companyFilter: Record<string, unknown>) {
 
   const criticalCount = alerts.filter((a) => a.currentStock === 0).length;
 
-  return NextResponse.json({
+  return withCacheHeaders({
     type: 'stock-alerts',
     alertCount: alerts.length,
     criticalCount,
@@ -537,11 +596,15 @@ async function handleFinancialRatios(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  // Performance: Run all independent DB queries in parallel
+  // Optimization: Single Promise.all with inlined receivables/payables data
+  // (was calling calculateTotalReceivables/calculateTotalPayables which re-queried data)
   const [
     salesAgg, purchasesAgg, expensesAgg, incomeAgg,
     bankBalanceAgg, activeProducts, salesLinesForCOGS,
-    totalReceivables, totalPayables,
+    // Inlined receivables data (was calculateTotalReceivables - 5 queries)
+    collectionsAgg, salesReturnsAgg, custOpenDrAgg, custOpenCrAgg,
+    // Inlined payables data (was calculateTotalPayables - 5 queries)
+    deliveriesAgg, purchaseReturnsAgg, suppOpenCrAgg, suppOpenDrAgg,
   ] = await Promise.all([
     db.salesOrder.aggregate({
       where: { ...dateFilter({ status: revenueStatusFilter, isActive: true, ...companyFilter }) },
@@ -577,8 +640,16 @@ async function handleFinancialRatios(
         product: { select: { costPrice: true } },
       },
     }),
-    calculateTotalReceivables(companyFilter),
-    calculateTotalPayables(companyFilter),
+    // ── Inlined receivables data ──
+    db.cashCollection.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
+    db.salesReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+    db.customer.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    db.customer.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    // ── Inlined payables data ──
+    db.cashDelivery.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { amount: true } }),
+    db.purchaseReturn.aggregate({ where: { isActive: true, ...companyFilter }, _sum: { grandTotal: true } }),
+    db.supplier.aggregate({ where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
+    db.supplier.aggregate({ where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter }, _sum: { openingBalance: true } }),
   ]);
 
   const totalInventoryValue = activeProducts.reduce(
@@ -600,6 +671,38 @@ async function handleFinancialRatios(
   const netProfit = safeFinancialSubtract(safeFinancialAdd(grossProfit, totalIncomes), totalExpenses);
 
   const totalBankBalance = Number(bankBalanceAgg._sum.currentBalance || 0);
+
+  // Compute receivables inline (eliminates calculateTotalReceivables re-query)
+  const receivablesBase = safeFinancialAdd(
+    Number(custOpenDrAgg._sum.openingBalance || 0),
+    safeFinancialSubtract(
+      totalRevenue,
+      safeFinancialAdd(
+        Number(collectionsAgg._sum.amount || 0),
+        safeFinancialAdd(
+          Number(salesReturnsAgg._sum.grandTotal || 0),
+          Number(custOpenCrAgg._sum.openingBalance || 0)
+        )
+      )
+    )
+  );
+  const totalReceivables = Math.max(0, receivablesBase);
+
+  // Compute payables inline (eliminates calculateTotalPayables re-query)
+  const payablesBase = safeFinancialAdd(
+    Number(suppOpenCrAgg._sum.openingBalance || 0),
+    safeFinancialSubtract(
+      totalPurchases,
+      safeFinancialAdd(
+        Number(deliveriesAgg._sum.amount || 0),
+        safeFinancialAdd(
+          Number(purchaseReturnsAgg._sum.grandTotal || 0),
+          Number(suppOpenDrAgg._sum.openingBalance || 0)
+        )
+      )
+    )
+  );
+  const totalPayables = Math.max(0, payablesBase);
 
   // Current assets = bank + inventory + receivables
   const currentAssets = safeFinancialAdd(safeFinancialAdd(totalBankBalance, totalInventoryValue), totalReceivables);
@@ -643,16 +746,16 @@ async function handleFinancialRatios(
   // Stage 13: Apply deep recursive VAT Auditor masking
   const maskedResult = maskDashboardForVatAuditor(result, role);
 
-  // Stage 13: Log user activity
-  await logUserActivity({
+  // Stage 13: Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json(maskedResult);
+  return withCacheHeaders(maskedResult);
 }
 
 // ─── Top Performers ──────────────────────────────────────────────────────────
@@ -670,11 +773,37 @@ async function handleTopPerformers(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  // Top selling products by revenue (companyId filtered via salesOrder)
-  const salesLines = await db.salesOrderLine.findMany({
-    where: { salesOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter } },
-    include: { product: { select: { id: true, name: true, productCode: true, category: { select: { name: true } } } } },
-  });
+  // Optimization: Parallelize independent queries
+  const [salesLines, customerSales, supplierPurchases, srTargets] = await Promise.all([
+    // Top selling products by revenue (companyId filtered via salesOrder)
+    db.salesOrderLine.findMany({
+      where: { salesOrder: { status: revenueStatusFilter, isActive: true, ...companyFilter } },
+      include: { product: { select: { id: true, name: true, productCode: true, category: { select: { name: true } } } } },
+    }),
+    // Top customers by purchase volume (companyId filtered)
+    db.salesOrder.groupBy({
+      by: ['customerId'],
+      where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+      orderBy: { _sum: { grandTotal: 'desc' } },
+      take: limit,
+    }),
+    // Top suppliers by purchase value (companyId filtered)
+    db.purchaseOrder.groupBy({
+      by: ['supplierId'],
+      where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
+      _sum: { grandTotal: true },
+      orderBy: { _sum: { grandTotal: 'desc' } },
+      take: limit,
+    }),
+    // Top SRs (employees) by sales value (companyId filtered)
+    db.sRTargetSetup.findMany({
+      where: { isActive: true, ...companyFilter },
+      include: { employee: { select: { id: true, employeeCode: true, name: true } } },
+      orderBy: { targetAmount: 'desc' },
+      take: limit,
+    }),
+  ]);
 
   const productMap: Record<string, { productId: string; name: string; productCode: string; category: string; totalQty: number; totalRevenue: number }> = {};
   for (const line of salesLines) {
@@ -696,20 +825,20 @@ async function handleTopPerformers(
     .sort((a, b) => b.totalRevenue - a.totalRevenue)
     .slice(0, limit);
 
-  // Top customers by purchase volume (companyId filtered)
-  const customerSales = await db.salesOrder.groupBy({
-    by: ['customerId'],
-    where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-    orderBy: { _sum: { grandTotal: 'desc' } },
-    take: limit,
-  });
-
+  // Resolve customer and supplier names in parallel
   const customerIds = customerSales.map((cs) => cs.customerId);
-  const customers = await db.customer.findMany({
-    where: { id: { in: customerIds }, ...companyFilter },
-    select: { id: true, customerCode: true, name: true, phone: true },
-  });
+  const supplierIds = supplierPurchases.map((sp) => sp.supplierId);
+
+  const [customers, suppliers] = await Promise.all([
+    db.customer.findMany({
+      where: { id: { in: customerIds }, ...companyFilter },
+      select: { id: true, customerCode: true, name: true, phone: true },
+    }),
+    db.supplier.findMany({
+      where: { id: { in: supplierIds }, ...companyFilter },
+      select: { id: true, supplierCode: true, name: true, phone: true },
+    }),
+  ]);
 
   const topCustomers = customerSales.map((cs) => {
     const cust = customers.find((c) => c.id === cs.customerId);
@@ -722,21 +851,6 @@ async function handleTopPerformers(
     };
   });
 
-  // Top suppliers by purchase value (companyId filtered)
-  const supplierPurchases = await db.purchaseOrder.groupBy({
-    by: ['supplierId'],
-    where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-    _sum: { grandTotal: true },
-    orderBy: { _sum: { grandTotal: 'desc' } },
-    take: limit,
-  });
-
-  const supplierIds = supplierPurchases.map((sp) => sp.supplierId);
-  const suppliers = await db.supplier.findMany({
-    where: { id: { in: supplierIds }, ...companyFilter },
-    select: { id: true, supplierCode: true, name: true, phone: true },
-  });
-
   const topSuppliers = supplierPurchases.map((sp) => {
     const sup = suppliers.find((s) => s.id === sp.supplierId);
     return {
@@ -746,14 +860,6 @@ async function handleTopPerformers(
       phone: sup?.phone || '',
       totalPurchaseValue: Number(sp._sum.grandTotal || 0),
     };
-  });
-
-  // Top SRs (employees) by sales value (companyId filtered)
-  const srTargets = await db.sRTargetSetup.findMany({
-    where: { isActive: true, ...companyFilter },
-    include: { employee: { select: { id: true, employeeCode: true, name: true } } },
-    orderBy: { targetAmount: 'desc' },
-    take: limit,
   });
 
   const topSRs = srTargets.map((st) => ({
@@ -780,16 +886,16 @@ async function handleTopPerformers(
   // Stage 13: Apply deep recursive VAT Auditor masking
   const maskedResult = maskDashboardForVatAuditor(result, role);
 
-  // Stage 13: Log user activity
-  await logUserActivity({
+  // Stage 13: Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json(maskedResult);
+  return withCacheHeaders(maskedResult);
 }
 
 // ─── Payment Mix ─────────────────────────────────────────────────────────────
@@ -843,7 +949,7 @@ async function handlePaymentMix(
     result.data = filtered.map(d => maskDashboardForVatAuditor(d as Record<string, unknown>, role));
   }
 
-  return NextResponse.json(result);
+  return withCacheHeaders(result);
 }
 
 // ─── Daily Sales Trend (last 30 days) ────────────────────────────────────────
@@ -901,15 +1007,16 @@ async function handleDailySalesTrend(
     data = data.map(d => maskDashboardForVatAuditor(d, role)) as Record<string, unknown>[];
   }
 
-  await logUserActivity({
+  // Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json({ type: 'daily-sales-trend', data });
+  return withCacheHeaders({ type: 'daily-sales-trend', data });
 }
 
 // ─── Receivables Aging ───────────────────────────────────────────────────────
@@ -926,21 +1033,20 @@ async function handleReceivablesAging(
   // FIX 4: Exclude Cancelled in addition to Draft
   const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
 
-  // FIX 6: Sort by date ascending (oldest first) for FIFO allocation
-  // With companyId filter
-  const salesOrders = await db.salesOrder.findMany({
-    where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
-    select: {
-      id: true,
-      customerId: true,
-      date: true,
-      grandTotal: true,
-    },
-    orderBy: { date: 'asc' },
-  });
-
-  // Get all cash collections and sales returns for balance calculation (companyId filtered)
-  const [cashCollections, salesReturns] = await Promise.all([
+  // Optimization: Run all queries in a single parallel batch
+  // (previously salesOrders was sequential, then cashCollections/salesReturns in parallel,
+  // then customerOpeningDr/Cr sequential - now all in one Promise.all)
+  const [salesOrders, cashCollections, salesReturns, customerOpeningDr, customerOpeningCr] = await Promise.all([
+    db.salesOrder.findMany({
+      where: { status: revenueStatusFilter, isActive: true, ...companyFilter },
+      select: {
+        id: true,
+        customerId: true,
+        date: true,
+        grandTotal: true,
+      },
+      orderBy: { date: 'asc' },
+    }),
     db.cashCollection.findMany({
       where: { isActive: true, status: { not: 'Draft' }, ...companyFilter },
       select: { customerId: true, amount: true },
@@ -948,6 +1054,14 @@ async function handleReceivablesAging(
     db.salesReturn.findMany({
       where: { isActive: true, status: { not: 'Draft' }, ...companyFilter },
       select: { salesOrderId: true, grandTotal: true },
+    }),
+    db.customer.aggregate({
+      where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
+      _sum: { openingBalance: true },
+    }),
+    db.customer.aggregate({
+      where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
+      _sum: { openingBalance: true },
     }),
   ]);
 
@@ -1002,16 +1116,7 @@ async function handleReceivablesAging(
     }
   }
 
-  // FIX: Include customer opening Dr/Cr balances in aging
-  // Opening Dr balances are outstanding receivables, Opening Cr balances reduce them
-  const customerOpeningDr = await db.customer.aggregate({
-    where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
-    _sum: { openingBalance: true },
-  });
-  const customerOpeningCr = await db.customer.aggregate({
-    where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
-    _sum: { openingBalance: true },
-  });
+  // Use already-fetched opening balance data (was sequential queries before)
   const openingDrTotal = Number(customerOpeningDr._sum.openingBalance || 0);
   const openingCrTotal = Number(customerOpeningCr._sum.openingBalance || 0);
   const openingBalanceNet = safeFinancialSubtract(openingDrTotal, openingCrTotal);
@@ -1037,92 +1142,14 @@ async function handleReceivablesAging(
   // Stage 13: Apply deep recursive VAT Auditor masking
   const maskedResult = maskDashboardForVatAuditor(result, role);
 
-  // Stage 13: Log user activity
-  await logUserActivity({
+  // Stage 13: Log user activity - fire-and-forget
+  logUserActivity({
     action: 'EXPORT',
     module: 'Audit-Dashboard-KPI',
     userId,
     userName,
     details: 'Dashboard analytics report generated',
-  });
+  }).catch(console.error);
 
-  return NextResponse.json(maskedResult);
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-async function calculateTotalReceivables(companyFilter: Record<string, unknown>): Promise<number> {
-  // Performance: Run all independent queries in parallel
-  const [salesAgg, collectionsAgg, returnsAgg, customerOpeningDr, customerOpeningCr] = await Promise.all([
-    db.salesOrder.aggregate({
-      where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
-      _sum: { grandTotal: true },
-    }),
-    db.cashCollection.aggregate({
-      where: { isActive: true, ...companyFilter },
-      _sum: { amount: true },
-    }),
-    db.salesReturn.aggregate({
-      where: { isActive: true, ...companyFilter },
-      _sum: { grandTotal: true },
-    }),
-    db.customer.aggregate({
-      where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
-      _sum: { openingBalance: true },
-    }),
-    db.customer.aggregate({
-      where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
-      _sum: { openingBalance: true },
-    }),
-  ]);
-
-  const totalSales = Number(salesAgg._sum.grandTotal || 0);
-  const totalCollections = Number(collectionsAgg._sum.amount || 0);
-  const totalReturns = Number(returnsAgg._sum.grandTotal || 0);
-  const openingDr = Number(customerOpeningDr._sum.openingBalance || 0);
-  const openingCr = Number(customerOpeningCr._sum.openingBalance || 0);
-
-  const receivablesBase = safeFinancialSubtract(
-    safeFinancialAdd(openingDr, totalSales),
-    safeFinancialAdd(totalCollections, safeFinancialAdd(totalReturns, openingCr))
-  );
-  return Math.max(0, receivablesBase);
-}
-
-async function calculateTotalPayables(companyFilter: Record<string, unknown>): Promise<number> {
-  // Performance: Run all independent queries in parallel
-  const [purchasesAgg, deliveriesAgg, returnsAgg, supplierOpeningCr, supplierOpeningDr] = await Promise.all([
-    db.purchaseOrder.aggregate({
-      where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...companyFilter },
-      _sum: { grandTotal: true },
-    }),
-    db.cashDelivery.aggregate({
-      where: { isActive: true, ...companyFilter },
-      _sum: { amount: true },
-    }),
-    db.purchaseReturn.aggregate({
-      where: { isActive: true, ...companyFilter },
-      _sum: { grandTotal: true },
-    }),
-    db.supplier.aggregate({
-      where: { openingBalanceType: 'Cr', isActive: true, ...companyFilter },
-      _sum: { openingBalance: true },
-    }),
-    db.supplier.aggregate({
-      where: { openingBalanceType: 'Dr', isActive: true, ...companyFilter },
-      _sum: { openingBalance: true },
-    }),
-  ]);
-
-  const totalPurchases = Number(purchasesAgg._sum.grandTotal || 0);
-  const totalDeliveries = Number(deliveriesAgg._sum.amount || 0);
-  const totalReturns = Number(returnsAgg._sum.grandTotal || 0);
-  const openingCr = Number(supplierOpeningCr._sum.openingBalance || 0);
-  const openingDr = Number(supplierOpeningDr._sum.openingBalance || 0);
-
-  const payablesBase = safeFinancialSubtract(
-    safeFinancialAdd(openingCr, totalPurchases),
-    safeFinancialAdd(totalDeliveries, safeFinancialAdd(totalReturns, openingDr))
-  );
-  return Math.max(0, payablesBase);
+  return withCacheHeaders(maskedResult);
 }
