@@ -102,6 +102,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.profileImage !== undefined) updateData.profileImage = body.profileImage || null;
       if (body.nidFrontImage !== undefined) updateData.nidFrontImage = body.nidFrontImage || null;
       if (body.nidBackImage !== undefined) updateData.nidBackImage = body.nidBackImage || null;
+      if (body.nidNumber !== undefined) updateData.nidNumber = body.nidNumber ? stripHtml(String(body.nidNumber)) : null;
+      if (body.logoUrl !== undefined) updateData.logoUrl = body.logoUrl ? stripHtml(String(body.logoUrl)) : null;
       if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
       const record = await tx.supplier.update({

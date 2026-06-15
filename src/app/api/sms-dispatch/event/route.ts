@@ -4,6 +4,7 @@
 // Finds active SmsNotificationTrigger for the given eventType,
 // replaces {{variable}} placeholders, creates SmsLog entry,
 // computes segments and cost, logs activity.
+// NOW: Actually dispatches SMS through the gateway (not just Pending)
 // ============================================================
 
 import { db } from '@/lib/db';
@@ -15,6 +16,8 @@ import {
   safeFinancialRound,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { getCachedSmsSettings } from '@/lib/sms-settings-cache';
+import { dispatchSingleSms, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
 
 // Valid event types
 const VALID_EVENT_TYPES = [
@@ -90,16 +93,10 @@ export async function POST(request: NextRequest) {
     // Compute SMS segments and cost
     const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
 
-    // Get active SmsSetting for rate calculation
+    // Get active SmsSetting for rate calculation (cached)
     let ratePerSms = 0;
     let unicodeRate = 0;
-    const activeSetting = await db.smsSetting.findFirst({
-      where: {
-        isActive: true,
-        ...(companyId ? { companyId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const activeSetting = await getCachedSmsSettings(companyId);
     if (activeSetting) {
       ratePerSms = activeSetting.ratePerSms;
       unicodeRate = activeSetting.unicodeRate;
@@ -108,7 +105,7 @@ export async function POST(request: NextRequest) {
     const applicableRate = isUnicode ? unicodeRate : ratePerSms;
     const cost = safeFinancialRound(segmentCount * applicableRate);
 
-    // Create SmsLog entry with triggerType = eventType
+    // 1. Create SmsLog entry inside a transaction
     const smsLog = await db.$transaction(async (tx) => {
       const record = await tx.smsLog.create({
         data: {
@@ -150,9 +147,61 @@ export async function POST(request: NextRequest) {
       return record;
     });
 
+    // 2. AFTER transaction commits: dispatch through gateway
+    let finalStatus = smsLog.status;
+    let finalGatewayResponse = smsLog.gatewayResponse;
+    let finalCost = smsLog.cost;
+    let finalSentAt: Date | null = smsLog.sentAt;
+
+    if (activeSetting) {
+      try {
+        const gatewayConfig = buildGatewayConfig(activeSetting);
+        const dispatchResult = await dispatchSingleSms(gatewayConfig, {
+          smsLogId: smsLog.id,
+          recipient: recipientPhone.trim(),
+          message,
+        });
+
+        finalStatus = dispatchResult.status;
+        finalGatewayResponse = dispatchResult.gatewayResponse;
+        finalCost = dispatchResult.cost;
+        finalSentAt = dispatchResult.status === 'Sent' ? new Date() : smsLog.sentAt;
+
+        // Update the SmsLog with the gateway result
+        await db.smsLog.update({
+          where: { id: smsLog.id },
+          data: {
+            status: dispatchResult.status,
+            gatewayResponse: dispatchResult.gatewayResponse,
+            cost: dispatchResult.cost,
+            ...(dispatchResult.status === 'Sent' && { sentAt: new Date() }),
+          },
+        });
+      } catch (dispatchErr) {
+        // Gateway dispatch failed — mark as Failed
+        finalStatus = 'Failed';
+        finalGatewayResponse = dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr);
+
+        await db.smsLog.update({
+          where: { id: smsLog.id },
+          data: {
+            status: 'Failed',
+            gatewayResponse: finalGatewayResponse,
+          },
+        });
+      }
+    }
+    // If no activeSetting, the SmsLog stays as "Pending" — dispatch-pending route can retry later
+
     // Apply VAT Auditor masking
     const masked = maskForVatAuditorSms(
-      smsLog as Record<string, unknown>,
+      {
+        ...smsLog,
+        status: finalStatus,
+        gatewayResponse: finalGatewayResponse,
+        cost: finalCost,
+        sentAt: finalSentAt,
+      } as Record<string, unknown>,
       security.user.role
     );
 

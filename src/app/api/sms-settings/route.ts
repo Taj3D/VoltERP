@@ -16,6 +16,7 @@ import {
   stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { invalidateSmsSettingsCache } from '@/lib/sms-settings-cache';
 
 // Helper: convert empty string to null
 function nullIfEmpty(val: string | undefined | null): string | null {
@@ -118,6 +119,9 @@ export async function POST(request: NextRequest) {
 
       return record;
     });
+
+    // Invalidate SMS settings cache after creation
+    invalidateSmsSettingsCache(companyId);
 
     // Apply VAT Auditor masking on response
     const masked = maskForVatAuditorSms(

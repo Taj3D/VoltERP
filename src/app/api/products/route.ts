@@ -193,6 +193,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
     const stockStatusFilter = searchParams.get('stockStatus');
+    const searchQuery = searchParams.get('search');
+    const searchLimit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 0;
 
     // ---- SUMMARY ACTION ----
     if (action === 'summary') {
@@ -287,11 +289,23 @@ export async function GET(request: NextRequest) {
     }
 
     // ---- REGULAR LIST WITH STOCK COMPUTATION ----
+    const searchWhere = searchQuery
+      ? {
+          OR: [
+            { name: { contains: searchQuery } },
+            { productCode: { contains: searchQuery } },
+            { sku: { contains: searchQuery } },
+            { barcode: { contains: searchQuery } },
+          ],
+        }
+      : {};
     const items = await db.product.findMany({
       where: {
         isActive: true,
         ...(companyId ? { companyId } : {}),
+        ...searchWhere,
       },
+      ...(searchLimit > 0 ? { take: searchLimit } : {}),
       orderBy: { createdAt: 'desc' },
       include: {
         category: { select: { id: true, name: true, code: true, isActive: true } },
@@ -527,6 +541,16 @@ export async function POST(request: NextRequest) {
               companyId: record.companyId,
               imeiNumber: record.imeiNumber || null,
               image: record.image || null,
+              compressorWarranty: record.compressorWarranty ? Number(record.compressorWarranty) : null,
+              compressorWarrantyUnit: record.compressorWarrantyUnit || null,
+              panelWarranty: record.panelWarranty ? Number(record.panelWarranty) : null,
+              panelWarrantyUnit: record.panelWarrantyUnit || null,
+              serviceWarranty: record.serviceWarranty ? Number(record.serviceWarranty) : null,
+              serviceWarrantyUnit: record.serviceWarrantyUnit || null,
+              motorWarranty: record.motorWarranty ? Number(record.motorWarranty) : null,
+              motorWarrantyUnit: record.motorWarrantyUnit || null,
+              sparePartsWarranty: record.sparePartsWarranty ? Number(record.sparePartsWarranty) : null,
+              sparePartsWarrantyUnit: record.sparePartsWarrantyUnit || null,
               isActive: record.isActive ?? true,
             },
             include: {
@@ -631,6 +655,16 @@ export async function POST(request: NextRequest) {
           companyId: companyId || body.companyId || null,
           imeiNumber: body.imeiNumber || null,
           image: body.image || null,
+          compressorWarranty: body.compressorWarranty ? Number(body.compressorWarranty) : null,
+          compressorWarrantyUnit: body.compressorWarrantyUnit || null,
+          panelWarranty: body.panelWarranty ? Number(body.panelWarranty) : null,
+          panelWarrantyUnit: body.panelWarrantyUnit || null,
+          serviceWarranty: body.serviceWarranty ? Number(body.serviceWarranty) : null,
+          serviceWarrantyUnit: body.serviceWarrantyUnit || null,
+          motorWarranty: body.motorWarranty ? Number(body.motorWarranty) : null,
+          motorWarrantyUnit: body.motorWarrantyUnit || null,
+          sparePartsWarranty: body.sparePartsWarranty ? Number(body.sparePartsWarranty) : null,
+          sparePartsWarrantyUnit: body.sparePartsWarrantyUnit || null,
           isActive: body.isActive ?? true,
         },
         include: {

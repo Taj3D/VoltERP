@@ -330,6 +330,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "creditLimit", label: "Credit Limit", type: "currency" },
       { key: "creditStatus", label: "Credit Status", type: "text" },
       { key: "_count.salesOrders", label: "Sales Orders", type: "number" },
+      { key: "guarantorName", label: "Guarantor", type: "text" },
       { key: "isActive", label: "Status", type: "boolean" },
     ],
     formFields: [
@@ -348,6 +349,10 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
+      { key: "guarantorName", label: "Guarantor Name", type: "text", placeholder: "Full name of guarantor" },
+      { key: "guarantorContact", label: "Guarantor Contact", type: "text", placeholder: "Phone number of guarantor" },
+      { key: "guarantorAddress", label: "Guarantor Address", type: "text", placeholder: "Address of guarantor" },
+      { key: "guarantorFatherName", label: "Guarantor Father Name", type: "text", placeholder: "Father's name of guarantor" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
@@ -355,6 +360,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
       { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
+      { title: "Guarantor Information", fields: ["guarantorName", "guarantorContact", "guarantorAddress", "guarantorFatherName"] },
     ],
   },
   // ── Supplier CRM ──
@@ -395,6 +401,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
+      { key: "logoUrl", label: "Logo URL", type: "text", placeholder: "https://example.com/logo.png" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
@@ -402,6 +409,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
       { title: "Credit & Balance Info", fields: ["creditStatus"] },
       { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
+      { title: "Branding", fields: ["logoUrl"] },
     ],
   },
 ];
@@ -1007,6 +1015,7 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
           onChange={(base64) => setFormData(prev => ({ ...prev, [field.key]: base64 || "" }))}
           label={field.label}
           placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
+          onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
         />
       );
     }
@@ -1733,6 +1742,26 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                         // Date formatting
                         if (col.type === "date" && val) {
                           return <TableCell key={col.key} className="whitespace-nowrap">{fmt(val, "date")}</TableCell>;
+                        }
+
+                        // Name column with avatar thumbnail for employees, customers, suppliers
+                        if (col.key === "name" && (config.key === "employees" || config.key === "customers" || config.key === "suppliers")) {
+                          const avatarSrc = item.photo || item.profileImage || null;
+                          const initials = (String(val || "?")[0] || "?").toUpperCase();
+                          return (
+                            <TableCell key={col.key} className="whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                {avatarSrc ? (
+                                  <img src={avatarSrc} alt={String(val || "")} className="w-8 h-8 rounded-full object-cover border border-border flex-shrink-0" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-[#2563eb]/10 flex items-center justify-center flex-shrink-0">
+                                    <span className="text-xs font-semibold text-[#2563eb]">{initials}</span>
+                                  </div>
+                                )}
+                                <span className="truncate">{fmt(val, col.type)}</span>
+                              </div>
+                            </TableCell>
+                          );
                         }
 
                         return <TableCell key={col.key} className="whitespace-nowrap">{fmt(val, col.type)}</TableCell>;

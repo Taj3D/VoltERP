@@ -20,7 +20,19 @@ import {
   MoreVertical, Copy, FileSpreadsheet, FileDown, ArrowUpDown, Activity,
   KeyRound, ShieldCheck, Shield, Pencil, Loader2, ChevronsRight
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from "recharts";
+// recharts lazy-loaded to reduce initial bundle by ~150KB
+import dynamic from "next/dynamic";
+const LazyDashboardChart = dynamic(
+  () => import("@/components/DashboardChartLazy"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-64 flex items-center justify-center">
+        <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+);
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -205,17 +217,21 @@ function hasItemAccess(role: UserRole, itemKey: string): boolean {
 // UTILITY FUNCTIONS
 // ============================================================
 
-import { fmtBDT as _fmtBDT } from "@/lib/number-format";
+import { fmtBDT as _fmtBDT, toLatinDigits } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") {
+    if (!v) return "—";
+    const dt = new Date(v);
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+  }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => d ? toLatinDigits(new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })) : "—";
 
 // apiFetch is now imported from @/lib/api-client
 
@@ -409,10 +425,12 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
       { key: "transaction-summary", label: "Transaction Summary Report", parent: "Management Report", isReport: true, reportType: "transaction-summary" },
       { key: "monthly-transaction", label: "Monthly Transaction Report", parent: "Management Report", isReport: true, reportType: "monthly-transaction" },
       { key: "showroom-analysis", label: "Showroom Analysis Report", parent: "Management Report", isReport: true, reportType: "showroom-analysis" },
+      { key: "management-report", label: "Management Report (Summary)", parent: "Management Report", isReport: true, reportType: "management-report" },
       { key: "advance-search", label: "Advance Search", isReport: true, reportType: "advance-search" },
       { key: "bank-transaction-report", label: "Bank Transaction Report", parent: "Bank Report", isReport: true, reportType: "bank-transaction-report" },
       { key: "bank-ledger-report", label: "Bank Ledger", parent: "Bank Report", isReport: true, reportType: "bank-ledger-report" },
       { key: "transfer-report", label: "Transfer Report", parent: "Bank Report", isReport: true, reportType: "transfer-report" },
+      { key: "bank-balance-report", label: "Bank Balance Report", parent: "Bank Report", isReport: true, reportType: "bank-balance-report" },
     ],
   },
   {
@@ -789,7 +807,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
             </div>
             <Button variant="outline" size="sm" onClick={loadData}><RefreshCw className="w-4 h-4" /></Button>
           </div>
-          <div className="w-full overflow-x-auto">
+          <div className="w-full overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[65vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1340,6 +1358,7 @@ function ProductsPage() {
             </Select>
             <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
           </div>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1415,6 +1434,7 @@ function ProductsPage() {
                 })}
               </TableBody>
             </Table>
+          </div>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {data.length} products</div>
         </CardContent>
@@ -1523,6 +1543,7 @@ function StockPage() {
               <Input placeholder="Search stock..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
             </div>
           </div>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[65vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1547,13 +1568,14 @@ function StockPage() {
                     <TableCell className="font-mono text-xs">{item.productCode}</TableCell>
                     <TableCell className="font-medium text-slate-900 dark:text-white">{item.productName}</TableCell>
                     <TableCell>{item.category || "—"}</TableCell>
-                    <TableCell><span className={`font-mono font-medium ${(item.totalStock || 0) <= 0 ? "text-red-500" : (item.totalStock || 0) <= (item.reorderLevel || 5) ? "text-yellow-600" : "text-green-600"}`}>{item.totalStock || 0}</span></TableCell>
+                    <TableCell><span className={`font-mono font-medium ${((item.currentStock ?? item.totalStock) ?? 0) <= 0 ? "text-red-500" : ((item.currentStock ?? item.totalStock) ?? 0) <= (item.reorderLevel || 5) ? "text-yellow-600" : "text-green-600"}`}>{(item.currentStock ?? item.totalStock) ?? 0}</span></TableCell>
                     <TableCell className="font-mono">{fmt(item.costPrice, "currency")}</TableCell>
                     <TableCell className="font-mono">{fmt(item.salePrice, "currency")}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+          </div>
           </div>
         </CardContent>
       </Card>
@@ -1653,6 +1675,7 @@ function StockDetailsPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
           <div className="table-container overflow-auto max-h-[60vh] rounded-md border">
             <Table>
               <TableHeader>
@@ -1684,6 +1707,7 @@ function StockDetailsPage() {
                 ))}
               </TableBody>
             </Table>
+          </div>
           </div>
         </CardContent>
       </Card>
@@ -1834,6 +1858,7 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
           ) : (
             <>
               <div className="mb-2 text-sm text-muted-foreground">Showing {data.length} records</div>
+              <div className="overflow-x-auto -mx-2 sm:mx-0">
               <div className="table-container overflow-auto max-h-[55vh] rounded-md border">
                 <Table>
                   <TableHeader>
@@ -1851,6 +1876,7 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
                     ))}
                   </TableBody>
                 </Table>
+              </div>
               </div>
             </>
           )}
@@ -2137,14 +2163,6 @@ function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  const roleLabels: Record<string, string> = {
-    admin: "Administrator",
-    manager: "Manager",
-    sr: "Sales Representative",
-    dealer: "Dealer",
-    vat_auditor: "VAT Auditor",
-  };
-
   if (loading) {
     return (
       <div className="page-enter space-y-6 flex items-center justify-center min-h-[400px]">
@@ -2215,16 +2233,13 @@ function ProfilePage() {
               <p className="text-sm text-muted-foreground">{profileData.email}</p>
             </div>
 
-            {/* Role badge */}
-            <Badge className="bg-[#2563eb] text-white px-3 py-1">
-              {roleLabels[profileData.role] || profileData.role}
-            </Badge>
+            {/* Role badge hidden per requirement — role names not visible in UI */}
 
             {/* Join date */}
             {profileData.createdAt && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Calendar className="w-3.5 h-3.5" />
-                <span>Joined {new Date(profileData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span>
+                <span>Joined {toLatinDigits(new Date(profileData.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }))}</span>
               </div>
             )}
 
@@ -2285,11 +2300,7 @@ function ProfilePage() {
                     <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{profileData.phone || "--"}</p>
                   )}
                 </div>
-                <div className="space-y-2">
-                  <Label>Role</Label>
-                  <p className="text-sm font-medium text-slate-900 dark:text-white py-2">{roleLabels[profileData.role] || profileData.role}</p>
-                  <p className="text-xs text-muted-foreground">Role is managed by administrator</p>
-                </div>
+                {/* Role section hidden per requirement — role names not visible in UI */}
               </div>
               <div className="space-y-2">
                 <Label>Address</Label>
@@ -2381,22 +2392,7 @@ function DashboardChart() {
   }
 
   return (
-    <div className="h-64 w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
-          <YAxis tick={{ fontSize: 11 }} className="fill-muted-foreground" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-          <RechartsTooltip
-            formatter={(value: number) => [`Tk. ${new Intl.NumberFormat('en-US').format(value)}`, ""]}
-            contentStyle={{ borderRadius: "8px", fontSize: "12px" }}
-          />
-          <Legend wrapperStyle={{ fontSize: "12px" }} />
-          <Bar dataKey="Sales" fill="#2563eb" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="Purchase" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <LazyDashboardChart chartData={chartData} />
   );
 }
 
@@ -2466,15 +2462,15 @@ function DashboardPage() {
           <CardContent className="p-3 px-5 flex items-center gap-3">
             <Calendar className="w-5 h-5 text-blue-300" />
             <div>
-              <p className="text-xs text-blue-200">{clock.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
-              <p className="text-lg font-bold font-mono tabular-nums">{clock.toLocaleTimeString()}</p>
+              <p className="text-xs text-blue-200">{toLatinDigits(clock.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</p>
+              <p className="text-lg font-bold font-mono tabular-nums">{toLatinDigits(clock.toLocaleTimeString())}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* KPI Cards — 1 col mobile, 2 col tablet, 4 col desktop */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {visibleKpis.map((kpi, i) => (
           <Card key={i} className={`kpi-card dashboard-kpi-card relative overflow-hidden ${kpi.border}`}>
             <div className={`absolute inset-0 bg-gradient-to-br ${kpi.gradient} pointer-events-none`} />
@@ -2511,7 +2507,7 @@ function DashboardPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
             {[
               { label: "New Sale", icon: Receipt, color: "text-green-600 bg-green-50 hover:bg-green-100 dark:text-green-400 dark:bg-green-900/30 dark:hover:bg-green-900/50" },
               { label: "New Purchase", icon: ShoppingCart, color: "text-purple-600 bg-purple-50 hover:bg-purple-100 dark:text-purple-400 dark:bg-purple-900/30 dark:hover:bg-purple-900/50" },
@@ -2522,7 +2518,7 @@ function DashboardPage() {
               { label: "Send SMS", icon: Send, color: "text-teal-600 bg-teal-50 hover:bg-teal-100 dark:text-teal-400 dark:bg-teal-900/30 dark:hover:bg-teal-900/50" },
               { label: "Print Report", icon: Printer, color: "text-slate-600 bg-slate-50 hover:bg-slate-100 dark:text-slate-400 dark:bg-slate-900/30 dark:hover:bg-slate-900/50" },
             ].map((action, i) => (
-              <Button key={i} variant="ghost" size="sm" className={`justify-start gap-2 h-9 ${action.color} transition-all duration-200`}>
+              <Button key={i} variant="ghost" size="sm" className={`justify-start gap-2 min-h-[44px] sm:min-h-0 h-auto sm:h-9 ${action.color} transition-all duration-200`}>
                 <action.icon className="w-4 h-4" />
                 <span className="text-xs font-medium">{action.label}</span>
               </Button>
@@ -2588,7 +2584,7 @@ function DashboardPage() {
                   {(stats.hireInstallments || []).slice(0, 10).map((inst: any, i: number) => (
                     <TableRow key={i}>
                       <TableCell>{i + 1}</TableCell>
-                      <TableCell><Button variant="outline" size="sm" className="text-xs h-7">Update Remind Date</Button></TableCell>
+                      <TableCell><Button variant="outline" size="sm" className="text-xs min-h-[44px] sm:min-h-0 h-auto sm:h-7">Update Remind Date</Button></TableCell>
                       <TableCell className="font-mono">{inst.invoiceNo || "—"}</TableCell>
                       <TableCell>{inst.salesDate ? fmtDate(inst.salesDate) : "—"}</TableCell>
                       <TableCell>{inst.paymentDate ? fmtDate(inst.paymentDate) : "—"}</TableCell>
@@ -2646,8 +2642,8 @@ function DashboardPage() {
 // SIDEBAR COMPONENT
 // ============================================================
 
-function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
-  currentPage: string; onNavigate: (key: string) => void; collapsed: boolean; onToggle: () => void;
+function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
+  currentPage: string; onNavigate: (key: string) => void; collapsed: boolean; onToggle: () => void; embedded?: boolean;
 }) {
   const { hasAccess, user, isVatAuditor } = useAuth();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(SIDEBAR_CONFIG.map(g => g.key)));
@@ -2731,10 +2727,10 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
   };
 
   return (
-    <aside className={`fixed left-0 top-0 z-40 h-full bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 ${collapsed ? "w-16" : "w-64"} flex flex-col overflow-hidden shadow-xl`}>
+    <aside className={`${embedded ? "relative w-full h-full" : `fixed left-0 top-0 z-40 h-full ${collapsed ? "w-16" : "w-64"}`} bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 flex flex-col overflow-hidden shadow-xl`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-white/10">
-        {!collapsed && (
+      <div className={`flex items-center justify-between border-b border-white/10 ${collapsed ? "p-2" : "p-4"}`}>
+        {(!collapsed || embedded) && (
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20">
               <Package className="w-4.5 h-4.5 text-white" />
@@ -2745,17 +2741,17 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
             </div>
           </div>
         )}
-        {collapsed && (
+        {collapsed && !embedded && (
           <button
             onClick={onToggle}
-            className="w-11 h-11 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] active:scale-95 transition-all cursor-pointer"
+            className="w-10 h-10 rounded-lg bg-[#2563eb] flex items-center justify-center shadow-md shadow-blue-500/20 mx-auto hover:bg-[#1d4ed8] active:scale-95 transition-all cursor-pointer"
             title="Expand sidebar"
             aria-label="Expand sidebar"
           >
-            <ChevronsRight className="w-5 h-5 text-white" />
+            <ChevronsRight className="w-4 h-4 text-white" />
           </button>
         )}
-        {!collapsed && (
+        {!collapsed && !embedded && (
           <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white hover:bg-white/10 h-11 w-11 min-w-11 min-h-11 p-0 cursor-pointer active:scale-95 transition-transform" onClick={onToggle} title="Collapse sidebar" aria-label="Collapse sidebar">
             <ChevronLeft className="w-5 h-5" />
           </Button>
@@ -2838,7 +2834,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
             <UserCircle className="w-4 h-4" />
-            <span className="truncate">{user?.displayName || user?.name || "User"}</span>
+            <span className="truncate">{user?.email || "User"}</span>
           </div>
         </div>
       )}
@@ -2846,9 +2842,9 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle }: {
         <div className="p-2 border-t border-white/10 flex justify-center">
           <div
             className={`w-7 h-7 rounded-full ${user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"} flex items-center justify-center text-white text-[10px] font-bold`}
-            title={user?.displayName || user?.name || "User"}
+            title={user?.email || "User"}
           >
-            {(user?.displayName || user?.name)?.charAt(0).toUpperCase() || "U"}
+            {user?.email?.charAt(0).toUpperCase() || "U"}
           </div>
         </div>
       )}
@@ -6284,6 +6280,7 @@ function AppLayout() {
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         onNavigate={navigate}
         onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onOpenSearch={() => setSearchOpen(true)}
         onChangePassword={() => navigate("change-password")}
         onLogout={logout}
@@ -6317,7 +6314,7 @@ function AppLayout() {
       {/* Mobile sidebar — Sheet component for proper drawer behavior */}
       <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
         <SheetContent side="left" className="p-0 w-[280px] sm:w-[300px] bg-sidebar border-sidebar-border">
-          <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} />
+          <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} embedded />
         </SheetContent>
       </Sheet>
 
@@ -6336,6 +6333,20 @@ function AppLayout() {
       {/* Main content */}
       <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
         <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8">
+          {/* Breadcrumb Navigation */}
+          {currentPage !== "dashboard" && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-1 pt-1">
+              <button onClick={() => setCurrentPage("dashboard")} className="hover:text-foreground transition-colors">Home</button>
+              {currentGroupLabel && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  <span>{currentGroupLabel}</span>
+                </>
+              )}
+              <ChevronRight className="w-3.5 h-3.5" />
+              <span className="text-foreground font-medium">{currentPageConfig?.label || currentPage}</span>
+            </div>
+          )}
           <ErrorBoundary fallbackTitle={currentPageConfig?.label || "Page"}>
             <React.Suspense fallback={<LazyFallback name={currentPageConfig?.label} />}>
               {renderPage()}
@@ -6345,7 +6356,7 @@ function AppLayout() {
       </main>
 
       {/* Footer */}
-      <footer className={`mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`}>
+      <footer className={`shrink-0 mt-auto bg-[#0a1628] dark:bg-[#060e1a] text-slate-400 text-center py-3 text-xs transition-[margin] duration-300 border-t border-white/5 ml-0 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"}`} style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
         <span className="text-slate-500">© {new Date().getFullYear()}</span>{" "}<a href="https://www.facebook.com/nextgendigitalstudio" target="_blank" rel="noopener noreferrer" className="text-slate-300 font-medium hover:text-white transition-colors"><span className="hover:underline underline-offset-2">NextGen Digital Studio</span></a>{" "}<span className="text-slate-500">— All Rights Reserved</span>
       </footer>
     </div>

@@ -8,6 +8,7 @@
 
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // TYPES
@@ -231,28 +232,28 @@ function fmtCurrency(value: number | undefined | null, isMasked?: boolean): stri
   if (value === null || value === undefined) return "\u2014";
   const num = Number(value);
   if (isNaN(num)) return "\u2014";
-  return `Tk. ${invoiceBdtFormatter.format(num)}`;
+  return toLatinDigits(`Tk. ${invoiceBdtFormatter.format(num)}`);
 }
 
 function fmtNumber(value: number | undefined | null): string {
   if (value === null || value === undefined) return "\u2014";
   const num = Number(value);
   if (isNaN(num)) return "\u2014";
-  return invoiceBdtFormatter.format(num);
+  return toLatinDigits(invoiceBdtFormatter.format(num));
 }
 
 function fmtDate(dateStr: string | undefined | null): string {
   if (!dateStr) return "\u2014";
   try {
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr);
-    return d.toLocaleDateString("en-GB", {
+    if (isNaN(d.getTime())) return toLatinDigits(String(dateStr));
+    return toLatinDigits(d.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
-    });
+    }));
   } catch {
-    return String(dateStr);
+    return toLatinDigits(String(dateStr));
   }
 }
 
@@ -959,7 +960,7 @@ function drawFooterSection(
     systemParts.push(`Sales Person: ${invoice.salesPerson}`);
   }
   if (template.showPrintDate !== false) {
-    systemParts.push(`Print Date: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`);
+    systemParts.push(`Print Date: ${toLatinDigits(new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }))}`);
   }
   if (systemParts.length > 0) {
     doc.text(systemParts.join("  |  "), MARGIN_LEFT + 2, y);

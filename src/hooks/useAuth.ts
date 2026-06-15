@@ -102,6 +102,7 @@ function useAuth(): UseAuthReturn {
         accessToken: serverUser.accessToken || null,
         refreshToken: serverUser.refreshToken || null,
         tokenExpiry,
+        csrfToken: serverUser.csrfToken || null,
       });
 
       // Schedule proactive token refresh

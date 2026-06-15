@@ -222,10 +222,10 @@ async function executeDispatchInternal(params: {
 
   // Check the corresponding toggle
   const toggleMap: Record<string, boolean> = {
-    purchase: config.smsAlertOnPurchase,
-    collection: config.smsAlertOnCollection,
-    stock_receive: config.smsAlertOnStockReceive,
-    hr_lifecycle: config.smsAlertOnHrLifecycle,
+    purchase: config.autoSmsOnPurchase,
+    collection: config.autoSmsOnReceipt,
+    stock_receive: config.autoSmsOnStockReceive,
+    hr_lifecycle: config.autoSmsOnEmployeeEvent,
   };
 
   const isEnabled = toggleMap[triggerType];

@@ -45,12 +45,20 @@ const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK || String(v) === RESTRICTED_MASK) return String(v);
   if (v === null || v === undefined) return "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") {
+    if (!v) return "—";
+    const dt = new Date(v);
+    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  }
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+};
 
 
 // ============================================================

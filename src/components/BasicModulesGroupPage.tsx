@@ -5,7 +5,7 @@ import {
   Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
   FileDown, Building2, Tag, Palette, Box, Layers, Building,
   Warehouse, CreditCard, Settings, Target, Hash, X, Shield,
-  CheckCircle, ChevronRight, Ruler, Loader2, AlertTriangle, Banknote,
+  CheckCircle, ChevronRight, ChevronDown, Ruler, Loader2, AlertTriangle, Banknote,
   Power, Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV,
@@ -44,7 +45,7 @@ const bdFmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return bdFmtInt.format(Number(v));
   return String(v);
@@ -230,6 +231,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "currentStock", label: "Stock", type: "number" },
       { key: "stockStatus", label: "Stock Status", type: "text" },
       { key: "skuStatus", label: "SKU Status", type: "text" },
+      { key: "_warranty", label: "Warranty", type: "text" },
       { key: "isActive", label: "Status", type: "boolean" },
     ],
     formFields: [
@@ -251,6 +253,12 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "segmentId", label: "Segment", type: "select", required: false, options: [] },
       { key: "imeiNumber", label: "IMEI Number", type: "text", required: false },
       { key: "image", label: "Product Image", type: "image" },
+      { key: "_warrantySection", label: "Warranty Information", type: "section", sectionIcon: "shield" },
+      { key: "compressorWarranty", label: "Compressor Warranty", type: "warrantyGroup", unitKey: "compressorWarrantyUnit" },
+      { key: "panelWarranty", label: "Panel Warranty", type: "warrantyGroup", unitKey: "panelWarrantyUnit" },
+      { key: "serviceWarranty", label: "Service Warranty", type: "warrantyGroup", unitKey: "serviceWarrantyUnit" },
+      { key: "motorWarranty", label: "Motor Warranty", type: "warrantyGroup", unitKey: "motorWarrantyUnit" },
+      { key: "sparePartsWarranty", label: "Spare Parts Warranty", type: "warrantyGroup", unitKey: "sparePartsWarrantyUnit" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["costPrice", "wholesalePrice", "dealerPrice"],
@@ -466,6 +474,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   const [srTargetError, setSrTargetError] = useState<string | null>(null);
   const [cardFeeError, setCardFeeError] = useState<string | null>(null);
 
+  // Phase 19: Warranty section collapsible state
+  const [warrantyOpen, setWarrantyOpen] = useState(false);
+
   const canMutate = userRole === "admin" || userRole === "manager";
 
   const maskedColumns = useMemo(() => {
@@ -563,6 +574,13 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     setCapacityError(false);
     const defaults: Record<string, any> = {};
     config.formFields.forEach(f => {
+      if (f.type === "section") return; // skip section headers
+      if (f.type === "warrantyGroup") {
+        // Initialize warranty value and unit
+        defaults[f.key] = "";
+        if (f.unitKey) defaults[f.unitKey] = "years";
+        return;
+      }
       if (f.defaultValue !== undefined) defaults[f.key] = f.defaultValue;
       else if (f.type === "checkbox") defaults[f.key] = true;
       else defaults[f.key] = "";
@@ -577,6 +595,16 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     setCapacityError(false);
     const values: Record<string, any> = {};
     config.formFields.forEach(f => {
+      if (f.type === "section") return; // skip section headers
+      if (f.type === "warrantyGroup") {
+        const val = getNestedValue(item, f.key);
+        values[f.key] = val !== undefined && val !== null ? val : "";
+        if (f.unitKey) {
+          const unitVal = getNestedValue(item, f.unitKey);
+          values[f.unitKey] = unitVal || "years";
+        }
+        return;
+      }
       const val = getNestedValue(item, f.key);
       if (val !== undefined && val !== null) values[f.key] = val;
       else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
@@ -716,10 +744,31 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
     // Phase 6: XSS Sanitization — sanitize all string fields
     const sanitizedData: Record<string, any> = {};
     for (const [key, value] of Object.entries(formData)) {
+      // Skip section header keys (they start with _ and are not real data)
+      if (key.startsWith("_") && key.endsWith("Section")) continue;
       if (typeof value === "string") {
         sanitizedData[key] = sanitizeInput(value);
       } else {
         sanitizedData[key] = value;
+      }
+    }
+
+    // Phase 19: Clean warranty fields — empty string → null for Int? fields
+    if (config.key === "products") {
+      const warrantyKeys = ["compressorWarranty", "panelWarranty", "serviceWarranty", "motorWarranty", "sparePartsWarranty"];
+      for (const wk of warrantyKeys) {
+        if (sanitizedData[wk] === "" || sanitizedData[wk] === undefined) {
+          sanitizedData[wk] = null;
+        } else {
+          sanitizedData[wk] = Number(sanitizedData[wk]) || null;
+        }
+      }
+      // Clean unit fields - ensure they have valid values
+      const unitKeys = ["compressorWarrantyUnit", "panelWarrantyUnit", "serviceWarrantyUnit", "motorWarrantyUnit", "sparePartsWarrantyUnit"];
+      for (const uk of unitKeys) {
+        if (!sanitizedData[uk] || (sanitizedData[uk] !== "years" && sanitizedData[uk] !== "months")) {
+          sanitizedData[uk] = "years";
+        }
       }
     }
 
@@ -904,6 +953,63 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   // Render form field — Phase 6: capacity field red highlight
   const renderFormField = (field: ExportFieldDef) => {
     const val = formData[field.key] ?? "";
+
+    // Phase 19: Section header — collapsible warranty section
+    if (field.type === "section") {
+      return (
+        <Collapsible open={warrantyOpen} onOpenChange={setWarrantyOpen} className="border border-slate-200 dark:border-slate-700 rounded-lg">
+          <CollapsibleTrigger className="flex items-center justify-between w-full p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-blue-500" />
+              <span className="text-sm font-semibold text-slate-900 dark:text-white">{field.label}</span>
+            </div>
+            {warrantyOpen ? (
+              <ChevronDown className="h-4 w-4 text-slate-500" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-slate-500" />
+            )}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="px-3 pb-3 space-y-3">
+            {config.formFields
+              .filter(f => f.type === "warrantyGroup")
+              .map(wf => (
+                <div key={wf.key} className="space-y-1.5">
+                  <Label className="text-sm font-medium">{wf.label}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      value={formData[wf.key] ?? ""}
+                      onChange={(e) => setFormData(prev => ({ ...prev, [wf.key]: e.target.value ? Number(e.target.value) : "" }))}
+                      placeholder="Duration"
+                      min={0}
+                      className="flex-1"
+                    />
+                    <Select
+                      value={String(formData[wf.unitKey || ""] || "years")}
+                      onValueChange={(v) => {
+                        if (wf.unitKey) setFormData(prev => ({ ...prev, [wf.unitKey as string]: v }));
+                      }}
+                    >
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="years">Years</SelectItem>
+                        <SelectItem value="months">Months</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ))}
+          </CollapsibleContent>
+        </Collapsible>
+      );
+    }
+
+    // Phase 19: Warranty group fields are rendered inside the section — return null here
+    if (field.type === "warrantyGroup") {
+      return null;
+    }
 
     if (field.type === "image") {
       return (
@@ -1246,6 +1352,40 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
                           );
                         }
 
+                        // Phase 19: Warranty column — show all warranty info as compact badges
+                        if (col.key === "_warranty") {
+                          const warrantyTypes = [
+                            { key: "compressorWarranty", unitKey: "compressorWarrantyUnit", label: "Comp" },
+                            { key: "panelWarranty", unitKey: "panelWarrantyUnit", label: "Panel" },
+                            { key: "serviceWarranty", unitKey: "serviceWarrantyUnit", label: "Svc" },
+                            { key: "motorWarranty", unitKey: "motorWarrantyUnit", label: "Motor" },
+                            { key: "sparePartsWarranty", unitKey: "sparePartsWarrantyUnit", label: "Parts" },
+                          ];
+                          const warrantyBadges = warrantyTypes
+                            .filter(w => item[w.key] != null && item[w.key] !== "")
+                            .map(w => {
+                              const wVal = item[w.key];
+                              const unit = item[w.unitKey] || "years";
+                              const suffix = unit === "years" ? "Y" : "M";
+                              return `${w.label}: ${wVal}${suffix}`;
+                            });
+                          return (
+                            <TableCell key={col.key} className="whitespace-nowrap">
+                              {warrantyBadges.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {warrantyBadges.map((badge, i) => (
+                                    <Badge key={i} className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] px-1.5 py-0">
+                                      {badge}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs">—</span>
+                              )}
+                            </TableCell>
+                          );
+                        }
+
                         // Month number to name for SR targets
                         if (col.key === "month" && typeof val === "number" && val >= 1 && val <= 12) {
                           return <TableCell key={col.key} className="whitespace-nowrap">{MONTH_NAMES[val]}</TableCell>;
@@ -1344,28 +1484,32 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            {config.formFields.map(field => (
-              <div key={field.key} className="space-y-1.5">
-                {field.type !== "checkbox" && field.type !== "image" && (
-                  <Label className="text-sm font-medium">
-                    {field.label} {field.required && <span className="text-red-500">*</span>}
-                  </Label>
-                )}
-                {renderFormField(field)}
-                {/* Phase 6: Inline capacity error message */}
-                {field.key === "capacityValue" && capacityError && (
-                  <p className="text-xs text-red-600 dark:text-red-400">Capacity value must be greater than zero</p>
-                )}
-                {/* Phase 7: SR target financial benchmark error */}
-                {config.key === "sr-targets" && srTargetError && ["targetAmount", "minimumSalesQuota", "commissionPercentage"].includes(field.key) && (
-                  <p className="text-xs text-red-600 dark:text-red-400">{srTargetError}</p>
-                )}
-                {/* Phase 7: Card fee architecture error */}
-                {config.key === "card-type-setup" && cardFeeError && ["bankServiceCharge", "customerConvFee"].includes(field.key) && (
-                  <p className="text-xs text-red-600 dark:text-red-400">{cardFeeError}</p>
-                )}
-              </div>
-            ))}
+            {config.formFields.map(field => {
+              // Skip warrantyGroup fields — they're rendered inside the section
+              if (field.type === "warrantyGroup") return null;
+              return (
+                <div key={field.key} className="space-y-1.5">
+                  {field.type !== "checkbox" && field.type !== "image" && field.type !== "section" && (
+                    <Label className="text-sm font-medium">
+                      {field.label} {field.required && <span className="text-red-500">*</span>}
+                    </Label>
+                  )}
+                  {renderFormField(field)}
+                  {/* Phase 6: Inline capacity error message */}
+                  {field.key === "capacityValue" && capacityError && (
+                    <p className="text-xs text-red-600 dark:text-red-400">Capacity value must be greater than zero</p>
+                  )}
+                  {/* Phase 7: SR target financial benchmark error */}
+                  {config.key === "sr-targets" && srTargetError && ["targetAmount", "minimumSalesQuota", "commissionPercentage"].includes(field.key) && (
+                    <p className="text-xs text-red-600 dark:text-red-400">{srTargetError}</p>
+                  )}
+                  {/* Phase 7: Card fee architecture error */}
+                  {config.key === "card-type-setup" && cardFeeError && ["bankServiceCharge", "customerConvFee"].includes(field.key) && (
+                    <p className="text-xs text-red-600 dark:text-red-400">{cardFeeError}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
           {saveError && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2">

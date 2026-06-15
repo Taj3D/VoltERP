@@ -46,7 +46,7 @@ import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return _fmtNumberVal(Number(v));
   return String(v);
@@ -1801,6 +1801,25 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 toast({ title: "PDF Exported", description: "Ordersheet Report exported" });
               } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
             }}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={async () => {
+            try {
+              const result = await importFromCSV({
+                apiPath: "/api/ordersheets?import=true",
+                formFields: [
+                  { key: "orderType", label: "Order Type", type: "text", required: true },
+                  { key: "date", label: "Date", type: "date", required: true },
+                  { key: "productId", label: "Product ID", type: "text", required: true },
+                  { key: "quantity", label: "Quantity", type: "number", required: true },
+                ],
+              });
+              if (result.imported > 0) {
+                toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
+                loadOsReport();
+              } else if (result.errors.length > 0) {
+                toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+              }
+            } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+          }}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
           </div>
         </CardContent>
       </Card>
@@ -2496,6 +2515,25 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </Select>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+          <Button variant="outline" size="sm" onClick={async () => {
+            try {
+              const result = await importFromCSV({
+                apiPath: "/api/auto-po?import=true",
+                formFields: [
+                  { key: "productCode", label: "Product Code", type: "text", required: true },
+                  { key: "supplierCode", label: "Supplier Code", type: "text", required: true },
+                  { key: "quantity", label: "Quantity", type: "number", required: true },
+                  { key: "estimatedCost", label: "Estimated Cost", type: "number" },
+                ],
+              });
+              if (result.imported > 0) {
+                toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
+                loadAutoPo();
+              } else if (result.errors.length > 0) {
+                toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+              }
+            } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+          }}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <Button variant="ghost" size="sm" onClick={loadAutoPo}><RefreshCw className={`h-4 w-4 ${autoPoLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO by Supplier (${autoPoSelected.size})`}</Button>}
@@ -3747,6 +3785,26 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </div>
         <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
         <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+        <Button variant="outline" size="sm" disabled={!sdSelectedProduct} onClick={async () => {
+          try {
+            const result = await importFromCSV({
+              apiPath: "/api/stock-details?import=true",
+              formFields: [
+                { key: "productId", label: "Product ID", type: "text", required: true },
+                { key: "date", label: "Date", type: "date", required: true },
+                { key: "type", label: "Type", type: "text" },
+                { key: "quantity", label: "Quantity", type: "number" },
+                { key: "notes", label: "Notes", type: "text" },
+              ],
+            });
+            if (result.imported > 0) {
+              toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
+              if (sdSelectedProduct) loadStockDetails(sdSelectedProduct);
+            } else if (result.errors.length > 0) {
+              toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+            }
+          } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+        }}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
         <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
       </div>
       <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">

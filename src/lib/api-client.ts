@@ -6,6 +6,8 @@
  * - Auto-refresh on 401 (expired token)
  * - Retry after successful refresh
  * - Force logout on persistent 401
+ * - Client-side LRU memory cache for GET requests (apiFetchCached)
+ * - Automatic cache invalidation on write operations
  *
  * All component files should import apiFetch from here
  * instead of defining their own inline copies.
@@ -30,6 +32,7 @@ export interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   tokenExpiry: number | null; // epoch ms when access token expires
+  csrfToken: string | null; // CSRF token from login (reusable within validity period)
 }
 
 // ============================================================
@@ -42,6 +45,7 @@ export let authState: AuthState = {
   accessToken: null,
   refreshToken: null,
   tokenExpiry: null,
+  csrfToken: null,
 };
 
 export let authListeners: Array<() => void> = [];
@@ -90,7 +94,7 @@ async function performTokenRefresh() {
 
     if (!res.ok) {
       // Refresh token expired — force re-login
-      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+      authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null, csrfToken: null };
       localStorage.removeItem("ems_auth");
       authListeners.forEach(l => l());
       return;
@@ -138,7 +142,7 @@ export function clearAuthState() {
     clearTimeout(refreshTimerRef);
     refreshTimerRef = null;
   }
-  authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null };
+  authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null, csrfToken: null };
   localStorage.removeItem("ems_auth");
   authListeners.forEach(l => l());
 }
@@ -190,13 +194,18 @@ export function initAuthState() {
 // CSRF TOKEN CACHE
 // ============================================================
 
-let cachedCsrfToken: string | null = null;
-
 /**
- * fetchCsrfToken — Fetches a CSRF token from the server if not cached.
- * Token is cached per session and re-fetched after it's used (one-time-use tokens).
+ * getCsrfToken — Returns the cached CSRF token from login or fetches a new one.
+ * The token from login is reusable within its validity period (1 hour).
+ * Falls back to fetching from /api/csrf-token if no cached token is available.
  */
-async function fetchCsrfToken(): Promise<string | null> {
+async function getCsrfToken(): Promise<string | null> {
+  // Prefer token from login response (already cached in authState)
+  if (authState.csrfToken) {
+    return authState.csrfToken;
+  }
+
+  // Fallback: fetch a new token from the server
   if (!authState.accessToken) return null;
   try {
     const res = await fetch("/api/csrf-token", {
@@ -208,8 +217,9 @@ async function fetchCsrfToken(): Promise<string | null> {
     });
     if (res.ok) {
       const data = await res.json();
-      cachedCsrfToken = data.csrfToken;
-      return cachedCsrfToken;
+      // Cache in auth state for reuse
+      authState = { ...authState, csrfToken: data.csrfToken };
+      return data.csrfToken;
     }
   } catch {
     // CSRF token fetch failed — continue without it (log-only mode)
@@ -218,10 +228,47 @@ async function fetchCsrfToken(): Promise<string | null> {
 }
 
 // ============================================================
-// CANONICAL apiFetch
+// CLIENT-SIDE RESPONSE CACHE
 // ============================================================
 
-export async function apiFetch(path: string, opts?: RequestInit): Promise<any> {
+import { appCache, cacheKey, getTTLForCategory } from '@/lib/cache-utils';
+
+/**
+ * Extract a cache category from an API path.
+ * E.g. "/api/products" → "products", "/api/sms-settings/123" → "sms-settings"
+ */
+function pathToCategory(path: string): string {
+  const match = path.match(/^\/api\/([^/?#]+)/);
+  return match ? match[1] : 'unknown';
+}
+
+/**
+ * Build a cache key for a given API path.
+ * Includes the full path (with query string) to differentiate filtered queries.
+ */
+function buildCacheKey(path: string, category: string): string {
+  return cacheKey(category, path);
+}
+
+/**
+ * Invalidate cache entries for a given path prefix.
+ * Called automatically after write operations, or manually via apiBustCache().
+ *
+ * @param path - The API path prefix to invalidate (e.g. "/api/products")
+ * @returns Number of cache entries invalidated
+ */
+export function apiBustCache(path: string): number {
+  const category = pathToCategory(path);
+  // Invalidate both the specific category prefix and the exact path key
+  const count = appCache.invalidatePrefix(`${category}:`);
+  return count;
+}
+
+// ============================================================
+// CANONICAL apiFetch (uncached — backward compatible)
+// ============================================================
+
+export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?: string; bustCache?: boolean }): Promise<any> {
   // Server-side RBAC: send JWT Bearer token in Authorization header
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
   if (authState.accessToken) {
@@ -230,16 +277,36 @@ export async function apiFetch(path: string, opts?: RequestInit): Promise<any> {
 
   // ── CSRF Token for Write Operations ──
   // For POST/PUT/DELETE requests, include a CSRF token in the X-CSRF-Token header.
-  // The token is fetched lazily and cached until used (one-time-use).
+  // The token is sourced from login response (cached in authState) or fetched on-demand.
+  // Tokens are reusable within their 1-hour validity period.
   const method = (opts?.method || "GET").toUpperCase();
   const isWriteOp = method === "POST" || method === "PUT" || method === "DELETE";
 
   if (isWriteOp && authState.accessToken) {
-    // Fetch a new CSRF token for this write operation (one-time-use)
-    const csrfToken = await fetchCsrfToken();
+    const csrfToken = await getCsrfToken();
     if (csrfToken) {
       authHeaders["X-CSRF-Token"] = csrfToken;
-      cachedCsrfToken = null; // Clear cache since token is one-time-use
+    }
+  }
+
+  // ── Cache busting on write operations ──
+  // After a successful write, invalidate the relevant cache entries
+  // so subsequent GET requests fetch fresh data.
+  const category = opts?.cachePrefix || pathToCategory(path);
+
+  if (opts?.bustCache || isWriteOp) {
+    // Bust cache before the request for writes (data will change)
+    appCache.invalidatePrefix(`${category}:`);
+    // Also bust related categories for common relationships
+    if (category === 'products') {
+      appCache.invalidatePrefix('product-stock:');
+      appCache.invalidatePrefix('stock:');
+    } else if (category === 'sales-orders') {
+      appCache.invalidatePrefix('dashboard_kpi:');
+      appCache.invalidatePrefix('stock:');
+    } else if (category === 'purchase-orders') {
+      appCache.invalidatePrefix('dashboard_kpi:');
+      appCache.invalidatePrefix('stock:');
     }
   }
 
@@ -295,4 +362,68 @@ export async function apiFetch(path: string, opts?: RequestInit): Promise<any> {
     throw new Error(err.error || "Request failed");
   }
   return res.json();
+}
+
+// ============================================================
+// CACHED apiFetchCached — checks cache first, falls back to network
+// ============================================================
+
+export interface CachedFetchOptions extends RequestInit {
+  /** Cache category prefix (auto-detected from path if omitted) */
+  cachePrefix?: string;
+  /** Custom TTL in milliseconds (uses category default if omitted) */
+  cacheTtl?: number;
+  /** Force bypass cache and always fetch from network */
+  forceRefresh?: boolean;
+}
+
+/**
+ * Cached GET request — checks the client-side LRU cache first.
+ * On cache miss, performs a network request via apiFetch and stores the result.
+ *
+ * Only works for GET requests (method is forced to GET).
+ * For write operations, use apiFetch() which auto-busts the cache.
+ *
+ * @example
+ * // Simple cached fetch (auto-detects category & TTL)
+ * const products = await apiFetchCached("/api/products")
+ *
+ * // With custom cache prefix and TTL
+ * const data = await apiFetchCached("/api/products?category=tv", {
+ *   cachePrefix: "products",
+ *   cacheTtl: 60_000, // 1 minute
+ * })
+ *
+ * // Force refresh (bypass cache)
+ * const fresh = await apiFetchCached("/api/products", { forceRefresh: true })
+ */
+export async function apiFetchCached(path: string, opts?: CachedFetchOptions): Promise<any> {
+  const category = opts?.cachePrefix || pathToCategory(path);
+  const key = buildCacheKey(path, category);
+  const ttl = opts?.cacheTtl ?? getTTLForCategory(category);
+
+  // Check cache first (unless forceRefresh is set)
+  if (!opts?.forceRefresh) {
+    const cached = appCache.get<any>(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
+  // Cache miss — fetch from network (force GET method)
+  const fetchOpts: RequestInit & { cachePrefix?: string } = {
+    ...opts,
+    method: 'GET',
+  };
+  // Remove our custom options before passing to apiFetch
+  delete (fetchOpts as Record<string, unknown>).cacheTtl;
+  delete (fetchOpts as Record<string, unknown>).forceRefresh;
+  delete fetchOpts.cachePrefix;
+
+  const data = await apiFetch(path, fetchOpts);
+
+  // Store in cache
+  appCache.set(key, data, ttl);
+
+  return data;
 }

@@ -15,6 +15,7 @@ import {
   stripHtml,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { invalidateSmsSettingsCache } from '@/lib/sms-settings-cache';
 
 // Helper: convert empty string to null
 function nullIfEmpty(val: string | undefined | null): string | null {
@@ -128,6 +129,9 @@ export async function PUT(
       return record;
     });
 
+    // Invalidate SMS settings cache after update
+    invalidateSmsSettingsCache(existing.companyId);
+
     // Apply VAT Auditor masking on response
     const masked = maskForVatAuditorSms(
       {
@@ -198,6 +202,9 @@ export async function DELETE(
 
       return record;
     });
+
+    // Invalidate SMS settings cache after deletion
+    invalidateSmsSettingsCache(companyId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

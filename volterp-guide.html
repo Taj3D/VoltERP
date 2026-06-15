@@ -1,0 +1,3072 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<title>VoltERP ব্যবহারকারী গাইড</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* VoltERP Guide Base Styles */
+@page { size: 210mm 297mm; margin: 12mm 16mm 15mm 16mm; }
+:root {
+  --primary: #0d9488;
+  --primary-dark: #134e4a;
+  --primary-light: #ccfbf1;
+  --accent: #f59e0b;
+  --text: #1a1a2e;
+  --text-light: #4b5563;
+  --bg: #ffffff;
+  --bg-light: #f0fdfa;
+  --border: #e5e7eb;
+  --warning-bg: #fffbeb;
+  --warning-border: #f59e0b;
+  --info-bg: #f0fdfa;
+  --info-border: #0d9488;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  font-family: 'Noto Sans Bengali', 'Noto Sans', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.7;
+  font-size: 10.5pt;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+/* Cover Page */
+.cover-page {
+  page-break-after: always;
+  width: 100%;
+  min-height: 297mm;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  background: linear-gradient(135deg, #134e4a 0%, #0d9488 50%, #14b8a6 100%);
+  color: white;
+  padding: 40px;
+}
+.cover-page img {
+  width: 280px;
+  height: auto;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+.cover-page h1 { font-size: 36pt; font-weight: 900; margin-bottom: 10px; letter-spacing: 1px; }
+.cover-page h2 { font-size: 18pt; font-weight: 500; margin-bottom: 8px; opacity: 0.9; }
+.cover-page p { font-size: 12pt; opacity: 0.8; margin-top: 20px; }
+.cover-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.15);
+  padding: 8px 24px;
+  border-radius: 50px;
+  font-size: 11pt;
+  margin-top: 15px;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+/* TOC */
+.toc-page { page-break-after: always; padding-top: 20px; }
+.toc-page h2 { font-size: 20pt; color: var(--primary-dark); border-bottom: 3px solid var(--primary); padding-bottom: 8px; margin-bottom: 20px; }
+.toc-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dotted var(--border); font-size: 10pt; }
+.toc-item.main { font-weight: 700; font-size: 11pt; color: var(--primary-dark); margin-top: 8px; border-bottom: 1px solid var(--primary-light); }
+.toc-item.sub { padding-left: 20px; color: var(--text-light); }
+/* Section */
+.section { page-break-before: always; padding-top: 10px; }
+.section:first-of-type { page-break-before: avoid; }
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 3px solid var(--primary);
+}
+.section-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 16pt;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.section-title { font-size: 20pt; font-weight: 800; color: var(--primary-dark); }
+/* Module Page */
+.module { margin-bottom: 18px; padding: 12px 14px; border-left: 4px solid var(--primary); background: var(--bg-light); border-radius: 0 8px 8px 0; }
+.module h3 { font-size: 12pt; font-weight: 700; color: var(--primary-dark); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
+.module h3::before { content: "📄"; font-size: 12pt; }
+.module p, .module li { font-size: 9.5pt; color: var(--text-light); line-height: 1.65; }
+.module ol, .module ul { padding-left: 18px; margin-top: 4px; }
+.module li { margin-bottom: 2px; }
+/* Info Box */
+.info-box { background: var(--info-bg); border: 1px solid var(--info-border); border-radius: 6px; padding: 10px 14px; margin: 10px 0; font-size: 9.5pt; }
+.info-box::before { content: "💡 টিপ: "; font-weight: 700; color: var(--primary); }
+/* Warning Box */
+.warning-box { background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 6px; padding: 10px 14px; margin: 10px 0; font-size: 9.5pt; }
+.warning-box::before { content: "⚠️ সতর্কতা: "; font-weight: 700; color: var(--warning-border); }
+/* Step List */
+.steps { counter-reset: step; list-style: none; padding-left: 0; }
+.steps li { counter-increment: step; position: relative; padding-left: 30px; margin-bottom: 6px; font-size: 9.5pt; line-height: 1.6; }
+.steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 22px;
+  height: 22px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 8pt;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Sub-section title */
+.sub-section { margin: 16px 0 10px 0; padding: 6px 10px; background: var(--primary-light); border-radius: 4px; font-size: 11pt; font-weight: 700; color: var(--primary-dark); }
+/* Workflow section */
+.workflow { background: linear-gradient(135deg, #f0fdfa, #ccfbf1); border: 2px solid var(--primary); border-radius: 10px; padding: 16px; margin: 14px 0; }
+.workflow h3 { color: var(--primary-dark); font-size: 13pt; margin-bottom: 8px; }
+.workflow ol { padding-left: 20px; }
+.workflow li { margin-bottom: 4px; font-size: 9.5pt; line-height: 1.6; }
+/* Quick Ref Table */
+.quick-table { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin: 10px 0; }
+.quick-table th { background: var(--primary); color: white; padding: 6px 8px; text-align: left; font-weight: 600; }
+.quick-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.quick-table tr:nth-child(even) { background: #f9fafb; }
+.quick-table tr:hover { background: var(--primary-light); }
+/* Page Footer */
+.page-footer { text-align: center; font-size: 8pt; color: #9ca3af; margin-top: 20px; padding-top: 8px; border-top: 1px solid var(--border); }
+/* Print helpers */
+.page-break { page-break-before: always; }
+.no-break { page-break-inside: avoid; }
+/* Two column layout */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Responsive grid for modules */
+.module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .module-grid { grid-template-columns: 1fr; } }
+
+</style>
+</head>
+<body>
+<!-- ============================================================ -->
+<!-- COVER PAGE -->
+<!-- ============================================================ -->
+<div class="cover-page">
+  <img src="./public/guide-cover.png" alt="VoltERP গাইড কভার">
+  <h1>VoltERP ব্যবহারকারী গাইড</h1>
+  <h2>ইলেকট্রনিক্স মার্ট ইনভেন্টরি ম্যানেজমেন্ট সিস্টেম</h2>
+  <p>ব্যবসার সম্পূর্ণ পরিচালনা ব্যবস্থা — ক্রয়, বিক্রয়, ইনভেন্টরি, হিসাব, কর্মচারী ও রিপোর্টিং</p>
+  <div class="cover-badge">সম্পূর্ণ বাংলা নির্দেশিকা ২০২৫</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- TABLE OF CONTENTS -->
+<!-- ============================================================ -->
+<div class="toc-page">
+  <h2>সূচিপত্র</h2>
+  <div class="two-col">
+    <div>
+      <div class="toc-item main"><span>১. বিনিয়োগ (Investment)</span><span>পৃষ্ঠা ৩</span></div>
+      <div class="toc-item sub"><span>১.১ ইনভেস্টমেন্ট হেডস (Investment Heads)</span><span>৩</span></div>
+      <div class="toc-item sub"><span>১.২ ইনভেস্টমেন্ট (Investment)</span><span>৪</span></div>
+
+      <div class="toc-item main"><span>২. সম্পত্তি (Asset)</span><span>পৃষ্ঠা ৫</span></div>
+      <div class="toc-item sub"><span>২.১ স্থায়ী সম্পদ (Fixed Asset)</span><span>৫</span></div>
+      <div class="toc-item sub"><span>২.২ চলতি সম্পদ (Current Asset)</span><span>৬</span></div>
+
+      <div class="toc-item main"><span>৩. দায় (Liability)</span><span>পৃষ্ঠা ৭</span></div>
+      <div class="toc-item sub"><span>৩.১ দায় গ্রহণ (Liability Receive)</span><span>৭</span></div>
+      <div class="toc-item sub"><span>৩.২ দায় পরিশোধ (Liability Pay)</span><span>৮</span></div>
+      <div class="toc-item sub"><span>৩.৩ দায় রিপোর্ট (Liability Report)</span><span>৯</span></div>
+    </div>
+    <div>
+      <div class="toc-item main"><span>৪. বেসিক মডিউলস (Basic Modules)</span><span>পর্ব ২</span></div>
+      <div class="toc-item main"><span>৫. কর্মচারী ও গ্রাহক (Staff &amp; CRM)</span><span>পর্ব ২</span></div>
+      <div class="toc-item main"><span>৬. ইনভেন্টরি ম্যানেজমেন্ট</span><span>পর্ব ৩</span></div>
+      <div class="toc-item main"><span>৭. বিক্রয় মডিউল (Sales Module)</span><span>পর্ব ৩</span></div>
+      <div class="toc-item main"><span>৮. হিসাব ব্যবস্থাপনা (Accounts)</span><span>পর্ব ৪</span></div>
+      <div class="toc-item main"><span>৯. আর্থিক রিপোর্ট (Financial Reports)</span><span>পর্ব ৪</span></div>
+      <div class="toc-item main"><span>১০. এসএমএস সার্ভিস (SMS Service)</span><span>পর্ব ৫</span></div>
+      <div class="toc-item main"><span>১১. সিস্টেম সেটিংস ও প্রোফাইল</span><span>পর্ব ৫</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 1: বিনিয়োগ (Investment) -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">১</div>
+    <div class="section-title">বিনিয়োগ (Investment)</div>
+  </div>
+
+  <p style="margin-bottom:14px; color:var(--text-light);">
+    বিনিয়োগ মডিউলটি আপনার ব্যবসার আর্থিক ভিত্তি পরিচালনার জন্য ব্যবহৃত হয়। এখানে আপনি বিনিয়োগের খাত বা শ্রেণি তৈরি করতে পারবেন, প্রতিটি বিনিয়োগের লেনদেন রেকর্ড করতে পারবেন এবং সম্পূর্ণ বিনিয়োগ তথ্য ট্র্যাক করতে পারবেন। শুধুমাত্র অ্যাডমিন ও ম্যানেজার রোলের ব্যবহারকারীরা এই মডিউল ব্যবহার করতে পারবেন।
+  </p>
+
+  <!-- Module: Investment Heads -->
+  <div class="module">
+    <h3>ইনভেস্টমেন্ট হেডস (Investment Heads)</h3>
+    <p>
+      ইনভেস্টমেন্ট হেড হলো বিনিয়োগের শ্রেণি বা খাত — এটি হিসাববিজ্ঞানের লেজার অ্যাকাউন্টের মতো কাজ করে। আপনার ব্যবসার সমস্ত আর্থিক সম্পদ ও দায় এই হেডগুলোর অধীনে শ্রেণিবদ্ধ থাকে। প্রতিটি হেডের একটি স্বয়ংক্রিয়ভাবে তৈরি কোড (যেমন: INVH-00001), নাম, ধরন, উদ্বোধনী ব্যালেন্স এবং সক্রিয় অবস্থা থাকে। হেডের ধরন নির্বাচন করার সময় আপনি Fixed Asset, Current Asset, Liability, PF, FDR বা Security এর মধ্যে বেছে নিতে পারবেন।
+    </p>
+
+    <div class="sub-section">ব্যবহার পদ্ধতি</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment</strong> মেনুতে ক্লিক করুন, তারপর <strong>Investment Heads</strong> নির্বাচন করুন</li>
+      <li>টেবিলের উপরে ডানদিকে <strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li>ফর্মে <strong>নাম</strong> (আবশ্যক) লিখুন — যেমন: "প্রধান অফিস ভবন", "ব্যাংক এফডিআর"</li>
+      <li><strong>বিবরণ</strong> (ঐচ্ছিক) লিখুন — হেড সম্পর্কে নোট বা মন্তব্য</li>
+      <li><strong>ধরন</strong> (আবশ্যক) নির্বাচন করুন — Fixed Asset, Current Asset, Liability, PF, FDR বা Security</li>
+      <li><strong>উদ্বোধনী ব্যালেন্স</strong> পরিমাণ টাকা লিখুন এবং <strong>উদ্বোধনী ধরন</strong> নির্বাচন করুন — Dr (ডেবিট) বা Cr (ক্রেডিট)</li>
+      <li><strong>সক্রিয়</strong> চেকবক্স নিশ্চিত করুন (ডিফল্টভাবে চালু থাকে)</li>
+      <li><strong>Save</strong> বাটনে ক্লিক করুন — কোড স্বয়ংক্রিয়ভাবে তৈরি হবে</li>
+    </ol>
+
+    <div class="info-box">
+      কোড ফিল্ড (INVH-XXXXX) সিস্টেম দ্বারা স্বয়ংক্রিয়ভাবে তৈরি হয়, আপনাকে ম্যানুয়ালি টাইপ করতে হবে না। নতুন হেড তৈরির পর কোড স্বয়ংক্রিয়ভাবে দেখা যাবে।
+    </div>
+
+    <div class="sub-section">সম্পাদনা ও অপসারণ</div>
+    <ol class="steps">
+      <li>যেকোনো সারির ডানপাশে <strong>পেন্সিল আইকন</strong> (Edit) এ ক্লিক করুন — ফর্ম পূর্বের তথ্য সহ খুলবে</li>
+      <li>প্রয়োজনীয় ক্ষেত্র পরিবর্তন করে <strong>Save</strong> ক্লিক করুন</li>
+      <li>অপসারণ করতে <strong>ট্র্যাশ আইকন</strong> (Delete) এ ক্লিক করুন</li>
+      <li>নিশ্চিতকরণ ডায়ালগে <strong>Confirm</strong> ক্লিক করুন</li>
+    </ol>
+
+    <div class="warning-box" style="background:var(--warning-bg); border:1px solid var(--warning-border); border-radius:6px; padding:10px 14px; margin:10px 0; font-size:9.5pt;">
+      যদি কোনো হেডের লেনদেন লক করা মাসে থাকে, তবে অপসারণ ব্লক করা হবে। প্রথমে সেই মাসের পিরিয়ড ক্লোজ আনলক করুন, তারপর অপসারণ করুন।
+    </div>
+
+    <div class="sub-section">রপ্তানি ও আমদানি</div>
+    <ol class="steps">
+      <li><strong>PDF রপ্তানি:</strong> PDF আইকনে ক্লিক করলে ল্যান্ডস্কেপ A4 পিডিএফ ডাউনলোড হবে — কর্পোরেট হেডার, বিকল্প সারি রং এবং পৃষ্ঠা নম্বর সহ</li>
+      <li><strong>CSV রপ্তানি:</strong> CSV আইকনে ক্লিক করলে UTF-8 BOM এনকোডেড CSV ফাইল ডাউনলোড হবে — এক্সেলে টাকা চিহ্ন (৳) সঠিকভাবে দেখাবে</li>
+      <li><strong>CSV আমদানি:</strong> আপলোড আইকনে ক্লিক করে CSV ফাইল আপলোড করুন — সিস্টেম স্বয়ংক্রিয়ভাবে যাচাই করবে এবং সফল সারিগুলো যুক্ত করবে</li>
+    </ol>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>কোড</td><td>স্বয়ংক্রিয়ভাবে তৈরি (INVH-XXXXX)</td><td>না</td></tr>
+        <tr><td>নাম</td><td>হেডের প্রদর্শন নাম</td><td>হ্যাঁ</td></tr>
+        <tr><td>বিবরণ</td><td>অতিরিক্ত নোট</td><td>না</td></tr>
+        <tr><td>ধরন</td><td>Fixed Asset / Current Asset / Liability / PF / FDR / Security</td><td>হ্যাঁ</td></tr>
+        <tr><td>উদ্বোধনী ব্যালেন্স</td><td>প্রারম্ভিক পরিমাণ (৳)</td><td>না</td></tr>
+        <tr><td>উদ্বোধনী ধরন</td><td>Dr (ডেবিট) বা Cr (ক্রেডিট)</td><td>না</td></tr>
+        <tr><td>সক্রিয়</td><td>চালু বা বন্ধ</td><td>না</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Investment -->
+  <div class="module">
+    <h3>ইনভেস্টমেন্ট (Investment)</h3>
+    <p>
+      ইনভেস্টমেন্ট পেজে প্রতিটি বিনিয়োগের বিস্তারিত লেনদেন রেকর্ড করা হয়। প্রতিটি এন্ট্রি একটি নির্দিষ্ট ইনভেস্টমেন্ট হেডের সাথে সংযুক্ত থাকে। উদাহরণস্বরূপ, "অফিস ভবন" একটি Fixed Asset হেড হলে, সেই ভবনের জন্য নতুন এসি কেনার রেকর্ড এখানে ইনভেস্টমেন্ট এন্ট্রি হিসেবে যুক্ত হবে। প্রতিটি এন্ট্রিতে তারিখ, পরিমাণ, সম্পদ শ্রেণি ও বিবরণ থাকে। সিস্টেম স্বয়ংক্রিয়ভাবে একটি কোড (INV-00001) তৈরি করে।
+    </p>
+
+    <div class="sub-section">নতুন বিনিয়োগ এন্ট্রি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Investment</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> (আবশ্যক) ড্রপডাউন থেকে নির্বাচন করুন — এই তালিকা Investment Heads পেজ থেকে আসে</li>
+      <li><strong>তারিখ</strong> (আবশ্যক) নির্বাচন করুন — লেনদেনের তারিখ</li>
+      <li><strong>পরিমাণ</strong> (আবশ্যক) লিখুন — টাকার পরিমাণ</li>
+      <li><strong>সম্পদ শ্রেণি</strong> নির্বাচন করুন — <strong>Fixed</strong> (দীর্ঘমেয়াদী সম্পদ) অথবা <strong>Current</strong> (স্বল্পমেয়াদী/তরল সম্পদ)</li>
+      <li><strong>বিবরণ</strong> লিখুন — লেনদেন সম্পর্কে মন্তব্য বা নোট</li>
+      <li><strong>সক্রিয়</strong> চেকবক্স নিশ্চিত করুন এবং <strong>Save</strong> ক্লিক করুন</li>
+    </ol>
+
+    <div class="info-box">
+      সম্পদ শ্রেণি "Fixed" নির্বাচন করলে সেই এন্ট্রি স্বয়ংক্রিয়ভাবে Fixed Asset পেজেও দেখা যাবে। আর "Current" নির্বাচন করলে Current Asset পেজে দেখা যাবে। তাই সঠিক শ্রেণি নির্বাচন করা অত্যন্ত গুরুত্বপূর্ণ।
+    </div>
+
+    <div class="sub-section">বিনিয়োগের রিটার্ন বা উত্তোলন</div>
+    <p>
+      বিনিয়োগ থেকে টাকা উত্তোলন বা রিটার্ন পেলে সেই এন্ট্রিও এই পেজেই করতে হবে। উত্তোলনের ক্ষেত্রে পরিমাণ ঋণাত্মক (নেগেটিভ) হিসেবে লিখুন অথবা বিবরণে "উত্তোলন" উল্লেখ করুন। এতে সামগ্রিক বিনিয়োগ রিপোর্টে নিট পরিমাণ সঠিকভাবে দেখা যাবে।
+    </p>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>কোড</td><td>স্বয়ংক্রিয়ভাবে তৈরি (INV-XXXXX)</td><td>না</td></tr>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>যে হেডের অধীনে এন্ট্রি</td><td>হ্যাঁ</td></tr>
+        <tr><td>তারিখ</td><td>লেনদেনের তারিখ</td><td>হ্যাঁ</td></tr>
+        <tr><td>পরিমাণ</td><td>টাকার পরিমাণ (৳)</td><td>হ্যাঁ</td></tr>
+        <tr><td>সম্পদ শ্রেণি</td><td>Fixed বা Current</td><td>না</td></tr>
+        <tr><td>বিবরণ</td><td>লেনদেন সম্পর্কে নোট</td><td>না</td></tr>
+        <tr><td>সক্রিয়</td><td>চালু বা বন্ধ</td><td>না</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box">
+      VAT Auditor রোল এই পেজ অ্যাক্সেস করলে সমস্ত পরিমাণ/মূল্য ক্ষেত্রে "N/A (Audit Mode)" দেখাবে। এটি ব্যবসার আর্থিক গোপনীয়তা রক্ষার জন্য।
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 2: সম্পত্তি (Asset) -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">২</div>
+    <div class="section-title">সম্পত্তি (Asset)</div>
+  </div>
+
+  <p style="margin-bottom:14px; color:var(--text-light);">
+    সম্পত্তি মডিউলে আপনার ব্যবসার সমস্ত সম্পদ — স্থায়ী ও চলতি — পরিচালনা করা হয়। স্থায়ী সম্পদ হলো দীর্ঘমেয়াদী সম্পদ যেমন ভবন, যন্ত্রপাতি, যানবাহন; আর চলতি সম্পদ হলো স্বল্পমেয়াদী তরল সম্পদ যেমন নগদ, ব্যাংক জমা, পাওনাদার। ব্যালেন্স শিটে সম্পদের এই দুই শ্রেণি আলাদাভাবে প্রদর্শিত হয়।
+  </p>
+
+  <!-- Module: Fixed Asset -->
+  <div class="module">
+    <h3>স্থায়ী সম্পদ (Fixed Asset)</h3>
+    <p>
+      স্থায়ী সম্পদ হলো ব্যবসার দীর্ঘমেয়াদী সম্পদ — ভবন, যন্ত্রপাতি, যানবাহন, অফিস সরঞ্জাম ইত্যাদি। এই সম্পদগুলো একাধিক আর্থিক বছর ধরে ব্যবহৃত হয় এবং সময়ের সাথে তাদের মূল্য হ্রাস (Depreciation) পায়। VoltERP সিস্টেমে প্রতিটি স্থায়ী সম্পদ একটি "Fixed Asset" ধরনের ইনভেস্টমেন্ট হেডের সাথে সংযুক্ত থাকে। হ্রাসকৃত মূল্য লেজার এন্ট্রির মাধ্যমে ম্যানুয়ালি রেকর্ড করতে হয়। ব্যালেন্স শিটে স্থায়ী সম্পদের মোট মূল্য "Fixed Assets" বিভাগে প্রদর্শিত হয়।
+    </p>
+
+    <div class="sub-section">নতুন স্থায়ী সম্পদ যোগ করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Fixed Asset</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> নির্বাচন করুন — অবশ্যই "Fixed Asset" ধরনের হেড নির্বাচন করতে হবে</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন — সম্পদ অর্জনের তারিখ</li>
+      <li><strong>পরিমাণ</strong> লিখুন — সম্পদের ক্রয়মূল্য (৳)</li>
+      <li><strong>বিবরণ</strong> লিখুন — সম্পদের বিস্তারিত (যেমন: "স্যামসাং স্প্লিট এসি ১.৫ টন")</li>
+      <li>সম্পদ শ্রেণি স্বয়ংক্রিয়ভাবে <strong>"Fixed"</strong> নির্ধারিত থাকবে</li>
+      <li><strong>Save</strong> ক্লিক করুন — কোড (INV-XXXXX) স্বয়ংক্রিয়ভাবে তৈরি হবে</li>
+    </ol>
+
+    <div class="info-box">
+      স্থায়ী সম্পদের হ্রাসকৃত মূল্য (Depreciation) সিস্টেম স্বয়ংক্রিয়ভাবে হিসাব করে না। প্রতি মাসে বা বছরে হ্রাসকৃত মূল্য ম্যানুয়ালি লেজার এন্ট্রির মাধ্যমে রেকর্ড করতে হবে। এতে করে ব্যালেন্স শিটে সম্পদের নিট বই মূল্য সঠিকভাবে প্রতিফলিত হবে।
+    </div>
+
+    <div class="sub-section">স্থায়ী সম্পদ পরিচালনার কার্যপ্রবাহ</div>
+    <div class="workflow">
+      <h3>স্থায়ী সম্পদ জীবনচক্র</h3>
+      <ol>
+        <li><strong>হেড তৈরি:</strong> Investment Heads পেজে "Fixed Asset" ধরনের হেড তৈরি করুন</li>
+        <li><strong>সম্পদ অর্জন:</strong> Fixed Asset পেজে সম্পদের ক্রয় এন্ট্রি করুন</li>
+        <li><strong>হ্রাস হিসাব:</strong> প্রতি সময়ে লেজারে Depreciation এন্ট্রি করুন</li>
+        <li><strong>ব্যালেন্স শিট:</strong> নিট বই মূল্য = ক্রয়মূল্য - জমা হ্রাস</li>
+        <li><strong>অপসারণ:</strong> সম্পদ বিক্রি বা বর্জন করলে তা লেজারে রেকর্ড করুন</li>
+      </ol>
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>সম্পদের উদাহরণ</th>
+          <th>হেড ধরন</th>
+          <th>হ্রাসযোগ্য?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>অফিস ভবন</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>যানবাহন (গাড়ি)</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>কম্পিউটার ও ল্যাপটপ</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>এসি ও অফিস সরঞ্জাম</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>আসবাবপত্র</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Current Asset -->
+  <div class="module">
+    <h3>চলতি সম্পদ (Current Asset)</h3>
+    <p>
+      চলতি সম্পদ হলো ব্যবসার স্বল্পমেয়াদী ও তরল সম্পদ — নগদ অর্থ, ব্যাংক জমা, পাওনাদারের টাকা, ইনভেন্টরির মূল্য ইত্যাদি। এই সম্পদগুলো এক আর্থিক বছরের মধ্যে নগদে রূপান্তরিত হওয়ার প্রত্যাশা করা যায়। চলতি সম্পদ ব্যবসার তরলতা (Liquidity) নির্দেশ করে — অর্থাৎ ব্যবসা কতটুকু দ্রুত তার আর্থিক দায় পরিশোধ করতে সক্ষম। ব্যালেন্স শিটে চলতি সম্পদ "Current Assets" বিভাগে প্রদর্শিত হয় এবং তরলতা অনুপাত হিসাবে ব্যবহৃত হয়।
+    </p>
+
+    <div class="sub-section">নতুন চলতি সম্পদ যোগ করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Current Asset</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> নির্বাচন করুন — অবশ্যই "Current Asset" ধরনের হেড নির্বাচন করতে হবে</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন — লেনদেনের তারিখ</li>
+      <li><strong>পরিমাণ</strong> লিখুন — সম্পদের পরিমাণ (৳)</li>
+      <li><strong>বিবরণ</strong> লিখুন — সম্পদের বিস্তারিত তথ্য</li>
+      <li>সম্পদ শ্রেণি স্বয়ংক্রিয়ভাবে <strong>"Current"</strong> নির্ধারিত থাকবে</li>
+      <li><strong>Save</strong> ক্লিক করুন</li>
+    </ol>
+
+    <div class="info-box">
+      চলতি সম্পদের পরিমাণ প্রতি মাসে আপডেট করুন। বিশেষত ব্যাংক জমা ও নগদ অর্থের পরিবর্তন সময়মতো রেকর্ড করলে তরলতা অনুপাত সঠিক থাকবে এবং আর্থিক সিদ্ধান্ত নেওয়া সহজ হবে।
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>চলতি সম্পদের উদাহরণ</th>
+          <th>হেড ধরন</th>
+          <th>বৈশিষ্ট্য</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>নগদ অর্থ (Cash)</td><td>Current Asset</td><td>সবচেয়ে তরল</td></tr>
+        <tr><td>ব্যাংক জমা</td><td>Current Asset</td><td>দ্রুত উত্তোলনযোগ্য</td></tr>
+        <tr><td>পাওনাদার (Receivables)</td><td>Current Asset</td><td>৩০-৯০ দিনে আসবে</td></tr>
+        <tr><td>ইনভেন্টরি মূল্য</td><td>Current Asset</td><td>বিক্রয়ের মাধ্যমে নগদ</td></tr>
+        <tr><td>ব্যাংক এফডিআর</td><td>Current Asset / FDR</td><td>মেয়াদ শেষে তরল</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Comparison Box -->
+  <div class="workflow">
+    <h3>স্থায়ী সম্পদ বনাম চলতি সম্পদ</h3>
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>বৈশিষ্ট্য</th>
+          <th>স্থায়ী সম্পদ (Fixed)</th>
+          <th>চলতি সম্পদ (Current)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>মেয়াদ</td><td>একাধিক বছর</td><td>এক বছরের কম</td></tr>
+        <tr><td>তরলতা</td><td>কম</td><td>উচ্চ</td></tr>
+        <tr><td>হ্রাস (Depreciation)</td><td>প্রযোজ্য</td><td>প্রযোজ্য নয়</td></tr>
+        <tr><td>উদাহরণ</td><td>ভবন, গাড়ি, যন্ত্রপাতি</td><td>নগদ, ব্যাংক জমা, পাওনাদার</td></tr>
+        <tr><td>ব্যালেন্স শিট অবস্থান</td><td>উপরে — Fixed Assets</td><td>নিচে — Current Assets</td></tr>
+        <tr><td>রূপান্তর</td><td>নগদে রূপান্তর কঠিন</td><td>সহজেই নগদে রূপান্তর</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 3: দায় (Liability) -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">৩</div>
+    <div class="section-title">দায় (Liability)</div>
+  </div>
+
+  <p style="margin-bottom:14px; color:var(--text-light);">
+    দায় মডিউলে আপনার ব্যবসার সমস্ত ঋণ ও দায় পরিচালনা করা হয়। এখানে আপনি ঋণ গ্রহণ, ঋণ পরিশোধ এবং সমস্ত দায়ের সামগ্রিক রিপোর্ট দেখতে পারবেন। সিস্টেম স্বয়ংক্রিয়ভাবে বকেয়া পরিমাণ হিসাব করে এবং লেজারে সংশ্লিষ্ট এন্ট্রি তৈরি করে। শুধুমাত্র অ্যাডমিন ও ম্যানেজার এই মডিউল ব্যবহার করতে পারবেন।
+  </p>
+
+  <!-- Module: Liability Receive -->
+  <div class="module">
+    <h3>দায় গ্রহণ (Liability Receive)</h3>
+    <p>
+      দায় গ্রহণ পেজে ব্যবসায় আগত ঋণ বা ঋণসৃষ্টিকারী লেনদেন রেকর্ড করা হয়। যখন আপনার ব্যবসা ব্যাংক থেকে ঋণ গ্রহণ করে, সরবরাহকারীর কাছ থেকে ক্রেডিট পায়, অথবা অন্য কোনো উৎস থেকে অর্থ ধার নেয় — তখন এই পেজে এন্ট্রি করতে হয়। এন্ট্রি করার পর সিস্টেম স্বয়ংক্রিয়ভাবে সেই ইনভেস্টমেন্ট হেডের বকেয়া দায়ের ব্যালেন্স বৃদ্ধি করে এবং জেনারেল লেজারে একটি স্বয়ংক্রিয় এন্ট্রি তৈরি করে: নগদ/ব্যাংক অ্যাকাউন্ট ডেবিট, দায় অ্যাকাউন্ট ক্রেডিট।
+    </p>
+
+    <div class="sub-section">নতুন দায় গ্রহণ এন্ট্রি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Liability Receive</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> (আবশ্যক) নির্বাচন করুন — অবশ্যই "Liability" ধরনের হেড হতে হবে</li>
+      <li><strong>তারিখ</strong> (আবশ্যক) নির্বাচন করুন — টাকা গ্রহণের তারিখ</li>
+      <li><strong>পরিমাণ</strong> (আবশ্যক) লিখুন — গ্রহণকৃত পরিমাণ (৳)</li>
+      <li><strong>পেমেন্ট পদ্ধতি</strong> নির্বাচন করুন — নগদ, ব্যাংক ট্রান্সফার, চেক ইত্যাদি</li>
+      <li><strong>বিবরণ</strong> লিখুন — লেনদেন সম্পর্কে বিস্তারিত নোট</li>
+      <li><strong>Save</strong> ক্লিক করুন — কোড স্বয়ংক্রিয়ভাবে তৈরি হবে এবং লেজার এন্ট্রি স্বয়ংক্রিয়ভাবে হবে</li>
+    </ol>
+
+    <div class="info-box">
+      দায় গ্রহণ এন্ট্রি করলে সিস্টেম স্বয়ংক্রিয়ভাবে জেনারেল লেজারে একটি এন্ট্রি তৈরি করে — নগদ/ব্যাংক অ্যাকাউন্ট ডেবিট (Dr) এবং দায় অ্যাকাউন্ট ক্রেডিট (Cr)। ফলে আপনাকে আলাদাভাবে লেজার এন্ট্রি করতে হবে না।
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>Liability ধরনের হেড নির্বাচন</td><td>হ্যাঁ</td></tr>
+        <tr><td>তারিখ</td><td>টাকা গ্রহণের তারিখ</td><td>হ্যাঁ</td></tr>
+        <tr><td>পরিমাণ</td><td>গ্রহণকৃত পরিমাণ (৳)</td><td>হ্যাঁ</td></tr>
+        <tr><td>পেমেন্ট পদ্ধতি</td><td>নগদ / ব্যাংক / চেক</td><td>না</td></tr>
+        <tr><td>বিবরণ</td><td>লেনদেন নোট</td><td>না</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Liability Pay -->
+  <div class="module">
+    <h3>দায় পরিশোধ (Liability Pay)</h3>
+    <p>
+      দায় পরিশোধ পেজে ব্যবসার ঋণ পরিশোধের লেনদেন রেকর্ড করা হয়। যখন আপনি ব্যাংক ঋণের কিস্তি পরিশোধ করেন, সরবরাহকারীকে বকেয়া পরিশোধ করেন, অথবা অন্য কোনো দায় পরিশোধ করেন — তখন এই পেজে এন্ট্রি করতে হয়। এন্ট্রি করার পর সিস্টেম স্বয়ংক্রিয়ভাবে সেই ইনভেস্টমেন্ট হেডের বকেয়া দায়ের ব্যালেন্স হ্রাস করে এবং জেনারেল লেজারে স্বয়ংক্রিয় এন্ট্রি তৈরি করে: দায় অ্যাকাউন্ট ডেবিট, নগদ/ব্যাংক অ্যাকাউন্ট ক্রেডিট। আপডেটেড ব্যালেন্স তাৎক্ষণিকভাবে Liability Report এ প্রতিফলিত হয়।
+    </p>
+
+    <div class="sub-section">নতুন দায় পরিশোধ এন্ট্রি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Liability Pay</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> (আবশ্যক) নির্বাচন করুন — অবশ্যই "Liability" ধরনের হেড হতে হবে</li>
+      <li><strong>তারিখ</strong> (আবশ্যক) নির্বাচন করুন — পরিশোধের তারিখ</li>
+      <li><strong>পরিমাণ</strong> (আবশ্যক) লিখুন — পরিশোধকৃত পরিমাণ (৳)</li>
+      <li><strong>পেমেন্ট পদ্ধতি</strong> নির্বাচন করুন — নগদ, ব্যাংক ট্রান্সফার, চেক</li>
+      <li><strong>বিবরণ</strong> লিখুন — পরিশোধ সম্পর্কে নোট (যেমন: "মার্চ মাসের কিস্তি")</li>
+      <li><strong>Save</strong> ক্লিক করুন — কোড ও লেজার এন্ট্রি স্বয়ংক্রিয়ভাবে হবে</li>
+    </ol>
+
+    <div class="info-box">
+      দায় পরিশোধ এন্ট্রি করলে সিস্টেম স্বয়ংক্রিয়ভাবে জেনারেল লেজারে একটি এন্ট্রি তৈরি করে — দায় অ্যাকাউন্ট ডেবিট (Dr) এবং নগদ/ব্যাংক অ্যাকাউন্ট ক্রেডিট (Cr)। বকেয়া ব্যালেন্স তাৎক্ষণিকভাবে আপডেট হবে।
+    </div>
+
+    <div class="sub-section">দায় গ্রহণ ও পরিশোধের কার্যপ্রবাহ</div>
+    <div class="workflow">
+      <h3>দায় পরিচালনার সম্পূর্ণ প্রক্রিয়া</h3>
+      <ol>
+        <li><strong>হেড তৈরি:</strong> Investment Heads পেজে "Liability" ধরনের হেড তৈরি করুন (যেমন: "ব্যাংক ঋণ", "সরবরাহকারী ক্রেডিট")</li>
+        <li><strong>ঋণ গ্রহণ:</strong> Liability Receive পেজে ঋণের পরিমাণ এন্ট্রি করুন — দায়ের ব্যালেন্স বৃদ্ধি পাবে</li>
+        <li><strong>কিস্তি পরিশোধ:</strong> Liability Pay পেজে প্রতিটি কিস্তি এন্ট্রি করুন — দায়ের ব্যালেন্স হ্রাস পাবে</li>
+        <li><strong>রিপোর্ট দেখুন:</strong> Liability Report থেকে বকেয়া পরিমাণ, পরিশোধিত পরিমাণ ও সর্বশেষ লেনদেনের তারিখ দেখুন</li>
+        <li><strong>সম্পূর্ণ পরিশোধ:</strong> যখন সমস্ত দায় পরিশোধ হয়ে যাবে, Liability Report এ বকেয়া শূন্য দেখাবে</li>
+      </ol>
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>Liability ধরনের হেড নির্বাচন</td><td>হ্যাঁ</td></tr>
+        <tr><td>তারিখ</td><td>পরিশোধের তারিখ</td><td>হ্যাঁ</td></tr>
+        <tr><td>পরিমাণ</td><td>পরিশোধকৃত পরিমাণ (৳)</td><td>হ্যাঁ</td></tr>
+        <tr><td>পেমেন্ট পদ্ধতি</td><td>নগদ / ব্যাংক / চেক</td><td>না</td></tr>
+        <tr><td>বিবরণ</td><td>পরিশোধ সম্পর্কে নোট</td><td>না</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Liability Report -->
+  <div class="module">
+    <h3>দায় রিপোর্ট (Liability Report)</h3>
+    <p>
+      দায় রিপোর্ট পেজে সমস্ত দায়ের সামগ্রিক চিত্র দেখতে পারবেন। এটি একটি শুধুমাত্র পাঠযোগ্য (Read-only) রিপোর্ট — এখানে কোনো তথ্য সম্পাদনা বা যোগ করা যায় না। রিপোর্টে প্রতিটি দায় হেডের মোট গ্রহণকৃত পরিমাণ, মোট পরিশোধিত পরিমাণ, বকেয়া ব্যালেন্স এবং সর্বশেষ লেনদেনের তারিখ দেখা যায়। বকেয়া ব্যালেন্স স্বয়ংক্রিয়ভাবে গণনা করা হয়: মোট গ্রহণ − মোট পরিশোধ = বকেয়া। এই রিপোর্ট থেকে PDF ও CSV রপ্তানি করা যায়।
+    </p>
+
+    <div class="sub-section">রিপোর্ট দেখুন ও রপ্তানি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Liability Report</strong> ক্লিক করুন</li>
+      <li>সামগ্রিক টেবিলে প্রতিটি দায় হেডের তথ্য দেখুন</li>
+      <li><strong>PDF রপ্তানি:</strong> PDF আইকনে ক্লিক করুন — ল্যান্ডস্কেপ A4 পিডিএফ ডাউনলোড হবে, কর্পোরেট হেডার, বিকল্প সারি রং ও পৃষ্ঠা নম্বর সহ</li>
+      <li><strong>CSV রপ্তানি:</strong> CSV আইকনে ক্লিক করুন — UTF-8 BOM এনকোডেড CSV ফাইল ডাউনলোড হবে, এক্সেলে সরাসরি খোলা যাবে</li>
+    </ol>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>রিপোর্ট কলাম</th>
+          <th>বিবরণ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>দায়ের নাম (যেমন: "ব্যাংক ঋণ - সিটি ব্যাংক")</td></tr>
+        <tr><td>মোট গ্রহণ (Total Received)</td><td>সেই হেডে সমস্ত "received" লেনদেনের সমষ্টি</td></tr>
+        <tr><td>মোট পরিশোধ (Total Paid)</td><td>সেই হেডে সমস্ত "pay" লেনদেনের সমষ্টি</td></tr>
+        <tr><td>বকেয়া ব্যালেন্স (Outstanding)</td><td>মোট গ্রহণ − মোট পরিশোধ = অবশিষ্ট ঋণ</td></tr>
+        <tr><td>সর্বশেষ লেনদেন</td><td>সাম্প্রতিক লেনদেনের তারিখ</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box">
+      VAT Auditor রোল এই রিপোর্ট দেখলে সমস্ত আর্থিক পরিমাণ "N/A (Audit Mode)" হিসেবে দেখাবে। এটি ব্যবসার আর্থিক গোপনীয়তা রক্ষার জন্য ডিজাইন করা হয়েছে।
+    </div>
+
+    <div class="warning-box" style="background:var(--warning-bg); border:1px solid var(--warning-border); border-radius:6px; padding:10px 14px; margin:10px 0; font-size:9.5pt;">
+      এই রিপোর্ট শুধুমাত্র পাঠযোগ্য — এখানে কোনো তথ্য পরিবর্তন করা যাবে না। তথ্য পরিবর্তন করতে হলে Liability Receive বা Liability Pay পেজে যান। পিরিয়ড ক্লোজের কারণে এই রিপোর্ট দেখতে কোনো বিধিনিষেধ নেই।
+    </div>
+  </div>
+
+  <!-- Liability Summary Workflow -->
+  <div class="workflow">
+    <h3>দায় মডিউলের সামগ্রিক কার্যপ্রবাহ</h3>
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ধাপ</th>
+          <th>পেজ</th>
+          <th>কাজ</th>
+          <th>লেজার প্রভাব</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>১</td><td>Investment Heads</td><td>Liability হেড তৈরি</td><td>—</td></tr>
+        <tr><td>২</td><td>Liability Receive</td><td>ঋণ গ্রহণ এন্ট্রি</td><td>নগদ/ব্যাংক Dr → দায় Cr</td></tr>
+        <tr><td>৩</td><td>Liability Pay</td><td>কিস্তি/পরিশোধ এন্ট্রি</td><td>দায় Dr → নগদ/ব্যাংক Cr</td></tr>
+        <tr><td>৪</td><td>Liability Report</td><td>বকেয়া ব্যালেন্স দেখুন</td><td>— (শুধু পাঠযোগ্য)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Page Footer -->
+<div class="page-footer">
+  VoltERP ব্যবহারকারী গাইড — পর্ব ১: বিনিয়োগ, সম্পত্তি ও দায় | ইলেকট্রনিক্স মার্ট ইনভেন্টরি ম্যানেজমেন্ট সিস্টেম
+</div>
+
+<!-- ============================================================ -->
+<!-- Section 4: মৌলিক মডিউল (Basic Modules)                      -->
+<!-- ============================================================ -->
+<div class="section">
+<div class="section-header">
+<div class="section-number">৪</div>
+<h2 class="section-title">মৌলিক মডিউল (Basic Modules)</h2>
+</div>
+
+<p style="margin-bottom:14px; font-size:10pt; color:var(--text-light);">
+ভোল্টইআরপি সিস্টেমে কার্যকরভাবে কাজ শুরু করতে হলে মৌলিক মডিউলগুলো সঠিকভাবে সেটআপ করা অত্যন্ত জরুরি। এই মডিউলগুলো হলো সিস্টেমের ভিত্তি — কোম্পানি, প্রোডাক্ট, কর্মচারী থেকে শুরু করে গ্রাহক ও সরবরাহকারী পর্যন্ত সবকিছু এখান থেকে পরিচালনা হয়। নিচে প্রতিটি মডিউলের বিস্তারিত ব্যবহার নির্দেশনা দেওয়া হলো।
+</p>
+
+<!-- ======================== -->
+<!-- Sub-Section: Core Config -->
+<!-- ======================== -->
+<div class="sub-section">কোর কনফিগারেশন (Core Config)</div>
+
+<!-- Companies -->
+<div class="module no-break">
+<h3>কোম্পানি (Companies)</h3>
+<p>
+কোম্পানি মডিউলের মাধ্যমে আপনি ব্র্যান্ড কোম্পানির তথ্য সিস্টেমে যোগ করতে পারবেন। গ্রাহকরা যেসব ব্র্যান্ড কোম্পানি থেকে প্রোডাক্ট ক্রয় করেন, সেই কোম্পানিগুলোর বিস্তারিত তথ্য এখানে নিবন্ধন করা আবশ্যক। কোম্পানি সেটআপ ছাড়া প্রোডাক্ট যোগ করা সম্ভব নয়।
+</p>
+<ol class="steps">
+<li>সাইডবার মেনু থেকে <strong>কোর কনফিগ</strong> → <strong>কোম্পানি</strong> অপশনে ক্লিক করুন।</li>
+<li><strong>নতুন কোম্পানি যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>কোম্পানির নাম, ঠিকানা, যোগাযোগের নম্বর ও অন্যান্য তথ্য পূরণ করুন।</li>
+<li><strong>সংরক্ষণ</strong> বাটনে ক্লিক করে কোম্পানি নিবন্ধন সম্পন্ন করুন।</li>
+<li>প্রয়োজনে তালিকা থেকে কোম্পানি নির্বাচন করে <strong>সম্পাদনা</strong> বাটনে ক্লিক করে তথ্য আপডেট করুন।</li>
+</ol>
+<div class="info-box">
+প্রোডাক্ট যোগের আগে অবশ্যই কোম্পানি নিবন্ধন করুন। কোম্পানি ছাড়া প্রোডাক্টের সাথে ব্র্যান্ড কোম্পানির সম্পর্ক নির্ধারণ করা যাবে না।
+</div>
+</div>
+
+<!-- Categories -->
+<div class="module no-break">
+<h3>ক্যাটাগরি (Categories)</h3>
+<p>
+ক্যাটাগরি মডিউলে আপনার ইলেকট্রনিক্স দোকানের প্রোডাক্ট শ্রেণিবিভাগ তৈরি করুন। যেমন — TV, ফ্রিজ, এসি, মোবাইল, ল্যাপটপ, ওয়াশিং মেশিন ইত্যাদি। সঠিক ক্যাটাগরি বিভাগ প্রোডাক্ট অনুসন্ধান ও পরিচালনাকে সহজ করে তোলে।
+</p>
+<ol class="steps">
+<li><strong>কোর কনফিগ</strong> → <strong>ক্যাটাগরি</strong> মেনুতে যান।</li>
+<li><strong>নতুন ক্যাটাগরি</strong> বাটনে ক্লিক করুন।</li>
+<li>ক্যাটাগরির নাম লিখুন (যেমন: TV, Fridge, AC, Mobile)।</li>
+<li>প্রয়োজনে ক্যাটাগরি কোড বা বিবরণ যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে ক্যাটাগরি তৈরি সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+সকল প্রোডাক্ট টাইপের জন্য আগে থেকেই ক্যাটাগরি তৈরি রাখুন। এতে প্রোডাক্ট যোগের সময় দ্রুত ক্যাটাগরি নির্বাচন করতে পারবেন।
+</div>
+</div>
+
+<!-- Colors -->
+<div class="module no-break">
+<h3>রং (Colors)</h3>
+<p>
+প্রোডাক্টের রং বা ভ্যারিয়েন্ট এই মডিউলে যোগ করা হয়। একই প্রোডাক্টের বিভিন্ন রংয়ের ভ্যারিয়েন্ট আলাদাভাবে পরিচালনা করতে রং সেটআপ করা প্রয়োজন। যেমন — কালো, সাদা, নীল, লাল ইত্যাদি।
+</p>
+<ol class="steps">
+<li><strong>কোর কনফিগ</strong> → <strong>রং</strong> মেনুতে যান।</li>
+<li><strong>নতুন রং যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>রংয়ের নাম লিখুন (যেমন: Black, White, Blue, Red)।</li>
+<li>প্রয়োজনে রংয়ের কোড বা হেক্স ভ্যালু উল্লেখ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করুন।</li>
+</ol>
+<div class="info-box">
+প্রোডাক্ট ভ্যারিয়েন্ট পরিচালনার জন্য রং সেটআপ খুবই সহায়ক। ইনভেন্টরিতে রং অনুযায়ী ফিল্টার করতে পারবেন।
+</div>
+</div>
+
+<!-- Brands -->
+<div class="module no-break">
+<h3>ব্র্যান্ড (Brands)</h3>
+<p>
+ব্র্যান্ড মডিউলে প্রোডাক্টের ব্র্যান্ড নাম নিবন্ধন করা হয়। যেমন — Samsung, Sony, LG, Walton, Singer ইত্যাদি। প্রতিটি প্রোডাক্টের সাথে ব্র্যান্ড যুক্ত থাকে, তাই আগে থেকেই ব্র্যান্ড সেটআপ করে রাখা জরুরি।
+</p>
+<ol class="steps">
+<li><strong>কোর কনফিগ</strong> → <strong>ব্র্যান্ড</strong> মেনুতে যান।</li>
+<li><strong>নতুন ব্র্যান্ড যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>ব্র্যান্ডের নাম লিখুন (যেমন: Samsung, Sony, LG)।</li>
+<li>প্রয়োজনে ব্র্যান্ডের দেশ বা বিবরণ যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে ব্র্যান্ড নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+ব্র্যান্ড নাম সঠিকভাবে লিখুন। একই ব্র্যান্ডের ডুপ্লিকেট এন্ট্রি এড়িয়ে চলুন, কারণ এতে রিপোর্টে ভুল তথ্য দেখা যেতে পারে।
+</div>
+</div>
+
+<!-- Units -->
+<div class="module no-break">
+<h3>একক (Units)</h3>
+<p>
+পরিমাপের একক এই মডিউলে নির্ধারণ করা হয়। ইলেকট্রনিক্স ব্যবসায় সাধারণত Piece, Dozen, Set ইত্যাদি একক ব্যবহৃত হয়। সঠিক একক নির্ধারণ ইনভেন্টরি ও বিলিং সিস্টেমের জন্য অপরিহার্য।
+</p>
+<ol class="steps">
+<li><strong>কোর কনফিগ</strong> → <strong>একক</strong> মেনুতে যান।</li>
+<li><strong>নতুন একক যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>এককের নাম লিখুন (যেমন: Piece, Dozen, Set)।</li>
+<li>প্রয়োজনে এককের সংক্ষিপ্ত রূপ ও বিবরণ যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করুন।</li>
+</ol>
+<div class="info-box">
+ইলেকট্রনিক্স ব্যবসার জন্য Piece সবচেয়ে বেশি ব্যবহৃত একক। আনুষাঙ্গিক পণ্যের জন্য Dozen বা Set ব্যবহার করতে পারেন।
+</div>
+</div>
+
+<!-- Products -->
+<div class="module no-break">
+<h3>প্রোডাক্ট (Products)</h3>
+<p>
+প্রোডাক্ট মডিউল হলো সিস্টেমের সবচেয়ে গুরুত্বপূর্ণ মডিউল। এখানে প্রতিটি প্রোডাক্টের নাম, মডেল নম্বর, ক্যাটাগরি, ব্র্যান্ড, কোম্পানি, ক্রয়মূল্য, বিক্রয়মূল্য এবং গোডাউন নির্ধারণ করা হয়। প্রোডাক্ট যোগের পূর্বে কোম্পানি, ক্যাটাগরি, ব্র্যান্ড ও একক সেটআপ করা আবশ্যক।
+</p>
+<ol class="steps">
+<li><strong>কোর কনফিগ</strong> → <strong>প্রোডাক্ট</strong> মেনুতে যান।</li>
+<li><strong>নতুন প্রোডাক্ট যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>প্রোডাক্টের <strong>নাম</strong> ও <strong>মডেল নম্বর</strong> লিখুন।</li>
+<li><strong>ক্যাটাগরি</strong>, <strong>ব্র্যান্ড</strong> ও <strong>কোম্পানি</strong> ড্রপডাউন থেকে নির্বাচন করুন।</li>
+<li><strong>ক্রয়মূল্য</strong> (যে দামে কেনা হয়েছে) ও <strong>বিক্রয়মূল্য</strong> (যে দামে বিক্রি হবে) লিখুন।</li>
+<li><strong>গোডাউন</strong> নির্বাচন করুন যেখানে প্রোডাক্ট মজুত থাকবে।</li>
+<li>প্রয়োজনে একক, রং ও অন্যান্য তথ্য পূরণ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে প্রোডাক্ট নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+ক্রয়মূল্য ও বিক্রয়মূল্য সঠিকভাবে লিখুন। লাভ-ক্ষতির হিসাব এই দামের উপর ভিত্তি করে তৈরি হয়। ভুল দাম প্রবেশ করালে আর্থিক রিপোর্টে ভুল দেখাবে।
+</div>
+<div class="warning-box">
+প্রোডাক্ট যোগের আগে নিশ্চিত করুন যে কোম্পানি, ক্যাটাগরি, ব্র্যান্ড, একক ও গোডাউন ইতিমধ্যে সেটআপ করা হয়েছে। না হলে প্রোডাক্ট সঠিকভাবে যোগ হবে না।
+</div>
+</div>
+
+<!-- Bank -->
+<div class="module no-break">
+<h3>ব্যাংক (Bank)</h3>
+<p>
+ব্যাংক মডিউলে আপনার ব্যবসার ব্যাংক অ্যাকাউন্টের তথ্য সংরক্ষণ করা হয়। ব্যাংকের নাম, অ্যাকাউন্ট নম্বর, শাখা ও অ্যাকাউন্টের ধরন এখানে নিবন্ধন করুন। পেমেন্ট লেনদেনের সময় এই ব্যাংক তথ্য ব্যবহৃত হয়।
+</p>
+<ol class="steps">
+<li><strong>কোর কনফিগ</strong> → <strong>ব্যাংক</strong> মেনুতে যান।</li>
+<li><strong>নতুন ব্যাংক যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>ব্যাংকের নাম, অ্যাকাউন্ট নম্বর ও শাখার নাম লিখুন।</li>
+<li>অ্যাকাউন্টের ধরন নির্বাচন করুন (সঞ্চয়ী, চলতি ইত্যাদি)।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে ব্যাংক অ্যাকাউন্ট নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+একাধিক ব্যাংক অ্যাকাউন্ট থাকলে সবগুলো আলাদাভাবে যোগ করুন। পেমেন্ট লেনদেনের সময় সঠিক ব্যাংক অ্যাকাউন্ট নির্বাচন করতে সুবিধা হবে।
+</div>
+</div>
+
+<!-- ======================== -->
+<!-- Sub-Section: Structure   -->
+<!-- ======================== -->
+<div class="sub-section">কাঠামো (Structure)</div>
+
+<!-- Department -->
+<div class="module no-break">
+<h3>বিভাগ (Department)</h3>
+<p>
+বিভাগ মডিউলে আপনার প্রতিষ্ঠানের বিভিন্ন কাজের বিভাগ তৈরি করা হয়। যেমন — সেলস বিভাগ, অ্যাকাউন্টস বিভাগ, স্টোর বিভাগ ইত্যাদি। প্রতিটি কর্মচারীকে একটি নির্দিষ্ট বিভাগের অধীনে অন্তর্ভুক্ত করা হয়, যা কর্মচারী ব্যবস্থাপনা ও রিপোর্টিংকে সহজ করে।
+</p>
+<ol class="steps">
+<li><strong>কাঠামো</strong> → <strong>বিভাগ</strong> মেনুতে যান।</li>
+<li><strong>নতুন বিভাগ যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>বিভাগের নাম লিখুন (যেমন: Sales, Accounts, Store)।</li>
+<li>প্রয়োজনে বিভাগের বিবরণ যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে বিভাগ তৈরি সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+কর্মচারী নিবন্ধনের আগে বিভাগ তৈরি করুন। প্রতিটি কর্মচারীকে একটি বিভাগে অন্তর্ভুক্ত করতে হবে।
+</div>
+</div>
+
+<!-- Godowns -->
+<div class="module no-break">
+<h3>গোডাউন (Godowns)</h3>
+<p>
+গোডাউন মডিউলে আপনার প্রোডাক্ট মজুতের স্থান বা ওয়্যারহাউস সেটআপ করা হয়। মেইন গোডাউন, শোরুম, শাখা গোডাউন — সব ধরনের মজুত স্থান এখানে নিবন্ধন করুন। সঠিক গোডাউন সেটআপ ইনভেন্টরি ট্র্যাকিং ও স্টক ট্রান্সফারের জন্য অপরিহার্য।
+</p>
+<ol class="steps">
+<li><strong>কাঠামো</strong> → <strong>গোডাউন</strong> মেনুতে যান।</li>
+<li><strong>নতুন গোডাউন যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>গোডাউনের নাম লিখুন (যেমন: মেইন গোডাউন, শোরুম-১, শাখা গোডাউন-ঢাকা)।</li>
+<li>গোডাউনের ঠিকানা ও দায়িত্বে থাকা ব্যক্তির তথ্য পূরণ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে গোডাউন নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+প্রতিটি শোরুম ও শাখার জন্য আলাদা গোডাউন তৈরি করুন। এতে স্টক ট্রান্সফার ও ইনভেন্টরি রিপোর্ট সহজে পাওয়া যাবে।
+</div>
+</div>
+
+<!-- Interest % Engine -->
+<div class="module no-break">
+<h3>সুদের হার ইঞ্জিন (Interest % Engine)</h3>
+<p>
+কিস্তিতে প্রোডাক্ট বিক্রয়ের ক্ষেত্রে সুদের হার এই মডিউলে কনফিগার করা হয়। বিভিন্ন কিস্তি প্ল্যানের জন্য আলাদা আলাদা সুদের হার নির্ধারণ করা যায়। সঠিক সুদের হার নির্ধারণ কিস্তি বিক্রয়ের লাভ-ক্ষতি হিসাবের জন্য অত্যন্ত গুরুত্বপূর্ণ।
+</p>
+<ol class="steps">
+<li><strong>কাঠামো</strong> → <strong>সুদের হার ইঞ্জিন</strong> মেনুতে যান।</li>
+<li><strong>নতুন সুদের হার যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>কিস্তি প্ল্যানের নাম ও মেয়াদ উল্লেখ করুন।</li>
+<li>সুদের হার শতাংশে লিখুন (যেমন: ১২%, ১৫%, ১৮%)।</li>
+<li>প্রয়োজনে ক্যালকুলেশন পদ্ধতি নির্বাচন করুন (সরল বা চক্রবৃদ্ধি)।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে সুদের হার কনফিগারেশন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+সুদের হার পরিবর্তনের পূর্বে চলমান কিস্তি চুক্তিগুলোর উপর প্রভাব বিবেচনা করুন। নতুন হার সাধারণত নতুন চুক্তিতেই প্রযোজ্য হয়।
+</div>
+</div>
+
+<!-- Segment -->
+<div class="module no-break">
+<h3>সেগমেন্ট (Segment)</h3>
+<p>
+সেগমেন্ট মডিউলে আপনার ব্যবসার বিভিন্ন সেগমেন্ট বা বিভাগ তৈরি করা হয়। যেমন — হোম অ্যাপ্লায়েন্স, কনজ্যুমার ইলেকট্রনিক্স, আইটি প্রোডাক্ট ইত্যাদি। সেগমেন্ট অনুযায়ী বিক্রয় বিশ্লেষণ ও রিপোর্ট তৈরি করা যায়।
+</p>
+<ol class="steps">
+<li><strong>কাঠামো</strong> → <strong>সেগমেন্ট</strong> মেনুতে যান।</li>
+<li><strong>নতুন সেগমেন্ট যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>সেগমেন্টের নাম লিখুন (যেমন: Home Appliance, Consumer Electronics)।</li>
+<li>প্রয়োজনে বিবরণ যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করুন।</li>
+</ol>
+<div class="info-box">
+সেগমেন্ট ব্যবসায়িক বিশ্লেষণের জন্য কার্যকর। সঠিক সেগমেন্ট বিভাগ কোন ব্যবসায়িক ক্ষেত্রে বেশি লাভ হচ্ছে তা বুঝতে সাহায্য করে।
+</div>
+</div>
+
+<!-- Capacity -->
+<div class="module no-break">
+<h3>ধারণক্ষমতা (Capacity)</h3>
+<p>
+গোডাউনের ধারণক্ষমতা এই মডিউলে নির্ধারণ করা হয়। প্রতিটি গোডাউনে কতটি প্রোডাক্ট বা কত পরিমাণ পণ্য মজুত করা যায়, তার সীমা এখানে কনফিগার করুন। এতে গোডাউনের স্টক ওভারফ্লো প্রতিরোধ করা সম্ভব।
+</p>
+<ol class="steps">
+<li><strong>কাঠামো</strong> → <strong>ধারণক্ষমতা</strong> মেনুতে যান।</li>
+<li><strong>নতুন ধারণক্ষমতা যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>গোডাউন নির্বাচন করুন যার ধারণক্ষমতা নির্ধারণ করতে চান।</li>
+<li>সর্বোচ্চ ধারণক্ষমতার পরিমাণ লিখুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে ধারণক্ষমতা নির্ধারণ সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+গোডাউনের ধারণক্ষমতা বাস্তবসম্মতভাবে নির্ধারণ করুন। অতিরিক্ত বা অপর্যাপ্ত ধারণক্ষমতা ইনভেন্টরি পরিকল্পনায় সমস্যা তৈরি করতে পারে।
+</div>
+</div>
+
+<!-- ========================= -->
+<!-- Sub-Section: Operations   -->
+<!-- ========================= -->
+<div class="sub-section">অপারেশন (Operations)</div>
+
+<!-- SR Target Setup -->
+<div class="module no-break">
+<h3>এসআর লক্ষ্যমাত্রা সেটআপ (SR Target Setup)</h3>
+<p>
+এসআর (সেলস রিপ্রেজেন্টেটিভ) এর বিক্রয় লক্ষ্যমাত্রা এই মডিউলে নির্ধারণ করা হয়। প্রতি মাসে বা প্রতি বছরে প্রতিটি এসআর-এর জন্য বিক্রয় টার্গেট সেট করুন। এতে কর্মীদের পারফরম্যান্স মূল্যায়ন ও প্রণোদনা প্রদান সহজ হয়।
+</p>
+<ol class="steps">
+<li><strong>অপারেশন</strong> → <strong>এসআর লক্ষ্যমাত্রা সেটআপ</strong> মেনুতে যান।</li>
+<li><strong>নতুন লক্ষ্যমাত্রা যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>এসআর কর্মচারী নির্বাচন করুন।</li>
+<li>সময়কাল নির্বাচন করুন (মাসিক/বার্ষিক)।</li>
+<li>বিক্রয় লক্ষ্যমাত্রার পরিমাণ লিখুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে লক্ষ্যমাত্রা সেটআপ সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+লক্ষ্যমাত্রা বাস্তবসম্মতভাবে নির্ধারণ করুন। অত্যধিক লক্ষ্যমাত্রা কর্মীদের মনোবল কমাতে পারে, আর অল্প লক্ষ্যমাত্রা ব্যবসায়িক প্রবৃদ্ধিতে বাধা হতে পারে।
+</div>
+</div>
+
+<!-- Payment Option -->
+<div class="module no-break">
+<h3>পেমেন্ট অপশন (Payment Option)</h3>
+<p>
+পেমেন্ট অপশন মডিউলে বিক্রয়ের সময় গ্রাহকদের পেমেন্ট পদ্ধতি সেটআপ করা হয়। যেমন — নগদ, ক্রেডিট, কিস্তি, কার্ড পেমেন্ট ইত্যাদি। সঠিক পেমেন্ট অপশন সেটআপ বিক্রয় প্রক্রিয়াকে সুচারু করে।
+</p>
+<ol class="steps">
+<li><strong>অপারেশন</strong> → <strong>পেমেন্ট অপশন</strong> মেনুতে যান।</li>
+<li><strong>নতুন পেমেন্ট অপশন যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>পেমেন্ট পদ্ধতির নাম লিখুন (যেমন: Cash, Credit, Installment, Card)।</li>
+<li>পেমেন্ট পদ্ধতির ধরন ও শর্তাবলী নির্ধারণ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে পেমেন্ট অপশন সেটআপ সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+কিস্তি বিক্রয়ের জন্য আলাদা পেমেন্ট অপশন তৈরি করুন এবং সুদের হার ইঞ্জিনের সাথে সমন্বয় রাখুন।
+</div>
+</div>
+
+<!-- CardType -->
+<div class="module no-break">
+<h3>কার্ডের ধরন (CardType)</h3>
+<p>
+কার্ডের ধরন মডিউলে গ্রাহকদের ব্যবহৃত পেমেন্ট কার্ডের প্রকারভেদ নিবন্ধন করা হয়। যেমন — ভিসা (Visa), মাস্টারকার্ড (Mastercard), ডেবিট কার্ড, ক্রেডিট কার্ড ইত্যাদি। কার্ড পেমেন্ট লেনদেনের জন্য এই সেটআপ প্রয়োজন।
+</p>
+<ol class="steps">
+<li><strong>অপারেশন</strong> → <strong>কার্ডের ধরন</strong> মেনুতে যান।</li>
+<li><strong>নতুন কার্ডের ধরন যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>কার্ডের ধরনের নাম লিখুন (যেমন: Visa, Mastercard, DBBL Nexus)।</li>
+<li>কার্ডের বিভাগ নির্বাচন করুন (ডেবিট/ক্রেডিট)।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করুন।</li>
+</ol>
+<div class="info-box">
+আপনার দোকানে যেসব কার্ড গ্রহণ করা হয়, সেগুলোর সবই এখানে যোগ করুন। বিক্রয়ের সময় সঠিক কার্ডের ধরন নির্বাচন করতে সুবিধা হবে।
+</div>
+</div>
+
+<!-- CardType Setup -->
+<div class="module no-break">
+<h3>কার্ড পেমেন্ট কনফিগারেশন (CardType Setup)</h3>
+<p>
+কার্ড পেমেন্ট কনফিগারেশন মডিউলে প্রতিটি কার্ডের ধরন অনুযায়ী পেমেন্ট সেটিংস কনফিগার করা হয়। কার্ড চার্জের হার, ব্যাংক কমিশন ও অন্যান্য প্রশাসনিক ফি এখানে নির্ধারণ করুন। এতে কার্ড পেমেন্টের সঠিক হিসাব রাখা সম্ভব।
+</p>
+<ol class="steps">
+<li><strong>অপারেশন</strong> → <strong>কার্ড পেমেন্ট কনফিগারেশন</strong> মেনুতে যান।</li>
+<li><strong>নতুন কনফিগারেশন যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>কার্ডের ধরন নির্বাচন করুন (যা আগে কার্ডের ধরন মডিউলে যোগ করেছেন)।</li>
+<li>কার্ড চার্জের শতাংশ লিখুন (যেমন: ২%, ২.৫%)।</li>
+<li>সংশ্লিষ্ট ব্যাংক অ্যাকাউন্ট নির্বাচন করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে কনফিগারেশন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+কার্ড চার্জের হার ব্যাংক অনুযায়ী ভিন্ন হতে পারে। ব্যাংকের চুক্তি অনুযায়ী সঠিক চার্জ রেট কনফিগার করুন।
+</div>
+</div>
+
+<!-- ===================== -->
+<!-- Sub-Section: Staff    -->
+<!-- ===================== -->
+<div class="sub-section">কর্মচারী (Staff)</div>
+
+<!-- Designations -->
+<div class="module no-break">
+<h3>পদবি (Designations)</h3>
+<p>
+পদবি মডিউলে প্রতিষ্ঠানের বিভিন্ন পদের নাম তৈরি করা হয়। যেমন — ম্যানেজার, সেলস অফিসার, ক্যাশিয়ার, স্টোরকিপার, ডেলিভারি ম্যান ইত্যাদি। কর্মচারী নিবন্ধনের সময় পদবি নির্বাচন করতে হয়, তাই আগে থেকেই পদবি সেটআপ করুন।
+</p>
+<ol class="steps">
+<li><strong>কর্মচারী</strong> → <strong>পদবি</strong> মেনুতে যান।</li>
+<li><strong>নতুন পদবি যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>পদবির নাম লিখুন (যেমন: Manager, Sales Officer, Cashier)।</li>
+<li>প্রয়োজনে পদবির স্তর বা বিবরণ যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে পদবি তৈরি সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+কর্মচারী নিবন্ধনের আগে প্রয়োজনীয় সকল পদবি তৈরি করুন। পরে নতুন পদবি যোগ করতে চাইলে যেকোনো সময় যোগ করা যাবে।
+</div>
+</div>
+
+<!-- Employees -->
+<div class="module no-break">
+<h3>কর্মচারী (Employees)</h3>
+<p>
+কর্মচারী মডিউলে প্রতিষ্ঠানের সকল কর্মচারীর তথ্য নিবন্ধন করা হয়। কর্মচারীর নাম, পদবি, বিভাগ, যোগাযোগের তথ্য, বেতন ও অন্যান্য বিবরণ এখানে সংরক্ষণ করুন। বিক্রয়, ক্রয় ও ইনভেন্টরি মডিউলে কর্মচারী তথ্য ব্যবহৃত হয়।
+</p>
+<ol class="steps">
+<li><strong>কর্মচারী</strong> → <strong>কর্মচারী নিবন্ধন</strong> মেনুতে যান।</li>
+<li><strong>নতুন কর্মচারী যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>কর্মচারীর <strong>নাম</strong> ও <strong>পিতার নাম</strong> লিখুন।</li>
+<li><strong>পদবি</strong> ও <strong>বিভাগ</strong> ড্রপডাউন থেকে নির্বাচন করুন।</li>
+<li>মোবাইল নম্বর, ঠিকানা ও জাতীয় আইডি নম্বর পূরণ করুন।</li>
+<li>যোগদানের তারিখ ও বেতনের তথ্য লিখুন।</li>
+<li>প্রয়োজনে ছবি আপলোড করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে কর্মচারী নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+কর্মচারী নিবন্ধনের আগে নিশ্চিত করুন যে বিভাগ ও পদবি ইতিমধ্যে তৈরি করা হয়েছে। সঠিক তথ্য প্রবেশ করালে পেরোল ও এইচআর মডিউলে সুবিধা হবে।
+</div>
+</div>
+
+<!-- Employee Leave -->
+<div class="module no-break">
+<h3>কর্মচারী ছুটি (Employee Leave)</h3>
+<p>
+কর্মচারী ছুটি মডিউলে কর্মচারীদের ছুটির আবেদন ও অনুমোদন পরিচালনা করা হয়। বার্ষিক ছুটি, অসুস্থতা ছুটি, ক্যাজুয়াল ছুটি — সব ধরনের ছুটি এখানে ট্র্যাক করা হয়। সঠিক ছুটি ব্যবস্থাপনা পেরোল হিসাবের জন্য জরুরি।
+</p>
+<ol class="steps">
+<li><strong>কর্মচারী</strong> → <strong>কর্মচারী ছুটি</strong> মেনুতে যান।</li>
+<li><strong>নতুন ছুটির আবেদন</strong> বাটনে ক্লিক করুন।</li>
+<li>কর্মচারী নির্বাচন করুন।</li>
+<li>ছুটির ধরন নির্বাচন করুন (বার্ষিক/অসুস্থতা/ক্যাজুয়াল)।</li>
+<li>ছুটির শুরু ও শেষ তারিখ নির্ধারণ করুন।</li>
+<li>ছুটির কারণ লিখুন।</li>
+<li><strong>জমা দিন</strong> ক্লিক করে আবেদন প্রেরণ করুন।</li>
+<li>অনুমোদনকারী কর্তৃপক্ষ আবেদন যাচাই করে <strong>অনুমোদন</strong> বা <strong>প্রত্যাখ্যান</strong> করতে পারবেন।</li>
+</ol>
+<div class="info-box">
+ছুটির আবেদন আগে থেকেই জমা দিন। জরুরি ছুটির ক্ষেত্রে কর্তৃপক্ষকে অবহিত করুন। ছুটির ব্যালেন্স নিয়মিত পরীক্ষা করুন।
+</div>
+</div>
+
+<!-- ====================================== -->
+<!-- Sub-Section: Customers & Suppliers     -->
+<!-- ====================================== -->
+<div class="sub-section">গ্রাহক ও সরবরাহকারী (Customers & Suppliers)</div>
+
+<!-- Customers -->
+<div class="module no-break">
+<h3>গ্রাহক (Customers)</h3>
+<p>
+গ্রাহক মডিউলে প্রতিষ্ঠানের সকল গ্রাহকের তথ্য নিবন্ধন করা হয়। গ্রাহকের নাম, ফোন নম্বর, ঠিকানা ও ক্রেডিট লিমিট এখানে সংরক্ষণ করুন। বিক্রয় চালান তৈরির সময় গ্রাহক তথ্য ব্যবহৃত হয়। সঠিক গ্রাহক ডাটাবেজ ব্যবসার সম্প্রসারণে সহায়ক।
+</p>
+<ol class="steps">
+<li><strong>গ্রাহক ও সরবরাহকারী</strong> → <strong>গ্রাহক</strong> মেনুতে যান।</li>
+<li><strong>নতুন গ্রাহক যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>গ্রাহকের <strong>নাম</strong> ও <strong>ফোন নম্বর</strong> লিখুন।</li>
+<li><strong>ঠিকানা</strong> পূরণ করুন — বাড়ি নম্বর, রোড, এলাকা, শহর ও জেলা।</li>
+<li><strong>ক্রেডিট লিমিট</strong> নির্ধারণ করুন — গ্রাহক সর্বোচ্চ কত টাকা পর্যন্ত ক্রেডিটে পণ্য কিনতে পারবেন।</li>
+<li>প্রয়োজনে গ্রাহকের ট্রেড লাইসেন্স নম্বর ও অন্যান্য তথ্য যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে গ্রাহক নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+ক্রেডিট লিমিট সতর্কতার সাথে নির্ধারণ করুন। গ্রাহকের পূর্বের পেমেন্ট ইতিহাস বিবেচনা করে লিমিট সেট করুন। অতিরিক্ত ক্রেডিট লিমিট ব্যবসায়িক ঝুঁকি তৈরি করতে পারে।
+</div>
+<div class="warning-box">
+ক্রেডিট লিমিট অতিক্রম করলে সিস্টেম স্বয়ংক্রিয়ভাবে নতুন বিক্রয় আটকে দিবে। গ্রাহকের বকেয়া পরিশোধের পর নতুন বিক্রয় সম্ভব হবে।
+</div>
+</div>
+
+<!-- Suppliers -->
+<div class="module no-break">
+<h3>সরবরাহকারী (Suppliers)</h3>
+<p>
+সরবরাহকারী মডিউলে প্রোডাক্ট সরবরাহকারী ব্যবসায়ী বা কোম্পানির তথ্য নিবন্ধন করা হয়। সরবরাহকারীর নাম, যোগাযোগের তথ্য, ঠিকানা ও পেমেন্ট শর্তাবলী এখানে সংরক্ষণ করুন। ক্রয় অর্ডার তৈরির সময় সরবরাহকারী তথ্য ব্যবহৃত হয়।
+</p>
+<ol class="steps">
+<li><strong>গ্রাহক ও সরবরাহকারী</strong> → <strong>সরবরাহকারী</strong> মেনুতে যান।</li>
+<li><strong>নতুন সরবরাহকারী যোগ</strong> বাটনে ক্লিক করুন।</li>
+<li>সরবরাহকারীর <strong>নাম</strong> ও <strong>ফোন নম্বর</strong> লিখুন।</li>
+<li><strong>ঠিকানা</strong> পূরণ করুন — বাড়ি নম্বর, রোড, এলাকা, শহর ও জেলা।</li>
+<li>পেমেন্ট শর্তাবলী নির্ধারণ করুন (যেমন: ৩০ দিনের মধ্যে পেমেন্ট)।</li>
+<li>প্রয়োজনে ট্রেড লাইসেন্স, টিআইএন নম্বর ও অন্যান্য তথ্য যোগ করুন।</li>
+<li><strong>সংরক্ষণ</strong> ক্লিক করে সরবরাহকারী নিবন্ধন সম্পন্ন করুন।</li>
+</ol>
+<div class="info-box">
+সরবরাহকারীর সাথে পেমেন্ট শর্তাবলী স্পষ্টভাবে নির্ধারণ করুন। এতে ক্রয় বিল পরিশোধে কোনো বিভ্রান্তি হবে না। একাধিক সরবরাহকারী থেকে প্রোডাক্ট কেনার সুযোগ রাখুন।
+</div>
+</div>
+
+<!-- ====================================== -->
+<!-- Setup Workflow Summary                  -->
+<!-- ====================================== -->
+<div class="workflow no-break">
+<h3>মৌলিক মডিউল সেটআপ কর্মপ্রবাহ</h3>
+<p style="margin-bottom:10px; font-size:9.5pt;">সিস্টেমে সঠিকভাবে কাজ শুরু করতে নিচের ক্রম অনুসারে মডিউলগুলো সেটআপ করুন:</p>
+<ol>
+<li><strong>কোম্পানি</strong> → প্রথমে সকল ব্র্যান্ড কোম্পানি নিবন্ধন করুন</li>
+<li><strong>ক্যাটাগরি</strong> → প্রোডাক্ট শ্রেণিবিভাগ তৈরি করুন</li>
+<li><strong>ব্র্যান্ড</strong> → ব্র্যান্ড নাম নিবন্ধন করুন</li>
+<li><strong>রং ও একক</strong> → প্রোডাক্ট ভ্যারিয়েন্ট ও পরিমাপ একক সেটআপ করুন</li>
+<li><strong>বিভাগ ও পদবি</strong> → প্রাতিষ্ঠানিক কাঠামো তৈরি করুন</li>
+<li><strong>গোডাউন</strong> → মজুত স্থান সেটআপ করুন</li>
+<li><strong>ব্যাংক</strong> → ব্যাংক অ্যাকাউন্ট যোগ করুন</li>
+<li><strong>প্রোডাক্ট</strong> → উপরের সব সেটআপ সম্পন্ন হলে প্রোডাক্ট যোগ করুন</li>
+<li><strong>কর্মচারী</strong> → কর্মচারী নিবন্ধন সম্পন্ন করুন</li>
+<li><strong>গ্রাহক ও সরবরাহকারী</strong> → ব্যবসায়িক সম্পর্ক স্থাপন করুন</li>
+<li><strong>পেমেন্ট ও কার্ড সেটআপ</strong> → লেনদেন পদ্ধতি কনফিগার করুন</li>
+</ol>
+</div>
+
+<!-- Quick Reference Table -->
+<table class="quick-table no-break">
+<thead>
+<tr>
+<th>মডিউল</th>
+<th>মেনু পথ</th>
+<th>পূর্বশর্ত</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>কোম্পানি</td>
+<td>কোর কনফিগ → কোম্পানি</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>ক্যাটাগরি</td>
+<td>কোর কনফিগ → ক্যাটাগরি</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>রং</td>
+<td>কোর কনফিগ → রং</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>ব্র্যান্ড</td>
+<td>কোর কনফিগ → ব্র্যান্ড</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>একক</td>
+<td>কোর কনফিগ → একক</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>প্রোডাক্ট</td>
+<td>কোর কনফিগ → প্রোডাক্ট</td>
+<td>কোম্পানি, ক্যাটাগরি, ব্র্যান্ড, একক, গোডাউন</td>
+</tr>
+<tr>
+<td>ব্যাংক</td>
+<td>কোর কনফিগ → ব্যাংক</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>বিভাগ</td>
+<td>কাঠামো → বিভাগ</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>গোডাউন</td>
+<td>কাঠামো → গোডাউন</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>সুদের হার ইঞ্জিন</td>
+<td>কাঠামো → সুদের হার ইঞ্জিন</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>সেগমেন্ট</td>
+<td>কাঠামো → সেগমেন্ট</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>ধারণক্ষমতা</td>
+<td>কাঠামো → ধারণক্ষমতা</td>
+<td>গোডাউন</td>
+</tr>
+<tr>
+<td>এসআর লক্ষ্যমাত্রা</td>
+<td>অপারেশন → এসআর লক্ষ্যমাত্রা সেটআপ</td>
+<td>কর্মচারী</td>
+</tr>
+<tr>
+<td>পেমেন্ট অপশন</td>
+<td>অপারেশন → পেমেন্ট অপশন</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>কার্ডের ধরন</td>
+<td>অপারেশন → কার্ডের ধরন</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>কার্ড কনফিগারেশন</td>
+<td>অপারেশন → কার্ড পেমেন্ট কনফিগারেশন</td>
+<td>কার্ডের ধরন, ব্যাংক</td>
+</tr>
+<tr>
+<td>পদবি</td>
+<td>কর্মচারী → পদবি</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>কর্মচারী</td>
+<td>কর্মচারী → কর্মচারী নিবন্ধন</td>
+<td>বিভাগ, পদবি</td>
+</tr>
+<tr>
+<td>কর্মচারী ছুটি</td>
+<td>কর্মচারী → কর্মচারী ছুটি</td>
+<td>কর্মচারী</td>
+</tr>
+<tr>
+<td>গ্রাহক</td>
+<td>গ্রাহক ও সরবরাহকারী → গ্রাহক</td>
+<td>কোনোটি নেই</td>
+</tr>
+<tr>
+<td>সরবরাহকারী</td>
+<td>গ্রাহক ও সরবরাহকারী → সরবরাহকারী</td>
+<td>কোনোটি নেই</td>
+</tr>
+</tbody>
+</table>
+
+<div class="page-footer">VoltERP ব্যবহারকারী নির্দেশিকা — পর্ব ২: মৌলিক মডিউল | পৃষ্ঠা ২</div>
+
+</div><!-- end section -->
+
+<!-- ============================================================ -->
+<!-- SECTION 5: ইনভেন্টরি ম্যানেজমেন্ট (Inventory Management)     -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-number">৫</span>
+    <h2 class="section-title">ইনভেন্টরি ম্যানেজমেন্ট</h2>
+  </div>
+
+  <p style="margin-bottom:14px; font-size:10pt; color:var(--text-light);">
+    ইনভেন্টরি ম্যানেজমেন্ট মডিউলটি ভোল্টইআরপি-র সবচেয়ে গুরুত্বপূর্ণ অংশ। এই মডিউলের মাধ্যমে আপনি অর্ডার শিট ব্যবস্থাপনা, ক্রয়-বিক্রয় পরিচালনা, স্টক নিয়ন্ত্রণ এবং গোডাউন ব্যবস্থাপনার সমস্ত কাজ সম্পন্ন করতে পারবেন। নিচে প্রতিটি উপ-মডিউলের বিস্তারিত ব্যবহারবিধি দেওয়া হলো।
+  </p>
+
+  <!-- ─────────── অর্ডার শিট (Order Sheet) ─────────── -->
+  <div class="sub-section">অর্ডার শিট (Order Sheet)</div>
+
+  <!-- Company Ordersheet -->
+  <div class="module no-break">
+    <h3>কোম্পানি অর্ডার শিট (Company Ordersheet)</h3>
+    <p>কোম্পানি অর্ডার শিট হলো ব্র্যান্ড কোম্পানিতে প্রোডাক্ট অর্ডার পাঠানোর অফিসিয়াল পদ্ধতি। আপনার শোরুমে বা গোডাউনে কোন প্রোডাক্ট, কত পরিমাণ প্রয়োজন তা ব্র্যান্ড কোম্পানিকে জানাতে এই অর্ডার শিট ব্যবহার করা হয়। সঠিকভাবে অর্ডার শিট পূরণ করলে কোম্পানি থেকে সময়মতো প্রোডাক্ট সরবরাহ নিশ্চিত হয়।</p>
+    <ol class="steps">
+      <li>সাইডবার মেনু থেকে <strong>ইনভেন্টরি → অর্ডার শিট → কোম্পানি অর্ডার শিট</strong> এ ক্লিক করুন।</li>
+      <li><strong>"নতুন অর্ডার শিট"</strong> বাটনে ক্লিক করে অর্ডার শিট ফর্ম খুলুন।</li>
+      <li>ড্রপডাউন থেকে <strong>ব্র্যান্ড কোম্পানির নাম</strong> নির্বাচন করুন যাকে অর্ডার পাঠাতে চান।</li>
+      <li>অর্ডারের <strong>তারিখ</strong> ও <strong>প্রত্যাশিত ডেলিভারি তারিখ</strong> উল্লেখ করুন।</li>
+      <li><strong>"প্রোডাক্ট যোগ করুন"</strong> বাটনে ক্লিক করে প্রয়োজনীয় প্রোডাক্টগুলো অর্ডার তালিকায় যোগ করুন।</li>
+      <li>প্রতিটি প্রোডাক্টের <strong>পরিমাণ</strong> ও <strong>মন্তব্য</strong> (যদি থাকে) লিখুন।</li>
+      <li>তালিকা পর্যালোচনা করে <strong>"অর্ডার জমা দিন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      অর্ডার জমা দেওয়ার আগে বর্তমান স্টক পরিমাণ পরীক্ষা করে নিন। স্টক যথেষ্ট থাকলে অতিরিক্ত অর্ডার এড়িয়ে চলুন। কোম্পানি অর্ডার শিট পাঠানোর পর তা সম্পাদনা করা সম্ভব নাও হতে পারে, তাই সতর্কতার সাথে পরিমাণ নির্ধারণ করুন।
+    </div>
+  </div>
+
+  <!-- Customer Ordersheet -->
+  <div class="module no-break">
+    <h3>গ্রাহক অর্ডার শিট (Customer Ordersheet)</h3>
+    <p>গ্রাহক অর্ডার শিট ব্যবহার করে গ্রাহকদের থেকে গৃহীত অর্ডারের রেকর্ড রাখা হয়। গ্রাহক যখন কোনো প্রোডাক্ট অর্ডার করেন কিন্তু তা তাৎক্ষণিকভাবে সরবরাহ করা সম্ভব হয় না, তখন এই অর্ডার শিটে তা লিপিবদ্ধ করা হয়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → অর্ডার শিট → গ্রাহক অর্ডার শিট</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন গ্রাহক অর্ডার"</strong> বাটনে ক্লিক করুন।</li>
+      <li>গ্রাহকের নাম ও যোগাযোগের তথ্য নির্বাচন বা এন্ট্রি করুন।</li>
+      <li>গ্রাহক যে প্রোডাক্টগুলো চান সেগুলো <strong>অর্ডার তালিকায় যোগ</strong> করুন।</li>
+      <li>প্রতিটি প্রোডাক্টের <strong>পরিমাণ</strong> ও <strong>প্রত্যাশিত ডেলিভারি তারিখ</strong> উল্লেখ করুন।</li>
+      <li>অর্ডারের স্ট্যাটাস <strong>"অপেক্ষমান"</strong>, <strong>"প্রক্রিয়াধীন"</strong> বা <strong>"সম্পন্ন"</strong> হিসেবে চিহ্নিত করুন।</li>
+      <li><strong>"সংরক্ষণ"</strong> বাটনে ক্লিক করে অর্ডারটি সিস্টেমে সংরক্ষণ করুন।</li>
+    </ol>
+    <div class="info-box">
+      গ্রাহক অর্ডার শিট থেকে সরাসরি সেলস অর্ডার তৈরি করা যায়। ডেলিভারি প্রস্তুত হলে অর্ডার শিট থেকে "সেলস অর্ডার তৈরি করুন" অপশনটি ব্যবহার করুন।
+    </div>
+  </div>
+
+  <!-- Ordersheet Report -->
+  <div class="module no-break">
+    <h3>অর্ডার শিট প্রতিবেদন (Ordersheet Report)</h3>
+    <p>অর্ডার শিট প্রতিবেদনে সকল কোম্পানি ও গ্রাহক অর্ডার শিটের সামগ্রিক তথ্য পাওয়া যায়। এই প্রতিবেদন থেকে কোন অর্ডার পেন্ডিং আছে, কোনটি সম্পন্ন হয়েছে এবং কোনটি বাতিল হয়েছে তা সহজেই দেখতে পারবেন।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → অর্ডার শিট → অর্ডার শিট প্রতিবেদন</strong> মেনুতে যান।</li>
+      <li>প্রতিবেদনের জন্য <strong>তারিখ সীমা</strong> (শুরু ও শেষ তারিখ) নির্ধারণ করুন।</li>
+      <li>প্রয়োজনে <strong>অর্ডারের ধরন</strong> (কোম্পানি/গ্রাহক) অনুসারে ফিল্টার করুন।</li>
+      <li><strong>স্ট্যাটাস</strong> (অপেক্ষমান/প্রক্রিয়াধীন/সম্পন্ন/বাতিল) অনুযায়ী ফিল্টার প্রয়োগ করুন।</li>
+      <li><strong>"প্রতিবেদন দেখুন"</strong> বাটনে ক্লিক করে তালিকা পর্যালোচনা করুন।</li>
+      <li>প্রয়োজনে <strong>PDF</strong> বা <strong>এক্সেল</strong> ফরম্যাটে প্রতিবেদন ডাউনলোড করুন।</li>
+    </ol>
+    <div class="info-box">
+      নিয়মিত অর্ডার শিট প্রতিবেদন পর্যালোচনা করলে পেন্ডিং অর্ডারগুলো সম্পর্কে আগে থেকেই জানা যায় এবং সরবরাহ বিলম্ব এড়ানো সম্ভব হয়।
+    </div>
+  </div>
+
+  <!-- ─────────── ক্রয় ও বিক্রয় (Purchase & Sales) ─────────── -->
+  <div class="sub-section">ক্রয় ও বিক্রয় (Purchase &amp; Sales)</div>
+
+  <!-- Purchase Order -->
+  <div class="module no-break">
+    <h3>ক্রয় অর্ডার (Purchase Order)</h3>
+    <p>ক্রয় অর্ডার (PO) হলো ডিলার বা সাপ্লায়ার থেকে প্রোডাক্ট কেনার অফিসিয়াল অর্ডার। PO তৈরি করা, প্রোডাক্ট রিসিভ করা এবং গোডাউনে স্টক যোগ করার সম্পূর্ণ প্রক্রিয়া এই মডিউলের মাধ্যমে সম্পন্ন হয়। সুশৃঙ্খল PO ব্যবস্থাপনা সঠিক স্টক ব্যবস্থাপনার ভিত্তি।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → ক্রয় অর্ডার</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন ক্রয় অর্ডার"</strong> বাটনে ক্লিক করুন।</li>
+      <li>ড্রপডাউন থেকে <strong>সাপ্লায়ার/ডিলারের নাম</strong> নির্বাচন করুন।</li>
+      <li><strong>অর্ডার তারিখ</strong> ও <strong>প্রত্যাশিত ডেলিভারি তারিখ</strong> নির্ধারণ করুন।</li>
+      <li><strong>"প্রোডাক্ট যোগ করুন"</strong> বাটনে ক্লিক করে ক্রয় করতে ইচ্ছুক প্রোডাক্টগুলো তালিকায় যোগ করুন।</li>
+      <li>প্রতিটি প্রোডাক্টের <strong>পরিমাণ</strong>, <strong>ক্রয় মূল্য</strong> ও <strong>ডিসকাউন্ট</strong> (যদি থাকে) লিখুন।</li>
+      <li>সকল তথ্য যাচাই করে <strong>"ক্রয় অর্ডার তৈরি করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <p style="font-size:9.5pt; color:var(--text-light); margin-top:8px;"><strong>প্রোডাক্ট রিসিভ প্রক্রিয়া:</strong></p>
+    <ol class="steps">
+      <li>ক্রয় অর্ডারের তালিকা থেকে প্রাসঙ্গিক PO নির্বাচন করুন।</li>
+      <li><strong>"প্রোডাক্ট রিসিভ"</strong> বাটনে ক্লিক করুন।</li>
+      <li>প্রাপ্ত প্রোডাক্টের প্রকৃত <strong>পরিমাণ</strong> নিশ্চিত করুন (অর্ডারের চেয়ে কম বা বেশি হতে পারে)।</li>
+      <li>কোনো ক্ষতিগ্রস্ত বা ত্রুটিপূর্ণ প্রোডাক্ট থাকলে তা <strong>পৃথকভাবে চিহ্নিত</strong> করুন।</li>
+      <li><strong>গোডাউন নির্বাচন</strong> করুন যেখানে প্রোডাক্ট সংরক্ষণ করা হবে।</li>
+      <li><strong>"রিসিভ নিশ্চিত করুন"</strong> বাটনে ক্লিক করলে স্বয়ংক্রিয়ভাবে গোডাউনে স্টক যোগ হবে।</li>
+    </ol>
+    <div class="warning-box">
+      প্রোডাক্ট রিসিভ করার সময় অবশ্যই শারীরিকভাবে পণ্যের পরিমাণ যাচাই করুন। ভুল রিসিভ এন্ট্রি স্টক হিসাবে গুরুতর অসামঞ্জস্য তৈরি করতে পারে।
+    </div>
+  </div>
+
+  <!-- Auto PO -->
+  <div class="module no-break">
+    <h3>স্বয়ংক্রিয় ক্রয় অর্ডার (Auto PO)</h3>
+    <p>স্বয়ংক্রিয় ক্রয় অর্ডার (Auto PO) ব্যবস্থাটি লো স্টকে থাকা প্রোডাক্টগুলো শনাক্ত করে স্বয়ংক্রিয়ভাবে ক্রয় অর্ডার তৈরির প্রস্তাব দেয়। প্রতিটি প্রোডাক্টের জন্য নির্ধারিত সর্বনিম্ন স্টক সীমা (Reorder Level) অনুযায়ী এই ব্যবস্থা কাজ করে।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → স্বয়ংক্রিয় ক্রয় অর্ডার</strong> মেনুতে যান।</li>
+      <li>সিস্টেমটি স্বয়ংক্রিয়ভাবে <strong>লো স্টকে থাকা প্রোডাক্ট</strong> শনাক্ত করে তালিকা দেখাবে।</li>
+      <li>প্রতিটি প্রোডাক্টের পাশে <strong>প্রস্তাবিত অর্ডার পরিমাণ</strong> দেখতে পাবেন।</li>
+      <li>প্রয়োজনে প্রস্তাবিত পরিমাণ <strong>পরিবর্তন</strong> করুন।</li>
+      <li>যে প্রোডাক্টগুলো অর্ডার করতে চান না সেগুলো <strong>আনচেক</strong> করুন।</li>
+      <li>প্রতিটি প্রোডাক্টের জন্য <strong>সাপ্লায়ার নির্বাচন</strong> করুন।</li>
+      <li><strong>"স্বয়ংক্রিয় PO তৈরি করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      Auto PO সঠিকভাবে কাজ করার জন্য প্রতিটি প্রোডাক্টের Reorder Level এবং Reorder Quantity প্রোডাক্ট সেটআপে সেট করা আবশ্যক। প্রোডাক্ট মডিউলে গিয়ে এই মানগুলো আপডেট করুন।
+    </div>
+  </div>
+
+  <!-- Sales Order -->
+  <div class="module no-break">
+    <h3>বিক্রয় অর্ডার (Sales Order)</h3>
+    <p>বিক্রয় অর্ডার হলো নগদে প্রোডাক্ট বিক্রয়ের প্রধান মডিউল। এই মডিউলের মাধ্যমে গ্রাহক নির্বাচন, প্রোডাক্ট যোগ, পেমেন্ট গ্রহণ এবং চালান/ইনভয়েস তৈরির সম্পূর্ণ প্রক্রিয়া সম্পন্ন করা হয়। বিক্রয়ের পর স্বয়ংক্রিয়ভাবে স্টক কমে যায়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → বিক্রয় অর্ডার</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন বিক্রয় অর্ডার"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>গ্রাহক নির্বাচন</strong> — ড্রপডাউন থেকে বিদ্যমান গ্রাহক বেছে নিন অথবা "দ্রুত গ্রাহক যোগ" বাটনে ক্লিক করে নতুন গ্রাহক তৈরি করুন।</li>
+      <li><strong>গোডাউন নির্বাচন</strong> করুন যে গোডাউন থেকে প্রোডাক্ট বিক্রয় হবে।</li>
+      <li><strong>"প্রোডাক্ট যোগ করুন"</strong> বাটনে ক্লিক করে বিক্রয়যোগ্য প্রোডাক্টগুলো তালিকায় যোগ করুন।</li>
+      <li>প্রতিটি প্রোডাক্টের <strong>বিক্রয় মূল্য</strong>, <strong>পরিমাণ</strong> ও <strong>ডিসকাউন্ট</strong> (যদি থাকে) নির্ধারণ করুন।</li>
+      <li><strong>পেমেন্ট পদ্ধতি</strong> নির্বাচন করুন — নগদ, কার্ড, ব্যাংক ট্রান্সফার বা মিশ্র পেমেন্ট।</li>
+      <li>প্রদত্ত অর্থের <strong>পরিমাণ</strong> লিখুন এবং বাকির পরিমাণ নিশ্চিত করুন।</li>
+      <li>সকল তথ্য যাচাই করে <strong>"বিক্রয় নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন।</li>
+      <li>বিক্রয় সম্পন্ন হলে <strong>"ইনভয়েস/চালান তৈরি করুন"</strong> বাটনে ক্লিক করে প্রিন্ট বা PDF ডাউনলোড করুন।</li>
+    </ol>
+    <div class="warning-box">
+      বিক্রয় নিশ্চিত করার পর স্বয়ংক্রিয়ভাবে নির্বাচিত গোডাউন থেকে স্টক কমে যাবে। তাই বিক্রয় নিশ্চিত করার আগে সকল তথ্য সঠিক কিনা দুবার পরীক্ষা করুন।
+    </div>
+  </div>
+
+  <!-- Hire Sales -->
+  <div class="module no-break">
+    <h3>কিস্তিতে বিক্রয় (Hire Sales)</h3>
+    <p>কিস্তিতে বিক্রয় বা হায়ার সেলস মডিউলটি ইএমআই (EMI) ভিত্তিতে প্রোডাক্ট বিক্রয়ের জন্য ব্যবহৃত হয়। এই মডিউলে ডাউন পেমেন্ট, মাসিক কিস্তির পরিমাণ, সুদের হার এবং কিস্তির সংখ্যা নির্ধারণ করে প্রোডাক্ট বিক্রয় করা যায়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → কিস্তিতে বিক্রয়</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন হায়ার সেলস"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>গ্রাহক নির্বাচন</strong> করুন — কিস্তির গ্রাহক হিসেবে নিবন্ধিত ব্যক্তি বেছে নিন।</li>
+      <li>বিক্রয়যোগ্য <strong>প্রোডাক্ট নির্বাচন</strong> করুন এবং <strong>পরিমাণ</strong> লিখুন।</li>
+      <li><strong>ডাউন পেমেন্ট</strong> (প্রাথমিক জমা) এর পরিমাণ লিখুন।</li>
+      <li><strong>কিস্তির সংখ্যা</strong> (মাস) নির্ধারণ করুন — যেমন: ৬ মাস, ১২ মাস, ২৪ মাস।</li>
+      <li><strong>সুদের হার</strong> (%) নির্ধারণ করুন বা সিস্টেমে সেট করা হার গ্রহণ করুন।</li>
+      <li>সিস্টেমটি স্বয়ংক্রিয়ভাবে <strong>মাসিক কিস্তির পরিমাণ (EMI)</strong> হিসাব করে দেখাবে।</li>
+      <li>সকল শর্ত পর্যালোচনা করে <strong>"হায়ার সেলস নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      সুদের হার সেটআপের জন্য "সুদের হার ইঞ্জিন" মডিউলে গিয়ে বিভিন্ন কিস্তির সময়কাল অনুযায়ী সুদের হার কনফিগার করুন। EMI হিসাব: মোট মূল্য − ডাউন পেমেন্ট + সুদ = কিস্তির মোট পরিমাণ। কিস্তির মোট পরিমাণ ÷ কিস্তির সংখ্যা = মাসিক EMI।
+    </div>
+  </div>
+
+  <!-- Sales Return -->
+  <div class="module no-break">
+    <h3>বিক্রয় ফেরত (Sales Return)</h3>
+    <p>গ্রাহক কর্তৃক ফেরত দেওয়া প্রোডাক্ট গ্রহণ ও স্টক আপডেটের জন্য বিক্রয় ফেরত মডিউল ব্যবহৃত হয়। প্রোডাক্টে ত্রুটি পাওয়া গেলে বা অন্য কোনো কারণে গ্রাহক প্রোডাক্ট ফেরত দিলে এই মডিউলে তা রেকর্ড করতে হয়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → বিক্রয় ফেরত</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন বিক্রয় ফেরত"</strong> বাটনে ক্লিক করুন।</li>
+      <li>মূল বিক্রয়ের <strong>ইনভয়েস/চালান নম্বর</strong> দিয়ে খুঁজুন এবং নির্বাচন করুন।</li>
+      <li>ফেরত নেওয়া <strong>প্রোডাক্ট নির্বাচন</strong> করুন এবং <strong>পরিমাণ</strong> লিখুন।</li>
+      <li>ফেরতের <strong>কারণ</strong> উল্লেখ করুন — ত্রুটিপূর্ণ, ভুল পণ্য, গ্রাহক অসন্তুষ্টি ইত্যাদি।</li>
+      <li><strong>ফেরত প্রকার</strong> নির্বাচন করুন — টাকা ফেরত বা প্রোডাক্ট বিনিময়।</li>
+      <li><strong>"ফেরত নিশ্চিত করুন"</strong> বাটনে ক্লিক করলে স্বয়ংক্রিয়ভাবে স্টক আপডেট হবে।</li>
+    </ol>
+    <div class="info-box">
+      বিক্রয় ফেরত নিশ্চিত করলে স্বয়ংক্রিয়ভাবে সংশ্লিষ্ট গোডাউনে স্টক বৃদ্ধি পাবে এবং গ্রাহকের হিসাবে ক্রেডিট এন্ট্রি হবে। ক্ষতিগ্রস্ত প্রোডাক্ট ফেরত নিলে সেটি "ড্যামেজ স্টক"-এ যোগ করুন, সাধারণ স্টকে নয়।
+    </div>
+  </div>
+
+  <!-- Purchase Return -->
+  <div class="module no-break">
+    <h3>ক্রয় ফেরত (Purchase Return)</h3>
+    <p>ক্রয় ফেরত মডিউলটি সাপ্লায়ারকে ত্রুটিপূর্ণ বা অবাঞ্ছিত প্রোডাক্ট ফেরত পাঠানোর জন্য ব্যবহৃত হয়। সাপ্লায়ার থেকে প্রাপ্ত প্রোডাক্টে কোনো সমস্যা পাওয়া গেলে এই মডিউলের মাধ্যমে ফেরত প্রক্রিয়া সম্পন্ন করতে হয়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → ক্রয় ফেরত</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন ক্রয় ফেরত"</strong> বাটনে ক্লিক করুন।</li>
+      <li>মূল <strong>ক্রয় অর্ডার নম্বর (PO)</strong> দিয়ে খুঁজুন এবং নির্বাচন করুন।</li>
+      <li>ফেরত পাঠানোর <strong>প্রোডাক্ট নির্বাচন</strong> করুন এবং <strong>পরিমাণ</strong> লিখুন।</li>
+      <li>ফেরতের <strong>কারণ</strong> উল্লেখ করুন — ত্রুটিপূর্ণ, ভুল সরবরাহ, অতিরিক্ত সরবরাহ ইত্যাদি।</li>
+      <li>সাপ্লায়ার থেকে <strong>রিফান্ড/ক্রেডিট নোট</strong> প্রাপ্তির বিবরণ লিখুন।</li>
+      <li><strong>"ফেরত নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন — স্টক স্বয়ংক্রিয়ভাবে হ্রাস পাবে।</li>
+    </ol>
+    <div class="warning-box">
+      ক্রয় ফেরত নিশ্চিত করার আগে নিশ্চিত হোন যে সাপ্লায়ার ফেরত গ্রহণ করতে সম্মত। ফেরত নিশ্চিত হলে সাপ্লায়ারের পাওনার পরিমাণ স্বয়ংক্রিয়ভাবে কমে যাবে।
+    </div>
+  </div>
+
+  <!-- Replacement Order -->
+  <div class="module no-break">
+    <h3>প্রতিস্থাপন অর্ডার (Replacement Order)</h3>
+    <p>প্রতিস্থাপন অর্ডার মডিউলটি ত্রুটিপূর্ণ প্রোডাক্টের পরিবর্তে নতুন প্রোডাক্ট সরবরাহের জন্য ব্যবহৃত হয়। গ্রাহক বা সাপ্লায়ারের কাছ থেকে ফেরত নেওয়া ত্রুটিপূর্ণ প্রোডাক্টের পরিবর্তে একই বা সমমানের প্রোডাক্ট প্রদান করার প্রক্রিয়া এই মডিউলে সম্পন্ন হয়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → ক্রয় ও বিক্রয় → প্রতিস্থাপন অর্ডার</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন প্রতিস্থাপন অর্ডার"</strong> বাটনে ক্লিক করুন।</li>
+      <li>মূল <strong>বিক্রয়/ক্রয় অর্ডার</strong> নির্বাচন করুন যার বিরুদ্ধে প্রতিস্থাপন চাওয়া হচ্ছে।</li>
+      <li>ফেরত নেওয়া <strong>ত্রুটিপূর্ণ প্রোডাক্ট</strong> এবং এর পরিবর্তে দেওয়া <strong>নতুন প্রোডাক্ট</strong> নির্বাচন করুন।</li>
+      <li>প্রতিস্থাপনের <strong>কারণ</strong> ও <strong>শর্তাবলী</strong> লিখুন।</li>
+      <li>মূল্যের পার্থক্য থাকলে তা <strong>অতিরিক্ত পেমেন্ট</strong> বা <strong>রিফান্ড</strong> হিসেবে উল্লেখ করুন।</li>
+      <li><strong>"প্রতিস্থাপন নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      প্রতিস্থাপন অর্ডার নিশ্চিত করলে ত্রুটিপূর্ণ প্রোডাক্ট ড্যামেজ স্টকে এবং নতুন প্রোডাক্ট সংশ্লিষ্ট গোডাউন থেকে স্বয়ংক্রিয়ভাবে কমে যাবে। ওয়ারেন্টি সময়কালের মধ্যে প্রতিস্থাপন চাওয়া হলে তা ওয়ারেন্টি কভারেজের অধীনে প্রক্রিয়া করুন।
+    </div>
+  </div>
+
+  <!-- ─────────── স্টক (Stock) ─────────── -->
+  <div class="sub-section">স্টক (Stock)</div>
+
+  <!-- Stock -->
+  <div class="module no-break">
+    <h3>স্টক (Stock)</h3>
+    <p>স্টক মডিউলে সকল গোডাউনের বর্তমান স্টকের সামগ্রিক দৃশ্য পাওয়া যায়। প্রোডাক্ট ভিত্তিক, গোডাউন ভিত্তিক এবং ক্যাটেগরি ভিত্তিক স্টক তথ্য এখান থেকে পর্যালোচনা করা যায়। লো স্টক অ্যালার্টও এই মডিউলে দেখা যায়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → স্টক → স্টক</strong> মেনুতে যান।</li>
+      <li>সকল প্রোডাক্টের <strong>বর্তমান স্টক পরিমাণ</strong> তালিকায় দেখা যাবে।</li>
+      <li><strong>গোডাউন অনুসারে ফিল্টার</strong> করে নির্দিষ্ট গোডাউনের স্টক দেখুন।</li>
+      <li><strong>ক্যাটেগরি</strong> বা <strong>ব্র্যান্ড</strong> অনুসারে ফিল্টার প্রয়োগ করুন।</li>
+      <li><strong>লো স্টক অ্যালার্ট</strong> আইকনে ক্লিক করে যে প্রোডাক্টগুলোর স্টক সর্বনিম্ন সীমার নিচে তা দেখুন।</li>
+      <li>প্রয়োজনে তালিকাটি <strong>এক্সেল</strong> বা <strong>PDF</strong> ফরম্যাটে রপ্তানি করুন।</li>
+    </ol>
+    <div class="info-box">
+      প্রতিদিন সকালে স্টক মডিউল পরীক্ষা করে লো স্টকের প্রোডাক্টগুলো চিহ্নিত করুন এবং দ্রুত ক্রয় অর্ডার বা স্বয়ংক্রিয় PO ব্যবহার করে পুনরায় সরবরাহ নিশ্চিত করুন।
+    </div>
+  </div>
+
+  <!-- Stock Details -->
+  <div class="module no-break">
+    <h3>স্টক বিবরণ (Stock Details)</h3>
+    <p>স্টক বিবরণ মডিউলে প্রতিটি প্রোডাক্টের বিস্তারিত স্টক তথ্য পাওয়া যায়। কোন গোডাউনে কত পরিমাণ আছে, ক্রয় মূল্য, বিক্রয় মূল্য, সর্বশেষ লেনদেনের তারিখ ইত্যাদি বিস্তারিত তথ্য এই মডিউলে দেখা যায়।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → স্টক → স্টক বিবরণ</strong> মেনুতে যান।</li>
+      <li>নির্দিষ্ট <strong>প্রোডাক্ট</strong> খুঁজুন বা তালিকা থেকে নির্বাচন করুন।</li>
+      <li>প্রোডাক্টটির <strong>প্রতিটি গোডাউনে স্টক</strong>, <strong>মোট স্টক</strong>, <strong>ক্রয় মূল্য</strong> ও <strong>বিক্রয় মূল্য</strong> দেখুন।</li>
+      <li><strong>স্টক মুভমেন্ট হিস্ট্রি</strong> দেখতে "লেনদেনের বিবরণ" ট্যাবে ক্লিক করুন।</li>
+      <li>নির্দিষ্ট <strong>তারিখ সীমায়</strong> স্টক পরিবর্তনের রেকর্ড পর্যালোচনা করুন।</li>
+    </ol>
+  </div>
+
+  <!-- Transfer -->
+  <div class="module no-break">
+    <h3>স্থানান্তর (Transfer)</h3>
+    <p>স্থানান্তর মডিউলটি একটি গোডাউন থেকে অন্য গোডাউনে প্রোডাক্ট স্থানান্তরের জন্য ব্যবহৃত হয়। মেইন গোডাউন থেকে শোরুমে বা এক শাখা থেকে অন্য শাখায় প্রোডাক্ট ট্রান্সফার করতে এই মডিউল ব্যবহার করুন।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → স্টক → স্থানান্তর</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন স্থানান্তর"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>উৎস গোডাউন</strong> (যেখান থেকে প্রোডাক্ট সরানো হবে) নির্বাচন করুন।</li>
+      <li><strong>গন্তব্য গোডাউন</strong> (যেখানে প্রোডাক্ট পাঠানো হবে) নির্বাচন করুন।</li>
+      <li>স্থানান্তরযোগ্য <strong>প্রোডাক্ট নির্বাচন</strong> করুন এবং <strong>পরিমাণ</strong> লিখুন।</li>
+      <li>স্থানান্তরের <strong>কারণ</strong> বা <strong>রেফারেন্স</strong> লিখুন।</li>
+      <li><strong>"স্থানান্তর জমা দিন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <p style="font-size:9.5pt; color:var(--text-light); margin-top:8px;"><strong>স্থানান্তর প্রক্রিয়াকরণ:</strong></p>
+    <ol class="steps">
+      <li>স্থানান্তর জমা দেওয়ার পর এর স্ট্যাটাস <strong>"প্রক্রিয়াধীন"</strong> থাকবে।</li>
+      <li>গন্তব্য গোডাউনে প্রোডাক্ট পৌঁছালে <strong>"গ্রহণ নিশ্চিত"</strong> বাটনে ক্লিক করুন।</li>
+      <li>গ্রহণ নিশ্চিত হলে উৎস গোডাউন থেকে স্টক কমবে এবং গন্তব্য গোডাউনে স্টক বাড়বে।</li>
+    </ol>
+    <div class="warning-box">
+      স্থানান্তর জমা দেওয়ার আগে নিশ্চিত হোন যে উৎস গোডাউনে পর্যাপ্ত স্টক আছে। অপর্যাপ্ত স্টকে স্থানান্তর জমা দিলে সিস্টেম ত্রুটি দেখাবে।
+    </div>
+  </div>
+
+  <!-- Opening Stock -->
+  <div class="module no-break">
+    <h3>প্রারম্ভিক স্টক (Opening Stock)</h3>
+    <p>প্রারম্ভিক স্টক মডিউলটি নতুন আর্থিক বছর বা সিস্টেমে নতুনভাবে প্রোডাক্ট যোগ করার সময় প্রাথমিক স্টক এন্ট্রির জন্য ব্যবহৃত হয়। এটি স্টক ব্যবস্থাপনার সূচনাবিন্দু হিসেবে কাজ করে।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → স্টক → প্রারম্ভিক স্টক</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন এন্ট্রি"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>গোডাউন নির্বাচন</strong> করুন যেখানে প্রারম্ভিক স্টক এন্ট্রি করবেন।</li>
+      <li><strong>প্রোডাক্ট নির্বাচন</strong> করুন এবং <strong>পরিমাণ</strong> ও <strong>একক মূল্য</strong> লিখুন।</li>
+      <li>প্রোডাক্টের <strong>ব্যাচ নম্বর</strong> (যদি থাকে) উল্লেখ করুন।</li>
+      <li><strong>"সংরক্ষণ"</strong> বাটনে ক্লিক করে প্রারম্ভিক স্টক এন্ট্রি সম্পন্ন করুন।</li>
+    </ol>
+    <div class="info-box">
+      প্রারম্ভিক স্টক এন্ট্রি সাধারণত আর্থিক বছরের শুরুতে একবারই করা হয়। ভুল এন্ট্রি পরে সংশোধন করা কঠিন হতে পারে, তাই শারীরিক স্টক গণনার পর সতর্কতার সাথে এন্ট্রি করুন।
+    </div>
+  </div>
+
+  <!-- Batch Master -->
+  <div class="module no-break">
+    <h3>ব্যাচ মাস্টার (Batch Master)</h3>
+    <p>ব্যাচ মাস্টার মডিউলে ব্যাচ নম্বর ভিত্তিক স্টক ব্যবস্থাপনা করা হয়। প্রতিটি ব্যাচের মেয়াদ শেষ হওয়ার তারিখ, উৎপাদন তারিখ, ক্রয় মূল্য ও স্টক পরিমাণ এই মডিউলে ট্র্যাক করা হয়। মেয়াদোত্তীর্ণ পণ্য শনাক্ত করতে এই মডিউল বিশেষভাবে সহায়ক।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → স্টক → ব্যাচ মাস্টার</strong> মেনুতে যান।</li>
+      <li>সকল ব্যাচের তালিকা দেখুন — ব্যাচ নম্বর, প্রোডাক্ট, মেয়াদ শেষ তারিখ ও স্টক পরিমাণ।</li>
+      <li><strong>নতুন ব্যাচ যোগ</strong> করতে "নতুন ব্যাচ" বাটনে ক্লিক করুন।</li>
+      <li>প্রোডাক্ট নির্বাচন, <strong>ব্যাচ নম্বর</strong>, <strong>উৎপাদন তারিখ</strong> ও <strong>মেয়াদ শেষ তারিখ</strong> লিখুন।</li>
+      <li><strong>মেয়াদোত্তীর্ণ ফিল্টার</strong> প্রয়োগ করে যে ব্যাচগুলোর মেয়াদ শেষ হতে চলেছে তা শনাক্ত করুন।</li>
+      <li>প্রয়োজনে মেয়াদোত্তীর্ণ প্রোডাক্ট <strong>ড্যামেজ স্টকে স্থানান্তর</strong> করুন।</li>
+    </ol>
+    <div class="info-box">
+      ব্যাচ নম্বর সঠিকভাবে ব্যবহার করলে মেয়াদোত্তীর্ণ পণ্য বিক্রয় হওয়া থেকে রক্ষা পাওয়া যায়। FIFO (First In First Out) পদ্ধতি অনুসরণ করতে ব্যাচ মাস্টার সর্বাধিক কার্যকর।
+    </div>
+  </div>
+
+  <!-- Valuation -->
+  <div class="module no-break">
+    <h3>স্টক মূল্যায়ন (Valuation)</h3>
+    <p>স্টক মূল্যায়ন মডিউলে বর্তমান স্টকের আর্থিক মূল্য নির্ধারণ করা হয়। ক্রয় মূল্য বা বাজার মূল্য অনুযায়ী স্টকের মোট মূল্য এই মডিউলে দেখা যায়। এটি আর্থিক প্রতিবেদন তৈরি ও সিদ্ধান্ত গ্রহণে অত্যন্ত গুরুত্বপূর্ণ।</p>
+    <ol class="steps">
+      <li><strong>ইনভেন্টরি → স্টক → স্টক মূল্যায়ন</strong> মেনুতে যান।</li>
+      <li>মূল্যায়ন পদ্ধতি নির্বাচন করুন — <strong>ক্রয় মূল্য</strong> (Cost Price) বা <strong>বাজার মূল্য</strong> (Market Price)।</li>
+      <li><strong>গোডাউন</strong> অনুসারে ফিল্টার করুন অথবা সকল গোডাউনের সম্মিলিত মূল্যায়ন দেখুন।</li>
+      <li>প্রতিটি প্রোডাক্টের <strong>পরিমাণ</strong>, <strong>একক মূল্য</strong> ও <strong>মোট মূল্য</strong> তালিকায় দেখুন।</li>
+      <li>সর্বমোট স্টক মূল্যায়ন তালিকার নিচে <strong>সমষ্টি</strong> হিসেবে দেখা যাবে।</li>
+      <li>প্রতিবেদনটি <strong>PDF</strong> বা <strong>এক্সেল</strong> ফরম্যাটে রপ্তানি করুন।</li>
+    </ol>
+    <div class="info-box">
+      মাসিক বা ত্রৈমাসিক ভিত্তিতে স্টক মূল্যায়ন পর্যালোচনা করুন। ক্রয় মূল্য ও বাজার মূল্যের মধ্যে ব্যাপক পার্থক্য থাকলে তা পুনরায় মূল্যায়নের প্রয়োজনীয়তা নির্দেশ করে।
+    </div>
+  </div>
+
+  <!-- Inventory Workflow -->
+  <div class="workflow no-break">
+    <h3>ইনভেন্টরি ম্যানেজমেন্ট কর্মপ্রবাহ</h3>
+    <p style="font-size:9.5pt; margin-bottom:8px;">নিচে একটি সাধারণ ইনভেন্টরি কর্মপ্রবাহ দেখানো হলো:</p>
+    <ol>
+      <li><strong>প্রারম্ভিক স্টক এন্ট্রি</strong> → সিস্টেমে প্রাথমিক স্টক যোগ করুন</li>
+      <li><strong>ক্রয় অর্ডার (PO)</strong> → সাপ্লায়ারকে অর্ডার পাঠান</li>
+      <li><strong>প্রোডাক্ট রিসিভ</strong> → পণ্য গ্রহণ ও গোডাউনে স্টক যোগ</li>
+      <li><strong>স্টক স্থানান্তর</strong> → গোডাউন থেকে শোরুমে বা অন্য গোডাউনে সরান</li>
+      <li><strong>বিক্রয় অর্ডার / কিস্তিতে বিক্রয়</strong> → প্রোডাক্ট বিক্রয় ও স্টক হ্রাস</li>
+      <li><strong>বিক্রয় ফেরত / ক্রয় ফেরত</strong> → প্রয়োজনে ফেরত প্রক্রিয়া</li>
+      <li><strong>প্রতিস্থাপন</strong> → ত্রুটিপূর্ণ পণ্যের বদলে নতুন পণ্য</li>
+      <li><strong>স্টক মূল্যায়ন</strong> → স্টকের আর্থিক মূল্য নির্ধারণ</li>
+    </ol>
+  </div>
+
+  <!-- Quick Reference Table for Inventory -->
+  <div class="no-break">
+    <h3 style="font-size:11pt; color:var(--primary-dark); margin-bottom:8px;">ইনভেন্টরি মডিউল দ্রুত রেফারেন্স</h3>
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>মডিউল</th>
+          <th>কার্যক্রম</th>
+          <th>স্টক প্রভাব</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>কোম্পানি অর্ডার শিট</td><td>ব্র্যান্ড কোম্পানিতে অর্ডার</td><td>কোনো প্রভাব নেই</td></tr>
+        <tr><td>গ্রাহক অর্ডার শিট</td><td>গ্রাহকের অর্ডার রেকর্ড</td><td>কোনো প্রভাব নেই</td></tr>
+        <tr><td>ক্রয় অর্ডার (PO)</td><td>সাপ্লায়ার থেকে ক্রয়</td><td>রিসিভে স্টক বৃদ্ধি</td></tr>
+        <tr><td>স্বয়ংক্রিয় PO</td><td>লো স্টকে স্বয়ংক্রিয় অর্ডার</td><td>পরোক্ষ প্রভাব</td></tr>
+        <tr><td>বিক্রয় অর্ডার</td><td>নগদে প্রোডাক্ট বিক্রয়</td><td>স্টক হ্রাস</td></tr>
+        <tr><td>কিস্তিতে বিক্রয়</td><td>EMI ভিত্তিক বিক্রয়</td><td>স্টক হ্রাস</td></tr>
+        <tr><td>বিক্রয় ফেরত</td><td>গ্রাহক ফেরত গ্রহণ</td><td>স্টক বৃদ্ধি</td></tr>
+        <tr><td>ক্রয় ফেরত</td><td>সাপ্লায়ারকে ফেরত</td><td>স্টক হ্রাস</td></tr>
+        <tr><td>প্রতিস্থাপন</td><td>ত্রুটিপূর্ণ পণ্য বদল</td><td>স্টক পরিবর্তন</td></tr>
+        <tr><td>স্থানান্তর</td><td>গোডাউনে প্রোডাক্ট স্থানান্তর</td><td>গোডাউনভিত্তিক পরিবর্তন</td></tr>
+        <tr><td>প্রারম্ভিক স্টক</td><td>প্রাথমিক স্টক এন্ট্রি</td><td>স্টক বৃদ্ধি</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div><!-- end Section 5 -->
+
+
+<!-- ============================================================ -->
+<!-- SECTION 6: হিসাব ব্যবস্থাপনা (Account Management)           -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-number">৬</span>
+    <h2 class="section-title">হিসাব ব্যবস্থাপনা</h2>
+  </div>
+
+  <p style="margin-bottom:14px; font-size:10pt; color:var(--text-light);">
+    হিসাব ব্যবস্থাপনা মডিউলটির মাধ্যমে আপনি দৈনন্দিন আয়-ব্যয় ব্যবস্থাপনা, নগদ আদায় ও হস্তান্তর, এবং ব্যাংক লেনদেনের রেকর্ড রাখতে পারবেন। সুশৃঙ্খল হিসাব ব্যবস্থাপনা ব্যবসার আর্থিক স্বাস্থ্য নিশ্চিত করে।
+  </p>
+
+  <!-- Expense/Income Head -->
+  <div class="module no-break">
+    <h3>আয়-ব্যয়ের খাত (Expense/Income Head)</h3>
+    <p>আয়-ব্যয়ের খাত সেটআপ মডিউলে সকল আয় ও ব্যয়ের খাত বা ক্যাটেগরি তৈরি ও ব্যবস্থাপনা করা হয়। প্রতিটি আয় ও ব্যয়ের এন্ট্রি নির্দিষ্ট খাতের অধীনে হতে হয়। সঠিক খাত সেটআপ হিসাব ব্যবস্থাপনার ভিত্তি।</p>
+    <ol class="steps">
+      <li><strong>হিসাব ব্যবস্থাপনা → আয়-ব্যয়ের খাত</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন খাত"</strong> বাটনে ক্লিক করুন।</li>
+      <li>খাতের ধরন নির্বাচন করুন — <strong>আয়ের খাত</strong> (Income) বা <strong>ব্যয়ের খাত</strong> (Expense)।</li>
+      <li>খাতের <strong>নাম</strong> লিখুন — যেমন: "ভাড়া", "বিদ্যুৎ বিল", "কমিশন আয়", "পরিবহন খরচ" ইত্যাদি।</li>
+      <li>প্রয়োজনে <strong>বিবরণ</strong> লিখুন।</li>
+      <li><strong>"সংরক্ষণ"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      আয়-ব্যয়ের খাত নির্ধারণের সময় ভবিষ্যতের প্রয়োজনীয়তাও বিবেচনা করুন। বিস্তারিত খাত তৈরি করলে প্রতিবেদনে আরও সুনির্দিষ্ট তথ্য পাওয়া যায়। যেমন: "অফিস ভাড়া" ও "গোডাউন ভাড়া" আলাদা খাতে রাখুন।
+    </div>
+  </div>
+
+  <!-- Expense -->
+  <div class="module no-break">
+    <h3>ব্যয় এন্ট্রি (Expense)</h3>
+    <p>ব্যয় এন্ট্রি মডিউলে ব্যবসার সকল প্রকার খরচ বা ব্যয়ের রেকর্ড রাখা হয়। প্রতিটি ব্যয় নির্দিষ্ট খাতের অধীনে, নির্দিষ্ট তারিখে এবং নির্দিষ্ট পেমেন্ট পদ্ধতিতে এন্ট্রি করতে হয়।</p>
+    <ol class="steps">
+      <li><strong>হিসাব ব্যবস্থাপনা → ব্যয়</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন ব্যয় এন্ট্রি"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>ব্যয়ের খাত</strong> নির্বাচন করুন ড্রপডাউন থেকে — যেমন: ভাড়া, বিদ্যুৎ, পরিবহন ইত্যাদি।</li>
+      <li>ব্যয়ের <strong>পরিমাণ</strong> (টাকা) লিখুন।</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন যেদিন ব্যয় হয়েছে।</li>
+      <li><strong>পেমেন্ট পদ্ধতি</strong> নির্বাচন করুন — নগদ, ব্যাংক ট্রান্সফার, চেক ইত্যাদি।</li>
+      <li>প্রয়োজনে ব্যয়ের <strong>বিবরণ</strong> বা <strong>রসিদ নম্বর</strong> লিখুন।</li>
+      <li><strong>"সংরক্ষণ"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="warning-box">
+      ব্যয় এন্ট্রি করার সময় সঠিক খাত নির্বাচন করা অত্যন্ত গুরুত্বপূর্ণ। ভুল খাতে ব্যয় এন্ট্রি হলে আর্থিক প্রতিবেদনে ত্রুটি দেখা দেবে। বড় অঙ্কের ব্যয়ের ক্ষেত্রে অবশ্যই রসিদ বা ভাউচার সংযুক্তি রাখুন।
+    </div>
+  </div>
+
+  <!-- Income -->
+  <div class="module no-break">
+    <h3>আয় এন্ট্রি (Income)</h3>
+    <p>আয় এন্ট্রি মডিউলে ব্যবসার প্রধান বিক্রয় আয় ছাড়াও অন্যান্য সকল আয়ের রেকর্ড রাখা হয়। কমিশন, ভাড়া আয়, সুদ আয় ইত্যাদি এই মডিউলে এন্ট্রি করতে হয়।</p>
+    <ol class="steps">
+      <li><strong>হিসাব ব্যবস্থাপনা → আয়</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন আয় এন্ট্রি"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>আয়ের খাত</strong> নির্বাচন করুন ড্রপডাউন থেকে — যেমন: কমিশন, সুদ, সার্ভিস চার্জ ইত্যাদি।</li>
+      <li>আয়ের <strong>পরিমাণ</strong> (টাকা) লিখুন।</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন যেদিন আয় প্রাপ্ত হয়েছে।</li>
+      <li><strong>প্রাপ্তির পদ্ধতি</strong> নির্বাচন করুন — নগদ, ব্যাংক ট্রান্সফার, চেক ইত্যাদি।</li>
+      <li>প্রয়োজনে আয়ের <strong>বিবরণ</strong> বা <strong>রেফারেন্স</strong> লিখুন।</li>
+      <li><strong>"সংরক্ষণ"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      বিক্রয় থেকে প্রাপ্ত আয় স্বয়ংক্রিয়ভাবে সেলস অর্ডার মডিউলে রেকর্ড হয়। এই আয় এন্ট্রি মডিউলটি মূলত বিক্রয় ব্যতীত অন্যান্য আয়ের জন্য ব্যবহৃত হয়।
+    </div>
+  </div>
+
+  <!-- Cash Collection -->
+  <div class="module no-break">
+    <h3>নগদ আদায় (Cash Collection)</h3>
+    <p>নগদ আদায় মডিউলে গ্রাহকদের কাছ থেকে পাওনা আদায়ের রেকর্ড রাখা হয়। কিস্তিতে বিক্রয়ের কিস্তি আদায়, বাকি বিক্রয়ের পেমেন্ট গ্রহণ ইত্যাদি এই মডিউলে লিপিবদ্ধ করা হয়।</p>
+    <ol class="steps">
+      <li><strong>হিসাব ব্যবস্থাপনা → নগদ আদায়</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন আদায়"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>গ্রাহকের নাম</strong> নির্বাচন করুন যার থেকে পেমেন্ট গ্রহণ করছেন।</li>
+      <li>আদায়ের <strong>পরিমাণ</strong> লিখুন।</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন।</li>
+      <li><strong>আদায়ের ধরন</strong> উল্লেখ করুন — কিস্তি পেমেন্ট, বাকি পরিশোধ, অগ্রিম পেমেন্ট ইত্যাদি।</li>
+      <li>প্রয়োজনে <strong>রসিদ নম্বর</strong> ও <strong>বিবরণ</strong> লিখুন।</li>
+      <li><strong>"আদায় নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      নগদ আদায় নিশ্চিত করলে গ্রাহকের বকেয়া পরিমাণ স্বয়ংক্রিয়ভাবে হ্রাস পাবে এবং নগদী হাতে থাকার পরিমাণ বৃদ্ধি পাবে। প্রতিটি আদায়ের রসিদ অবশ্যই প্রিন্ট করে গ্রাহককে দিন।
+    </div>
+  </div>
+
+  <!-- Cash Delivery -->
+  <div class="module no-break">
+    <h3>নগদ হস্তান্তর (Cash Delivery)</h3>
+    <p>নগদ হস্তান্তর মডিউলে এক স্থান থেকে অন্য স্থানে নগদ অর্থ পাঠানোর রেকর্ড রাখা হয়। শোরুম থেকে অফিসে বা এক শাখা থেকে অন্য শাখায় নগদ অর্থ হস্তান্তরের ক্ষেত্রে এই মডিউল ব্যবহৃত হয়।</p>
+    <ol class="steps">
+      <li><strong>হিসাব ব্যবস্থাপনা → নগদ হস্তান্তর</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন হস্তান্তর"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>হস্তান্তরের পরিমাণ</strong> (টাকা) লিখুন।</li>
+      <li><strong>উৎস</strong> (যেখান থেকে অর্থ পাঠানো হচ্ছে) নির্বাচন করুন।</li>
+      <li><strong>গন্তব্য</strong> (যেখানে অর্থ পাঠানো হচ্ছে) নির্বাচন করুন।</li>
+      <li><strong>তারিখ</strong> ও <strong>হস্তান্তরের কারণ</strong> লিখুন।</li>
+      <li>প্রয়োজনে <strong>বাহকের নাম</strong> বা <strong>রেফারেন্স</strong> উল্লেখ করুন।</li>
+      <li><strong>"হস্তান্তর নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="warning-box">
+      নগদ হস্তান্তরের ক্ষেত্রে অবশ্যই দুজন সাক্ষীর উপস্থিতি নিশ্চিত করুন। বড় অঙ্কের নগদ হস্তান্তরের ক্ষেত্রে ব্যাংক ট্রান্সফার ব্যবহার করা অধিক নিরাপদ।
+    </div>
+  </div>
+
+  <!-- Bank Transaction -->
+  <div class="module no-break">
+    <h3>ব্যাংক লেনদেন (Bank Transaction)</h3>
+    <p>ব্যাংক লেনদেন মডিউলে সকল ব্যাংক অ্যাকাউন্টের আমানত ও উত্তোলনের রেকর্ড রাখা হয়। ব্যাংক ট্রান্সফার, চেক জমা, এটিএম উত্তোলন, ঋণ পরিশোধ ইত্যাদি লেনদেন এই মডিউলে লিপিবদ্ধ করা হয়।</p>
+    <ol class="steps">
+      <li><strong>হিসাব ব্যবস্থাপনা → ব্যাংক লেনদেন</strong> মেনুতে যান।</li>
+      <li><strong>"নতুন লেনদেন"</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>ব্যাংক অ্যাকাউন্ট</strong> নির্বাচন করুন যার সাথে লেনদেন হচ্ছে।</li>
+      <li><strong>লেনদেনের ধরন</strong> নির্বাচন করুন — <strong>আমানত</strong> (Deposit) বা <strong>উত্তোলন</strong> (Withdrawal)।</li>
+      <li>লেনদেনের <strong>পরিমাণ</strong> লিখুন।</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন।</li>
+      <li><strong>পেমেন্ট মাধ্যম</strong> নির্বাচন করুন — চেক, এফটি, বিকাশ, রেল ব্যাংকিং ইত্যাদি।</li>
+      <li>প্রয়োজনে <strong>চেক নম্বর</strong>, <strong>রেফারেন্স</strong> ও <strong>বিবরণ</strong> লিখুন।</li>
+      <li><strong>"লেনদেন নিশ্চিত করুন"</strong> বাটনে ক্লিক করুন।</li>
+    </ol>
+    <div class="info-box">
+      ব্যাংক লেনদেন এন্ট্রি করার পর নিয়মিত ব্যাংক স্টেটমেন্টের সাথে মিলিয়ে দেখুন (Bank Reconciliation)। এতে কোনো অসামঞ্জস্য থাকলে তা দ্রুত শনাক্ত করা সম্ভব হবে।
+    </div>
+  </div>
+
+  <!-- Account Management Workflow -->
+  <div class="workflow no-break">
+    <h3>হিসাব ব্যবস্থাপনা কর্মপ্রবাহ</h3>
+    <p style="font-size:9.5pt; margin-bottom:8px;">নিচে হিসাব ব্যবস্থাপনার সাধারণ কর্মপ্রবাহ দেখানো হলো:</p>
+    <ol>
+      <li><strong>খাত সেটআপ</strong> → আয় ও ব্যয়ের খাত তৈরি করুন</li>
+      <li><strong>ব্যয় এন্ট্রি</strong> → প্রতিদিনের খরচ সংশ্লিষ্ট খাতে রেকর্ড করুন</li>
+      <li><strong>আয় এন্ট্রি</strong> → বিক্রয় ব্যতীত অন্যান্য আয় রেকর্ড করুন</li>
+      <li><strong>নগদ আদায়</strong> → গ্রাহকদের কাছ থেকে পাওনা আদায় করুন</li>
+      <li><strong>নগদ হস্তান্তর</strong> → প্রয়োজনে এক স্থান থেকে অন্য স্থানে অর্থ পাঠান</li>
+      <li><strong>ব্যাংক লেনদেন</strong> → ব্যাংক অ্যাকাউন্টের আমানত ও উত্তোলন রেকর্ড করুন</li>
+      <li><strong>মিলিয়ে দেখা</strong> → নিয়মিত ব্যাংক স্টেটমেন্ট ও সিস্টেমের হিসাব মিলিয়ে দেখুন</li>
+    </ol>
+  </div>
+
+  <!-- Quick Reference Table for Account Management -->
+  <div class="no-break">
+    <h3 style="font-size:11pt; color:var(--primary-dark); margin-bottom:8px;">হিসাব মডিউল দ্রুত রেফারেন্স</h3>
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>মডিউল</th>
+          <th>কার্যক্রম</th>
+          <th>আর্থিক প্রভাব</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>আয়-ব্যয়ের খাত</td><td>খাত বা ক্যাটেগরি তৈরি</td><td>প্রস্তুতি পর্যায়</td></tr>
+        <tr><td>ব্যয় এন্ট্রি</td><td>খরচ বা ব্যয় রেকর্ড</td><td>নগদী/ব্যাংক হ্রাস</td></tr>
+        <tr><td>আয় এন্ট্রি</td><td>বিক্রয় ব্যতীত আয় রেকর্ড</td><td>নগদী/ব্যাংক বৃদ্ধি</td></tr>
+        <tr><td>নগদ আদায়</td><td>গ্রাহকের পাওনা আদায়</td><td>নগদী বৃদ্ধি, বকেয়া হ্রাস</td></tr>
+        <tr><td>নগদ হস্তান্তর</td><td>স্থানান্তর প্রক্রিয়া</td><td>স্থানভিত্তিক পরিবর্তন</td></tr>
+        <tr><td>ব্যাংক লেনদেন</td><td>ব্যাংকে আমানত/উত্তোলন</td><td>ব্যাংক ব্যালেন্স পরিবর্তন</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="page-footer">
+    VoltERP ব্যবহারকারী নির্দেশিকা — পর্ব ৩: ইনভেন্টরি ম্যানেজমেন্ট ও হিসাব ব্যবস্থাপনা
+  </div>
+
+</div><!-- end Section 6 -->
+
+<!-- ============================================================ -->
+<!-- SECTION 7: এসএমএস সেবা (SMS Service)                        -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-number">৭</span>
+    <h2 class="section-title">এসএমএস সেবা (SMS Service)</h2>
+  </div>
+
+  <p style="margin-bottom:14px; font-size:9.5pt; color:var(--text-light);">
+    ভোল্টইআরপি এসএমএস সেবা মডিউলটি আপনার ব্যবসার গ্রাহক, সরবরাহকারী ও কর্মচারীদের সাথে দ্রুত যোগাযোগের একটি শক্তিশালী মাধ্যম। এর মাধ্যমে আপনি একক বা গণ এসএমএস পাঠাতে পারবেন, এসএমএস বিল পরিচালনা করতে পারবেন এবং স্বয়ংক্রিয় এসএমএস নোটিফিকেশন কনফিগার করতে পারবেন। ইলেকট্রনিক্স মার্টের প্রচারমূলক অফার, বিল পরিশোধ রিমাইন্ডার এবং ডেলিভারি নোটিফিকেশন সবকিছু এই মডিউল থেকে পরিচালিত হয়।
+  </p>
+
+  <!-- Sub-section: এসএমএস ইনবক্স -->
+  <div class="sub-section">এসএমএস ইনবক্স ও প্রেরণ</div>
+
+  <div class="module no-break">
+    <h3>SMS Inbox — আগত এসএমএস দেখুন</h3>
+    <p>এসএমএস ইনবক্সে আপনার ব্যবসার সকল আগত এসএমএস বার্তা প্রদর্শিত হয়। গ্রাহকদের পাঠানো রিপ্লাই, ডেলিভারি রিপোর্ট এবং গেটওয়ে থেকে আসা নোটিফিকেশন এখানে সংরক্ষিত থাকে। আপনি তারিখ, প্রেরক নম্বর বা বার্তার ধরন অনুসারে ফিল্টার করে নির্দিষ্ট এসএমএস খুঁজে পেতে পারেন।</p>
+    <ol class="steps">
+      <li>সাইডবার মেনু থেকে <strong>এসএমএস সেবা</strong> ক্লিক করুন এবং <strong>SMS Inbox</strong> নির্বাচন করুন।</li>
+      <li>ইনবক্স পৃষ্ঠায় সকল আগত এসএমএস-এর তালিকা প্রদর্শিত হবে।</li>
+      <li>তারিখ পরিসীমা নির্বাচন করে অথবা ফোন নম্বর দিয়ে অনুসন্ধান করুন।</li>
+      <li>যেকোনো এসএমএস-এর উপর ক্লিক করে সম্পূর্ণ বার্তা পড়ুন।</li>
+      <li>প্রয়োজনে এসএমএস মুছে ফেলতে বা আর্কাইভ করতে পারেন।</li>
+    </ol>
+    <div class="info-box">গ্রাহকদের রিপ্লাই এসএমএস ইনবক্সে স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়। গুরুত্বপূর্ণ বার্তাগুলো আর্কাইভ করে রাখলে পরবর্তীতে সহজে খুঁজে পাওয়া যায়।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Send SMS — একক এসএমএস পাঠান</h3>
+    <p>একক এসএমএস প্রেরণ পৃষ্ঠার মাধ্যমে আপনি যেকোনো নির্দিষ্ট নম্বরে এসএমএস পাঠাতে পারবেন। বিল রিমাইন্ডার, ডেলিভারি কনফারমেশন বা ব্যক্তিগত বার্তা — সব ধরনের একক যোগাযোগের জন্য এই ফিচার ব্যবহার করুন। টেমপ্লেট ব্যবহার করে দ্রুত এসএমএস তৈরি করা যায়।</p>
+    <ol class="steps">
+      <li><strong>Send SMS</strong> মেনুতে ক্লিক করুন।</li>
+      <li>প্রাপকের মোবাইল নম্বর লিখুন অথবা গ্রাহক তালিকা থেকে নির্বাচন করুন।</li>
+      <li>এসএমএস টেমপ্লেট বেছে নিন অথবা নিজে বার্তা টাইপ করুন।</li>
+      <li>বার্তার পূর্বরূপ দেখতে <strong>Preview</strong> বাটনে ক্লিক করুন।</li>
+      <li><strong>Send</strong> বাটনে ক্লিক করে এসএমএস পাঠান।</li>
+    </ol>
+    <div class="info-box">এসএমএস টেমপ্লেটে {customer_name}, {due_amount}, {invoice_no} এর মতো ভেরিয়েবল ব্যবহার করতে পারেন। প্রেরণের সময় এগুলো স্বয়ংক্রিয়ভাবে প্রতিস্থাপিত হবে।</div>
+  </div>
+
+  <!-- Sub-section: এসএমএস বিল ও প্রতিবেদন -->
+  <div class="sub-section">এসএমএস বিল ও প্রতিবেদন</div>
+
+  <div class="module no-break">
+    <h3>SMS Bill — এসএমএস বিল</h3>
+    <p>এসএমএস বিল পৃষ্ঠায় আপনার এসএমএস ব্যবহারের সকল বিল ও চার্জের বিবরণ পাওয়া যায়। প্রতি মাসে কতটি এসএমএস পাঠানো হয়েছে, মোট খরচ কত এবং ব্যালেন্স কত আছে — সব তথ্য এখানে দেখা যায়। ব্যবসার এসএমএস বাজেট নিয়ন্ত্রণের জন্য এই পৃষ্ঠাটি অপরিহার্য।</p>
+    <ol class="steps">
+      <li><strong>SMS Bill</strong> মেনুতে ক্লিক করুন।</li>
+      <li>বর্তমান ও পূর্ববর্তী মাসের বিল সামারি দেখুন।</li>
+      <li>এসএমএস ব্যবহারের বিস্তারিত বিবরণ তারিখ অনুসারে দেখুন।</li>
+      <li>প্রয়োজনে বিল রিপোর্ট PDF বা Excel-এ ডাউনলোড করুন।</li>
+    </ol>
+    <div class="info-box">নিয়মিত এসএমএস বিল পরীক্ষা করলে অপ্রত্যাশিত খরচ এড়ানো যায়। মাসিক বাজেট সীমা নির্ধারণ করে রাখুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>SMS Report — এসএমএস পাঠানোর প্রতিবেদন</h3>
+    <p>এসএমএস রিপোর্ট মডিউলে আপনার পাঠানো সকল এসএমএস-এর বিস্তারিত প্রতিবেদন পাওয়া যায়। কোন এসএমএস ডেলিভারি হয়েছে, কোনটি ব্যর্থ হয়েছে, কতটি পেন্ডিং আছে — তা এই রিপোর্টে দেখা যায়। গ্রাহক অনুসারে, তারিখ অনুসারে বা এসএমএস টাইপ অনুসারে রিপোর্ট ফিল্টার করা যায়।</p>
+    <ol class="steps">
+      <li><strong>SMS Report</strong> মেনুতে ক্লিক করুন।</li>
+      <li>তারিখ পরিসীমা, প্রাপক নম্বর বা এসএমএস টাইপ দিয়ে ফিল্টার সেট করুন।</li>
+      <li><strong>Generate Report</strong> বাটনে ক্লিক করুন।</li>
+      <li>ডেলিভারি সফল, ব্যর্থ ও পেন্ডিং এসএমএস-এর সংখ্যা দেখুন।</li>
+      <li>রিপোর্টটি PDF বা Excel ফরম্যাটে এক্সপোর্ট করুন।</li>
+    </ol>
+    <div class="info-box">ব্যর্থ হওয়া এসএমএস-এর রিপোর্ট নিয়মিত পরীক্ষা করুন। অনেক সময় ভুল নম্বর বা নেটওয়ার্ক সমস্যার কারণে এসএমএস ডেলিভারি হয় না।</div>
+  </div>
+
+  <!-- Sub-section: এসএমএস সেটিং ও পেমেন্ট -->
+  <div class="sub-section">এসএমএস সেটিং ও পেমেন্ট</div>
+
+  <div class="module no-break">
+    <h3>SMS Service Setting — এসএমএস সেবা কনফিগারেশন</h3>
+    <p>এসএমএস সেবা কনফিগারেশন পৃষ্ঠায় আপনার এসএমএস গেটওয়ে সেটিংস, এপিআই কী, প্রেরক আইডি এবং স্বয়ংক্রিয় এসএমএস ট্রিগার কনফিগার করা হয়। কোন ইভেন্টে স্বয়ংক্রিয়ভাবে এসএমএস পাঠানো হবে — যেমন বিক্রয় চালান তৈরি, পেমেন্ট গ্রহণ, ডেলিভারি কনফারমেশন — তা এখান থেকে নিয়ন্ত্রণ করা যায়।</p>
+    <ol class="steps">
+      <li><strong>SMS Service Setting</strong> মেনুতে ক্লিক করুন।</li>
+      <li>এসএমএস গেটওয়ে প্রোভাইডার নির্বাচন করুন (যেমন: BulkSMSBD, Metafresh SMS)।</li>
+      <li>এপিআই কী ও প্রেরক আইডি সেট করুন।</li>
+      <li>স্বয়ংক্রিয় এসএমএস ট্রিগার ইভেন্টগুলো সক্রিয় বা নিষ্ক্রিয় করুন।</li>
+      <li><strong>Save Settings</strong> বাটনে ক্লিক করে কনফিগারেশন সংরক্ষণ করুন।</li>
+    </ol>
+    <div class="info-box">এপিআই কী পরিবর্তনের পর অবশ্যই টেস্ট এসএমএস পাঠিয়ে গেটওয়ে সংযোগ যাচাই করুন। ভুল কনফিগারেশনে এসএমএস পাঠানো বন্ধ হয়ে যেতে পারে।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>SMS Bill Payment — এসএমএস বিল পরিশোধ</h3>
+    <p>এসএমএস বিল পেমেন্ট পৃষ্ঠায় আপনার এসএমএস সার্ভিসের বকেয়া বিল পরিশোধ করা হয়। এসএমএস ক্রেডিট রিচার্জ, মাসিক সাবস্ক্রিপশন পেমেন্ট এবং পেমেন্ট হিস্ট্রি সব এখান থেকে পরিচালনা করুন। ক্রেডিট শেষ হলে এসএমএস পাঠানো বন্ধ হয়ে যেতে পারে, তাই সময়মতো রিচার্জ করুন।</p>
+    <ol class="steps">
+      <li><strong>SMS Bill Payment</strong> মেনুতে ক্লিক করুন।</li>
+      <li>বর্তমান ক্রেডিট ব্যালেন্স ও বকেয়া পরিমাণ দেখুন।</li>
+      <li>রিচার্জের পরিমাণ নির্বাচন করুন অথবা কাস্টম পরিমাণ লিখুন।</li>
+      <li>পেমেন্ট মেথড বেছে নিন (ব্যাংক ট্রান্সফার, বিকাশ, নগদ)।</li>
+      <li><strong>Pay Now</strong> বাটনে ক্লিক করে পেমেন্ট সম্পন্ন করুন।</li>
+    </ol>
+    <div class="info-box">ক্রেডিট ব্যালেন্স যখন নির্দিষ্ট সীমার নিচে নেমে যায়, তখন সিস্টেম স্বয়ংক্রিয়ভাবে সতর্কতামূলক এসএমএস পাঠায়। সর্বনিম্ন ব্যালেন্স অ্যালার্ট সেট করে রাখুন।</div>
+  </div>
+
+  <!-- Sub-section: গণ এসএমএস -->
+  <div class="sub-section">গণ এসএমএস প্রেরণ</div>
+
+  <div class="module no-break">
+    <h3>Send Bulk SMS — একসাথে অনেককে এসএমএস পাঠান</h3>
+    <p>গণ এসএমএস প্রেরণ ফিচারটির মাধ্যমে আপনি একসাথে শত শত গ্রাহক, সরবরাহকারী বা কর্মচারীকে এসএমএস পাঠাতে পারবেন। প্রচারমূলক অফার, উৎসবের ছাড় বিজ্ঞপ্তি, নতুন প্রোডাক্ট আগমনী বার্তা — সব ধরনের গণ যোগাযোগের জন্য এই ফিচার আদর্শ। গ্রাহক গ্রুপ তৈরি করে টার্গেটেড এসএমএস ক্যাম্পেইন চালান।</p>
+    <ol class="steps">
+      <li><strong>Send Bulk SMS</strong> মেনুতে ক্লিক করুন।</li>
+      <li>প্রাপক গ্রুপ নির্বাচন করুন: সকল গ্রাহক, নির্দিষ্ট শাখার গ্রাহক, সরবরাহকারী, কর্মচারী ইত্যাদি।</li>
+      <li>এসএমএস টেমপ্লেট বেছে নিন অথবা নতুন বার্তা তৈরি করুন।</li>
+      <li>প্রাপকদের তালিকা যাচাই করুন এবং প্রয়োজনে সংশোধন করুন।</li>
+      <li><strong>Send Bulk SMS</strong> বাটনে ক্লিক করে ক্যাম্পেইন শুরু করুন।</li>
+    </ol>
+    <div class="info-box">গণ এসএমএস পাঠানোর আগে অবশ্যই নমুনা এসএমএস নিজের নম্বরে পাঠিয়ে যাচাই করুন। ভুল তথ্য প্রেরণ এড়াতে প্রিভিউ ফিচার ব্যবহার করুন।</div>
+    <div class="warning-box">গণ এসএমএস পাঠানোর সময় সরবরাহকারীর রেট লিমিট মেনে চলুন। অতিরিক্ত এসএমএস একসাথে পাঠালে গেটওয়ে ব্লক হতে পারে। সিস্টেম স্বয়ংক্রিয়ভাবে রেট লিমিট মেনে এসএমএস পাঠায়।</div>
+  </div>
+
+  <!-- SMS Quick Reference Table -->
+  <table class="quick-table no-break">
+    <thead>
+      <tr>
+        <th>মডিউল</th>
+        <th>কার্যক্রম</th>
+        <th>গুরুত্ব</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>SMS Inbox</td><td>আগত এসএমএস দেখুন ও পরিচালনা করুন</td><td>মাঝারি</td></tr>
+      <tr><td>Send SMS</td><td>একক গ্রাহককে এসএমএস পাঠান</td><td>উচ্চ</td></tr>
+      <tr><td>SMS Bill</td><td>এসএমএস খরচের বিল দেখুন</td><td>মাঝারি</td></tr>
+      <tr><td>SMS Report</td><td>ডেলিভারি স্ট্যাটাস প্রতিবেদন</td><td>উচ্চ</td></tr>
+      <tr><td>SMS Service Setting</td><td>গেটওয়ে ও ট্রিগার কনফিগার করুন</td><td>উচ্চ</td></tr>
+      <tr><td>SMS Bill Payment</td><td>ক্রেডিট রিচার্জ ও পেমেন্ট</td><td>উচ্চ</td></tr>
+      <tr><td>Send Bulk SMS</td><td>গণ এসএমএস ক্যাম্পেইন</td><td>উচ্চ</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-footer">VoltERP ব্যবহারকারী নির্দেশিকা — পর্ব ৪ | পৃষ্ঠা ১</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 8: হিসাব প্রতিবেদন (Accounting Report)              -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-number">৮</span>
+    <h2 class="section-title">হিসাব প্রতিবেদন (Accounting Report)</h2>
+  </div>
+
+  <p style="margin-bottom:14px; font-size:9.5pt; color:var(--text-light);">
+    হিসাব প্রতিবেদন মডিউলটি আপনার ইলেকট্রনিক্স মার্টের আর্থিক স্বাস্থ্যের সম্পূর্ণ চিত্র তুলে ধরে। হিসাব খাত ও খতিয়ান থেকে শুরু করে লাভ-ক্ষতি হিসাব এবং উদ্বৃত্তপত্র পর্যন্ত সকল আর্থিক প্রতিবেদন এই মডিউলে পাওয়া যায়। সঠিক আর্থিক সিদ্ধান্তের জন্য এই প্রতিবেদনগুলো অপরিহার্য।
+  </p>
+
+  <!-- Sub-section: হিসাব খাত ও খতিয়ান -->
+  <div class="sub-section">হিসাব খাত ও খতিয়ান</div>
+
+  <div class="module no-break">
+    <h3>Chart of Accounts &amp; Ledger — হিসাব খাত ও খতিয়ান</h3>
+    <p>হিসাব খাত বা চার্ট অফ অ্যাকাউন্টস হলো আপনার ব্যবসার সকল আর্থিক হিসাবের কাঠামোগত তালিকা। সম্পত্তি, দায়, আয়, ব্যয় — সব ধরনের হিসাব খাত এখানে সংজ্ঞায়িত থাকে। খতিয়ান বা লেজার প্রতিটি হিসাব খাতের লেনদেনের বিস্তারিত বিবরণ সরবরাহ করে। এই দুটি একসাথে আপনার ব্যবসার আর্থিক কাঠামোর ভিত্তি গঠন করে।</p>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>হিসাব প্রতিবেদন</strong> এ <strong>Chart of Accounts &amp; Ledger</strong> ক্লিক করুন।</li>
+      <li>হিসাব খাতের শ্রেণিবিন্যাস দেখুন: সম্পত্তি (Asset), দায় (Liability), আয় (Income), ব্যয় (Expense)।</li>
+      <li>নতুন হিসাব খাত যোগ করতে <strong>Add Account</strong> বাটনে ক্লিক করুন।</li>
+      <li>খাতের নাম, কোড, ধরন ও অভিভাবক খাত নির্ধারণ করুন।</li>
+      <li>নির্দিষ্ট হিসাব খাতের খতিয়ান দেখতে খাতের উপর ক্লিক করুন এবং তারিখ পরিসীমা নির্বাচন করুন।</li>
+    </ol>
+    <div class="info-box">হিসাব খাতের কোডিং সিস্টেম সাবধানে পরিকল্পনা করুন। যেমন: ১০০০-১৯৯৯ সম্পত্তি, ২০০০-২৯৯৯ দায়, ৩০০০-৩৯৯৯ আয়, ৪০০০-৪৯৯৯ ব্যয়। এই কাঠামো পরবর্তীতে পরিবর্তন করা কঠিন।</div>
+  </div>
+
+  <!-- Sub-section: নগদ ও মেয়াদী উপসামান্তর -->
+  <div class="sub-section">নগদ ও মেয়াদী উপসামান্তর</div>
+
+  <div class="module no-break">
+    <h3>Cash In Hand — হাতে নগদ</h3>
+    <p>হাতে নগদ রিপোর্টটি যেকোনো সময়ে আপনার ব্যবসার ক্যাশ ব্যালেন্স দেখায়। কোন শাখায় কত নগদ আছে, আজকের নগদ প্রবাহ কেমন — এই তথ্য দৈনন্দিন ব্যবসা পরিচালনার জন্য অত্যন্ত গুরুত্বপূর্ণ। নগদ প্রবাহের হঠাৎ পরিবর্তন সনাক্ত করতেও এই রিপোর্ট সহায়ক।</p>
+    <ol class="steps">
+      <li><strong>Cash In Hand</strong> মেনুতে ক্লিক করুন।</li>
+      <li>প্রতিটি শাখার বর্তমান নগদ ব্যালেন্স দেখুন।</li>
+      <li>আজকের নগদ আয় ও ব্যয়ের সামারি পরীক্ষা করুন।</li>
+      <li>তারিখ পরিবর্তন করে যেকোনো দিনের নগদ অবস্থা দেখুন।</li>
+      <li>প্রয়োজনে রিপোর্ট প্রিন্ট বা এক্সপোর্ট করুন।</li>
+    </ol>
+    <div class="info-box">প্রতিদিন ব্যবসার শেষে হাতে নগদ রিপোর্ট যাচাই করুন। ব্যাংক ডিপোজিটের সাথে নগদ ব্যালেন্স মিলিয়ে দেখুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Trial Balance — মেয়াদী উপসামান্তর</h3>
+    <p>মেয়াদী উপসামান্তর বা ট্রায়াল ব্যালেন্স একটি নির্দিষ্ট তারিখে সকল হিসাব খাতের ডেবিট ও ক্রেডিট ব্যালেন্সের সারসংক্ষেপ। এটি আপনার বহিরাংশের গাণিতিক নির্ভুলতা নিশ্চিত করে। ডেবিট ও ক্রেডিটের সমষ্টি সমান হলে বহিরাংশের লেনদেন সঠিকভাবে রেকর্ড হয়েছে বলে ধরে নেওয়া যায়।</p>
+    <ol class="steps">
+      <li><strong>Trial Balance</strong> মেনুতে ক্লিক করুন।</li>
+      <li>রিপোর্টের জন্য তারিখ বা মেয়াদ নির্বাচন করুন।</li>
+      <li>সকল হিসাব খাতের ডেবিট ও ক্রেডিট ব্যালেন্স দেখুন।</li>
+      <li>ডেবিট ও ক্রেডিটের মোট সমান কিনা তা যাচাই করুন।</li>
+      <li>অসমতা থাকলে সেই হিসাব খাত শনাক্ত করে সংশোধন করুন।</li>
+    </ol>
+    <div class="info-box">ট্রায়াল ব্যালেন্সে ডেবিট ও ক্রেডিটের সমষ্টি সমান না হলে বহিরাংশে ত্রুটি আছে। সাবসিডিরি লেজারের সাথে জেনারেল লেজার মিলিয়ে ত্রুটি খুঁজে বের করুন।</div>
+  </div>
+
+  <!-- Sub-section: লাভ-ক্ষতি ও উদ্বৃত্তপত্র -->
+  <div class="sub-section">লাভ-ক্ষতি ও উদ্বৃত্তপত্র</div>
+
+  <div class="module no-break">
+    <h3>Profit and Loss Account — লাভ-ক্ষতি হিসাব</h3>
+    <p>লাভ-ক্ষতি হিসাব রিপোর্টটি একটি নির্দিষ্ট মেয়াদে আপনার ব্যবসার মোট আয় ও ব্যয়ের তুলনামূলক বিবরণ প্রদান করে। এই রিপোর্ট থেকে জানা যায় আপনার ইলেকট্রনিক্স মার্ট লাভে আছে নাকি ক্ষতিতে। কোন খাতে আয় বেশি, কোন খাতে ব্যয় অতিরিক্ত — তা বিশ্লেষণ করে ব্যবসার কৌশল পরিবর্তন করা সম্ভব।</p>
+    <p style="font-size:9.5pt; color:var(--text-light); margin: 6px 0 4px 0;"><strong>কীভাবে আপনার ব্যবসার লাভ ক্ষতি দেখবেন — বিস্তারিত পদ্ধতি:</strong></p>
+    <ol class="steps">
+      <li><strong>Profit and Loss Account</strong> মেনুতে ক্লিক করুন।</li>
+      <li>রিপোর্টের মেয়াদ নির্বাচন করুন: মাসিক, ত্রৈমাসিক, বাৎসরিক অথবা কাস্টম তারিখ পরিসীমা।</li>
+      <li>শাখা নির্বাচন করুন — নির্দিষ্ট শাখা বা সকল শাখার সমন্বিত রিপোর্ট দেখুন।</li>
+      <li><strong>Generate</strong> বাটনে ক্লিক করুন। রিপোর্ট দুটি অংশে বিভক্ত হবে: <strong>আয়</strong> (বিক্রয় ও অন্যান্য আয়) এবং <strong>ব্যয়</strong> (ক্রয়, পরিচালন ব্যয়, প্রশাসনিক ব্যয়)।</li>
+      <li>আয় ও ব্যয়ের পার্থক্য দেখুন — আয় বেশি হলে <strong>নিট লাভ</strong>, ব্যয় বেশি হলে <strong>নিট ক্ষতি</strong> দেখাবে।</li>
+      <li>পূর্ববর্তী মেয়াদের সাথে তুলনা করতে <strong>Compare</strong> অপশন ব্যবহার করুন।</li>
+      <li>রিপোর্ট PDF বা Excel-এ এক্সপোর্ট করে সংরক্ষণ করুন।</li>
+    </ol>
+    <div class="info-box">মাসিক লাভ-ক্ষতি রিপোর্ট নিয়মিত পরীক্ষা করুন। যে মাসে ক্ষতি হয়েছে, পরের মাসে সেই খাতে ব্যয় কমানোর পরিকল্পনা করুন। ত্রৈমাসিক তুলনা ব্যবসার প্রবণতা বুঝতে সাহায্য করে।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Balance Sheet &amp; Period Close — উদ্বৃত্তপত্র ও মেয়াদ সমাপ্তি</h3>
+    <p>উদ্বৃত্তপত্র বা ব্যালেন্স শিট একটি নির্দিষ্ট তারিখে আপনার ব্যবসার সম্পত্তি, দায় ও মালিকানার সম্পূর্ণ চিত্র তুলে ধরে। মেয়াদ সমাপ্তি বা পিরিয়ড ক্লোজ প্রক্রিয়ার মাধ্যমে একটি আর্থিক বছর বা মেয়াদের হিসাব চূড়ান্তভাবে বন্ধ করা হয়। মেয়াদ সমাপ্তির পর সেই মেয়াদের হিসাবে আর কোনো পরিবর্তন করা যায় না।</p>
+    <ol class="steps">
+      <li><strong>Balance Sheet</strong> মেনুতে ক্লিক করুন।</li>
+      <li>রিপোর্টের তারিখ নির্বাচন করুন (সাধারণত আর্থিক বছরের শেষ তারিখ)।</li>
+      <li>সম্পত্তি (Asset) অংশে চলমান সম্পত্তি ও স্থায়ী সম্পত্তির বিবরণ দেখুন।</li>
+      <li>দায় (Liability) অংশে চলমান দায় ও দীর্ঘমেয়াদী দায়ের বিবরণ দেখুন।</li>
+      <li>মালিকানা ইক্যুইটিতে মূলধন ও সঞ্চিত মুনাফা দেখুন।</li>
+      <li>মেয়াদ সমাপ্তি করতে <strong>Period Close</strong> মেনুতে যান এবং বন্ধ করার মেয়াদ নির্বাচন করুন।</li>
+      <li>নিশ্চিতকরণ ডায়ালগে <strong>Confirm</strong> ক্লিক করুন — এই পদক্ষেপ পূর্বাবস্থায় ফেরানো যাবে না।</li>
+    </ol>
+    <div class="info-box">মেয়াদ সমাপ্তির আগে নিশ্চিত করুন যে সকল লেনদেন সঠিকভাবে রেকর্ড হয়েছে এবং ট্রায়াল ব্যালেন্স মিলেছে। মেয়াদ বন্ধ হলে তা পুনরায় খোলা সম্ভব নয়।</div>
+    <div class="warning-box">মেয়াদ সমাপ্তি একটি অপরিবর্তনীয় প্রক্রিয়া। নিশ্চিত হওয়ার আগে ব্যাকআপ নিন এবং আর্থিক প্রতিবেদনগুলো চূড়ান্তভাবে যাচাই করুন।</div>
+  </div>
+
+  <!-- Accounting Reports Workflow -->
+  <div class="workflow no-break">
+    <h3>📋 হিসাব প্রতিবেদন কর্মপ্রবাহ</h3>
+    <ol>
+      <li><strong>হিসাব খাত সেটআপ</strong> → চার্ট অফ অ্যাকাউন্টসে সকল হিসাব খাত সংজ্ঞায়িত করুন।</li>
+      <li><strong>দৈনিক লেনদেন</strong> → বিক্রয়, ক্রয়, খরচ সব লেনদেন রেকর্ড করুন।</li>
+      <li><strong>হাতে নগদ যাচাই</strong> → প্রতিদিন ক্যাশ ব্যালেন্স মিলিয়ে দেখুন।</li>
+      <li><strong>ট্রায়াল ব্যালেন্স</strong> → মাস শেষে ডেবিট-ক্রেডিট সমতা যাচাই করুন।</li>
+      <li><strong>লাভ-ক্ষতি হিসাব</strong> → মেয়াদের আয়-ব্যয় বিশ্লেষণ করুন।</li>
+      <li><strong>উদ্বৃত্তপত্র</strong> → সম্পত্তি ও দায়ের চিত্র দেখুন।</li>
+      <li><strong>মেয়াদ সমাপ্তি</strong> → সব কিছু সঠিক থাকলে মেয়াদ বন্ধ করুন।</li>
+    </ol>
+  </div>
+
+  <div class="page-footer">VoltERP ব্যবহারকারী নির্দেশিকা — পর্ব ৪ | পৃষ্ঠা ২</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 9: আর্থিক অডিট (Financial Audit)                    -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-number">৯</span>
+    <h2 class="section-title">আর্থিক অডিট (Financial Audit)</h2>
+  </div>
+
+  <p style="margin-bottom:14px; font-size:9.5pt; color:var(--text-light);">
+    আর্থিক অডিট মডিউলটি আপনার ইলেকট্রনিক্স মার্টের আর্থিক সততা, নিয়ন্ত্রণ ও স্বচ্ছতা নিশ্চিত করে। জালিয়াতি সনাক্তকরণ থেকে ইনভেন্টরি বয়স বিশ্লেষণ পর্যন্ত — এই মডিউল আপনার ব্যবসার আর্থিক ঝুঁকি কমাতে এবং কর্মক্ষমতা বাড়াতে সহায়তা করে। নিয়মিত অডিট আপনার ব্যবসার সুরক্ষা ও বিশ্বাসযোগ্যতা বাড়ায়।
+  </p>
+
+  <!-- Sub-section: ড্যাশবোর্ড ও জালিয়াতি সনাক্তকরণ -->
+  <div class="sub-section">ড্যাশবোর্ড ও জালিয়াতি সনাক্তকরণ</div>
+
+  <div class="module no-break">
+    <h3>Dashboard KPI — মূল কর্মক্ষমতা সূচক</h3>
+    <p>আর্থিক অডিট ড্যাশবোর্ডে আপনার ব্যবসার মূল কর্মক্ষমতা সূচকগুলো (KPI) একনজরে দেখা যায়। আয়ের প্রবণতা, ব্যয়ের হার, নগদ প্রবাহ, ইনভেন্টরি টার্নওভার এবং মুনাফার মার্জিন — সব গুরুত্বপূর্ণ সূচক এই ড্যাশবোর্ডে ভিজ্যুয়াল আকারে উপস্থাপিত হয়। যেকোনো অস্বাভাবিক পরিবর্তন দ্রুত চোখে পড়বে।</p>
+    <ol class="steps">
+      <li><strong>Financial Audit</strong> মেনুতে ক্লিক করে <strong>Dashboard KPI</strong> নির্বাচন করুন।</li>
+      <li>শীর্ষে মূল KPI কার্ডগুলো দেখুন: মোট আয়, মোট ব্যয়, নিট মুনাফা, নগদ ব্যালেন্স।</li>
+      <li>গ্রাফ ও চার্ট থেকে প্রবণতা বিশ্লেষণ করুন — মাসিক, ত্রৈমাসিক বা বাৎসরিক।</li>
+      <li>লাল রঙের সূচকগুলো সতর্কতা নির্দেশ করে — সেগুলোতে বিশেষ মনোযোগ দিন।</li>
+      <li>নির্দিষ্ট KPI-তে ক্লিক করে বিস্তারিত বিশ্লেষণ দেখুন।</li>
+    </ol>
+    <div class="info-box">সপ্তাহে অন্তত একবার অডিট ড্যাশবোর্ড পরীক্ষা করুন। হঠাৎ কোনো সূচকের অস্বাভাবিক পরিবর্তন সমস্যার প্রথম লক্ষণ হতে পারে।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Fraud Detection — জালিয়াতি সনাক্তকরণ</h3>
+    <p>জালিয়াতি সনাক্তকরণ সিস্টেমটি আপনার ব্যবসার আর্থিক লেনদেনে কোনো অনিয়ম বা সন্দেহজনক কার্যকলাপ শনাক্ত করে। অস্বাভাবিক বড় বিক্রয়, পুনরাবৃত্ত রিফান্ড, নগদ হ্রাস, এবং কর্মচারীর অস্বাভাবিক লেনদেন — এই ধরনের সন্দেহজনক প্যাটার্ন সিস্টেম স্বয়ংক্রিয়ভাবে চিহ্নিত করে। প্রতিটি সতর্কতায় ঝুঁকির মাত্রা ও বিশ্লেষণ সরবরাহ করা হয়।</p>
+    <ol class="steps">
+      <li><strong>Fraud Detection</strong> মেনুতে ক্লিক করুন।</li>
+      <li>সনাক্ত করা সন্দেহজনক কার্যকলাপের তালিকা দেখুন, ঝুঁকির মাত্রা অনুসারে সাজানো।</li>
+      <li>প্রতিটি সতর্কতায় ক্লিক করে বিস্তারিত তথ্য ও প্রমাণ দেখুন।</li>
+      <li>সতর্কতাটি যাচাই করে <strong>Confirmed</strong> (নিশ্চিত), <strong>False Positive</strong> (ভুল সতর্কতা), বা <strong>Under Investigation</strong> (তদন্তাধীন) হিসেবে চিহ্নিত করুন।</li>
+      <li>নিশ্চিত জালিয়াতির ক্ষেত্রে প্রয়োজনীয় পদক্ষেপ গ্রহণ করুন এবং রিপোর্ট সংরক্ষণ করুন।</li>
+    </ol>
+    <div class="info-box">সন্দেহজনক কার্যকলাপের সতর্কতা এড়িয়ে যাবেন না। প্রতিটি হাই-রিস্ক সতর্কতা অবিলম্বে তদন্ত করুন। ছোট অনিয়মও সময়মতো ধরলে বড় ক্ষতি এড়ানো যায়।</div>
+  </div>
+
+  <!-- Sub-section: স্বয়ংক্রিয় পোস্টিং ও ইনভেন্টরি -->
+  <div class="sub-section">স্বয়ংক্রিয় পোস্টিং ও ইনভেন্টরি বিশ্লেষণ</div>
+
+  <div class="module no-break">
+    <h3>Ledger Auto-Post — খতিয়ানে স্বয়ংক্রিয় পোস্টিং</h3>
+    <p>খতিয়ানে স্বয়ংক্রিয় পোস্টিং ফিচারটি বিক্রয়, ক্রয়, পেমেন্ট ও রিসিটের মতো লেনদেন স্বয়ংক্রিয়ভাবে সংশ্লিষ্ট হিসাব খতিয়ানে পোস্ট করে। এতে ম্যানুয়াল এন্ট্রির ত্রুটি কমে এবং হিসাব সর্বদা আপডেট থাকে। প্রতিটি অটো-পোস্ট এন্ট্রি অডিট ট্রেইলে লগ হয়।</p>
+    <ol class="steps">
+      <li><strong>Ledger Auto-Post</strong> মেনুতে ক্লিক করুন।</li>
+      <li>স্বয়ংক্রিয় পোস্টিং সক্রিয় করুন — কোন ইভেন্টে অটো-পোস্ট হবে তা নির্বাচন করুন।</li>
+      <li>পোস্টিং নিয়ম কনফিগার করুন: কোন হিসাব খাতে ডেবিট বা ক্রেডিট হবে।</li>
+      <li>পেন্ডিং অটো-পোস্ট এন্ট্রি দেখুন এবং ম্যানুয়ালি প্রক্রিয়া করুন যদি প্রয়োজন হয়।</li>
+      <li>অটো-পোস্ট লগ থেকে সকল স্বয়ংক্রিয় পোস্টিংয়ের ইতিহাস দেখুন।</li>
+    </ol>
+    <div class="info-box">স্বয়ংক্রিয় পোস্টিং সক্রিয় করার পর নিয়মিত অটো-পোস্ট লগ পরীক্ষা করুন। কোনো ভুল পোস্টিং ধরা পড়লে দ্রুত সংশোধন করুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Inventory Aging — ইনভেন্টরি বয়স বিশ্লেষণ</h3>
+    <p>ইনভেন্টরি বয়স বিশ্লেষণ রিপোর্টটি আপনাকে দেখায় কোন প্রোডাক্ট কতদিন স্টকে আছে। দীর্ঘ সময় স্টকে থাকা প্রোডাক্ট মূল্যহ্রাসের ঝুঁকিতে পড়ে এবং মূলধন আটকে যায়। এই রিপোর্ট থেকে জানা যায় ৩০ দিন, ৬০ দিন, ৯০ দিন বা তার বেশি সময় স্টকে থাকা প্রোডাক্টের তালিকা ও মূল্য। সঠিক সময়ে ছাড় দিয়ে পুরনো স্টক ক্লিয়ার করা সম্ভব।</p>
+    <ol class="steps">
+      <li><strong>Inventory Aging</strong> মেনুতে ক্লিক করুন।</li>
+      <li>বয়স ক্যাটেগরি অনুসারে প্রোডাক্ট তালিকা দেখুন: ০-৩০ দিন, ৩১-৬০ দিন, ৬১-৯০ দিন, ৯০+ দিন।</li>
+      <li>প্রতিটি ক্যাটেগরিতে আটকে থাকা মূলধনের পরিমাণ দেখুন।</li>
+      <li>নির্দিষ্ট প্রোডাক্টে ক্লিক করে বিস্তারিত স্টক ইতিহাস দেখুন।</li>
+      <li>৯০+ দিনের প্রোডাক্টগুলোর জন্য ছাড় বা ক্লিয়ারেন্স সেলের পরিকল্পনা করুন।</li>
+    </ol>
+    <div class="info-box">ইলেকট্রনিক্স প্রোডাক্টের মূল্য দ্রুত কমে, তাই ৬০ দিনের বেশি স্টকে থাকা প্রোডাক্টে বিশেষ মনোযোগ দিন। সময়মতো ছাড় দিলে ক্ষতি কম হয়।</div>
+  </div>
+
+  <!-- Sub-section: প্রোডাক্ট জীবনচক্র ও বিশেষায়িত প্রতিবেদন -->
+  <div class="sub-section">প্রোডাক্ট জীবনচক্র ও বিশেষায়িত প্রতিবেদন</div>
+
+  <div class="module no-break">
+    <h3>Product Lifecycle — প্রোডাক্ট জীবনচক্র</h3>
+    <p>প্রোডাক্ট জীবনচক্র রিপোর্টটি প্রতিটি ইলেকট্রনিক্স প্রোডাক্টের জীবনের পর্যায় নির্দেশ করে — প্রবর্তন, বৃদ্ধি, পরিপক্বতা ও পতন। কোন প্রোডাক্ট নতুন বাজারে এসেছে, কোনটি বিক্রি বাড়ছে, কোনটি চূড়ান্ত পর্যায়ে — এই তথ্য ক্রয় সিদ্ধান্তে সহায়তা করে। পতনশীল প্রোডাক্টে নতুন করে বিনিয়োগ এড়ানো যায়।</p>
+    <ol class="steps">
+      <li><strong>Product Lifecycle</strong> মেনুতে ক্লিক করুন।</li>
+      <li>প্রোডাক্ট তালিকায় প্রতিটি প্রোডাক্টের জীবনচক্রের পর্যায় দেখুন।</li>
+      <li>ফিল্টার ব্যবহার করে নির্দিষ্ট পর্যায়ের প্রোডাক্ট আলাদা করুন।</li>
+      <li>পতনশীল প্রোডাক্টগুলো চিহ্নিত করে ক্রয় পরিকল্পনা সংশোধন করুন।</li>
+      <li>বৃদ্ধিশীল প্রোডাক্টে স্টক বাড়ানোর সিদ্ধান্ত নিন।</li>
+    </ol>
+    <div class="info-box">প্রতি মাসে প্রোডাক্ট জীবনচক্র রিপোর্ট পরীক্ষা করুন। পতনশীল প্রোডাক্টের স্টক কমান এবং বৃদ্ধিশীল প্রোডাক্টে অর্ডার বাড়ান।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Specialized Reports — বিশেষায়িত প্রতিবেদন</h3>
+    <p>বিশেষায়িত প্রতিবেদন অংশে আপনার ইলেকট্রনিক্স মার্টের জন্য বিশেষভাবে তৈরি করা বেশ কিছু গুরুত্বপূর্ণ রিপোর্ট পাওয়া যায়। এর মধ্যে রয়েছে কমিশন রিপোর্ট, হায়ার-পারচেজ রিপোর্ট, কালেকশন ম্যাট্রিক্স এবং শাখা ভিত্তিক তুলনামূলক বিশ্লেষণ। এই রিপোর্টগুলো ব্যবসার নির্দিষ্ট চাহিদা অনুযায়ী তৈরি।</p>
+    <ol class="steps">
+      <li><strong>Specialized Reports</strong> মেনুতে ক্লিক করুন।</li>
+      <li>প্রয়োজনীয় রিপোর্ট নির্বাচন করুন: কমিশন রিপোর্ট, হায়ার-পারচেজ রিপোর্ট, কালেকশন ম্যাট্রিক্স।</li>
+      <li>তারিখ পরিসীমা ও অন্যান্য ফিল্টার সেট করুন।</li>
+      <li><strong>Generate Report</strong> বাটনে ক্লিক করুন।</li>
+      <li>রিপোর্ট দেখুন, বিশ্লেষণ করুন এবং প্রয়োজনে এক্সপোর্ট করুন।</li>
+    </ol>
+    <div class="info-box">কমিশন রিপোর্ট মাসিক ভিত্তিতে দেখুন — এতে কর্মচারীদের সঠিক কমিশন প্রদান নিশ্চিত হবে। হায়ার-পারচেজ রিপোর্ট থেকে বকেয়া কিস্তির তথ্য পাওয়া যায়।</div>
+  </div>
+
+  <!-- Sub-section: বিজ্ঞপ্তি ও ডেটা সততা -->
+  <div class="sub-section">বিজ্ঞপ্তি ও ডেটা সততা</div>
+
+  <div class="module no-break">
+    <h3>Notifications &amp; Integrity — বিজ্ঞপ্তি ও ডেটা সততা</h3>
+    <p>বিজ্ঞপ্তি ও ডেটা সততা মডিউলটি আপনার সিস্টেমের ডেটার সঠিকতা ও সামঞ্জস্য নিশ্চিত করে। সিস্টেম স্বয়ংক্রিয়ভাবে ডেটা সততা পরীক্ষা করে এবং কোনো অসামঞ্জস্য পেলে বিজ্ঞপ্তি পাঠায়। খতিয়ানের ব্যালেন্স মিলছে কিনা, স্টকের পরিমাণ সঠিক আছে কিনা — এই ধরনের যাচাই এখানে হয়।</p>
+    <ol class="steps">
+      <li><strong>Notifications &amp; Integrity</strong> মেনুতে ক্লিক করুন।</li>
+      <li>সক্রিয় বিজ্ঞপ্তি ও সতর্কতার তালিকা দেখুন।</li>
+      <li><strong>Run Integrity Check</strong> বাটনে ক্লিক করে ডেটা সততা যাচাই শুরু করুন।</li>
+      <li>যাচাইয়ের ফলাফল দেখুন — কোনো অসামঞ্জস্য পাওয়া গেলে তা লাল রঙে চিহ্নিত হবে।</li>
+      <li>প্রতিটি অসামঞ্জস্যের বিবরণ দেখে সংশোধনমূলক পদক্ষেপ নিন।</li>
+      <li>বিজ্ঞপ্তি সেটিংস থেকে কোন ধরনের সতর্কতায় বিজ্ঞপ্তি পাবেন তা কনফিগার করুন।</li>
+    </ol>
+    <div class="info-box">সপ্তাহে অন্তত একবার ডেটা সততা পরীক্ষা চালান। অসামঞ্জস্য পাওয়া গেলে দ্রুত সংশোধন করুন — দেরি করলে সমস্যা জটিল হতে পারে।</div>
+  </div>
+
+  <!-- Financial Audit Quick Reference -->
+  <table class="quick-table no-break">
+    <thead>
+      <tr>
+        <th>মডিউল</th>
+        <th>কার্যক্রম</th>
+        <th>পরীক্ষার সুপারিশ</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Dashboard KPI</td><td>কর্মক্ষমতা সূচক পর্যবেক্ষণ</td><td>সাপ্তাহিক</td></tr>
+      <tr><td>Fraud Detection</td><td>জালিয়াতি ও অনিয়ম সনাক্তকরণ</td><td>দৈনিক</td></tr>
+      <tr><td>Ledger Auto-Post</td><td>স্বয়ংক্রিয় হিসাব পোস্টিং</td><td>ক্রমাগত</td></tr>
+      <tr><td>Inventory Aging</td><td>পুরনো স্টক শনাক্তকরণ</td><td>মাসিক</td></tr>
+      <tr><td>Product Lifecycle</td><td>প্রোডাক্ট জীবনচক্র বিশ্লেষণ</td><td>মাসিক</td></tr>
+      <tr><td>Specialized Reports</td><td>কমিশন, হায়ার-পারচেজ রিপোর্ট</td><td>মাসিক</td></tr>
+      <tr><td>Notifications &amp; Integrity</td><td>ডেটা সততা যাচাই</td><td>সাপ্তাহিক</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-footer">VoltERP ব্যবহারকারী নির্দেশিকা — পর্ব ৪ | পৃষ্ঠা ৩</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 10: এমআইএস প্রতিবেদন (MIS Report) — Basic Report    -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-number">১০</span>
+    <h2 class="section-title">এমআইএস প্রতিবেদন (MIS Report)</h2>
+  </div>
+
+  <p style="margin-bottom:14px; font-size:9.5pt; color:var(--text-light);">
+    এমআইএস (ম্যানেজমেন্ট ইনফরমেশন সিস্টেম) প্রতিবেদন মডিউলটি আপনার ইলেকট্রনিক্স মার্টের সকল ব্যবসায়িক তথ্যের সুসংগঠিত বিশ্লেষণ সরবরাহ করে। কর্মচারী তথ্য, প্রোডাক্ট তথ্য, স্টক বিশ্লেষণ, বিক্রয় কর্মক্ষমতা এবং পূর্বাভাস — সব ধরনের পরিচালন তথ্য এই মডিউলে পাওয়া যায়। এই পর্বে Basic Report উপবিভাগের সকল রিপোর্ট আলোচনা করা হয়েছে।
+  </p>
+
+  <!-- Sub-section: কর্মচারী ও প্রোডাক্ট তথ্য -->
+  <div class="sub-section">কর্মচারী ও প্রোডাক্ট তথ্য প্রতিবেদন</div>
+
+  <div class="module no-break">
+    <h3>Employee Information — কর্মচারী তথ্য প্রতিবেদন</h3>
+    <p>কর্মচারী তথ্য প্রতিবেদনে আপনার ইলেকট্রনিক্স মার্টের সকল কর্মচারীর বিস্তারিত তথ্য পাওয়া যায়। নাম, পদবি, বিভাগ, যোগদানের তারিখ, বেতন কাঠামো এবং কর্মক্ষমতা মূল্যায়ন — সব তথ্য একত্রে দেখা যায়। কর্মচারী ব্যবস্থাপনার জন্য এই রিপোর্ট অপরিহার্য।</p>
+    <ol class="steps">
+      <li><strong>MIS Report</strong> মেনু থেকে <strong>Basic Report</strong> নির্বাচন করুন এবং <strong>Employee Information</strong> ক্লিক করুন।</li>
+      <li>বিভাগ, পদবি বা শাখা অনুসারে ফিল্টার সেট করুন।</li>
+      <li>কর্মচারীর তালিকা দেখুন — নাম, কোড, বিভাগ, যোগদান তারিখ, অবস্থা।</li>
+      <li>নির্দিষ্ট কর্মচারীর উপর ক্লিক করে বিস্তারিত প্রোফাইল দেখুন।</li>
+      <li>রিপোর্ট PDF বা Excel-এ এক্সপোর্ট করুন।</li>
+    </ol>
+    <div class="info-box">কর্মচারী তথ্য প্রতিবেদন থেকে বিভাগভিত্তিক কর্মচারী সংখ্যা ও বেতন কাঠামোর সামারি পাওয়া যায়। পিআর ও পেরোলের জন্য এই তথ্য ব্যবহার করুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Product Information — প্রোডাক্ট তথ্য প্রতিবেদন</h3>
+    <p>প্রোডাক্ট তথ্য প্রতিবেদনে আপনার ইলেকট্রনিক্স মার্টের সকল প্রোডাক্টের বিস্তারিত তথ্য পাওয়া যায়। প্রোডাক্টের নাম, কোড, ক্যাটেগরি, ব্র্যান্ড, মডেল, ক্রয়মূল্য, বিক্রয়মূল্য এবং বর্তমান স্টক পরিমাণ — সব তথ্য একত্রে দেখা যায়। প্রোডাক্ট ক্যাটালগ তৈরি ও মূল্য তুলনার জন্য এই রিপোর্ট কার্যকর।</p>
+    <ol class="steps">
+      <li><strong>Product Information</strong> রিপোর্ট ক্লিক করুন।</li>
+      <li>ক্যাটেগরি, ব্র্যান্ড বা সেগমেন্ট অনুসারে ফিল্টার করুন।</li>
+      <li>প্রোডাক্ট তালিকা দেখুন — সকল প্রোডাক্টের নাম, কোড, ক্যাটেগরি, মূল্য ও স্টক।</li>
+      <li>নির্দিষ্ট প্রোডাক্টে ক্লিক করে বিস্তারিত তথ্য ও বিক্রয় ইতিহাস দেখুন।</li>
+      <li>প্রোডাক্ট ক্যাটালগ PDF হিসেবে এক্সপোর্ট করুন।</li>
+    </ol>
+    <div class="info-box">নতুন প্রোডাক্ট যোগ হলে বা মূল্য পরিবর্তন হলে প্রোডাক্ট তথ্য রিপোর্ট আপডেট হতে কিছুটা সময় লাগতে পারে। তাজা তথ্যের জন্য Refresh বাটন ব্যবহার করুন।</div>
+  </div>
+
+  <!-- Sub-section: স্টক রিপোর্ট -->
+  <div class="sub-section">স্টক রিপোর্ট ও বিশ্লেষণ</div>
+
+  <div class="module no-break">
+    <h3>Stock Details Report — স্টক বিস্তারিত প্রতিবেদন</h3>
+    <p>স্টক বিস্তারিত প্রতিবেদনে প্রতিটি প্রোডাক্টের বর্তমান স্টকের সম্পূর্ণ বিবরণ পাওয়া যায়। কোন গোডাউনে কত পরিমাণ আছে, ক্রয়মূল্য কত, মোট স্টক মূল্য কত — সব তথ্য এই রিপোর্টে দেখা যায়। ইনভেন্টরি ব্যবস্থাপনার জন্য এটি সবচেয়ে গুরুত্বপূর্ণ রিপোর্ট।</p>
+    <ol class="steps">
+      <li><strong>Stock Details Report</strong> ক্লিক করুন।</li>
+      <li>গোডাউন, ক্যাটেগরি বা ব্র্যান্ড অনুসারে ফিল্টার সেট করুন।</li>
+      <li>প্রতিটি প্রোডাক্টের স্টক পরিমাণ, গোডাউন অবস্থান ও মূল্য দেখুন।</li>
+      <li>স্টক মান অনুসারে সাজান — সর্বোচ্চ মূল্যের স্টক শীর্ষে দেখুন।</li>
+      <li>রিপোর্ট এক্সপোর্ট করে ইনভেন্টরি পরিকল্পনায় ব্যবহার করুন।</li>
+    </ol>
+    <div class="info-box">মাসের শেষে স্টক ডিটেইলস রিপোর্ট যাচাই করে ফিজিক্যাল স্টকের সাথে মিলিয়ে দেখুন। যেকোনো অসামঞ্জস্য সনাক্ত করে সংশোধন করুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Stock Summary Report — স্টক সারসংক্ষেপ</h3>
+    <p>স্টক সারসংক্ষেপ রিপোর্টটি স্টকের সামগ্রিক চিত্র একনজরে তুলে ধরে। ক্যাটেগরি বা ব্র্যান্ড অনুসারে মোট স্টক পরিমাণ ও মূল্য, স্টক টার্নওভার রেশিও এবং স্টক গঠনের শতকরা হার — সব সারসংক্ষেপে দেখা যায়। দ্রুত সিদ্ধান্ত নেওয়ার জন্য এই রিপোর্ট আদর্শ।</p>
+    <ol class="steps">
+      <li><strong>Stock Summary Report</strong> ক্লিক করুন।</li>
+      <li>সারসংক্ষেপ দেখুন — ক্যাটেগরি অনুসারে স্টক পরিমাণ ও মূল্য।</li>
+      <li>পাই চার্ট ও বার চার্ট থেকে স্টক গঠন বুঝুন।</li>
+      <li>শাখা বা গোডাউন অনুসারে তুলনামূলক সারসংক্ষেপ দেখুন।</li>
+    </ol>
+    <div class="info-box">স্টক সারসংক্ষেপ প্রতিদিন দেখুন। যে ক্যাটেগরিতে স্টক কম, সেখানে জরুরি ভিত্তিতে ক্রয় অর্ডার দিন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Stock Ledger — স্টক খতিয়ান</h3>
+    <p>স্টক খতিয়ান বা স্টক লেজার প্রতিটি প্রোডাক্টের স্টকে আগমন ও নির্গমনের সম্পূর্ণ ইতিহাস রেকর্ড করে। কোন তারিখে কত পরিমাণ ক্রয় এসেছে, কত বিক্রয় হয়েছে, কত ট্রান্সফার হয়েছে — প্রতিটি লেনদেনের বিবরণ এই খতিয়ানে পাওয়া যায়। স্টক অডিটের জন্য এটি অপরিহার্য।</p>
+    <ol class="steps">
+      <li><strong>Stock Ledger</strong> ক্লিক করুন।</li>
+      <li>প্রোডাক্ট নির্বাচন করুন এবং তারিখ পরিসীমা সেট করুন।</li>
+      <li>প্রোডাক্টটির সকল স্টক লেনদেন দেখুন: আগমন (ক্রয়, ট্রান্সফার ইন) ও নির্গমন (বিক্রয়, ট্রান্সফার আউট)।</li>
+      <li>প্রতিটি লেনদেনের তারিখ, রেফারেন্স নম্বর, পরিমাণ ও ব্যালেন্স দেখুন।</li>
+      <li>প্রয়োজনে নির্দিষ্ট লেনদেনের সোর্স ডকুমেন্ট (চালান/অর্ডার) দেখুন।</li>
+    </ol>
+    <div class="info-box">স্টক খতিয়ান থেকে যেকোনো তারিখের ব্যালেন্স যাচাই করা যায়। ফিজিক্যাল স্টক গণনার সাথে খতিয়ানের ব্যালেন্স মিলিয়ে অডিট করুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Stock Quantity Report — স্টক পরিমাণ</h3>
+    <p>স্টক পরিমাণ রিপোর্টটি সকল প্রোডাক্টের বর্তমান স্টক পরিমাণ দ্রুত দেখায়। কোন প্রোডাক্টের স্টক কম, কোনটি শেষ হয়ে গেছে, কোনটি অতিরিক্ত আছে — এই তথ্য দ্রুত পুনরায় অর্ডারের সিদ্ধান্ত নিতে সাহায্য করে। রিঅর্ডার লেভেলের নিচে থাকা প্রোডাক্ট লাল রঙে চিহ্নিত থাকে।</p>
+    <ol class="steps">
+      <li><strong>Stock Quantity Report</strong> ক্লিক করুন।</li>
+      <li>সকল প্রোডাক্টের বর্তমান স্টক পরিমাণ দেখুন।</li>
+      <li>লাল চিহ্নিত প্রোডাক্টগুলো রিঅর্ডার লেভেলের নিচে — সেগুলোতে জরুরি অর্ডার দিন।</li>
+      <li>সবুজ চিহ্নিত প্রোডাক্ট পর্যাপ্ত স্টকে আছে।</li>
+      <li>ক্যাটেগরি বা ব্র্যান্ড ফিল্টার ব্যবহার করে নির্দিষ্ট প্রোডাক্ট খুঁজুন।</li>
+    </ol>
+    <div class="info-box">প্রতিদিন সকালে স্টক পরিমাণ রিপোর্ট দেখুন। লো স্টক প্রোডাক্টে অবিলম্বে পুনরায় অর্ডার দিন। স্টক শূন্য হলে বিক্রি বন্ধ হয়ে যেতে পারে।</div>
+  </div>
+
+  <!-- Sub-section: স্টক পূর্বাভাস ও প্রবণতা -->
+  <div class="sub-section">স্টক পূর্বাভাস ও প্রবণতা বিশ্লেষণ</div>
+
+  <div class="module no-break">
+    <h3>Stock Forcasting (Product Wise) — প্রোডাক্টভিত্তিক স্টক পূর্বাভাস</h3>
+    <p>প্রোডাক্টভিত্তিক স্টক পূর্বাভাস রিপোর্টটি অতীত বিক্রয় তথ্যের ভিত্তিতে প্রতিটি প্রোডাক্টের ভবিষ্যৎ চাহিদা অনুমান করে। কোন প্রোডাক্টের চাহিদা বাড়বে, কোনটি কমবে — এই পূর্বাভাস ক্রয় পরিকল্পনায় সহায়তা করে। সিজনাল ট্রেন্ড ও বিক্রয় প্যাটার্ন বিশ্লেষণ করে সঠিক পূর্বাভাস তৈরি হয়।</p>
+    <ol class="steps">
+      <li><strong>Stock Forcasting (Product Wise)</strong> ক্লিক করুন।</li>
+      <li>প্রোডাক্ট বা ক্যাটেগরি নির্বাচন করুন।</li>
+      <li>পূর্বাভাসের মেয়াদ নির্বাচন করুন: আগামী ৭ দিন, ৩০ দিন বা ৯০ দিন।</li>
+      <li>প্রতিটি প্রোডাক্টের প্রত্যাশিত চাহিদা ও প্রস্তাবিত ক্রয় পরিমাণ দেখুন।</li>
+      <li>পূর্বাভাসের ভিত্তিতে স্বয়ংক্রিয় ক্রয় অর্ডার তৈরি করতে <strong>Create PO</strong> বাটন ব্যবহার করুন।</li>
+    </ol>
+    <div class="info-box">পূর্বাভাস যত বেশি তথ্যের ভিত্তিতে তৈরি হবে, তত বেশি নির্ভুল হবে। কমপক্ষে ৩ মাসের বিক্রয় তথ্য থাকলে ভালো পূর্বাভাস পাওয়া যায়।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Stock Forcasting (Concern Wise) — শাখাভিত্তিক স্টক পূর্বাভাস</h3>
+    <p>শাখাভিত্তিক স্টক পূর্বাভাস রিপোর্টটি প্রতিটি শাখার জন্য আলাদাভাবে স্টকের পূর্বাভাস দেয়। কোন শাখায় কোন প্রোডাক্টের চাহিদা বেশি হবে — তা অনুমান করে সঠিক স্টক বণ্টন নিশ্চিত করা যায়। বিভিন্ন শাখার বিক্রয় প্যাটার্ন আলাদা হতে পারে, তাই শাখাভিত্তিক পূর্বাভাস বেশি নির্ভুল।</p>
+    <ol class="steps">
+      <li><strong>Stock Forcasting (Concern Wise)</strong> ক্লিক করুন।</li>
+      <li>শাখা বা কনসার্ন নির্বাচন করুন।</li>
+      <li>পূর্বাভাসের মেয়াদ নির্ধারণ করুন।</li>
+      <li>শাখাভিত্তিক প্রত্যাশিত চাহিদা ও স্টক প্রয়োজন দেখুন।</li>
+      <li>শাখাগুলোর মধ্যে স্টক ট্রান্সফারের প্রয়োজনীয়তা যাচাই করুন।</li>
+    </ol>
+    <div class="info-box">শাখাভিত্তিক পূর্বাভাস ব্যবহার করে এক শাখার অতিরিক্ত স্টক অন্য শাখায় ট্রান্সফার করুন। এতে নতুন ক্রয়ের প্রয়োজনীয়তা কমে এবং স্টক অপটিমাইজ হয়।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Stock Trend Analysis — স্টক প্রবণতা বিশ্লেষণ</h3>
+    <p>স্টক প্রবণতা বিশ্লেষণ রিপোর্টটি সময়ের সাথে স্টক পরিমাণের পরিবর্তনের ধরন দেখায়। কোন প্রোডাক্টের স্টক কমছে, কোনটি বাড়ছে, কোন সময়ে স্টক সংকট হতে পারে — এই বিশ্লেষণ থেকে জানা যায়। লাইন চার্ট ও ট্রেন্ড গ্রাফ স্টকের গতিপথ স্পষ্টভাবে দেখায়।</p>
+    <ol class="steps">
+      <li><strong>Stock Trend Analysis</strong> ক্লিক করুন।</li>
+      <li>বিশ্লেষণের জন্য প্রোডাক্ট বা ক্যাটেগরি নির্বাচন করুন।</li>
+      <li>তারিখ পরিসীমা সেট করুন — কমপক্ষে ৩ মাসের তথ্য ব্যবহার করুন।</li>
+      <li>ট্রেন্ড লাইন চার্ট দেখুন — ঊর্ধ্বমুখী ট্রেন্ড স্টক বৃদ্ধি, নিম্নমুখী ট্রেন্ড স্টক হ্রাস নির্দেশ করে।</li>
+      <li>ঋতুভিত্তিক প্যাটার্ন চিহ্নিত করুন এবং সেই অনুযায়ী ক্রয় পরিকল্পনা করুন।</li>
+    </ol>
+    <div class="info-box">ঈদ, পূজা বা বিশেষ উৎসবের আগে ইলেকট্রনিক্স বিক্রি বাড়ে। এই সিজনাল ট্রেন্ড বিশ্লেষণ করে আগে থেকে স্টক প্রস্তুত রাখুন।</div>
+  </div>
+
+  <!-- Sub-section: সরবরাহকারী ও বিক্রয় কর্মক্ষমতা -->
+  <div class="sub-section">সরবরাহকারী ও বিক্রয় কর্মক্ষমতা</div>
+
+  <div class="module no-break">
+    <h3>Supplier Status Grid — সরবরাহকারী অবস্থা সারণি</h3>
+    <p>সরবরাহকারী অবস্থা সারণিতে সকল সরবরাহকারীর বর্তমান অবস্থা একত্রে দেখা যায়। কোন সরবরাহকারীর কাছে বকেয়া কত, সরবরাহের কর্মক্ষমতা কেমন, গড় ডেলিভারি সময় কত — এই তথ্য সরবরাহকারী ব্যবস্থাপনায় সহায়তা করে। সবুজ-হলুদ-লাল রঙের কোডিং দিয়ে সরবরাহকারীর কর্মক্ষমতা দ্রুত বোঝা যায়।</p>
+    <ol class="steps">
+      <li><strong>Supplier Status Grid</strong> ক্লিক করুন।</li>
+      <li>সকল সরবরাহকারীর তালিকা দেখুন — নাম, বকেয়া, কর্মক্ষমতা রেটিং।</li>
+      <li>সবুজ চিহ্নিত সরবরাহকারী চমৎকার, হলুদ মাঝারি, লাল দুর্বল — লাল চিহ্নিতদের সাথে সতর্কতায় কাজ করুন।</li>
+      <li>নির্দিষ্ট সরবরাহকারীতে ক্লিক করে বিস্তারিত তথ্য ও লেনদেনের ইতিহাস দেখুন।</li>
+      <li>রিপোর্ট এক্সপোর্ট করে সরবরাহকারী মূল্যায়নে ব্যবহার করুন।</li>
+    </ol>
+    <div class="info-box">কর্মক্ষমতায় দুর্বল সরবরাহকারীদের নিয়মিত মূল্যায়ন করুন। পুনরায় অর্ডার দেওয়ার আগে তাদের ডেলিভারি রেকর্ড যাচাই করুন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Sales Performance — বিক্রয় কর্মক্ষমতা</h3>
+    <p>বিক্রয় কর্মক্ষমতা রিপোর্টটি আপনাকে দেখায় কোন প্রোডাক্ট সবচেয়ে বেশি বিক্রি হচ্ছে। বেস্ট সেলার প্রোডাক্ট, বিক্রয় প্রবণতা, কর্মচারীভিত্তিক বিক্রয় কর্মক্ষমতা এবং ক্যাটেগরিভিত্তিক বিক্রয় বিশ্লেষণ — সব তথ্য এই রিপোর্টে পাওয়া যায়। বেশি বিক্রি হওয়া প্রোডাক্ট চিনে সেগুলোতে ফোকাস করুন এবং কম বিক্রি হওয়া প্রোডাক্টের কৌশল পরিবর্তন করুন।</p>
+    <ol class="steps">
+      <li><strong>Sales Performance</strong> ক্লিক করুন।</li>
+      <li>তারিখ পরিসীমা নির্বাচন করুন এবং শাখা বা কর্মচারী ফিল্টার সেট করুন।</li>
+      <li>বেস্ট সেলার প্রোডাক্টের তালিকা দেখুন — সর্বোচ্চ বিক্রি থেকে সর্বনিম্ন।</li>
+      <li>বিক্রয় প্রবণতা চার্ট দেখুন — কোন প্রোডাক্টের বিক্রি বাড়ছে, কোনটির কমছে।</li>
+      <li>কর্মচারীভিত্তিক বিক্রয় বিশ্লেষণ দেখে কর্মক্ষম কর্মচারীদের পুরস্কৃত করুন।</li>
+      <li>কম বিক্রি হওয়া প্রোডাক্টের জন্য প্রচারমূলক কৌশল গ্রহণ করুন।</li>
+    </ol>
+    <div class="info-box">সাপ্তাহিক বিক্রয় কর্মক্ষমতা রিপোর্ট দেখুন। বেস্ট সেলার প্রোডাক্টে স্টক পর্যাপ্ত রাখুন এবং কম বিক্রি হওয়া প্রোডাক্টে ছাড় বা প্রমোশন দিন।</div>
+  </div>
+
+  <div class="module no-break">
+    <h3>Employee Records — কর্মচারী রেকর্ড</h3>
+    <p>কর্মচারী রেকর্ড রিপোর্টটি সকল কর্মচারীর পূর্ণাঙ্গ সেবা রেকর্ড সরবরাহ করে। যোগদানের তারিখ থেকে শুরু করে পদোন্নতি, বদলি, ছুটির রেকর্ড, কর্মক্ষমতা মূল্যায়ন — সব তথ্য এখানে সংরক্ষিত থাকে। কর্মচারী ব্যবস্থাপনার সিদ্ধান্তে এই রেকর্ড কার্যকর।</p>
+    <ol class="steps">
+      <li><strong>Employee Records</strong> ক্লিক করুন।</li>
+      <li>সকল কর্মচারীর সেবা রেকর্ড দেখুন।</li>
+      <li>বিভাগ, পদবি বা সেবা মেয়াদ অনুসারে ফিল্টার করুন।</li>
+      <li>নির্দিষ্ট কর্মচারীর সম্পূর্ণ রেকর্ড দেখতে তাদের নামে ক্লিক করুন।</li>
+      <li>রিপোর্ট এক্সপোর্ট করে কর্মচারী মূল্যায়নে ব্যবহার করুন।</li>
+    </ol>
+    <div class="info-box">কর্মচারী রেকর্ড আপডেট রাখুন। পদোন্নতি, বদলি বা প্রস্থানের তথ্য সময়মতো আপডেট করুন। সঠিক রেকর্ড পেরোল ও কর্মক্ষমতা মূল্যায়নে সহায়ক।</div>
+  </div>
+
+  <!-- MIS Report Summary Table -->
+  <table class="quick-table no-break">
+    <thead>
+      <tr>
+        <th>রিপোর্ট</th>
+        <th>উদ্দেশ্য</th>
+        <th>পর্যালোচনা</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Employee Information</td><td>কর্মচারী তথ্য ও প্রোফাইল</td><td>মাসিক</td></tr>
+      <tr><td>Product Information</td><td>প্রোডাক্ট ক্যাটালগ ও মূল্য</td><td>প্রয়োজন অনুযায়ী</td></tr>
+      <tr><td>Stock Details</td><td>সম্পূর্ণ স্টক বিবরণ</td><td>সাপ্তাহিক</td></tr>
+      <tr><td>Stock Summary</td><td>স্টক সারসংক্ষেপ</td><td>দৈনিক</td></tr>
+      <tr><td>Stock Ledger</td><td>স্টক লেনদেনের ইতিহাস</td><td>অডিটের সময়</td></tr>
+      <tr><td>Stock Quantity</td><td>বর্তমান স্টক পরিমাণ</td><td>দৈনিক</td></tr>
+      <tr><td>Stock Forcasting (Product)</td><td>প্রোডাক্টভিত্তিক পূর্বাভাস</td><td>মাসিক</td></tr>
+      <tr><td>Stock Forcasting (Concern)</td><td>শাখাভিত্তিক পূর্বাভাস</td><td>মাসিক</td></tr>
+      <tr><td>Stock Trend Analysis</td><td>স্টক প্রবণতা বিশ্লেষণ</td><td>মাসিক</td></tr>
+      <tr><td>Supplier Status Grid</td><td>সরবরাহকারী মূল্যায়ন</td><td>ত্রৈমাসিক</td></tr>
+      <tr><td>Sales Performance</td><td>বিক্রয় কর্মক্ষমতা বিশ্লেষণ</td><td>সাপ্তাহিক</td></tr>
+      <tr><td>Employee Records</td><td>কর্মচারী সেবা রেকর্ড</td><td>মাসিক</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-footer">VoltERP ব্যবহারকারী নির্দেশিকা — পর্ব ৪ | পৃষ্ঠা ৪</div>
+</div>
+
+<!-- Section 10 continued: MIS Report - Purchase/Sales/Hire/SR/Customer/Management/Bank -->
+
+<div class="sub-section">ক্রয় প্রতিবেদন (Purchase Report)</div>
+
+<div class="module">
+<h3>সরবরাহকারী খতিয়ান (Supplier Ledger)</h3>
+<p>প্রতিটি সরবরাহকারীর সম্পূর্ণ হিসাব খতিয়ান দেখুন। ডেবিট-ক্রেডিট সব লেনদেনের বিবরণ এখানে পাবেন। কোন সরবরাহকারীর কত টাকা বকেয়া আছে তা সহজেই বুঝতে পারবেন।</p>
+<ol class="steps">
+<li>সাইডবার থেকে <strong>MIS Report → Purchase Report → Supplier Ledger</strong> ক্লিক করুন</li>
+<li>সরবরাহকারীর নাম ড্রপডাউন থেকে নির্বাচন করুন অথবা সব দেখুন</li>
+<li>তারিখ সীমা নির্ধারণ করুন (From Date - To Date)</li>
+<li>খতিয়ানে ডেবিট (ক্রয়), ক্রেডিট (পরিশোধ) ও ব্যালেন্স দেখুন</li>
+<li>PDF বা CSV তে রপ্তানি করতে পারবেন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>দৈনিক ক্রয় প্রতিবেদন (Daily Purchase Report)</h3>
+<p>প্রতিদিনের ক্রয়ের সামগ্রিক প্রতিবেদন দেখুন। কোন তারিখে কত টাকার প্রোডাক্ট কেনা হলো তার বিবরণ পাবেন। দৈনিক ক্রয় পরিমাণ তুলনা করে ব্যবসার ক্রয় প্রবণতা বুঝতে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Purchase Report → Daily Purchase Report</strong> ক্লিক করুন</li>
+<li>তারিখ নির্বাচন করুন যে দিনের রিপোর্ট দেখতে চান</li>
+<li>সেই দিনের সকল ক্রয় অর্ডারের তালিকা দেখুন</li>
+<li>মোট ক্রয়ের পরিমাণ নিচে সামগ্রিক হিসাবে দেখাবে</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>সরবরাহকারীভিত্তিক ক্রয় (Suppliers Wise Purchase)</h3>
+<p>কোন সরবরাহকারী থেকে কত টাকার প্রোডাক্ট কেনা হয়েছে তার তুলনামূলক প্রতিবেদন। বেশি কেনা সরবরাহকারী শনাক্ত করতে এবং ক্রয় কৌশল নির্ধারণে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Purchase Report → Suppliers Wise Purchase</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা নির্ধারণ করুন</li>
+<li>প্রতিটি সরবরাহকারীর মোট ক্রয়ের পরিমাণ দেখুন</li>
+<li>PDF/CSV রপ্তানি করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>সরবরাহকারীকে নগদ প্রদান (Supplier Cash Delivery)</h3>
+<p>সরবরাহকারীদের কাছে কত নগদ অর্থ প্রদান করা হয়েছে তার রেকর্ড। পেমেন্ট হিস্ট্রি ট্র্যাকিং ও নগদ প্রবাহ বিশ্লেষণে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Purchase Report → Supplier Cash Delivery</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা ও সরবরাহকারী নির্বাচন করুন</li>
+<li>সকল নগদ প্রদানের বিবরণ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>সরবরাহকারীর বকেয়া প্রতিবেদন (Suppliers Due Report)</h3>
+<p>কোন সরবরাহকারীর কত টাকা বকেয়া আছে তার সম্পূর্ণ প্রতিবেদন। বকেয়া পরিশোধের পরিকল্পনা করতে এবং ক্রেডিট সম্পর্ক পরিচালনায় সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Purchase Report → Suppliers Due Report</strong> ক্লিক করুন</li>
+<li>সরবরাহকারীভিত্তিক বকেয়া তালিকা দেখুন</li>
+<li>মোট বকেয়া পরিমাণ নিচে দেখাবে</li>
+<li>PDF রপ্তানি করে রাখুন</li>
+</ol>
+<div class="info-box">নিয়মিত এই রিপোর্ট দেখুন যাতে কোনো সরবরাহকারীর বকেয়া অতিরিক্ত না হয়। বকেয়া বাড়লে সরবরাহ বিঘ্ন হতে পারে।</div>
+</div>
+
+<div class="module">
+<h3>মডেলভিত্তিক ক্রয় (Model Wise Purchase)</h3>
+<p>কোন মডেলের প্রোডাক্ট কত পরিমাণে কেনা হয়েছে তার প্রতিবেদন। চাহিদা অনুযায়ী ক্রয় পরিকল্পনা করতে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Purchase Report → Model Wise Purchase</strong> ক্লিক করুন</li>
+<li>ক্যাটাগরি বা মডেল অনুযায়ী ফিল্টার করুন</li>
+<li>প্রতিটি মডেলের ক্রয় পরিমাণ ও মোট খরচ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>ভ্যাট প্রতিবেদন (Vat Report)</h3>
+<p>সকল ক্রয়ে ভ্যাটের সামগ্রিক হিসাব। সরকারি ভ্যাট রিটার্ন জমা দিতে এবং কর পরিকল্পনায় সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Purchase Report → Vat Report</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা নির্ধারণ করুন</li>
+<li>প্রতিটি ক্রয়ে ভ্যাটের পরিমাণ দেখুন</li>
+<li>মোট ভ্যাটের সামগ্রিক হিসাব নিচে দেখাবে</li>
+</ol>
+</div>
+
+<!-- Sales Report -->
+<div class="sub-section">বিক্রয় প্রতিবেদন (Sales Report)</div>
+
+<div class="module">
+<h3>দৈনিক বিক্রয় প্রতিবেদন (Daily Sales Report)</h3>
+<p>প্রতিদিনের বিক্রয়ের সম্পূর্ণ প্রতিবেদন। কোন তারিখে কত টাকার প্রোডাক্ট বিক্রি হলো, নগদ ও ক্রেডিট বিক্রয়ের বিভাজন সহ বিস্তারিত তথ্য পাবেন। দৈনিক আয় ট্র্যাকিংয়ের জন্য অপরিহার্য।</p>
+<ol class="steps">
+<li><strong>MIS Report → Sales Report → Daily Sales Report</strong> ক্লিক করুন</li>
+<li>তারিখ নির্বাচন করুন</li>
+<li>সেই দিনের সকল বিক্রয় অর্ডারের তালিকা দেখুন</li>
+<li>নগদ ও ক্রেডিট বিক্রয়ের পরিমাণ আলাদাভাবে দেখুন</li>
+<li>মোট বিক্রয়ের সামগ্রিক হিসাব নিচে দেখাবে</li>
+</ol>
+<div class="info-box">প্রতিদিন শেষে এই রিপোর্ট দেখে দিনের আয়ের সারসংক্ষেপ নিন। সপ্তাহ বা মাসের তুলনা করতে তারিখ পরিবর্তন করুন।</div>
+</div>
+
+<div class="module">
+<h3>প্রতিস্থাপন প্রতিবেদন (Replacement Report)</h3>
+<p>কতগুলো প্রোডাক্ট প্রতিস্থাপন করা হয়েছে তার প্রতিবেদন। প্রোডাক্টের মান নিয়ন্ত্রণ ও সরবরাহকারীর সাথে আলোচনার জন্য গুরুত্বপূর্ণ।</p>
+<ol class="steps">
+<li><strong>MIS Report → Sales Report → Replacement Report</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা নির্ধারণ করুন</li>
+<li>প্রতিস্থাপিত প্রোডাক্টের বিবরণ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>মডেলভিত্তিক বিক্রয় (Model Wise Sales)</h3>
+<p>কোন মডেলের প্রোডাক্ট সবচেয়ে বেশি বিক্রি হচ্ছে তার প্রতিবেদন। বেস্ট সেলার প্রোডাক্ট চিহ্নিত করে স্টক ও ক্রয় পরিকল্পনা নির্ধারণে সাহায্য করে। কোন প্রোডাক্ট বেশি বিক্রি হয় তা চিনতে এই রিপোর্ট অপরিহার্য।</p>
+<ol class="steps">
+<li><strong>MIS Report → Sales Report → Model Wise Sales</strong> ক্লিক করুন</li>
+<li>ক্যাটাগরি বা ব্র্যান্ড অনুযায়ী ফিল্টার করুন</li>
+<li>প্রতিটি মডেলের বিক্রয় সংখ্যা ও আয় দেখুন</li>
+<li>সবচেয়ে বেশি বিক্রি হওয়া মডেলগুলো শীর্ষে থাকবে</li>
+</ol>
+<div class="info-box">বেশি বিক্রি হওয়া প্রোডাক্টগুলোর স্টক যাতে কম না হয় সেদিকে খেয়াল রাখুন। Model Wise Sales রিপোর্ট দেখে Auto PO ব্যবহার করে স্বয়ংক্রিয়ভাবে ক্রয় অর্ডার তৈরি করুন।</div>
+</div>
+
+<!-- Hire Sales Report -->
+<div class="sub-section">কিস্তি বিক্রয় প্রতিবেদন (Hire Sales Report)</div>
+
+<div class="module">
+<h3>কিস্তি আদায় (Installment Collection)</h3>
+<p>কিস্তিতে বিক্রি করা প্রোডাক্টের মাসিক কিস্তি আদায়ের রেকর্ড। কোন গ্রাহক কত টাকা কিস্তি দিয়েছে এবং কত বকেয়া আছে তার সম্পূর্ণ বিবরণ। কিস্তি বিক্রয়ের নগদ প্রবাহ পরিচালনার জন্য এই পেজ অত্যন্ত গুরুত্বপূর্ণ।</p>
+<ol class="steps">
+<li><strong>MIS Report → Hire Sales Report → Installment Collection</strong> ক্লিক করুন</li>
+<li>গ্রাহক নাম বা তারিখ দিয়ে ফিল্টার করুন</li>
+<li>প্রতিটি কিস্তি পেমেন্টের বিবরণ দেখুন - তারিখ, পরিমাণ, গ্রাহক</li>
+<li>মোট আদায়কৃত কিস্তির সামগ্রিক হিসাব নিচে দেখাবে</li>
+<li>রপ্তানি করতে PDF/CSV আইকনে ক্লিক করুন</li>
+</ol>
+<div class="info-box">প্রতি মাসের শুরুতে আসন্ন কিস্তির তালিকা দেখে আদায় পরিকল্পনা করুন। নিয়মিত কিস্তি আদায় না হলে খেলাপি গ্রাহক রিপোর্ট দেখুন।</div>
+</div>
+
+<div class="module">
+<h3>আসন্ন কিস্তি (Upcoming Installment)</h3>
+<p>আগামী কোন তারিখে কোন গ্রাহকের কিস্তি পেমেন্ট নির্ধারিত আছে তার পূর্বাভাস। আদায়কর্মীদের পরিকল্পনা করতে এবং গ্রাহকদের রিমাইন্ডার পাঠাতে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Hire Sales Report → Upcoming Installment</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা নির্ধারণ করুন (যেমন: আগামী ৩০ দিন)</li>
+<li>আসন্ন সকল কিস্তি পেমেন্টের তালিকা দেখুন</li>
+<li>গ্রাহকদের SMS পাঠাতে Send SMS পেজ ব্যবহার করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>খেলাপি গ্রাহক (Defaulting Customer)</h3>
+<p>যেসব গ্রাহক কিস্তি সময়মতো পরিশোধ করেনি তাদের বিস্তারিত তালিকা। কত কিস্তি বকেয়া, কত দিনের বকেয়া তা দেখতে পারবেন। ঋণ আদায় ও আইনি ব্যবস্থা নিতে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Hire Sales Report → Defaulting Customer</strong> ক্লিক করুন</li>
+<li>সকল খেলাপি গ্রাহকের তালিকা দেখুন</li>
+<li>বকেয়ার পরিমাণ ও দিন সংখ্যা অনুযায়ী সাজান</li>
+<li>দীর্ঘমেয়াদী খেলাপিদের আলাদাভাবে চিহ্নিত করুন</li>
+</ol>
+<div class="warning-box" style="background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:6px;padding:10px 14px;margin:10px 0;font-size:9.5pt;">খেলাপি গ্রাহকের তালিকা গোপনীয় - শুধুমাত্র অ্যাডমিন ও ম্যানেজার দেখতে পারবেন। তালিকা বিতরণ করবেন না।</div>
+</div>
+
+<div class="module">
+<h3>খেলাপি গ্রাহক সারসংক্ষেপ (Default Customer Summary)</h3>
+<p>সকল খেলাপি গ্রাহকের সারসংক্ষেপ রিপোর্ট। মোট খেলাপি পরিমাণ, গ্রাহক সংখ্যা ও গড় বকেয়া দেখতে পারবেন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Hire Sales Report → Default Customer Summary</strong> ক্লিক করুন</li>
+<li>সারসংক্ষেপ টেবিলে মোট খেলাপি পরিমাণ দেখুন</li>
+<li>ক্যাটাগরি বা সময়কাল অনুযায়ী বিশ্লেষণ করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>কিস্তি হিসাব বিবরণ (Hire Account Details)</h3>
+<p>প্রতিটি কিস্তি বিক্রয়ের সম্পূর্ণ হিসাব বিবরণ - মোট মূল্য, ডাউন পেমেন্ট, পরিশোধিত কিস্তি, বকেয়া কিস্তি, সুদ ইত্যাদি।</p>
+<ol class="steps">
+<li><strong>MIS Report → Hire Sales Report → Hire Account Details</strong> ক্লিক করুন</li>
+<li>নির্দিষ্ট হায়ার সেলস নির্বাচন করুন</li>
+<li>সম্পূর্ণ পেমেন্ট শিডিউল ও বর্তমান অবস্থা দেখুন</li>
+<li>সুদ ও মূলধনের বিভাজন দেখুন</li>
+</ol>
+</div>
+
+<!-- SR Report -->
+<div class="sub-section">এসআর প্রতিবেদন (SR Report)</div>
+
+<div class="module">
+<h3>এসআরভিত্তিক বিক্রয় প্রতিবেদন (SR Wise Sales Report)</h3>
+<p>প্রতিটি সেলস রিপ্রেজেন্টেটিভ (SR) এর বিক্রয় কর্মক্ষমতা দেখুন। কোন SR সবচেয়ে বেশি বিক্রি করছে, তাদের মোট বিক্রয় পরিমাণ ও কমিশন হিসাব।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Wise Sales Report</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা নির্ধারণ করুন</li>
+<li>প্রতিটি SR এর বিক্রয় পরিমাণ তুলনামূলক দেখুন</li>
+<li>সর্বোচ্চ বিক্রেতা SR শনাক্ত করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআরভিত্তিক বিক্রয় বিবরণ (SR Wise Sales Details)</h3>
+<p>নির্দিষ্ট SR এর বিক্রয়ের বিস্তারিত বিবরণ - কোন গ্রাহককে কোন প্রোডাক্ট বিক্রি করেছে তার সম্পূর্ণ তালিকা।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Wise Sales Details</strong> ক্লিক করুন</li>
+<li>SR নির্বাচন করুন ড্রপডাউন থেকে</li>
+<li>তারিখ সীমা দিন</li>
+<li>সকল বিক্রয়ের বিস্তারিত তালিকা দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআরভিত্তিক গ্রাহক বকেয়া (SR Wise Customer Due)</h3>
+<p>কোন SR এর গ্রাহকদের কত বকেয়া আছে তার প্রতিবেদন। SR কে তার গ্রাহকদের বকেয়া আদায়ের দায়িত্ব দেওয়ার জন্য এই রিপোর্ট প্রয়োজন।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Wise Customer Due</strong> ক্লিক করুন</li>
+<li>SR নির্বাচন করুন</li>
+<li>সেই SR এর সকল গ্রাহকের বকেয়া তালিকা দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআরভিত্তিক গ্রাহক বিক্রয় সারসংক্ষেপ (SR Wise Customer Sales Summary)</h3>
+<p>প্রতিটি SR এর গ্রাহকদের বিক্রয়ের সারসংক্ষেপ। কোন SR কতজন গ্রাহক তৈরি করেছে ও তাদের মোট বিক্রয় দেখুন।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Wise Customer Sales Summary</strong> ক্লিক করুন</li>
+<li>SR ও তারিখ নির্বাচন করুন</li>
+<li>গ্রাহক সংখ্যা ও মোট বিক্রয় দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআর ভিজিট প্রতিবেদন (SR Visit Report)</h3>
+<p>SR এর গ্রাহক ভিজিট বা সাক্ষাৎ প্রতিবেদন। SR কোন গ্রাহকের কাছে গিয়েছে, কখন গিয়েছে তার রেকর্ড। SR এর কার্যক্রম পর্যবেক্ষণে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Visit Report</strong> ক্লিক করুন</li>
+<li>SR ও তারিখ সীমা নির্বাচন করুন</li>
+<li>ভিজিট লগ দেখুন - গ্রাহক, সময়, ফলাফল</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআরভিত্তিক গ্রাহক অবস্থা (SR Wise Customer Status)</h3>
+<p>প্রতিটি SR এর অধীনে গ্রাহকদের বর্তমান অবস্থা - সক্রিয়, নিষ্ক্রিয়, বকেয়া, নিয়মিত ক্রেতা ইত্যাদি তথ্য।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Wise Customer Status</strong> ক্লিক করুন</li>
+<li>SR নির্বাচন করুন</li>
+<li>গ্রাহকদের বর্তমান অবস্থার সারণি দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআরভিত্তিক নগদ আদায় (SR Wise Cash Collection)</h3>
+<p>প্রতিটি SR কর্তৃক সংগৃহীত নগদ অর্থের রিপোর্ট। SR এর আদায় কর্মক্ষমতা মূল্যায়নে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Wise Cash Collection</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা দিন</li>
+<li>প্রতিটি SR এর নগদ আদায়ের পরিমাণ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>এসআর কমিশন প্রতিবেদন (SR Commission Report)</h3>
+<p>SR এর বিক্রয় কমিশন হিসাব। প্রতিটি SR কত কমিশন পাবে তার স্বয়ংক্রিয় হিসাব। বেতন ও কমিশন পরিশোধের পরিকল্পনায় সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → SR Report → SR Commission Report</strong> ক্লিক করুন</li>
+<li>মাস বা তারিখ সীমা নির্বাচন করুন</li>
+<li>প্রতিটি SR এর বিক্রয় ও কমিশনের হিসাব দেখুন</li>
+<li>মোট কমিশন পরিমাণ নিচে দেখাবে</li>
+</ol>
+</div>
+
+<!-- Customer Wise Report -->
+<div class="sub-section">গ্রাহকভিত্তিক প্রতিবেদন (Customer Wise Report)</div>
+
+<div class="module">
+<h3>গ্রাহকভিত্তিক বিক্রয় প্রতিবেদন (Customer Wise Sales Report)</h3>
+<p>প্রতিটি গ্রাহকের ক্রয় ইতিহাস ও বিক্রয় প্রতিবেদন। কোন গ্রাহক সবচেয়ে বেশি কেনেন তা শনাক্ত করুন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Customer Wise Report → Customer Wise Sales Report</strong> ক্লিক করুন</li>
+<li>গ্রাহক নির্বাচন করুন বা সব দেখুন</li>
+<li>তারিখ সীমা দিন</li>
+<li>গ্রাহকের সকল ক্রয়ের তালিকা দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>ক্যাটাগরিভিত্তিক গ্রাহক বকেয়া (Category Wise Customer Due)</h3>
+<p>কোন ক্যাটাগরির প্রোডাক্টে সবচেয়ে বেশি গ্রাহক বকেয়া আছে তার প্রতিবেদন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Customer Wise Report → Category Wise Customer Due</strong> ক্লিক করুন</li>
+<li>ক্যাটাগরি অনুযায়ী গ্রাহক বকেয়া দেখুন</li>
+<li>বেশি বকেয়া ক্যাটাগরি শনাক্ত করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>গ্রাহক খতিয়ান প্রতিবেদন (Customer Ledger Report)</h3>
+<p>প্রতিটি গ্রাহকের সম্পূর্ণ হিসাব খতিয়ান - ডেবিট (ক্রয়), ক্রেডিট (পরিশোধ) ও ব্যালেন্স।</p>
+<ol class="steps">
+<li><strong>MIS Report → Customer Wise Report → Customer Ledger Report</strong> ক্লিক করুন</li>
+<li>গ্রাহক নাম নির্বাচন করুন</li>
+<li>তারিখ সীমা দিন</li>
+<li>খতিয়ানে সকল লেনদেন দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>তারিখভিত্তিক গ্রাহক বকেয়া (Customer Due Report [Date Wise])</h3>
+<p>নির্দিষ্ট তারিখ পর্যন্ত সকল গ্রাহকের বকেয়া পরিমাণ। যেকোনো তারিখে মোট গ্রাহক বকেয়া জানতে চাইলে এই রিপোর্ট ব্যবহার করুন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Customer Wise Report → Customer Due Report [Date Wise]</strong> ক্লিক করুন</li>
+<li>তারিখ নির্বাচন করুন</li>
+<li>সেই তারিখ পর্যন্ত সকল বকেয়া দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>গ্রাহক নগদ আদায় (Customer Cash Collection)</h3>
+<p>গ্রাহকদের কাছ থেকে সংগৃহীত নগদ অর্থের সম্পূর্ণ রেকর্ড। কোন গ্রাহক কত নগদ দিয়েছে তার বিবরণ।</p>
+<ol class="steps">
+<li><strong>MIS Report → Customer Wise Report → Customer Cash Collection</strong> ক্লিক করুন</li>
+<li>তারিখ ও গ্রাহক অনুযায়ী ফিল্টার করুন</li>
+<li>নগদ আদায়ের সম্পূর্ণ রেকর্ড দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>গ্রাহক খতিয়ান সারসংক্ষেপ (Customer Ledger Summary)</h3>
+<p>সকল গ্রাহকের খতিয়ানের সারসংক্ষেপ - মোট বিক্রয়, মোট আদায়, বকেয়া ব্যালেন্স।</p>
+<ol class="steps">
+<li><strong>MIS Report → Customer Wise Report → Customer Ledger Summary</strong> ক্লিক করুন</li>
+<li>সকল গ্রাহকের সারসংক্ষেপ টেবিল দেখুন</li>
+<li>বকেয়া অনুযায়ী সাজান</li>
+</ol>
+</div>
+
+<!-- Management Report -->
+<div class="sub-section">ব্যবস্থাপনা প্রতিবেদন (Management Report)</div>
+
+<div class="module">
+<h3>ব্যয় প্রতিবেদন (Expense Report)</h3>
+<p>সকল খরচ বা ব্যয়ের বিস্তারিত প্রতিবেদন। কোন খাতে কত খরচ হচ্ছে তা বিশ্লেষণ করুন। খরচ নিয়ন্ত্রণ ও বাজেট পরিকল্পনায় সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Expense Report</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা ও খাত নির্বাচন করুন</li>
+<li>খাতভিত্তিক ব্যয়ের তালিকা দেখুন</li>
+<li>মোট ব্যয়ের সামগ্রিক হিসাব দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>প্রোডাক্টভিত্তিক লাভ প্রতিবেদন (Product Wise Benefit Report)</h3>
+<p>কোন প্রোডাক্টে কত লাভ হচ্ছে তার বিস্তারিত প্রতিবেদন। প্রতিটি প্রোডাক্টের ক্রয়মূল্য ও বিক্রয়মূল্যের পার্থক্য দেখুন। সবচেয়ে লাভজনক প্রোডাক্ট চিহ্নিত করে ব্যবসার কৌশল নির্ধারণে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Product Wise Benefit Report</strong> ক্লিক করুন</li>
+<li>ক্যাটাগরি বা ব্র্যান্ড ফিল্টার দিন</li>
+<li>প্রতিটি প্রোডাক্টের ক্রয়মূল্য, বিক্রয়মূল্য ও লাভ দেখুন</li>
+<li>লাভের শতকরা হার অনুযায়ী সাজান</li>
+</ol>
+<div class="info-box">এই রিপোর্ট থেকে বুঝতে পারবেন কোন প্রোডাক্টে বেশি লাভ এবং কোনটিতে কম। কম লাভের প্রোডাক্টের দাম বাড়ানো বা বেশি লাভের প্রোডাক্টের স্টক বাড়ানোর সিদ্ধান্ত নিন।</div>
+</div>
+
+<div class="module">
+<h3>আয় প্রতিবেদন (Income Report)</h3>
+<p>সকল আয়ের বিস্তারিত প্রতিবেদন। বিক্রয় ছাড়া অন্যান্য আয়ের উৎস ট্র্যাকিং।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Income Report</strong> ক্লিক করুন</li>
+<li>তারিখ ও খাত নির্বাচন করুন</li>
+<li>আয়ের সম্পূর্ণ তালিকা দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>সমন্বয় প্রতিবেদন (Adjustment Report)</h3>
+<p>সকল হিসাব সমন্বয়ের রেকর্ড। ডেবিট-ক্রেডিট সমন্বয় ও সামঞ্জস্য যাচাই।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Adjustment Report</strong> ক্লিক করুন</li>
+<li>সকল সমন্বয় এন্ট্রি দেখুন</li>
+<li>তারিখ অনুযায়ী ফিল্টার করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>লেনদেন সারসংক্ষেপ প্রতিবেদন (Transaction Summary Report)</h3>
+<p>সকল লেনদেনের সারসংক্ষেপ - আয়, ব্যয়, ক্রয়, বিক্রয় এক নজরে। ব্যবসার সামগ্রিক আর্থিক অবস্থা বুঝতে সাহায্য করে।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Transaction Summary Report</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা দিন</li>
+<li>আয়-ব্যয়-ক্রয়-বিক্রয়ের সারসংক্ষেপ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>মাসিক লেনদেন প্রতিবেদন (Monthly Transaction Report)</h3>
+<p>মাসভিত্তিক লেনদেনের প্রতিবেদন। মাসের পর মাস আয়-ব্যয়ের প্রবণতা বিশ্লেষণ করুন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Monthly Transaction Report</strong> ক্লিক করুন</li>
+<li>মাস ও বছর নির্বাচন করুন</li>
+<li>সেই মাসের সকল লেনদেনের সারসংক্ষেপ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>শোরুম বিশ্লেষণ প্রতিবেদন (Showroom Analysis Report)</h3>
+<p>প্রতিটি শোরুম বা গোডাউনের বিক্রয় ও পারফরম্যান্স বিশ্লেষণ। কোন শোরুম সবচেয়ে বেশি বিক্রি করছে তা তুলনা করুন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Showroom Analysis Report</strong> ক্লিক করুন</li>
+<li>শোরুম বা গোডাউন নির্বাচন করুন</li>
+<li>বিক্রয়, স্টক ও লাভের তুলনামূলক বিশ্লেষণ দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>উন্নত অনুসন্ধান (Advance Search)</h3>
+<p>যেকোনো মানদণ্ডে ডেটা অনুসন্ধান। প্রোডাক্ট, গ্রাহক, সরবরাহকারী, অর্ডার - সব কিছু খুঁজুন এক জায়গায়। একাধিক ফিল্টার ব্যবহার করে সুনির্দিষ্ট ফলাফল পান।</p>
+<ol class="steps">
+<li><strong>MIS Report → Management Report → Advance Search</strong> ক্লিক করুন</li>
+<li>অনুসন্ধানের ধরন নির্বাচন করুন (প্রোডাক্ট/গ্রাহক/অর্ডার)</li>
+<li>ফিল্টার ক্রাইটেরিয়া সেট করুন</li>
+<li>Search বাটনে ক্লিক করুন</li>
+</ol>
+</div>
+
+<!-- Bank Report -->
+<div class="sub-section">ব্যাংক প্রতিবেদন (Bank Report)</div>
+
+<div class="module">
+<h3>ব্যাংক লেনদেন প্রতিবেদন (Bank Transaction Report)</h3>
+<p>সকল ব্যাংক লেনদেনের বিস্তারিত প্রতিবেদন। জমা, উত্তোলন ও ট্রান্সফারের সম্পূর্ণ রেকর্ড।</p>
+<ol class="steps">
+<li><strong>MIS Report → Bank Report → Bank Transaction Report</strong> ক্লিক করুন</li>
+<li>ব্যাংক অ্যাকাউন্ট ও তারিখ সীমা নির্বাচন করুন</li>
+<li>সকল লেনদেনের তালিকা দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>ব্যাংক খতিয়ান (Bank Ledger)</h3>
+<p>প্রতিটি ব্যাংক অ্যাকাউন্টের সম্পূর্ণ খতিয়ান। জমা (ডেবিট), উত্তোলন (ক্রেডিট) ও ব্যালেন্স দেখুন।</p>
+<ol class="steps">
+<li><strong>MIS Report → Bank Report → Bank Ledger</strong> ক্লিক করুন</li>
+<li>ব্যাংক অ্যাকাউন্ট নির্বাচন করুন</li>
+<li>খতিয়ানে সকল লেনদেন দেখুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>স্থানান্তর প্রতিবেদন (Transfer Report)</h3>
+<p>ব্যাংক থেকে ব্যাংকে অর্থ স্থানান্তরের রিপোর্ট। কোন অ্যাকাউন্ট থেকে কোথায় কত টাকা ট্রান্সফার হয়েছে তার বিবরণ।</p>
+<ol class="steps">
+<li><strong>MIS Report → Bank Report → Transfer Report</strong> ক্লিক করুন</li>
+<li>তারিখ সীমা দিন</li>
+<li>সকল ট্রান্সফারের তালিকা দেখুন</li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 11: সিস্টেম সেটিংস (System Settings) -->
+<!-- ============================================================ -->
+<div class="section">
+<div class="section-header">
+<div class="section-number">১১</div>
+<div class="section-title">সিস্টেম সেটিংস (System Settings)</div>
+</div>
+
+<p style="margin-bottom:14px; color:var(--text-light);">
+সিস্টেম সেটিংস মডিউলে সফটওয়্যারের সাধারণ কনফিগারেশন, চালান টেমপ্লেট, নম্বর ফরম্যাট এবং অডিট ট্রেইল পরিচালনা করা হয়। শুধুমাত্র অ্যাডমিন ব্যবহারকারীরা এই সেটিংস পরিবর্তন করতে পারবেন।
+</p>
+
+<div class="sub-section">কনফিগারেশন (Configuration)</div>
+
+<div class="module">
+<h3>কোম্পানি সেটিংস (Company Settings)</h3>
+<p>আপনার প্রতিষ্ঠানের সাধারণ তথ্য ও সেটিংস কনফিগার করুন। কোম্পানির নাম, ঠিকানা, লোগো, ফোন নম্বর, ইমেইল ইত্যাদি তথ্য এখানে সেট করা হয়। এই তথ্য চালান, রিপোর্ট ও পিডিএফের হেডারে ব্যবহৃত হয়।</p>
+<ol class="steps">
+<li>সাইডবার থেকে <strong>System Settings → Company Settings</strong> ক্লিক করুন</li>
+<li>কোম্পানির নাম, ঠিকানা, ফোন, ইমেইল লিখুন</li>
+<li>লোগো আপলোড করুন (ঐচ্ছিক)</li>
+<li>অন্যান্য সেটিংস পরিবর্তন করুন</li>
+<li><strong>Save</strong> ক্লিক করুন</li>
+</ol>
+<div class="info-box">কোম্পানি সেটিংস সবচেয়ে প্রথমে সেটআপ করুন। এই তথ্য ছাড়া চালান ও রিপোর্টে কোম্পানির নাম দেখাবে না।</div>
+</div>
+
+<div class="module">
+<h3>চালান টেমপ্লেট (Invoice Templates)</h3>
+<p>বিক্রয় চালান বা ইনভয়েসের ডিজাইন কাস্টমাইজ করুন। কোম্পানির লোগো, ঠিকানা, শর্তাবলী, ফন্ট সাইজ ইত্যাদি পরিবর্তন করতে পারবেন। বিভিন্ন ধরনের চালানের জন্য আলাদা টেমপ্লেট তৈরি করা যায়।</p>
+<ol class="steps">
+<li><strong>System Settings → Invoice Templates</strong> ক্লিক করুন</li>
+<li>বিদ্যমান টেমপ্লেট সম্পাদনা করুন বা নতুন তৈরি করুন</li>
+<li>হেডার, ফুটার, বডি সেকশন কাস্টমাইজ করুন</li>
+<li>লোগো ও কোম্পানি তথ্য যোগ করুন</li>
+<li>প্রিভিউ দেখুন ও সেভ করুন</li>
+</ol>
+</div>
+
+<div class="module">
+<h3>নম্বর ফরম্যাট (Number Formats)</h3>
+<p>সিস্টেমের সকল নম্বরিং ফরম্যাট কনফিগার করুন। চালান নম্বর, ক্রয় অর্ডার নম্বর, সেলস অর্ডার নম্বর ইত্যাদির ফরম্যাট ও প্রিফিক্স নির্ধারণ করুন। যেমন: INV-00001, PUR-00001, SAL-00001 ইত্যাদি।</p>
+<ol class="steps">
+<li><strong>System Settings → Number Formats</strong> ক্লিক করুন</li>
+<li>প্রতিটি ডকুমেন্ট টাইপের জন্য প্রিফিক্স সেট করুন</li>
+<li>নম্বরের দৈর্ঘ্য নির্ধারণ করুন (যেমন: ৫ ডিজিট)</li>
+<li>বর্তমান কাউন্টার ভ্যালু দেখুন</li>
+<li><strong>Save</strong> ক্লিক করুন</li>
+</ol>
+<div class="warning-box" style="background:var(--warning-bg);border:1px solid var(--warning-border);border-radius:6px;padding:10px 14px;margin:10px 0;font-size:9.5pt;">নম্বর ফরম্যাট একবার সেট করলে প্রিফিক্স পরিবর্তন করবেন না। প্রিফিক্স পরিবর্তন করলে আগের ডকুমেন্টের নম্বর সিরিজের সাথে নতুনগুলো মিলবে না।</div>
+</div>
+
+<div class="sub-section">অডিট ও অনুসন্ধান (Audit & Search)</div>
+
+<div class="module">
+<h3>অডিট ট্রেইল ভিউয়ার (Audit Trail Viewer)</h3>
+<p>সিস্টেমের সকল কার্যক্রমের লগ বা অডিট ট্রেইল দেখুন। কে কোন পেজে কখন কী পরিবর্তন করেছে তার সম্পূর্ণ রেকর্ড। ডেটা সততা যাচাই ও নিরাপত্তা পর্যবেক্ষণের জন্য অপরিহার্য।</p>
+<ol class="steps">
+<li><strong>System Settings → Audit Trail Viewer</strong> ক্লিক করুন</li>
+<li>তারিখ, ব্যবহারকারী বা মডিউল অনুযায়ী ফিল্টার করুন</li>
+<li>প্রতিটি কার্যক্রমের বিস্তারিত দেখুন - ব্যবহারকারী, সময়, পরিবর্তন</li>
+<li>PDF/CSV তে রপ্তানি করুন</li>
+</ol>
+<div class="info-box">অডিট ট্রেইল সিস্টেম দ্বারা স্বয়ংক্রিয়ভাবে রেকর্ড হয়। এটি ম্যানুয়ালি সম্পাদনা বা মুছে ফেলা যায় না।</div>
+</div>
+
+<div class="module">
+<h3>পারফরম্যান্স ও ক্যাশ (Performance & Cache)</h3>
+<p>সিস্টেমের পারফরম্যান্স পর্যবেক্ষণ ও ক্যাশ ব্যবস্থাপনা। ক্যাশ ক্লিয়ার করে সিস্টেমের গতি বাড়ানো যায়। মেমরি ব্যবহার, ডেটাবেস কানেকশন ও সিস্টেম রিসোর্স মনিটর করুন।</p>
+<ol class="steps">
+<li><strong>System Settings → Performance & Cache</strong> ক্লিক করুন</li>
+<li>সিস্টেমের বর্তমান পারফরম্যান্স মেট্রিক্স দেখুন</li>
+<li>ক্যাশ ক্লিয়ার করতে <strong>Clear Cache</strong> বাটনে ক্লিক করুন</li>
+<li>সিস্টেম স্বাস্থ্য সূচক দেখুন</li>
+</ol>
+<div class="info-box">সিস্টেম ধীর হলে ক্যাশ ক্লিয়ার করুন। তবে মনে রাখবেন, ক্যাশ ক্লিয়ার করলে কিছুক্ষণ সিস্টেম আরও ধীর হতে পারে কারণ ক্যাশ পুনরায় তৈরি হতে সময় লাগে।</div>
+</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- COMPLETE USAGE WORKFLOW -->
+<!-- ============================================================ -->
+<div class="section">
+<div class="section-header">
+<div class="section-number">⭐</div>
+<div class="section-title">সম্পূর্ণ ব্যবহার প্রবাহ (Complete Usage Workflow)</div>
+</div>
+
+<p style="margin-bottom:14px; color:var(--text-light);">
+এই অংশে আপনার দৈনন্দিন ব্যবসার সবচেয়ে গুরুত্বপূর্ণ কাজগুলো কীভাবে সম্পন্ন করবেন তার ধাপে ধাপে নির্দেশনা দেওয়া হলো।
+</p>
+
+<div class="workflow">
+<h3>১. কীভাবে ব্র্যান্ড কোম্পানি থেকে প্রোডাক্ট কিনবেন</h3>
+<ol>
+<li><strong>কোম্পানি নিবন্ধন:</strong> Core Config → Companies পেজে ব্র্যান্ড কোম্পানির তথ্য যোগ করুন (যেমন: Samsung, Sony)</li>
+<li><strong>সরবরাহকারী নিবন্ধন:</strong> Customers & Suppliers → Suppliers পেজে ডিলার/সাপ্লায়ার যোগ করুন</li>
+<li><strong>প্রোডাক্ট সেটআপ:</strong> Core Config → Products পেজে প্রোডাক্টের নাম, মডেল, ক্রয়মূল্য, বিক্রয়মূল্য ও গোডাউন নির্ধারণ করুন</li>
+<li><strong>অর্ডার শিট:</strong> Order Sheet → Company Ordersheet পেজে কোম্পানিকে অর্ডার পাঠান</li>
+<li><strong>ক্রয় অর্ডার:</strong> Purchase Order পেজে আনুষ্ঠানিক PO তৈরি করুন - সরবরাহকারী, প্রোডাক্ট ও পরিমাণ নির্বাচন করুন</li>
+<li><strong>প্রোডাক্ট রিসিভ:</strong> PO তে "Receive" বাটনে ক্লিক করে প্রোডাক্ট গোডাউনে গ্রহণ করুন - স্টক স্বয়ংক্রিয়ভাবে বাড়বে</li>
+<li><strong>পেমেন্ট:</strong> Cash Delivery বা Bank Transaction পেজে সরবরাহকারীকে পেমেন্ট রেকর্ড করুন</li>
+</ol>
+</div>
+
+<div class="workflow">
+<h3>২. কীভাবে বিভিন্ন গোডাউনে প্রোডাক্ট এড করবেন</h3>
+<ol>
+<li><strong>গোডাউন সেটআপ:</strong> Structure → Godowns পেজে মেইন গোডাউন, শোরুম ও শাখা গোডাউন তৈরি করুন</li>
+<li><strong>ধারণক্ষমতা:</strong> Structure → Capacity পেজে প্রতিটি গোডাউনের ধারণক্ষমতা নির্ধারণ করুন</li>
+<li><strong>প্রোডাক্ট গোডাউন নির্ধারণ:</strong> Products পেজে প্রতিটি প্রোডাক্টের ডিফল্ট গোডাউন সেট করুন</li>
+<li><strong>স্থানান্তর:</strong> Stock → Transfer পেজে এক গোডাউন থেকে অন্য গোডাউনে প্রোডাক্ট ট্রান্সফার করুন</li>
+<li><strong>স্টক দেখুন:</strong> Stock পেজে প্রতিটি গোডাউনের বর্তমান স্টক দেখুন</li>
+</ol>
+</div>
+
+<div class="workflow">
+<h3>৩. কীভাবে ডিলারের প্রোডাক্ট বিক্রয় করবেন</h3>
+<ol>
+<li><strong>গ্রাহক নিবন্ধন:</strong> Customers পেজে গ্রাহকের তথ্য যোগ করুন (নাম, ফোন, ক্রেডিট লিমিট)</li>
+<li><strong>সেলস অর্ডার:</strong> Sales Order পেজে নতুন অর্ডার তৈরি করুন - গ্রাহক, প্রোডাক্ট ও পরিমাণ নির্বাচন করুন</li>
+<li><strong>পেমেন্ট গ্রহণ:</strong> নগদ, কার্ড বা ক্রেডিট পেমেন্ট অপশন নির্বাচন করুন</li>
+<li><strong>চালান তৈরি:</strong> সেলস অর্ডার সেভ করলে স্বয়ংক্রিয়ভাবে চালান/ইনভয়েস তৈরি হবে</li>
+<li><strong>স্টক আপডেট:</strong> বিক্রয়ের পর স্টক স্বয়ংক্রিয়ভাবে কমবে</li>
+</ol>
+</div>
+
+<div class="workflow">
+<h3>৪. কীভাবে কিস্তিতে প্রোডাক্ট বিক্রয় করবেন</h3>
+<ol>
+<li><strong>সুদের হার সেটআপ:</strong> Structure → Interest % Engine পেজে কিস্তির সুদের হার কনফিগার করুন</li>
+<li><strong>কিস্তি বিক্রয়:</strong> Hire Sales পেজে নতুন কিস্তি বিক্রয় তৈরি করুন - গ্রাহক, প্রোডাক্ট, ডাউন পেমেন্ট, কিস্তির সংখ্যা ও সুদের হার নির্ধারণ করুন</li>
+<li><strong>EMI হিসাব:</strong> সিস্টেম স্বয়ংক্রিয়ভাবে মাসিক কিস্তির পরিমাণ (EMI) হিসাব করবে</li>
+<li><strong>কিস্তি আদায়:</strong> প্রতি মাসে MIS Report → Hire Sales Report → Installment Collection পেজে কিস্তি আদায় রেকর্ড করুন</li>
+<li><strong>খেলাপি পর্যবেক্ষণ:</strong> Defaulting Customer রিপোর্ট দেখে কিস্তি আদায় নিশ্চিত করুন</li>
+</ol>
+</div>
+
+<div class="workflow">
+<h3>৫. কীভাবে নগদে প্রোডাক্ট বিক্রয় করবেন</h3>
+<ol>
+<li><strong>সেলস অর্ডার:</strong> Sales Order পেজে নতুন অর্ডার তৈরি করুন</li>
+<li><strong>গ্রাহক নির্বাচন:</strong> গ্রাহক নির্বাচন করুন (ওয়াক-ইন গ্রাহকও তৈরি করতে পারেন)</li>
+<li><strong>পেমেন্ট পদ্ধতি:</strong> "Cash" পেমেন্ট অপশন নির্বাচন করুন</li>
+<li><strong>চালান প্রিন্ট:</strong> সেলস অর্ডার সেভ করলে ইনভয়েস তৈরি হবে - PDF ডাউনলোড করে প্রিন্ট করুন</li>
+<li><strong>নগদ জমা:</strong> Cash Collection পেজে নগদ অর্থ জমার রেকর্ড করুন</li>
+</ol>
+</div>
+
+<div class="workflow">
+<h3>৬. কীভাবে লাভ-ক্ষতির হিসাব দেখবেন</h3>
+<ol>
+<li><strong>লাভ-ক্ষতি হিসাব:</strong> Accounting Report → Profit and Loss Account পেজে যান</li>
+<li><strong>তারিখ সীমা:</strong> যে সময়কালের হিসাব দেখতে চান তারিখ সীমা নির্ধারণ করুন</li>
+<li><strong>আয়ের হিসাব:</strong> মোট বিক্রয় আয় ও অন্যান্য আয় দেখুন</li>
+<li><strong>ব্যয়ের হিসাব:</strong> মোট ক্রয় খরচ, পরিচালন ব্যয় ও অন্যান্য খরচ দেখুন</li>
+<li><strong>নিট লাভ/ক্ষতি:</strong> মোট আয় - মোট ব্যয় = নিট লাভ বা ক্ষতি</li>
+<li><strong>উদ্বৃত্তপত্র:</strong> Balance Sheet দেখে সম্পত্তি ও দায়ের সামগ্রিক চিত্র দেখুন</li>
+</ol>
+<div class="info-box">লাভ-ক্ষতির হিসাব সঠিক দেখতে সব আয়-ব্যয়ের এন্ট্রি নিয়মিত করতে হবে। কোনো খরচ বাদ পড়লে লাভ বেশি দেখাবে।</div>
+</div>
+
+<div class="workflow">
+<h3>৭. কীভাবে লো স্টক দেখবেন ও প্রোডাক্ট কিনবেন</h3>
+<ol>
+<li><strong>স্টক পূর্বাভাস:</strong> MIS Report → Basic Report → Stock Forcasting (Product Wise) পেজে যান</li>
+<li><strong>লো স্টক প্রোডাক্ট:</strong> যেসব প্রোডাক্টের স্টক সীমার নিচে আছে তাদের তালিকা দেখুন</li>
+<li><strong>স্বয়ংক্রিয় PO:</strong> Inventory → Auto PO পেজে গিয়ে লো স্টক প্রোডাক্টের জন্য স্বয়ংক্রিয়ভাবে ক্রয় অর্ডার তৈরি করুন</li>
+<li><strong>অথবা ম্যানুয়াল PO:</strong> Purchase Order পেজে নিজে ক্রয় অর্ডার তৈরি করুন</li>
+<li><strong>স্টক ট্রেন্ড:</strong> Stock Trend Analysis দেখে প্রোডাক্টের চাহিদা প্রবণতা বুঝুন</li>
+</ol>
+<div class="info-box">লো স্টক অ্যালার্ট পেতে Stock Forcasting রিপোর্ট নিয়মিত দেখুন। Auto PO ব্যবহার করলে স্বয়ংক্রিয়ভাবে প্রোডাক্ট কেনার প্রক্রিয়া শুরু হবে।</div>
+</div>
+
+<div class="workflow">
+<h3>৮. কীভাবে বেশি বিক্রি হওয়া প্রোডাক্ট চিনবেন</h3>
+<ol>
+<li><strong>বিক্রয় কর্মক্ষমতা:</strong> MIS Report → Basic Report → Sales Performance পেজে যান</li>
+<li><strong>মডেলভিত্তিক বিক্রয়:</strong> MIS Report → Sales Report → Model Wise Sales পেজে কোন মডেল সবচেয়ে বেশি বিক্রি হচ্ছে দেখুন</li>
+<li><strong>প্রোডাক্টভিত্তিক লাভ:</strong> MIS Report → Management Report → Product Wise Benefit Report পেজে কোন প্রোডাক্টে সবচেয়ে বেশি লাভ দেখুন</li>
+<li><strong>স্টক ট্রেন্ড:</strong> Stock Trend Analysis দেখে বিক্রয় প্রবণতা বুঝুন</li>
+<li><strong>কৌশল নির্ধারণ:</strong> বেশি বিক্রির প্রোডাক্টের স্টক বাড়ান ও কম বিক্রির প্রোডাক্ট কম কিনুন</li>
+</ol>
+</div>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- QUICK REFERENCE -->
+<!-- ============================================================ -->
+<div class="section">
+<div class="section-header">
+<div class="section-number">📋</div>
+<div class="section-title">দ্রুত রেফারেন্স সারণি (Quick Reference)</div>
+</div>
+
+<table class="quick-table">
+<thead><tr><th>পেজের নাম</th><th>মডিউল</th><th>কাজ</th></tr></thead>
+<tbody>
+<tr><td>Investment Heads</td><td>Investment</td><td>বিনিয়োগের খাত তৈরি</td></tr>
+<tr><td>Investment</td><td>Investment</td><td>বিনিয়োগ লেনদেন রেকর্ড</td></tr>
+<tr><td>Fixed Asset</td><td>Asset</td><td>স্থায়ী সম্পদ নিবন্ধন</td></tr>
+<tr><td>Current Asset</td><td>Asset</td><td>চলতি সম্পদ পরিচালনা</td></tr>
+<tr><td>Liability Receive</td><td>Liability</td><td>ঋণ গ্রহণ এন্ট্রি</td></tr>
+<tr><td>Liability Pay</td><td>Liability</td><td>ঋণ পরিশোধ এন্ট্রি</td></tr>
+<tr><td>Liability Report</td><td>Liability</td><td>দায়ের সামগ্রিক রিপোর্ট</td></tr>
+<tr><td>Companies</td><td>Core Config</td><td>কোম্পানি নিবন্ধন</td></tr>
+<tr><td>Categories</td><td>Core Config</td><td>প্রোডাক্ট ক্যাটাগরি তৈরি</td></tr>
+<tr><td>Colors</td><td>Core Config</td><td>প্রোডাক্টের রং যোগ</td></tr>
+<tr><td>Brands</td><td>Core Config</td><td>ব্র্যান্ড নাম নিবন্ধন</td></tr>
+<tr><td>Units</td><td>Core Config</td><td>পরিমাপের একক</td></tr>
+<tr><td>Products</td><td>Core Config</td><td>প্রোডাক্ট যোগ ও পরিচালনা</td></tr>
+<tr><td>Bank</td><td>Core Config</td><td>ব্যাংক অ্যাকাউন্ট</td></tr>
+<tr><td>Department</td><td>Structure</td><td>বিভাগ তৈরি</td></tr>
+<tr><td>Godowns</td><td>Structure</td><td>গোডাউন সেটআপ</td></tr>
+<tr><td>Interest % Engine</td><td>Structure</td><td>সুদের হার কনফিগারেশন</td></tr>
+<tr><td>Segment</td><td>Structure</td><td>ব্যবসার সেগমেন্ট</td></tr>
+<tr><td>Capacity</td><td>Structure</td><td>গোডাউন ধারণক্ষমতা</td></tr>
+<tr><td>SR Target Setup</td><td>Operations</td><td>SR লক্ষ্যমাত্রা নির্ধারণ</td></tr>
+<tr><td>Payment Option</td><td>Operations</td><td>পেমেন্ট পদ্ধতি সেটআপ</td></tr>
+<tr><td>CardType</td><td>Operations</td><td>কার্ডের ধরন নিবন্ধন</td></tr>
+<tr><td>CardType Setup</td><td>Operations</td><td>কার্ড পেমেন্ট কনফিগারেশন</td></tr>
+<tr><td>Designations</td><td>Staff</td><td>পদবি তৈরি</td></tr>
+<tr><td>Employees</td><td>Staff</td><td>কর্মচারী নিবন্ধন</td></tr>
+<tr><td>Employee Leave</td><td>Staff</td><td>ছুটি ব্যবস্থাপনা</td></tr>
+<tr><td>Customers</td><td>CRM</td><td>গ্রাহক নিবন্ধন</td></tr>
+<tr><td>Suppliers</td><td>CRM</td><td>সরবরাহকারী নিবন্ধন</td></tr>
+<tr><td>Company Ordersheet</td><td>Order Sheet</td><td>কোম্পানিতে অর্ডার</td></tr>
+<tr><td>Customer Ordersheet</td><td>Order Sheet</td><td>গ্রাহকের অর্ডার</td></tr>
+<tr><td>Ordersheet Report</td><td>Order Sheet</td><td>অর্ডার শিট রিপোর্ট</td></tr>
+<tr><td>Purchase Order</td><td>Purchase</td><td>ক্রয় অর্ডার তৈরি</td></tr>
+<tr><td>Auto PO</td><td>Purchase</td><td>স্বয়ংক্রিয় ক্রয় অর্ডার</td></tr>
+<tr><td>Sales Order</td><td>Sales</td><td>বিক্রয় অর্ডার তৈরি</td></tr>
+<tr><td>Hire Sales</td><td>Sales</td><td>কিস্তিতে বিক্রয়</td></tr>
+<tr><td>Sales Return</td><td>Sales</td><td>বিক্রয় ফেরত</td></tr>
+<tr><td>Purchase Return</td><td>Purchase</td><td>ক্রয় ফেরত</td></tr>
+<tr><td>Replacement Order</td><td>Sales</td><td>প্রতিস্থাপন অর্ডার</td></tr>
+<tr><td>Stock</td><td>Stock</td><td>বর্তমান স্টক দেখুন</td></tr>
+<tr><td>Stock Details</td><td>Stock</td><td>বিস্তারিত স্টক তথ্য</td></tr>
+<tr><td>Transfer</td><td>Stock</td><td>গোডাউনে স্থানান্তর</td></tr>
+<tr><td>Opening Stock</td><td>Stock</td><td>প্রারম্ভিক স্টক</td></tr>
+<tr><td>Batch Master</td><td>Stock</td><td>ব্যাচ নম্বর ব্যবস্থাপনা</td></tr>
+<tr><td>Valuation</td><td>Stock</td><td>স্টক মূল্যায়ন</td></tr>
+<tr><td>Expense/Income Head</td><td>Accounts</td><td>আয়-ব্যয়ের খাত সেটআপ</td></tr>
+<tr><td>Expense</td><td>Accounts</td><td>ব্যয় এন্ট্রি</td></tr>
+<tr><td>Income</td><td>Accounts</td><td>আয় এন্ট্রি</td></tr>
+<tr><td>Cash Collection</td><td>Accounts</td><td>নগদ আদায়</td></tr>
+<tr><td>Cash Delivery</td><td>Accounts</td><td>নগদ হস্তান্তর</td></tr>
+<tr><td>Bank Transaction</td><td>Accounts</td><td>ব্যাংক লেনদেন</td></tr>
+<tr><td>SMS Inbox</td><td>SMS</td><td>আগত এসএমএস</td></tr>
+<tr><td>Send SMS</td><td>SMS</td><td>এসএমএস পাঠান</td></tr>
+<tr><td>Send Bulk SMS</td><td>SMS</td><td>একসাথে অনেককে SMS</td></tr>
+<tr><td>Chart of Accounts</td><td>Accounting</td><td>হিসাব খাত ও খতিয়ান</td></tr>
+<tr><td>Cash In Hand</td><td>Accounting</td><td>হাতে নগদ</td></tr>
+<tr><td>Trial Balance</td><td>Accounting</td><td>মেয়াদী উপসামান্তর</td></tr>
+<tr><td>Profit & Loss</td><td>Accounting</td><td>লাভ-ক্ষতি হিসাব</td></tr>
+<tr><td>Balance Sheet</td><td>Accounting</td><td>উদ্বৃত্তপত্র</td></tr>
+<tr><td>Dashboard KPI</td><td>Audit</td><td>কর্মক্ষমতা সূচক</td></tr>
+<tr><td>Fraud Detection</td><td>Audit</td><td>জালিয়াতি সনাক্তকরণ</td></tr>
+<tr><td>Inventory Aging</td><td>Audit</td><td>ইনভেন্টরি বয়স বিশ্লেষণ</td></tr>
+<tr><td>Company Settings</td><td>System</td><td>কোম্পানি সেটিংস</td></tr>
+<tr><td>Invoice Templates</td><td>System</td><td>চালান টেমপ্লেট</td></tr>
+<tr><td>Number Formats</td><td>System</td><td>নম্বর ফরম্যাট</td></tr>
+<tr><td>Audit Trail</td><td>System</td><td>কার্যক্রম লগ</td></tr>
+</tbody>
+</table>
+
+<div class="page-footer">VoltERP ব্যবহারকারী গাইড — সম্পূর্ণ বাংলা নির্দেশিকা ২০২৫</div>
+
+
+
+</body>
+</html>

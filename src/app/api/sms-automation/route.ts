@@ -21,10 +21,10 @@ import { logUserActivity } from '@/lib/activity-logger';
 // Default automation config returned when no active config exists for the tenant
 const DEFAULT_AUTOMATION_CONFIG = {
   id: null,
-  smsAlertOnPurchase: false,
-  smsAlertOnCollection: false,
-  smsAlertOnStockReceive: false,
-  smsAlertOnHrLifecycle: false,
+  autoSmsOnPurchase: false,
+  autoSmsOnReceipt: false,
+  autoSmsOnStockReceive: false,
+  autoSmsOnEmployeeEvent: false,
   companyId: null,
   isActive: true,
   createdAt: null,
@@ -108,17 +108,17 @@ export async function POST(request: NextRequest) {
     const companyId = security.user.companyId;
 
     // Extract boolean toggles with safe defaults
-    const smsAlertOnPurchase = Boolean(body.smsAlertOnPurchase ?? false);
-    const smsAlertOnCollection = Boolean(body.smsAlertOnCollection ?? false);
-    const smsAlertOnStockReceive = Boolean(body.smsAlertOnStockReceive ?? false);
-    const smsAlertOnHrLifecycle = Boolean(body.smsAlertOnHrLifecycle ?? false);
+    const autoSmsOnPurchase = Boolean(body.autoSmsOnPurchase ?? false);
+    const autoSmsOnReceipt = Boolean(body.autoSmsOnReceipt ?? false);
+    const autoSmsOnStockReceive = Boolean(body.autoSmsOnStockReceive ?? false);
+    const autoSmsOnEmployeeEvent = Boolean(body.autoSmsOnEmployeeEvent ?? false);
 
     const record = await db.smsAutomationConfig.create({
       data: {
-        smsAlertOnPurchase,
-        smsAlertOnCollection,
-        smsAlertOnStockReceive,
-        smsAlertOnHrLifecycle,
+        autoSmsOnPurchase,
+        autoSmsOnReceipt,
+        autoSmsOnStockReceive,
+        autoSmsOnEmployeeEvent,
         isActive: true,
         ...(companyId && { companyId }),
       },
@@ -133,10 +133,10 @@ export async function POST(request: NextRequest) {
       userId: security.user.id,
       userName: security.user.name,
       details: JSON.stringify({
-        smsAlertOnPurchase: record.smsAlertOnPurchase,
-        smsAlertOnCollection: record.smsAlertOnCollection,
-        smsAlertOnStockReceive: record.smsAlertOnStockReceive,
-        smsAlertOnHrLifecycle: record.smsAlertOnHrLifecycle,
+        autoSmsOnPurchase: record.autoSmsOnPurchase,
+        autoSmsOnReceipt: record.autoSmsOnReceipt,
+        autoSmsOnStockReceive: record.autoSmsOnStockReceive,
+        autoSmsOnEmployeeEvent: record.autoSmsOnEmployeeEvent,
         companyId: record.companyId,
       }),
     }).catch(() => {});
@@ -196,10 +196,10 @@ export async function PUT(request: NextRequest) {
     const companyId = security.user.companyId;
 
     // Extract boolean toggles with safe defaults
-    const smsAlertOnPurchase = Boolean(body.smsAlertOnPurchase ?? false);
-    const smsAlertOnCollection = Boolean(body.smsAlertOnCollection ?? false);
-    const smsAlertOnStockReceive = Boolean(body.smsAlertOnStockReceive ?? false);
-    const smsAlertOnHrLifecycle = Boolean(body.smsAlertOnHrLifecycle ?? false);
+    const autoSmsOnPurchase = Boolean(body.autoSmsOnPurchase ?? false);
+    const autoSmsOnReceipt = Boolean(body.autoSmsOnReceipt ?? false);
+    const autoSmsOnStockReceive = Boolean(body.autoSmsOnStockReceive ?? false);
+    const autoSmsOnEmployeeEvent = Boolean(body.autoSmsOnEmployeeEvent ?? false);
 
     // Find the existing active config for the current tenant
     const existingConfig = await db.smsAutomationConfig.findFirst({
@@ -216,20 +216,20 @@ export async function PUT(request: NextRequest) {
       result = await db.smsAutomationConfig.update({
         where: { id: existingConfig.id },
         data: {
-          smsAlertOnPurchase,
-          smsAlertOnCollection,
-          smsAlertOnStockReceive,
-          smsAlertOnHrLifecycle,
+          autoSmsOnPurchase,
+          autoSmsOnReceipt,
+          autoSmsOnStockReceive,
+          autoSmsOnEmployeeEvent,
         },
       });
     } else {
       // Create new config (upsert pattern — not found, so create one)
       result = await db.smsAutomationConfig.create({
         data: {
-          smsAlertOnPurchase,
-          smsAlertOnCollection,
-          smsAlertOnStockReceive,
-          smsAlertOnHrLifecycle,
+          autoSmsOnPurchase,
+          autoSmsOnReceipt,
+          autoSmsOnStockReceive,
+          autoSmsOnEmployeeEvent,
           isActive: true,
           ...(companyId && { companyId }),
         },
@@ -246,10 +246,10 @@ export async function PUT(request: NextRequest) {
       userName: security.user.name,
       details: JSON.stringify({
         operation: existingConfig ? 'UPDATE' : 'CREATE_AS_UPSERT',
-        smsAlertOnPurchase: result.smsAlertOnPurchase,
-        smsAlertOnCollection: result.smsAlertOnCollection,
-        smsAlertOnStockReceive: result.smsAlertOnStockReceive,
-        smsAlertOnHrLifecycle: result.smsAlertOnHrLifecycle,
+        autoSmsOnPurchase: result.autoSmsOnPurchase,
+        autoSmsOnReceipt: result.autoSmsOnReceipt,
+        autoSmsOnStockReceive: result.autoSmsOnStockReceive,
+        autoSmsOnEmployeeEvent: result.autoSmsOnEmployeeEvent,
         companyId: result.companyId,
       }),
     }).catch(() => {});

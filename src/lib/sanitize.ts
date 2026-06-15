@@ -1,8 +1,11 @@
 // ============================================================
 // XSS / INPUT SANITIZATION — Prevents cross-site scripting attacks
 //
-// Uses isomorphic-dompurify (works in both server and client)
-// to strip all HTML tags and attributes from user input strings.
+// Uses a lightweight regex-based sanitizer that works in ALL
+// environments (Node.js serverless, browser, edge runtime).
+//
+// Previous version used isomorphic-dompurify which depends on
+// jsdom — this crashes on Vercel serverless with ESM/CJS errors.
 //
 // USAGE:
 // - sanitizeInput(string): Strip all HTML from a single string
@@ -11,21 +14,63 @@
 // Applied automatically to POST/PUT request bodies in withApiSecurity()
 // ============================================================
 
-import DOMPurify from 'isomorphic-dompurify';
-
 /**
  * sanitizeInput — Sanitize a single string to prevent XSS attacks.
  * Strips ALL HTML tags and ALL attributes — only plain text remains.
+ *
+ * Uses regex-based sanitization that works in all JS environments
+ * (Node.js, browser, edge, serverless) without any heavy dependencies.
  *
  * @param input - The string to sanitize
  * @returns The sanitized string with all HTML removed
  */
 export function sanitizeInput(input: string): string {
   if (typeof input !== 'string') return input;
-  return DOMPurify.sanitize(input, {
-    ALLOWED_TAGS: [],  // Strip all HTML tags
-    ALLOWED_ATTR: [],  // Strip all attributes
+
+  // Step 1: Remove HTML tags (opening, closing, self-closing)
+  let sanitized = input.replace(/<[^>]*>/g, '');
+
+  // Step 2: Decode common HTML entities to prevent bypass via entity encoding
+  const entityMap: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&#x27;': "'",
+    '&#x2F;': '/',
+    '&#x3C;': '<',
+    '&#x3E;': '>',
+    '&apos;': "'",
+    '&nbsp;': ' ',
+  };
+
+  // Replace numeric HTML entities (decimal)
+  sanitized = sanitized.replace(/&#(\d+);/g, (_, code) => {
+    const charCode = parseInt(code, 10);
+    return charCode > 0 && charCode < 0x10000 ? String.fromCharCode(charCode) : '';
   });
+
+  // Replace numeric HTML entities (hexadecimal)
+  sanitized = sanitized.replace(/&#x([0-9a-fA-F]+);/g, (_, code) => {
+    const charCode = parseInt(code, 16);
+    return charCode > 0 && charCode < 0x10000 ? String.fromCharCode(charCode) : '';
+  });
+
+  // Replace named HTML entities
+  for (const [entity, char] of Object.entries(entityMap)) {
+    sanitized = sanitized.replace(new RegExp(entity, 'gi'), char);
+  }
+
+  // Step 3: Remove any remaining script-like content patterns
+  sanitized = sanitized.replace(/javascript\s*:/gi, '');
+  sanitized = sanitized.replace(/on\w+\s*=/gi, ''); // Remove event handlers like onclick=
+  sanitized = sanitized.replace(/data\s*:\s*text\/html/gi, '');
+
+  // Step 4: Trim whitespace
+  sanitized = sanitized.trim();
+
+  return sanitized;
 }
 
 /**

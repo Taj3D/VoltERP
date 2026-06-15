@@ -35,13 +35,13 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "\u2014";
   if (type === "currency") return `Tk. ${bdCurrencyFmt.format(Number(v))}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "\u2014";
+  if (type === "date") { if (!v) return "\u2014"; const dt = new Date(v); return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return bdCurrencyFmt.format(Number(v));
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "\u2014";
+const fmtDate = (d: string | Date) => { if (!d) return "\u2014"; const dt = new Date(d); return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 // (apiFetch and useAuth imported from shared modules)
 

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoltERP ব্যবহারকারী গাইড — পর্ব ১</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide-styles.css">
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- COVER PAGE -->
+<!-- ============================================================ -->
+<div class="cover-page">
+  <img src="./public/guide-cover.png" alt="VoltERP গাইড কভার">
+  <h1>VoltERP ব্যবহারকারী গাইড</h1>
+  <h2>ইলেকট্রনিক্স মার্ট ইনভেন্টরি ম্যানেজমেন্ট সিস্টেম</h2>
+  <p>ব্যবসার সম্পূর্ণ পরিচালনা ব্যবস্থা — ক্রয়, বিক্রয়, ইনভেন্টরি, হিসাব, কর্মচারী ও রিপোর্টিং</p>
+  <div class="cover-badge">সম্পূর্ণ বাংলা নির্দেশিকা ২০২৫</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- TABLE OF CONTENTS -->
+<!-- ============================================================ -->
+<div class="toc-page">
+  <h2>সূচিপত্র</h2>
+  <div class="two-col">
+    <div>
+      <div class="toc-item main"><span>১. বিনিয়োগ (Investment)</span><span>পৃষ্ঠা ৩</span></div>
+      <div class="toc-item sub"><span>১.১ ইনভেস্টমেন্ট হেডস (Investment Heads)</span><span>৩</span></div>
+      <div class="toc-item sub"><span>১.২ ইনভেস্টমেন্ট (Investment)</span><span>৪</span></div>
+
+      <div class="toc-item main"><span>২. সম্পত্তি (Asset)</span><span>পৃষ্ঠা ৫</span></div>
+      <div class="toc-item sub"><span>২.১ স্থায়ী সম্পদ (Fixed Asset)</span><span>৫</span></div>
+      <div class="toc-item sub"><span>২.২ চলতি সম্পদ (Current Asset)</span><span>৬</span></div>
+
+      <div class="toc-item main"><span>৩. দায় (Liability)</span><span>পৃষ্ঠা ৭</span></div>
+      <div class="toc-item sub"><span>৩.১ দায় গ্রহণ (Liability Receive)</span><span>৭</span></div>
+      <div class="toc-item sub"><span>৩.২ দায় পরিশোধ (Liability Pay)</span><span>৮</span></div>
+      <div class="toc-item sub"><span>৩.৩ দায় রিপোর্ট (Liability Report)</span><span>৯</span></div>
+    </div>
+    <div>
+      <div class="toc-item main"><span>৪. বেসিক মডিউলস (Basic Modules)</span><span>পর্ব ২</span></div>
+      <div class="toc-item main"><span>৫. কর্মচারী ও গ্রাহক (Staff &amp; CRM)</span><span>পর্ব ২</span></div>
+      <div class="toc-item main"><span>৬. ইনভেন্টরি ম্যানেজমেন্ট</span><span>পর্ব ৩</span></div>
+      <div class="toc-item main"><span>৭. বিক্রয় মডিউল (Sales Module)</span><span>পর্ব ৩</span></div>
+      <div class="toc-item main"><span>৮. হিসাব ব্যবস্থাপনা (Accounts)</span><span>পর্ব ৪</span></div>
+      <div class="toc-item main"><span>৯. আর্থিক রিপোর্ট (Financial Reports)</span><span>পর্ব ৪</span></div>
+      <div class="toc-item main"><span>১০. এসএমএস সার্ভিস (SMS Service)</span><span>পর্ব ৫</span></div>
+      <div class="toc-item main"><span>১১. সিস্টেম সেটিংস ও প্রোফাইল</span><span>পর্ব ৫</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 1: বিনিয়োগ (Investment) -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">১</div>
+    <div class="section-title">বিনিয়োগ (Investment)</div>
+  </div>
+
+  <p style="margin-bottom:14px; color:var(--text-light);">
+    বিনিয়োগ মডিউলটি আপনার ব্যবসার আর্থিক ভিত্তি পরিচালনার জন্য ব্যবহৃত হয়। এখানে আপনি বিনিয়োগের খাত বা শ্রেণি তৈরি করতে পারবেন, প্রতিটি বিনিয়োগের লেনদেন রেকর্ড করতে পারবেন এবং সম্পূর্ণ বিনিয়োগ তথ্য ট্র্যাক করতে পারবেন। শুধুমাত্র অ্যাডমিন ও ম্যানেজার রোলের ব্যবহারকারীরা এই মডিউল ব্যবহার করতে পারবেন।
+  </p>
+
+  <!-- Module: Investment Heads -->
+  <div class="module">
+    <h3>ইনভেস্টমেন্ট হেডস (Investment Heads)</h3>
+    <p>
+      ইনভেস্টমেন্ট হেড হলো বিনিয়োগের শ্রেণি বা খাত — এটি হিসাববিজ্ঞানের লেজার অ্যাকাউন্টের মতো কাজ করে। আপনার ব্যবসার সমস্ত আর্থিক সম্পদ ও দায় এই হেডগুলোর অধীনে শ্রেণিবদ্ধ থাকে। প্রতিটি হেডের একটি স্বয়ংক্রিয়ভাবে তৈরি কোড (যেমন: INVH-00001), নাম, ধরন, উদ্বোধনী ব্যালেন্স এবং সক্রিয় অবস্থা থাকে। হেডের ধরন নির্বাচন করার সময় আপনি Fixed Asset, Current Asset, Liability, PF, FDR বা Security এর মধ্যে বেছে নিতে পারবেন।
+    </p>
+
+    <div class="sub-section">ব্যবহার পদ্ধতি</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment</strong> মেনুতে ক্লিক করুন, তারপর <strong>Investment Heads</strong> নির্বাচন করুন</li>
+      <li>টেবিলের উপরে ডানদিকে <strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li>ফর্মে <strong>নাম</strong> (আবশ্যক) লিখুন — যেমন: "প্রধান অফিস ভবন", "ব্যাংক এফডিআর"</li>
+      <li><strong>বিবরণ</strong> (ঐচ্ছিক) লিখুন — হেড সম্পর্কে নোট বা মন্তব্য</li>
+      <li><strong>ধরন</strong> (আবশ্যক) নির্বাচন করুন — Fixed Asset, Current Asset, Liability, PF, FDR বা Security</li>
+      <li><strong>উদ্বোধনী ব্যালেন্স</strong> পরিমাণ টাকা লিখুন এবং <strong>উদ্বোধনী ধরন</strong> নির্বাচন করুন — Dr (ডেবিট) বা Cr (ক্রেডিট)</li>
+      <li><strong>সক্রিয়</strong> চেকবক্স নিশ্চিত করুন (ডিফল্টভাবে চালু থাকে)</li>
+      <li><strong>Save</strong> বাটনে ক্লিক করুন — কোড স্বয়ংক্রিয়ভাবে তৈরি হবে</li>
+    </ol>
+
+    <div class="info-box">
+      কোড ফিল্ড (INVH-XXXXX) সিস্টেম দ্বারা স্বয়ংক্রিয়ভাবে তৈরি হয়, আপনাকে ম্যানুয়ালি টাইপ করতে হবে না। নতুন হেড তৈরির পর কোড স্বয়ংক্রিয়ভাবে দেখা যাবে।
+    </div>
+
+    <div class="sub-section">সম্পাদনা ও অপসারণ</div>
+    <ol class="steps">
+      <li>যেকোনো সারির ডানপাশে <strong>পেন্সিল আইকন</strong> (Edit) এ ক্লিক করুন — ফর্ম পূর্বের তথ্য সহ খুলবে</li>
+      <li>প্রয়োজনীয় ক্ষেত্র পরিবর্তন করে <strong>Save</strong> ক্লিক করুন</li>
+      <li>অপসারণ করতে <strong>ট্র্যাশ আইকন</strong> (Delete) এ ক্লিক করুন</li>
+      <li>নিশ্চিতকরণ ডায়ালগে <strong>Confirm</strong> ক্লিক করুন</li>
+    </ol>
+
+    <div class="warning-box" style="background:var(--warning-bg); border:1px solid var(--warning-border); border-radius:6px; padding:10px 14px; margin:10px 0; font-size:9.5pt;">
+      যদি কোনো হেডের লেনদেন লক করা মাসে থাকে, তবে অপসারণ ব্লক করা হবে। প্রথমে সেই মাসের পিরিয়ড ক্লোজ আনলক করুন, তারপর অপসারণ করুন।
+    </div>
+
+    <div class="sub-section">রপ্তানি ও আমদানি</div>
+    <ol class="steps">
+      <li><strong>PDF রপ্তানি:</strong> PDF আইকনে ক্লিক করলে ল্যান্ডস্কেপ A4 পিডিএফ ডাউনলোড হবে — কর্পোরেট হেডার, বিকল্প সারি রং এবং পৃষ্ঠা নম্বর সহ</li>
+      <li><strong>CSV রপ্তানি:</strong> CSV আইকনে ক্লিক করলে UTF-8 BOM এনকোডেড CSV ফাইল ডাউনলোড হবে — এক্সেলে টাকা চিহ্ন (৳) সঠিকভাবে দেখাবে</li>
+      <li><strong>CSV আমদানি:</strong> আপলোড আইকনে ক্লিক করে CSV ফাইল আপলোড করুন — সিস্টেম স্বয়ংক্রিয়ভাবে যাচাই করবে এবং সফল সারিগুলো যুক্ত করবে</li>
+    </ol>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>কোড</td><td>স্বয়ংক্রিয়ভাবে তৈরি (INVH-XXXXX)</td><td>না</td></tr>
+        <tr><td>নাম</td><td>হেডের প্রদর্শন নাম</td><td>হ্যাঁ</td></tr>
+        <tr><td>বিবরণ</td><td>অতিরিক্ত নোট</td><td>না</td></tr>
+        <tr><td>ধরন</td><td>Fixed Asset / Current Asset / Liability / PF / FDR / Security</td><td>হ্যাঁ</td></tr>
+        <tr><td>উদ্বোধনী ব্যালেন্স</td><td>প্রারম্ভিক পরিমাণ (৳)</td><td>না</td></tr>
+        <tr><td>উদ্বোধনী ধরন</td><td>Dr (ডেবিট) বা Cr (ক্রেডিট)</td><td>না</td></tr>
+        <tr><td>সক্রিয়</td><td>চালু বা বন্ধ</td><td>না</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Investment -->
+  <div class="module">
+    <h3>ইনভেস্টমেন্ট (Investment)</h3>
+    <p>
+      ইনভেস্টমেন্ট পেজে প্রতিটি বিনিয়োগের বিস্তারিত লেনদেন রেকর্ড করা হয়। প্রতিটি এন্ট্রি একটি নির্দিষ্ট ইনভেস্টমেন্ট হেডের সাথে সংযুক্ত থাকে। উদাহরণস্বরূপ, "অফিস ভবন" একটি Fixed Asset হেড হলে, সেই ভবনের জন্য নতুন এসি কেনার রেকর্ড এখানে ইনভেস্টমেন্ট এন্ট্রি হিসেবে যুক্ত হবে। প্রতিটি এন্ট্রিতে তারিখ, পরিমাণ, সম্পদ শ্রেণি ও বিবরণ থাকে। সিস্টেম স্বয়ংক্রিয়ভাবে একটি কোড (INV-00001) তৈরি করে।
+    </p>
+
+    <div class="sub-section">নতুন বিনিয়োগ এন্ট্রি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Investment</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> (আবশ্যক) ড্রপডাউন থেকে নির্বাচন করুন — এই তালিকা Investment Heads পেজ থেকে আসে</li>
+      <li><strong>তারিখ</strong> (আবশ্যক) নির্বাচন করুন — লেনদেনের তারিখ</li>
+      <li><strong>পরিমাণ</strong> (আবশ্যক) লিখুন — টাকার পরিমাণ</li>
+      <li><strong>সম্পদ শ্রেণি</strong> নির্বাচন করুন — <strong>Fixed</strong> (দীর্ঘমেয়াদী সম্পদ) অথবা <strong>Current</strong> (স্বল্পমেয়াদী/তরল সম্পদ)</li>
+      <li><strong>বিবরণ</strong> লিখুন — লেনদেন সম্পর্কে মন্তব্য বা নোট</li>
+      <li><strong>সক্রিয়</strong> চেকবক্স নিশ্চিত করুন এবং <strong>Save</strong> ক্লিক করুন</li>
+    </ol>
+
+    <div class="info-box">
+      সম্পদ শ্রেণি "Fixed" নির্বাচন করলে সেই এন্ট্রি স্বয়ংক্রিয়ভাবে Fixed Asset পেজেও দেখা যাবে। আর "Current" নির্বাচন করলে Current Asset পেজে দেখা যাবে। তাই সঠিক শ্রেণি নির্বাচন করা অত্যন্ত গুরুত্বপূর্ণ।
+    </div>
+
+    <div class="sub-section">বিনিয়োগের রিটার্ন বা উত্তোলন</div>
+    <p>
+      বিনিয়োগ থেকে টাকা উত্তোলন বা রিটার্ন পেলে সেই এন্ট্রিও এই পেজেই করতে হবে। উত্তোলনের ক্ষেত্রে পরিমাণ ঋণাত্মক (নেগেটিভ) হিসেবে লিখুন অথবা বিবরণে "উত্তোলন" উল্লেখ করুন। এতে সামগ্রিক বিনিয়োগ রিপোর্টে নিট পরিমাণ সঠিকভাবে দেখা যাবে।
+    </p>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>কোড</td><td>স্বয়ংক্রিয়ভাবে তৈরি (INV-XXXXX)</td><td>না</td></tr>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>যে হেডের অধীনে এন্ট্রি</td><td>হ্যাঁ</td></tr>
+        <tr><td>তারিখ</td><td>লেনদেনের তারিখ</td><td>হ্যাঁ</td></tr>
+        <tr><td>পরিমাণ</td><td>টাকার পরিমাণ (৳)</td><td>হ্যাঁ</td></tr>
+        <tr><td>সম্পদ শ্রেণি</td><td>Fixed বা Current</td><td>না</td></tr>
+        <tr><td>বিবরণ</td><td>লেনদেন সম্পর্কে নোট</td><td>না</td></tr>
+        <tr><td>সক্রিয়</td><td>চালু বা বন্ধ</td><td>না</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box">
+      VAT Auditor রোল এই পেজ অ্যাক্সেস করলে সমস্ত পরিমাণ/মূল্য ক্ষেত্রে "N/A (Audit Mode)" দেখাবে। এটি ব্যবসার আর্থিক গোপনীয়তা রক্ষার জন্য।
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 2: সম্পত্তি (Asset) -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">২</div>
+    <div class="section-title">সম্পত্তি (Asset)</div>
+  </div>
+
+  <p style="margin-bottom:14px; color:var(--text-light);">
+    সম্পত্তি মডিউলে আপনার ব্যবসার সমস্ত সম্পদ — স্থায়ী ও চলতি — পরিচালনা করা হয়। স্থায়ী সম্পদ হলো দীর্ঘমেয়াদী সম্পদ যেমন ভবন, যন্ত্রপাতি, যানবাহন; আর চলতি সম্পদ হলো স্বল্পমেয়াদী তরল সম্পদ যেমন নগদ, ব্যাংক জমা, পাওনাদার। ব্যালেন্স শিটে সম্পদের এই দুই শ্রেণি আলাদাভাবে প্রদর্শিত হয়।
+  </p>
+
+  <!-- Module: Fixed Asset -->
+  <div class="module">
+    <h3>স্থায়ী সম্পদ (Fixed Asset)</h3>
+    <p>
+      স্থায়ী সম্পদ হলো ব্যবসার দীর্ঘমেয়াদী সম্পদ — ভবন, যন্ত্রপাতি, যানবাহন, অফিস সরঞ্জাম ইত্যাদি। এই সম্পদগুলো একাধিক আর্থিক বছর ধরে ব্যবহৃত হয় এবং সময়ের সাথে তাদের মূল্য হ্রাস (Depreciation) পায়। VoltERP সিস্টেমে প্রতিটি স্থায়ী সম্পদ একটি "Fixed Asset" ধরনের ইনভেস্টমেন্ট হেডের সাথে সংযুক্ত থাকে। হ্রাসকৃত মূল্য লেজার এন্ট্রির মাধ্যমে ম্যানুয়ালি রেকর্ড করতে হয়। ব্যালেন্স শিটে স্থায়ী সম্পদের মোট মূল্য "Fixed Assets" বিভাগে প্রদর্শিত হয়।
+    </p>
+
+    <div class="sub-section">নতুন স্থায়ী সম্পদ যোগ করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Fixed Asset</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> নির্বাচন করুন — অবশ্যই "Fixed Asset" ধরনের হেড নির্বাচন করতে হবে</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন — সম্পদ অর্জনের তারিখ</li>
+      <li><strong>পরিমাণ</strong> লিখুন — সম্পদের ক্রয়মূল্য (৳)</li>
+      <li><strong>বিবরণ</strong> লিখুন — সম্পদের বিস্তারিত (যেমন: "স্যামসাং স্প্লিট এসি ১.৫ টন")</li>
+      <li>সম্পদ শ্রেণি স্বয়ংক্রিয়ভাবে <strong>"Fixed"</strong> নির্ধারিত থাকবে</li>
+      <li><strong>Save</strong> ক্লিক করুন — কোড (INV-XXXXX) স্বয়ংক্রিয়ভাবে তৈরি হবে</li>
+    </ol>
+
+    <div class="info-box">
+      স্থায়ী সম্পদের হ্রাসকৃত মূল্য (Depreciation) সিস্টেম স্বয়ংক্রিয়ভাবে হিসাব করে না। প্রতি মাসে বা বছরে হ্রাসকৃত মূল্য ম্যানুয়ালি লেজার এন্ট্রির মাধ্যমে রেকর্ড করতে হবে। এতে করে ব্যালেন্স শিটে সম্পদের নিট বই মূল্য সঠিকভাবে প্রতিফলিত হবে।
+    </div>
+
+    <div class="sub-section">স্থায়ী সম্পদ পরিচালনার কার্যপ্রবাহ</div>
+    <div class="workflow">
+      <h3>স্থায়ী সম্পদ জীবনচক্র</h3>
+      <ol>
+        <li><strong>হেড তৈরি:</strong> Investment Heads পেজে "Fixed Asset" ধরনের হেড তৈরি করুন</li>
+        <li><strong>সম্পদ অর্জন:</strong> Fixed Asset পেজে সম্পদের ক্রয় এন্ট্রি করুন</li>
+        <li><strong>হ্রাস হিসাব:</strong> প্রতি সময়ে লেজারে Depreciation এন্ট্রি করুন</li>
+        <li><strong>ব্যালেন্স শিট:</strong> নিট বই মূল্য = ক্রয়মূল্য - জমা হ্রাস</li>
+        <li><strong>অপসারণ:</strong> সম্পদ বিক্রি বা বর্জন করলে তা লেজারে রেকর্ড করুন</li>
+      </ol>
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>সম্পদের উদাহরণ</th>
+          <th>হেড ধরন</th>
+          <th>হ্রাসযোগ্য?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>অফিস ভবন</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>যানবাহন (গাড়ি)</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>কম্পিউটার ও ল্যাপটপ</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>এসি ও অফিস সরঞ্জাম</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+        <tr><td>আসবাবপত্র</td><td>Fixed Asset</td><td>হ্যাঁ</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Current Asset -->
+  <div class="module">
+    <h3>চলতি সম্পদ (Current Asset)</h3>
+    <p>
+      চলতি সম্পদ হলো ব্যবসার স্বল্পমেয়াদী ও তরল সম্পদ — নগদ অর্থ, ব্যাংক জমা, পাওনাদারের টাকা, ইনভেন্টরির মূল্য ইত্যাদি। এই সম্পদগুলো এক আর্থিক বছরের মধ্যে নগদে রূপান্তরিত হওয়ার প্রত্যাশা করা যায়। চলতি সম্পদ ব্যবসার তরলতা (Liquidity) নির্দেশ করে — অর্থাৎ ব্যবসা কতটুকু দ্রুত তার আর্থিক দায় পরিশোধ করতে সক্ষম। ব্যালেন্স শিটে চলতি সম্পদ "Current Assets" বিভাগে প্রদর্শিত হয় এবং তরলতা অনুপাত হিসাবে ব্যবহৃত হয়।
+    </p>
+
+    <div class="sub-section">নতুন চলতি সম্পদ যোগ করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Current Asset</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> নির্বাচন করুন — অবশ্যই "Current Asset" ধরনের হেড নির্বাচন করতে হবে</li>
+      <li><strong>তারিখ</strong> নির্বাচন করুন — লেনদেনের তারিখ</li>
+      <li><strong>পরিমাণ</strong> লিখুন — সম্পদের পরিমাণ (৳)</li>
+      <li><strong>বিবরণ</strong> লিখুন — সম্পদের বিস্তারিত তথ্য</li>
+      <li>সম্পদ শ্রেণি স্বয়ংক্রিয়ভাবে <strong>"Current"</strong> নির্ধারিত থাকবে</li>
+      <li><strong>Save</strong> ক্লিক করুন</li>
+    </ol>
+
+    <div class="info-box">
+      চলতি সম্পদের পরিমাণ প্রতি মাসে আপডেট করুন। বিশেষত ব্যাংক জমা ও নগদ অর্থের পরিবর্তন সময়মতো রেকর্ড করলে তরলতা অনুপাত সঠিক থাকবে এবং আর্থিক সিদ্ধান্ত নেওয়া সহজ হবে।
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>চলতি সম্পদের উদাহরণ</th>
+          <th>হেড ধরন</th>
+          <th>বৈশিষ্ট্য</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>নগদ অর্থ (Cash)</td><td>Current Asset</td><td>সবচেয়ে তরল</td></tr>
+        <tr><td>ব্যাংক জমা</td><td>Current Asset</td><td>দ্রুত উত্তোলনযোগ্য</td></tr>
+        <tr><td>পাওনাদার (Receivables)</td><td>Current Asset</td><td>৩০-৯০ দিনে আসবে</td></tr>
+        <tr><td>ইনভেন্টরি মূল্য</td><td>Current Asset</td><td>বিক্রয়ের মাধ্যমে নগদ</td></tr>
+        <tr><td>ব্যাংক এফডিআর</td><td>Current Asset / FDR</td><td>মেয়াদ শেষে তরল</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Comparison Box -->
+  <div class="workflow">
+    <h3>স্থায়ী সম্পদ বনাম চলতি সম্পদ</h3>
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>বৈশিষ্ট্য</th>
+          <th>স্থায়ী সম্পদ (Fixed)</th>
+          <th>চলতি সম্পদ (Current)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>মেয়াদ</td><td>একাধিক বছর</td><td>এক বছরের কম</td></tr>
+        <tr><td>তরলতা</td><td>কম</td><td>উচ্চ</td></tr>
+        <tr><td>হ্রাস (Depreciation)</td><td>প্রযোজ্য</td><td>প্রযোজ্য নয়</td></tr>
+        <tr><td>উদাহরণ</td><td>ভবন, গাড়ি, যন্ত্রপাতি</td><td>নগদ, ব্যাংক জমা, পাওনাদার</td></tr>
+        <tr><td>ব্যালেন্স শিট অবস্থান</td><td>উপরে — Fixed Assets</td><td>নিচে — Current Assets</td></tr>
+        <tr><td>রূপান্তর</td><td>নগদে রূপান্তর কঠিন</td><td>সহজেই নগদে রূপান্তর</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SECTION 3: দায় (Liability) -->
+<!-- ============================================================ -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-number">৩</div>
+    <div class="section-title">দায় (Liability)</div>
+  </div>
+
+  <p style="margin-bottom:14px; color:var(--text-light);">
+    দায় মডিউলে আপনার ব্যবসার সমস্ত ঋণ ও দায় পরিচালনা করা হয়। এখানে আপনি ঋণ গ্রহণ, ঋণ পরিশোধ এবং সমস্ত দায়ের সামগ্রিক রিপোর্ট দেখতে পারবেন। সিস্টেম স্বয়ংক্রিয়ভাবে বকেয়া পরিমাণ হিসাব করে এবং লেজারে সংশ্লিষ্ট এন্ট্রি তৈরি করে। শুধুমাত্র অ্যাডমিন ও ম্যানেজার এই মডিউল ব্যবহার করতে পারবেন।
+  </p>
+
+  <!-- Module: Liability Receive -->
+  <div class="module">
+    <h3>দায় গ্রহণ (Liability Receive)</h3>
+    <p>
+      দায় গ্রহণ পেজে ব্যবসায় আগত ঋণ বা ঋণসৃষ্টিকারী লেনদেন রেকর্ড করা হয়। যখন আপনার ব্যবসা ব্যাংক থেকে ঋণ গ্রহণ করে, সরবরাহকারীর কাছ থেকে ক্রেডিট পায়, অথবা অন্য কোনো উৎস থেকে অর্থ ধার নেয় — তখন এই পেজে এন্ট্রি করতে হয়। এন্ট্রি করার পর সিস্টেম স্বয়ংক্রিয়ভাবে সেই ইনভেস্টমেন্ট হেডের বকেয়া দায়ের ব্যালেন্স বৃদ্ধি করে এবং জেনারেল লেজারে একটি স্বয়ংক্রিয় এন্ট্রি তৈরি করে: নগদ/ব্যাংক অ্যাকাউন্ট ডেবিট, দায় অ্যাকাউন্ট ক্রেডিট।
+    </p>
+
+    <div class="sub-section">নতুন দায় গ্রহণ এন্ট্রি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Liability Receive</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> (আবশ্যক) নির্বাচন করুন — অবশ্যই "Liability" ধরনের হেড হতে হবে</li>
+      <li><strong>তারিখ</strong> (আবশ্যক) নির্বাচন করুন — টাকা গ্রহণের তারিখ</li>
+      <li><strong>পরিমাণ</strong> (আবশ্যক) লিখুন — গ্রহণকৃত পরিমাণ (৳)</li>
+      <li><strong>পেমেন্ট পদ্ধতি</strong> নির্বাচন করুন — নগদ, ব্যাংক ট্রান্সফার, চেক ইত্যাদি</li>
+      <li><strong>বিবরণ</strong> লিখুন — লেনদেন সম্পর্কে বিস্তারিত নোট</li>
+      <li><strong>Save</strong> ক্লিক করুন — কোড স্বয়ংক্রিয়ভাবে তৈরি হবে এবং লেজার এন্ট্রি স্বয়ংক্রিয়ভাবে হবে</li>
+    </ol>
+
+    <div class="info-box">
+      দায় গ্রহণ এন্ট্রি করলে সিস্টেম স্বয়ংক্রিয়ভাবে জেনারেল লেজারে একটি এন্ট্রি তৈরি করে — নগদ/ব্যাংক অ্যাকাউন্ট ডেবিট (Dr) এবং দায় অ্যাকাউন্ট ক্রেডিট (Cr)। ফলে আপনাকে আলাদাভাবে লেজার এন্ট্রি করতে হবে না।
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>Liability ধরনের হেড নির্বাচন</td><td>হ্যাঁ</td></tr>
+        <tr><td>তারিখ</td><td>টাকা গ্রহণের তারিখ</td><td>হ্যাঁ</td></tr>
+        <tr><td>পরিমাণ</td><td>গ্রহণকৃত পরিমাণ (৳)</td><td>হ্যাঁ</td></tr>
+        <tr><td>পেমেন্ট পদ্ধতি</td><td>নগদ / ব্যাংক / চেক</td><td>না</td></tr>
+        <tr><td>বিবরণ</td><td>লেনদেন নোট</td><td>না</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Liability Pay -->
+  <div class="module">
+    <h3>দায় পরিশোধ (Liability Pay)</h3>
+    <p>
+      দায় পরিশোধ পেজে ব্যবসার ঋণ পরিশোধের লেনদেন রেকর্ড করা হয়। যখন আপনি ব্যাংক ঋণের কিস্তি পরিশোধ করেন, সরবরাহকারীকে বকেয়া পরিশোধ করেন, অথবা অন্য কোনো দায় পরিশোধ করেন — তখন এই পেজে এন্ট্রি করতে হয়। এন্ট্রি করার পর সিস্টেম স্বয়ংক্রিয়ভাবে সেই ইনভেস্টমেন্ট হেডের বকেয়া দায়ের ব্যালেন্স হ্রাস করে এবং জেনারেল লেজারে স্বয়ংক্রিয় এন্ট্রি তৈরি করে: দায় অ্যাকাউন্ট ডেবিট, নগদ/ব্যাংক অ্যাকাউন্ট ক্রেডিট। আপডেটেড ব্যালেন্স তাৎক্ষণিকভাবে Liability Report এ প্রতিফলিত হয়।
+    </p>
+
+    <div class="sub-section">নতুন দায় পরিশোধ এন্ট্রি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Liability Pay</strong> ক্লিক করুন</li>
+      <li><strong>"+ Add New"</strong> বাটনে ক্লিক করুন</li>
+      <li><strong>ইনভেস্টমেন্ট হেড</strong> (আবশ্যক) নির্বাচন করুন — অবশ্যই "Liability" ধরনের হেড হতে হবে</li>
+      <li><strong>তারিখ</strong> (আবশ্যক) নির্বাচন করুন — পরিশোধের তারিখ</li>
+      <li><strong>পরিমাণ</strong> (আবশ্যক) লিখুন — পরিশোধকৃত পরিমাণ (৳)</li>
+      <li><strong>পেমেন্ট পদ্ধতি</strong> নির্বাচন করুন — নগদ, ব্যাংক ট্রান্সফার, চেক</li>
+      <li><strong>বিবরণ</strong> লিখুন — পরিশোধ সম্পর্কে নোট (যেমন: "মার্চ মাসের কিস্তি")</li>
+      <li><strong>Save</strong> ক্লিক করুন — কোড ও লেজার এন্ট্রি স্বয়ংক্রিয়ভাবে হবে</li>
+    </ol>
+
+    <div class="info-box">
+      দায় পরিশোধ এন্ট্রি করলে সিস্টেম স্বয়ংক্রিয়ভাবে জেনারেল লেজারে একটি এন্ট্রি তৈরি করে — দায় অ্যাকাউন্ট ডেবিট (Dr) এবং নগদ/ব্যাংক অ্যাকাউন্ট ক্রেডিট (Cr)। বকেয়া ব্যালেন্স তাৎক্ষণিকভাবে আপডেট হবে।
+    </div>
+
+    <div class="sub-section">দায় গ্রহণ ও পরিশোধের কার্যপ্রবাহ</div>
+    <div class="workflow">
+      <h3>দায় পরিচালনার সম্পূর্ণ প্রক্রিয়া</h3>
+      <ol>
+        <li><strong>হেড তৈরি:</strong> Investment Heads পেজে "Liability" ধরনের হেড তৈরি করুন (যেমন: "ব্যাংক ঋণ", "সরবরাহকারী ক্রেডিট")</li>
+        <li><strong>ঋণ গ্রহণ:</strong> Liability Receive পেজে ঋণের পরিমাণ এন্ট্রি করুন — দায়ের ব্যালেন্স বৃদ্ধি পাবে</li>
+        <li><strong>কিস্তি পরিশোধ:</strong> Liability Pay পেজে প্রতিটি কিস্তি এন্ট্রি করুন — দায়ের ব্যালেন্স হ্রাস পাবে</li>
+        <li><strong>রিপোর্ট দেখুন:</strong> Liability Report থেকে বকেয়া পরিমাণ, পরিশোধিত পরিমাণ ও সর্বশেষ লেনদেনের তারিখ দেখুন</li>
+        <li><strong>সম্পূর্ণ পরিশোধ:</strong> যখন সমস্ত দায় পরিশোধ হয়ে যাবে, Liability Report এ বকেয়া শূন্য দেখাবে</li>
+      </ol>
+    </div>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ক্ষেত্র</th>
+          <th>বিবরণ</th>
+          <th>আবশ্যক?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>Liability ধরনের হেড নির্বাচন</td><td>হ্যাঁ</td></tr>
+        <tr><td>তারিখ</td><td>পরিশোধের তারিখ</td><td>হ্যাঁ</td></tr>
+        <tr><td>পরিমাণ</td><td>পরিশোধকৃত পরিমাণ (৳)</td><td>হ্যাঁ</td></tr>
+        <tr><td>পেমেন্ট পদ্ধতি</td><td>নগদ / ব্যাংক / চেক</td><td>না</td></tr>
+        <tr><td>বিবরণ</td><td>পরিশোধ সম্পর্কে নোট</td><td>না</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Module: Liability Report -->
+  <div class="module">
+    <h3>দায় রিপোর্ট (Liability Report)</h3>
+    <p>
+      দায় রিপোর্ট পেজে সমস্ত দায়ের সামগ্রিক চিত্র দেখতে পারবেন। এটি একটি শুধুমাত্র পাঠযোগ্য (Read-only) রিপোর্ট — এখানে কোনো তথ্য সম্পাদনা বা যোগ করা যায় না। রিপোর্টে প্রতিটি দায় হেডের মোট গ্রহণকৃত পরিমাণ, মোট পরিশোধিত পরিমাণ, বকেয়া ব্যালেন্স এবং সর্বশেষ লেনদেনের তারিখ দেখা যায়। বকেয়া ব্যালেন্স স্বয়ংক্রিয়ভাবে গণনা করা হয়: মোট গ্রহণ − মোট পরিশোধ = বকেয়া। এই রিপোর্ট থেকে PDF ও CSV রপ্তানি করা যায়।
+    </p>
+
+    <div class="sub-section">রিপোর্ট দেখুন ও রপ্তানি করুন</div>
+    <ol class="steps">
+      <li>সাইডবার থেকে <strong>Investment → Liability Report</strong> ক্লিক করুন</li>
+      <li>সামগ্রিক টেবিলে প্রতিটি দায় হেডের তথ্য দেখুন</li>
+      <li><strong>PDF রপ্তানি:</strong> PDF আইকনে ক্লিক করুন — ল্যান্ডস্কেপ A4 পিডিএফ ডাউনলোড হবে, কর্পোরেট হেডার, বিকল্প সারি রং ও পৃষ্ঠা নম্বর সহ</li>
+      <li><strong>CSV রপ্তানি:</strong> CSV আইকনে ক্লিক করুন — UTF-8 BOM এনকোডেড CSV ফাইল ডাউনলোড হবে, এক্সেলে সরাসরি খোলা যাবে</li>
+    </ol>
+
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>রিপোর্ট কলাম</th>
+          <th>বিবরণ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>ইনভেস্টমেন্ট হেড</td><td>দায়ের নাম (যেমন: "ব্যাংক ঋণ - সিটি ব্যাংক")</td></tr>
+        <tr><td>মোট গ্রহণ (Total Received)</td><td>সেই হেডে সমস্ত "received" লেনদেনের সমষ্টি</td></tr>
+        <tr><td>মোট পরিশোধ (Total Paid)</td><td>সেই হেডে সমস্ত "pay" লেনদেনের সমষ্টি</td></tr>
+        <tr><td>বকেয়া ব্যালেন্স (Outstanding)</td><td>মোট গ্রহণ − মোট পরিশোধ = অবশিষ্ট ঋণ</td></tr>
+        <tr><td>সর্বশেষ লেনদেন</td><td>সাম্প্রতিক লেনদেনের তারিখ</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box">
+      VAT Auditor রোল এই রিপোর্ট দেখলে সমস্ত আর্থিক পরিমাণ "N/A (Audit Mode)" হিসেবে দেখাবে। এটি ব্যবসার আর্থিক গোপনীয়তা রক্ষার জন্য ডিজাইন করা হয়েছে।
+    </div>
+
+    <div class="warning-box" style="background:var(--warning-bg); border:1px solid var(--warning-border); border-radius:6px; padding:10px 14px; margin:10px 0; font-size:9.5pt;">
+      এই রিপোর্ট শুধুমাত্র পাঠযোগ্য — এখানে কোনো তথ্য পরিবর্তন করা যাবে না। তথ্য পরিবর্তন করতে হলে Liability Receive বা Liability Pay পেজে যান। পিরিয়ড ক্লোজের কারণে এই রিপোর্ট দেখতে কোনো বিধিনিষেধ নেই।
+    </div>
+  </div>
+
+  <!-- Liability Summary Workflow -->
+  <div class="workflow">
+    <h3>দায় মডিউলের সামগ্রিক কার্যপ্রবাহ</h3>
+    <table class="quick-table">
+      <thead>
+        <tr>
+          <th>ধাপ</th>
+          <th>পেজ</th>
+          <th>কাজ</th>
+          <th>লেজার প্রভাব</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>১</td><td>Investment Heads</td><td>Liability হেড তৈরি</td><td>—</td></tr>
+        <tr><td>২</td><td>Liability Receive</td><td>ঋণ গ্রহণ এন্ট্রি</td><td>নগদ/ব্যাংক Dr → দায় Cr</td></tr>
+        <tr><td>৩</td><td>Liability Pay</td><td>কিস্তি/পরিশোধ এন্ট্রি</td><td>দায় Dr → নগদ/ব্যাংক Cr</td></tr>
+        <tr><td>৪</td><td>Liability Report</td><td>বকেয়া ব্যালেন্স দেখুন</td><td>— (শুধু পাঠযোগ্য)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Page Footer -->
+<div class="page-footer">
+  VoltERP ব্যবহারকারী গাইড — পর্ব ১: বিনিয়োগ, সম্পত্তি ও দায় | ইলেকট্রনিক্স মার্ট ইনভেন্টরি ম্যানেজমেন্ট সিস্টেম
+</div>
+
+</body>
+</html>

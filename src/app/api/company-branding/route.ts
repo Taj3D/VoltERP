@@ -13,13 +13,18 @@ import { withApiSecurity, validateImageFields, stripHtml } from '@/lib/api-secur
 
 // GET /api/company-branding
 // Returns the first active company's branding data for invoice generation
-export async function GET() {
+// RBAC: Requires 'system-config' group access (admin, manager, vat_auditor)
+export async function GET(request: NextRequest) {
+  const security = await withApiSecurity(request, 'SystemConfig', 'GET');
+  if (!security.authorized) return security.response;
+
   try {
     const company = await db.company.findFirst({
       where: { isActive: true },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
+        code: true,
         name: true,
         address: true,
         phone: true,
@@ -36,6 +41,7 @@ export async function GET() {
         systemNote: true,
         showBarcode: true,
         showPayInWord: true,
+        website: true,
       },
     });
 
@@ -50,6 +56,7 @@ export async function GET() {
     return NextResponse.json({
       company: {
         id: company.id,
+        code: company.code,
         name: company.name,
         address: company.address,
         phone: company.phone,
@@ -66,6 +73,7 @@ export async function GET() {
         systemNote: company.systemNote,
         showBarcode: company.showBarcode,
         showPayInWord: company.showPayInWord,
+        website: company.website,
       },
     });
   } catch (error) {
@@ -167,6 +175,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       company: {
         id: updated.id,
+        code: updated.code,
         name: updated.name,
         address: updated.address,
         phone: updated.phone,
@@ -183,6 +192,7 @@ export async function PUT(request: NextRequest) {
         systemNote: updated.systemNote,
         showBarcode: updated.showBarcode,
         showPayInWord: updated.showPayInWord,
+        website: updated.website,
       },
     });
   } catch (error) {

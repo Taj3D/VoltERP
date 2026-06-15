@@ -25,16 +25,17 @@ import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-
 const safeFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt = (n: number) => safeFmt.format(n);
 
-const fmtDate = (d: string | Date) =>
-  d
-    ? new Date(d).toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
+const fmtDate = (d: string | Date) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+};
 
 const fmtMs = (ms: number) => {
   if (ms < 1000) return `${ms}ms`;

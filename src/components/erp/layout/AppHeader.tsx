@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { ROLES, ROLE_COLORS, ROLE_LABELS, type Role } from "@/lib/constants";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -87,7 +88,7 @@ function formatRelativeTime(dateStr: string): string {
     if (diffMin < 60) return `${diffMin} min${diffMin > 1 ? "s" : ""} ago`;
     if (diffHour < 24) return `${diffHour} hour${diffHour > 1 ? "s" : ""} ago`;
     if (diffDay < 7) return `${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
-    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    return toLatinDigits(date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
   } catch {
     return "—";
   }
@@ -177,6 +178,7 @@ export default function AppHeader({
   tokenExpiry,
   onToggleTheme,
   onNavigate,
+  onToggleSidebar,
   onToggleMobileMenu,
   onOpenSearch,
   onChangePassword,
@@ -417,6 +419,18 @@ export default function AppHeader({
           >
             <Menu className="w-5 h-5" />
           </Button>
+          {onToggleSidebar && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden md:flex min-w-[36px] min-h-[36px] h-8 w-8 p-0 text-muted-foreground"
+              onClick={onToggleSidebar}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <Menu className="w-4 h-4" />
+            </Button>
+          )}
           <div className="flex items-center gap-1 sm:gap-2 text-sm text-muted-foreground min-w-0">
             <Button
               variant="ghost"
@@ -701,17 +715,18 @@ export default function AppHeader({
                   user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
                 } flex items-center justify-center text-white text-xs font-bold`}
               >
-                {(user?.displayName || user?.name)?.charAt(0).toUpperCase() || "U"}
+                {user?.email?.charAt(0).toUpperCase() || "U"}
               </div>
+              <span className="text-sm font-medium hidden sm:inline max-w-[140px] truncate">{user?.email || "User"}</span>
               <ChevronDown className="w-3 h-3" />
             </Button>
             {userMenuOpen && (
               <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-4 py-2 border-b">
-                  <p className="text-sm font-medium">
-                    {user?.displayName || user?.name || "User"}
+                  <p className="text-sm font-medium font-mono">
+                    {user?.email || "User"}
                   </p>
-                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                  <p className="text-xs text-muted-foreground">{user?.displayName || user?.name || ""}</p>
                   {sessionTimeLeft && (
                     <div className={`flex items-center gap-1.5 mt-1.5 text-xs ${sessionWarning ? 'text-amber-500' : 'text-muted-foreground'}`}>
                       <Clock className="w-3 h-3" />

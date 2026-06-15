@@ -33,12 +33,12 @@ const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 
 // ============================================================

@@ -14,7 +14,8 @@ import {
   Clock, Printer, CreditCard, Calculator, ChevronDown, ChevronRight,
   Banknote, Users, HandCoins, Percent, FileBarChart, ArrowDownUp,
   CalendarDays, CircleDollarSign, BadgeDollarSign, Wallet,
-  ClipboardCheck, FileWarning, AlertCircle, Info, Loader2, Copy
+  ClipboardCheck, FileWarning, AlertCircle, Info, Loader2, Copy,
+  MessageSquare
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import {
   exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
@@ -55,8 +58,7 @@ const fmtCurrency = (v: any) => {
   return _fmtBDT(Number(v));
 };
 
-const fmtDate = (d: string | Date) =>
-  d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 const fmtPercent = (v: any) => {
   if (v === null || v === undefined) return "—";
@@ -202,6 +204,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     customerId: "", godownId: "", date: new Date().toISOString().split("T")[0],
     status: "Draft", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", srId: "", notes: "",
   });
+  const [soSendSms, setSoSendSms] = useState(false);
   const [soLines, setSoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
   const [soExpandedRows, setSoExpandedRows] = useState<Set<string>>(new Set());
   const [soCogsDialog, setSoCogsDialog] = useState(false);
@@ -312,7 +315,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
         rate: Number(l.rate) || 0,
         discountPercent: Number(l.discountPercent) || 0,
       }));
-      const payload = { ...soForm, lines: lineItems };
+      const payload = { ...soForm, lines: lineItems, sendSms: soSendSms };
       if (soEdit) {
         await apiFetch(`/api/sales-orders/${soEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
         toast({ title: "Updated", description: "Sales order updated" });
@@ -324,7 +327,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
       loadSalesOrders();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setSoSaving(false); }
-  }, [soForm, soLines, soEdit, toast, loadSalesOrders]);
+  }, [soForm, soLines, soEdit, soSendSms, toast, loadSalesOrders]);
 
   const deleteSo = useCallback(async () => {
     if (!soDelete) return;
@@ -336,9 +339,10 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   }, [soDelete, toast, loadSalesOrders]);
 
-  const handlePrintInvoice = useCallback(async (soId: string, invoiceNo?: string) => {
+  const handlePrintInvoice = useCallback(async (soId: string, invoiceNo?: string, format: "invoice" | "mushok63" | "challan" = "invoice") => {
     try {
-      toast({ title: "Generating Invoice", description: "Fetching data..." });
+      const formatLabels: Record<string, string> = { invoice: "Sales Invoice", mushok63: "Mushok 6.3", challan: "Delivery Challan" };
+      toast({ title: "Generating Invoice", description: `Fetching data for ${formatLabels[format]}...` });
       const [brandingResp, so] = await Promise.all([
         apiFetch("/api/company-branding"),
         apiFetch(`/api/sales-orders/${soId}?include=lines,customer,paymentOption`),
@@ -369,6 +373,52 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
       const discountPercent = subTotal > 0 ? (discountAmount / subTotal) * 100 : 0;
       let printedBy = "System";
       try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); printedBy = a.user?.displayName || a.user?.name || "System"; } catch { /* use default */ }
+
+      // Format-specific configuration
+      const formatInvoiceType = formatLabels[format];
+      let templateConfig: InvoiceTemplateConfig;
+      let filename: string;
+
+      if (format === "mushok63") {
+        templateConfig = {
+          showLogo: true, showBrandLogo: false, showMobile: true, showAddress: true,
+          showVatNumber: true, showTradeLicense: true, showCustomerCode: true,
+          showPrevDue: false, showTotalDue: false, showModel: true, showColor: false,
+          showDescription: true, showMRP: true, showDiscountAmt: false, showUnitPrice: true,
+          showDiscountPct: false, showPPDiscount: false, showAdjustment: false,
+          showDeliveryCost: false, showPaymentDetails: false,
+          showCustomerSignature: false, showPreparedBy: true, showCheckedBy: true,
+          showAuthorizedBy: true, showPrintDate: true,
+          termsAndConditions: "This document is prepared as per National Board of Revenue (NBR) regulations.",
+          customFooterNote: "Mushok 6.3 — VAT Return Form",
+        };
+        filename = `Mushok63_${invoiceNo || so.invoiceNo || soId}.pdf`;
+      } else if (format === "challan") {
+        templateConfig = {
+          showLogo: true, showBrandLogo: false, showMobile: true, showAddress: true,
+          showVatNumber: false, showCustomerCode: false,
+          showPrevDue: false, showTotalDue: false, showModel: true, showColor: true,
+          showDescription: true, showMRP: false, showDiscountAmt: false, showUnitPrice: false,
+          showDiscountPct: false, showPPDiscount: false, showAdjustment: false,
+          showDeliveryCost: false, showPaymentDetails: false,
+          showCustomerSignature: true, showPreparedBy: true, showCheckedBy: false,
+          showAuthorizedBy: true, showPrintDate: true,
+          customFooterNote: "Received the above items in good condition.",
+        };
+        filename = `Challan_${invoiceNo || so.invoiceNo || soId}.pdf`;
+      } else {
+        templateConfig = {
+          showLogo: true, showBrandLogo: true, showMobile: true, showAddress: true,
+          showVatNumber: true, showCustomerCode: true,
+          showPrevDue: false, showTotalDue: false, showModel: false, showColor: false,
+          showDescription: true, showMRP: true, showDiscountAmt: true, showUnitPrice: true,
+          showDiscountPct: true, showPaymentDetails: true,
+          showCustomerSignature: true, showPreparedBy: true, showAuthorizedBy: true,
+          showPrintDate: true,
+        };
+        filename = `Invoice_${invoiceNo || so.invoiceNo || soId}.pdf`;
+      }
+
       const invoiceData: InvoiceData = {
         invoiceNo: invoiceNo || so.invoiceNo || `INV-${String(so.id).padStart(5, "0")}`,
         invoiceDate: so.date,
@@ -384,40 +434,18 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
         currentDue: 0,
         paymentDetails: [{ paymentType: paymentOption.name || "Cash", paidAmount: Number(so.grandTotal) || 0 }],
         payInWord: numberToWordsBDT(Number(so.grandTotal) || 0),
-        invoiceType: "Sales Invoice",
+        invoiceType: formatInvoiceType,
         barcodeData: so.invoiceNo || "",
         printedBy,
         salesPerson: so.srId || "System",
-      };
-      const templateConfig: InvoiceTemplateConfig = {
-        showLogo: true,
-        showBrandLogo: true,
-        showMobile: true,
-        showAddress: true,
-        showVatNumber: true,
-        showCustomerCode: true,
-        showPrevDue: false,
-        showTotalDue: false,
-        showModel: false,
-        showColor: false,
-        showDescription: true,
-        showMRP: true,
-        showDiscountAmt: true,
-        showDiscountPct: true,
-        showUnitPrice: true,
-        showPaymentDetails: true,
-        showCustomerSignature: true,
-        showPreparedBy: true,
-        showAuthorizedBy: true,
-        showPrintDate: true,
       };
       exportInvoicePDF({
         invoice: invoiceData,
         company: companyProfile,
         template: templateConfig,
-        filename: `Invoice_${invoiceData.invoiceNo}.pdf`,
+        filename,
       });
-      toast({ title: "Invoice Generated", description: `${invoiceData.invoiceNo} PDF generated successfully` });
+      toast({ title: "Invoice Generated", description: `${invoiceData.invoiceNo} — ${formatInvoiceType} PDF generated successfully` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "Failed to generate invoice", variant: "destructive" });
     }
@@ -1221,7 +1249,22 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
                         <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
                         <TableCell>
                           <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                            <Button variant="ghost" size="sm" onClick={() => handlePrintInvoice(item.id, item.invoiceNo)} className="h-7 w-7 p-0 text-blue-500" title="Print Invoice"><Printer className="h-3 w-3" /></Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-500" title="Print Invoice"><Printer className="h-3 w-3" /></Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem onClick={() => handlePrintInvoice(item.id, item.invoiceNo, "invoice")} className="cursor-pointer">
+                                  <Receipt className="h-3.5 w-3.5 mr-2" /> Invoice
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handlePrintInvoice(item.id, item.invoiceNo, "mushok63")} className="cursor-pointer">
+                                  <FileBarChart className="h-3.5 w-3.5 mr-2" /> Mushok 6.3
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handlePrintInvoice(item.id, item.invoiceNo, "challan")} className="cursor-pointer">
+                                  <Package className="h-3.5 w-3.5 mr-2" /> Delivery Challan
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                             {(isAdmin || isSR) && <Button variant="ghost" size="sm" onClick={() => openSoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>}
                             {isAdmin && <Button variant="ghost" size="sm" onClick={() => setSoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
                           </div>
@@ -1427,6 +1470,19 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
               </div>
             </div>
             <DialogFooter>
+              <div className="flex items-center gap-6 mr-auto">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="soSendSms"
+                    checked={soSendSms}
+                    onCheckedChange={(checked) => setSoSendSms(checked === true)}
+                  />
+                  <Label htmlFor="soSendSms" className="text-sm flex items-center gap-1 cursor-pointer">
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Send SMS to Customer
+                  </Label>
+                </div>
+              </div>
               <Button variant="outline" onClick={() => setSoDialog(false)}>Cancel</Button>
               <Button onClick={saveSo} disabled={soSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
                 {soSaving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : "Save"}

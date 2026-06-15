@@ -292,6 +292,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.imeiNumber !== undefined) updateData.imeiNumber = body.imeiNumber || null;
       if (body.image !== undefined) updateData.image = body.image || null;
       if (body.isActive !== undefined) updateData.isActive = body.isActive ?? true;
+      // Warranty fields — Phase 19
+      if (body.compressorWarranty !== undefined) updateData.compressorWarranty = body.compressorWarranty ? Number(body.compressorWarranty) : null;
+      if (body.compressorWarrantyUnit !== undefined) updateData.compressorWarrantyUnit = body.compressorWarrantyUnit || null;
+      if (body.panelWarranty !== undefined) updateData.panelWarranty = body.panelWarranty ? Number(body.panelWarranty) : null;
+      if (body.panelWarrantyUnit !== undefined) updateData.panelWarrantyUnit = body.panelWarrantyUnit || null;
+      if (body.serviceWarranty !== undefined) updateData.serviceWarranty = body.serviceWarranty ? Number(body.serviceWarranty) : null;
+      if (body.serviceWarrantyUnit !== undefined) updateData.serviceWarrantyUnit = body.serviceWarrantyUnit || null;
+      if (body.motorWarranty !== undefined) updateData.motorWarranty = body.motorWarranty ? Number(body.motorWarranty) : null;
+      if (body.motorWarrantyUnit !== undefined) updateData.motorWarrantyUnit = body.motorWarrantyUnit || null;
+      if (body.sparePartsWarranty !== undefined) updateData.sparePartsWarranty = body.sparePartsWarranty ? Number(body.sparePartsWarranty) : null;
+      if (body.sparePartsWarrantyUnit !== undefined) updateData.sparePartsWarrantyUnit = body.sparePartsWarrantyUnit || null;
       // Company ID: keep existing unless explicitly provided and valid
       if (body.companyId !== undefined) updateData.companyId = companyId || body.companyId || null;
 

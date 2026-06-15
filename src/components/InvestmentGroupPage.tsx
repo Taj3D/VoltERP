@@ -34,6 +34,7 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import { apiFetch, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -44,19 +45,18 @@ const safeNumberFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2,
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
-  if (type === "currency") return `Tk. ${safeNumberFmt.format(Number(v))}`;
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "currency") return `Tk. ${toLatinDigits(safeNumberFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) =>
-  d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
-  return `Tk. ${safeNumberFmt.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(safeNumberFmt.format(Number(v)))}`;
 };
 
 const fmtPct = (v: any) => {
@@ -1445,7 +1445,18 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                             </Button>
                           </TableCell>
                           <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.code}</TableCell>
-                          <TableCell className="text-slate-900 dark:text-white">{item.name}</TableCell>
+                          <TableCell className="text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2">
+                              {item.profileImage ? (
+                                <img src={item.profileImage} alt={item.name || ""} className="w-8 h-8 rounded-full object-cover border border-border flex-shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                                  <span className="text-xs font-semibold text-emerald-600">{(item.name || "?")[0].toUpperCase()}</span>
+                                </div>
+                              )}
+                              <span className="truncate">{item.name}</span>
+                            </div>
+                          </TableCell>
                           <TableCell><Badge className={TYPE_BADGE[item.type] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"}>{item.type}</Badge></TableCell>
                           <TableCell className="hidden md:table-cell font-mono">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.openingBalance)}</TableCell>
                           <TableCell className="hidden lg:table-cell"><Badge variant="outline">{item.openingType || "None"}</Badge></TableCell>
@@ -2101,6 +2112,29 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                     <Button variant="outline" size="sm" onClick={() => doExportPDF("Liability-Report", reportExportColumns, reportData.heads || [], "landscape")}>
                       <FileDown className="w-4 h-4 mr-1" />Export PDF
                     </Button>
+                    <Button variant="outline" size="sm" onClick={async () => {
+                      try {
+                        const result = await importFromCSV({
+                          apiPath: "/api/investment-heads?import=true",
+                          formFields: [
+                            { key: "name", label: "Head Name", type: "text", required: true },
+                            { key: "type", label: "Type", type: "text", required: true },
+                            { key: "principalAmount", label: "Principal Amount", type: "number" },
+                            { key: "interestRate", label: "Interest Rate", type: "number" },
+                          ],
+                        });
+                        if (result.imported > 0) {
+                          toast({ title: "Import Complete", description: `${result.imported} reference entries imported, ${result.failed} failed` });
+                          generateLiabReport();
+                        } else if (result.errors.length > 0) {
+                          toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+                        }
+                      } catch (e: any) {
+                        toast({ title: "Import Error", description: e.message, variant: "destructive" });
+                      }
+                    }}>
+                      <Upload className="w-4 h-4 mr-1" />Import CSV
+                    </Button>
                   </>
                 )}
               </div>
@@ -2333,18 +2367,21 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, profileImage: base64 })}
                   label="Profile Photo"
                   placeholder="Upload profile photo"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
                 <ImageUploadField
                   value={headsFormData.nidFrontImage}
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, nidFrontImage: base64 })}
                   label="NID Front"
                   placeholder="Upload NID front"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
                 <ImageUploadField
                   value={headsFormData.nidBackImage}
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, nidBackImage: base64 })}
                   label="NID Back"
                   placeholder="Upload NID back"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
               </div>
             </div>
@@ -3049,7 +3086,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                 <TableBody>
                   {activityLog.slice(0, 10).map((log: any) => (
                     <TableRow key={log.id}>
-                      <TableCell className="text-xs">{log.createdAt ? new Date(log.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</TableCell>
+                      <TableCell className="text-xs">{log.createdAt ? toLatinDigits(new Date(log.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })) : "—"}</TableCell>
                       <TableCell><Badge className={log.action === "CREATE" ? "bg-green-100 text-green-700" : log.action === "UPDATE" ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}>{log.action}</Badge></TableCell>
                       <TableCell className="text-xs">{log.module || "—"}</TableCell>
                       <TableCell className="text-xs max-w-[200px] truncate">{log.recordLabel || "—"}</TableCell>

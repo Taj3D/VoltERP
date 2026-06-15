@@ -1,0 +1,1178 @@
+"use client";
+
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  DollarSign, Lock, Plus, Edit, Trash2, Download,
+  Upload, RefreshCw, Search, FileText, CheckCircle,
+  ChevronDown, ChevronRight, FileDown, Banknote, ArrowDownCircle,
+  Calendar, X
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
+import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import type { ColumnDef, CompanyProfile } from "@/lib/export-utils";
+
+// ============================================================
+// UTILITY FUNCTIONS (self-contained)
+// ============================================================
+
+type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+
+/** Intl.NumberFormat('en-US') for ALL financial/numeric figures */
+const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const fmtCurrency = (v: any): string => {
+  if (v === null || v === undefined) return "—";
+  return `৳${bdCurrencyFmt.format(Number(v))}`;
+};
+
+const fmt = (v: any, type?: string) => {
+  if (v === null || v === undefined) return "—";
+  if (type === "currency") return fmtCurrency(v);
+  if (type === "number") return bdCurrencyFmt.format(Number(v));
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "boolean") return v ? "Active" : "Inactive";
+  return String(v);
+};
+
+/** Display field with "—" default for null/empty */
+const displayField = (v: any): string => {
+  if (v === null || v === undefined || v === "") return "—";
+  return String(v);
+};
+
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+
+async function apiFetch(path: string, opts?: RequestInit) {
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  try {
+    const stored = localStorage.getItem("ems_auth");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+    }
+  } catch {}
+  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
+  if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("ems_auth");
+      window.location.reload();
+    }
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || "Request failed");
+  }
+  return res.json();
+}
+
+interface AuthUser {
+  name: string;
+  email: string;
+  role: UserRole;
+  displayName: string;
+}
+
+function useAuth() {
+  const getStoredAuth = (): { user: AuthUser | null; isAuthenticated: boolean } => {
+    if (typeof window === "undefined") return { user: null, isAuthenticated: false };
+    const stored = localStorage.getItem("ems_auth");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return { user: parsed.user, isAuthenticated: parsed.isAuthenticated };
+      } catch { /* ignore */ }
+    }
+    return { user: null, isAuthenticated: false };
+  };
+
+  const [authState, setAuthState] = useState(getStoredAuth);
+  const [, forceUpdate] = useState({});
+
+  useEffect(() => {
+    const listener = () => {
+      const s = localStorage.getItem("ems_auth");
+      if (s) {
+        try {
+          const p = JSON.parse(s);
+          setAuthState({ user: p.user, isAuthenticated: p.isAuthenticated });
+        } catch { /* ignore */ }
+      }
+      forceUpdate({});
+    };
+    window.addEventListener("storage", listener);
+    window.addEventListener("auth-change", listener);
+    return () => {
+      window.removeEventListener("storage", listener);
+      window.removeEventListener("auth-change", listener);
+    };
+  }, []);
+
+  const isVatAuditor = authState.user?.role === "vat_auditor";
+  const isDealer = authState.user?.role === "dealer";
+  const isSR = authState.user?.role === "sr";
+  const isAdmin = authState.user?.role === "admin";
+
+  return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR, isAdmin };
+}
+
+// ============================================================
+// CASH COLLECTIONS & DELIVERIES PAGE COMPONENT
+// ============================================================
+
+export default function CashCollectionsDeliveriesPage() {
+  const { toast } = useToast();
+  const { user, isVatAuditor, isDealer, isSR, isAdmin } = useAuth();
+
+  // ---- Shared State ----
+  const [activeTab, setActiveTab] = useState("collections");
+
+  // Date range filter
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  // Company profile for PDF export
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | undefined>(undefined);
+
+  // ---- Collections State ----
+  const [collData, setCollData] = useState<any[]>([]);
+  const [collLoading, setCollLoading] = useState(true);
+  const [collSearch, setCollSearch] = useState("");
+  const [collExpandedRows, setCollExpandedRows] = useState<Set<string>>(new Set());
+
+  // ---- Deliveries State ----
+  const [delData, setDelData] = useState<any[]>([]);
+  const [delLoading, setDelLoading] = useState(true);
+  const [delSearch, setDelSearch] = useState("");
+  const [delExpandedRows, setDelExpandedRows] = useState<Set<string>>(new Set());
+
+  // ---- Form State ----
+  const [showForm, setShowForm] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
+  const [deleteItem, setDeleteItem] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [formType, setFormType] = useState<"collection" | "delivery">("collection");
+
+  // Collections form
+  const [collForm, setCollForm] = useState<Record<string, any>>({
+    collectionCode: "", customerId: "", date: new Date().toISOString().split("T")[0],
+    amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+    description: "", status: "Approved"
+  });
+  const [customerOutstanding, setCustomerOutstanding] = useState<number | null>(null);
+
+  // Deliveries form
+  const [delForm, setDelForm] = useState<Record<string, any>>({
+    deliveryCode: "", supplierId: "", date: new Date().toISOString().split("T")[0],
+    amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+    description: "", status: "Approved"
+  });
+  const [supplierPayable, setSupplierPayable] = useState<number | null>(null);
+
+  // Dynamic options
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
+  const [banks, setBanks] = useState<any[]>([]);
+
+  // ---- Load Data ----
+  const loadCollections = useCallback(async () => {
+    setCollLoading(true);
+    try {
+      const res = await apiFetch("/api/cash-collections");
+      setCollData(Array.isArray(res) ? res : res.data || []);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setCollLoading(false); }
+  }, [toast]);
+
+  const loadDeliveries = useCallback(async () => {
+    setDelLoading(true);
+    try {
+      const res = await apiFetch("/api/cash-deliveries");
+      setDelData(Array.isArray(res) ? res : res.data || []);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setDelLoading(false); }
+  }, [toast]);
+
+  // Load company profile for PDF export
+  const loadCompanyProfile = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/company-branding").catch(() => null);
+      if (res?.company) {
+        setCompanyProfile(res.company as CompanyProfile);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadCollections(); loadDeliveries(); loadCompanyProfile(); }, [loadCollections, loadDeliveries, loadCompanyProfile]);
+
+  // ---- Load Options ----
+  const loadOptions = useCallback(async () => {
+    try {
+      const [cRes, sRes, poRes, bRes] = await Promise.all([
+        apiFetch("/api/customers").catch(() => []),
+        apiFetch("/api/suppliers").catch(() => []),
+        apiFetch("/api/payment-options").catch(() => []),
+        apiFetch("/api/banks").catch(() => []),
+      ]);
+      setCustomers(Array.isArray(cRes) ? cRes : cRes.data || []);
+      setSuppliers(Array.isArray(sRes) ? sRes : sRes.data || []);
+      setPaymentOptions(Array.isArray(poRes) ? poRes : poRes.data || []);
+      setBanks(Array.isArray(bRes) ? bRes : bRes.data || []);
+    } catch { /* silent */ }
+  }, []);
+
+  // ---- Customer Outstanding Balance ----
+  const fetchCustomerOutstanding = useCallback(async (customerId: string) => {
+    if (!customerId) { setCustomerOutstanding(null); return; }
+    try {
+      // Use the balances API which computes AR correctly:
+      // AR = Opening(Dr) + Sales + Hire - Collections - Returns - Opening(Cr)
+      const res = await apiFetch(`/api/customers/balances?customerId=${customerId}`).catch(() => null);
+      if (res && Array.isArray(res.balances) && res.balances.length > 0) {
+        setCustomerOutstanding(res.balances[0].currentBalance || 0);
+      } else if (res?.balance) {
+        setCustomerOutstanding(res.balance.currentBalance || 0);
+      } else {
+        // Fallback: use customer record's computedCurrentBalance from list API
+        const custRes = await apiFetch(`/api/customers?customerId=${customerId}`).catch(() => []);
+        const customers = Array.isArray(custRes) ? custRes : (custRes as any).data || [];
+        const customer = customers.find((c: any) => c.id === customerId);
+        setCustomerOutstanding(customer?.computedCurrentBalance ?? customer?.currentBalance ?? null);
+      }
+    } catch { setCustomerOutstanding(null); }
+  }, []);
+
+  // ---- Supplier Accounts Payable ----
+  const fetchSupplierPayable = useCallback(async (supplierId: string) => {
+    if (!supplierId) { setSupplierPayable(null); return; }
+    try {
+      // Use the balances API which computes AP correctly:
+      // AP = Opening(Cr) + Purchases - Deliveries - Purchase Returns - Opening(Dr)
+      const res = await apiFetch(`/api/suppliers/balances?supplierId=${supplierId}`).catch(() => null);
+      if (res && Array.isArray(res.balances) && res.balances.length > 0) {
+        setSupplierPayable(res.balances[0].currentBalance || 0);
+      } else if (res?.balance) {
+        setSupplierPayable(res.balance.currentBalance || 0);
+      } else {
+        // Fallback: use supplier record's computedCurrentBalance from list API
+        const suppRes = await apiFetch(`/api/suppliers?supplierId=${supplierId}`).catch(() => []);
+        const suppliers = Array.isArray(suppRes) ? suppRes : (suppRes as any).data || [];
+        const supplier = suppliers.find((s: any) => s.id === supplierId);
+        setSupplierPayable(supplier?.computedCurrentBalance ?? supplier?.currentBalance ?? null);
+      }
+    } catch { setSupplierPayable(null); }
+  }, []);
+
+  // ---- Filtered Data ----
+  const filteredColl = useMemo(() => {
+    let result = collData;
+    if (collSearch) {
+      const s = collSearch.toLowerCase();
+      result = result.filter((item: any) =>
+        item.collectionCode?.toLowerCase().includes(s) ||
+        item.customer?.name?.toLowerCase().includes(s) ||
+        item.status?.toLowerCase().includes(s)
+      );
+    }
+    if (dateFrom || dateTo) {
+      result = result.filter((item: any) => {
+        if (!item.date) return false;
+        const d = new Date(item.date);
+        if (dateFrom && d < new Date(dateFrom)) return false;
+        if (dateTo) { const to = new Date(dateTo); to.setHours(23, 59, 59, 999); if (d > to) return false; }
+        return true;
+      });
+    }
+    return result;
+  }, [collData, collSearch, dateFrom, dateTo]);
+
+  const filteredDel = useMemo(() => {
+    let result = delData;
+    if (delSearch) {
+      const s = delSearch.toLowerCase();
+      result = result.filter((item: any) =>
+        item.deliveryCode?.toLowerCase().includes(s) ||
+        item.supplier?.name?.toLowerCase().includes(s) ||
+        item.status?.toLowerCase().includes(s)
+      );
+    }
+    if (dateFrom || dateTo) {
+      result = result.filter((item: any) => {
+        if (!item.date) return false;
+        const d = new Date(item.date);
+        if (dateFrom && d < new Date(dateFrom)) return false;
+        if (dateTo) { const to = new Date(dateTo); to.setHours(23, 59, 59, 999); if (d > to) return false; }
+        return true;
+      });
+    }
+    return result;
+  }, [delData, delSearch, dateFrom, dateTo]);
+
+  // ---- Stats ----
+  const collStats = useMemo(() => ({
+    total: collData.length,
+    totalAmount: collData.reduce((s: number, d: any) => s + (d.amount || 0), 0),
+    pending: collData.filter((d: any) => d.status === "Pending").length,
+    ledgerPosted: collData.filter((d: any) => d.ledgerPosted).length,
+  }), [collData]);
+
+  const delStats = useMemo(() => ({
+    total: delData.length,
+    totalAmount: delData.reduce((s: number, d: any) => s + (d.amount || 0), 0),
+    pending: delData.filter((d: any) => d.status === "Pending").length,
+    ledgerPosted: delData.filter((d: any) => d.ledgerPosted).length,
+  }), [delData]);
+
+  // ---- Toggle Expand ----
+  const toggleCollExpand = (id: string) => {
+    setCollExpandedRows(prev => { const next = new Set(prev); if (next.has(id)) { next.delete(id); } else { next.add(id); } return next; });
+  };
+  const toggleDelExpand = (id: string) => {
+    setDelExpandedRows(prev => { const next = new Set(prev); if (next.has(id)) { next.delete(id); } else { next.add(id); } return next; });
+  };
+
+  // ---- Status Color ----
+  const statusColor = (status: string) => {
+    switch (status) {
+      case "Pending": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+      case "Approved": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+      case "Rejected": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    }
+  };
+
+  // ---- Mask bank name for VAT Auditor (hide account numbers) ----
+  const maskBankName = (bank: any) => {
+    if (!bank) return "—";
+    if (isVatAuditor) {
+      // Show bank name but mask account number
+      return bank.bankName ? `${bank.bankName.split(" - ")[0]} (Audit Mode)` : "—";
+    }
+    return bank.bankName || "—";
+  };
+
+  // ---- Create / Edit ----
+  const openCreate = (type: "collection" | "delivery") => {
+    if (type === "delivery" && isSR) return; // SR cannot create deliveries
+    setFormType(type);
+    setEditItem(null);
+    setCustomerOutstanding(null);
+    setSupplierPayable(null);
+    if (type === "collection") {
+      const nextNum = collData.length > 0
+        ? String(Math.max(...collData.map((d: any) => parseInt(d.collectionCode?.replace("COL-", "") || "0", 10) || 0)) + 1).padStart(5, "0")
+        : "00001";
+      setCollForm({
+        collectionCode: `COL-${nextNum}`, customerId: "",
+        date: new Date().toISOString().split("T")[0],
+        amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+        description: "", status: "Approved"
+      });
+    } else {
+      const nextNum = delData.length > 0
+        ? String(Math.max(...delData.map((d: any) => parseInt(d.deliveryCode?.replace("DEL-", "") || "0", 10) || 0)) + 1).padStart(5, "0")
+        : "00001";
+      setDelForm({
+        deliveryCode: `DEL-${nextNum}`, supplierId: "",
+        date: new Date().toISOString().split("T")[0],
+        amount: 0, paymentOptionId: "", bankId: "", chequeNo: "", voucherNo: "",
+        description: "", status: "Approved"
+      });
+    }
+    loadOptions();
+    setShowForm(true);
+  };
+
+  const openEdit = (item: any, type: "collection" | "delivery") => {
+    setFormType(type);
+    setEditItem(item);
+    if (type === "collection") {
+      setCollForm({
+        collectionCode: item.collectionCode || "",
+        customerId: item.customerId || "",
+        date: item.date ? item.date.split("T")[0] : "",
+        amount: item.amount || 0,
+        paymentOptionId: item.paymentOptionId || "",
+        bankId: item.bankId || "",
+        chequeNo: item.chequeNo || "",
+        voucherNo: item.voucherNo || "",
+        description: item.description || "",
+        status: item.status || "Approved",
+      });
+      fetchCustomerOutstanding(item.customerId);
+    } else {
+      setDelForm({
+        deliveryCode: item.deliveryCode || "",
+        supplierId: item.supplierId || "",
+        date: item.date ? item.date.split("T")[0] : "",
+        amount: item.amount || 0,
+        paymentOptionId: item.paymentOptionId || "",
+        bankId: item.bankId || "",
+        chequeNo: item.chequeNo || "",
+        voucherNo: item.voucherNo || "",
+        description: item.description || "",
+        status: item.status || "Approved",
+      });
+      fetchSupplierPayable(item.supplierId);
+    }
+    loadOptions();
+    setShowForm(true);
+  };
+
+  // ---- Save ----
+  const handleSave = async () => {
+    if (formType === "collection") {
+      if (!collForm.customerId || !collForm.date || !collForm.amount) {
+        toast({ title: "Error", description: "Customer, Date and Amount are required", variant: "destructive" });
+        return;
+      }
+      setSaving(true);
+      try {
+        const payload = {
+          customerId: collForm.customerId,
+          date: collForm.date,
+          amount: Number(collForm.amount) || 0,
+          paymentOptionId: collForm.paymentOptionId || null,
+          bankId: collForm.bankId || null,
+          chequeNo: collForm.chequeNo || null,
+          voucherNo: collForm.voucherNo || null,
+          description: collForm.description || null,
+          status: collForm.status || "Approved",
+        };
+        if (editItem) {
+          await apiFetch(`/api/cash-collections/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
+          toast({ title: "Updated", description: "Cash Collection updated" });
+        } else {
+          await apiFetch("/api/cash-collections", { method: "POST", body: JSON.stringify(payload) });
+          toast({ title: "Created", description: "Cash Collection created" });
+        }
+        setShowForm(false); loadCollections();
+      } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      finally { setSaving(false); }
+    } else {
+      if (!delForm.supplierId || !delForm.date || !delForm.amount) {
+        toast({ title: "Error", description: "Supplier, Date and Amount are required", variant: "destructive" });
+        return;
+      }
+      setSaving(true);
+      try {
+        const payload = {
+          supplierId: delForm.supplierId,
+          date: delForm.date,
+          amount: Number(delForm.amount) || 0,
+          paymentOptionId: delForm.paymentOptionId || null,
+          bankId: delForm.bankId || null,
+          chequeNo: delForm.chequeNo || null,
+          voucherNo: delForm.voucherNo || null,
+          description: delForm.description || null,
+          status: delForm.status || "Approved",
+        };
+        if (editItem) {
+          await apiFetch(`/api/cash-deliveries/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
+          toast({ title: "Updated", description: "Cash Delivery updated" });
+        } else {
+          await apiFetch("/api/cash-deliveries", { method: "POST", body: JSON.stringify(payload) });
+          toast({ title: "Created", description: "Cash Delivery created" });
+        }
+        setShowForm(false); loadDeliveries();
+      } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+      finally { setSaving(false); }
+    }
+  };
+
+  // ---- Delete ----
+  const handleDelete = async () => {
+    if (!deleteItem) return;
+    if (!isAdmin) {
+      toast({ title: "Access Denied", description: "Only administrators can delete financial posts", variant: "destructive" });
+      setDeleteItem(null);
+      return;
+    }
+    try {
+      const apiBase = formType === "collection" ? "/api/cash-collections" : "/api/cash-deliveries";
+      await apiFetch(`${apiBase}/${deleteItem.id}`, { method: "DELETE" });
+      toast({ title: "Deactivated" });
+      setDeleteItem(null);
+      if (formType === "collection") loadCollections(); else loadDeliveries();
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  // ---- Export CSV ----
+  const exportCSV = (type: "collection" | "delivery") => {
+    try {
+      if (type === "collection") {
+        const headers = ["Collection Code", "Customer", "Date", "Amount", "Payment Option", "Bank", "Cheque No", "Voucher No", "Status"];
+        const rows = filteredColl.map((item: any) => [
+          item.collectionCode, item.customer?.name || "—", fmtDate(item.date),
+          isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount),
+          item.paymentOption?.name || "—", maskBankName(item.bank),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          item.status
+        ]);
+        exportToCSVSimple("Cash Collections", headers, rows);
+        toast({ title: "Exported", description: "Cash Collections exported to CSV" });
+      } else {
+        const headers = ["Delivery Code", "Supplier", "Date", "Amount", "Payment Option", "Bank", "Cheque No", "Voucher No", "Status"];
+        const rows = filteredDel.map((item: any) => [
+          item.deliveryCode, item.supplier?.name || "—", fmtDate(item.date),
+          isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.amount),
+          item.paymentOption?.name || "—", maskBankName(item.bank),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          item.status
+        ]);
+        exportToCSVSimple("Cash Deliveries", headers, rows);
+        toast({ title: "Exported", description: "Cash Deliveries exported to CSV" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // ---- Export PDF (Enterprise with financialFooter) ----
+  const exportPDFHandler = (type: "collection" | "delivery") => {
+    try {
+      const financialFooter = {
+        preparedBy: user?.displayName || "System",
+        checkedBy: "",
+        authorizedBy: "",
+        printedBy: user?.displayName || "System",
+      };
+
+      if (type === "collection") {
+        const columns: ColumnDef[] = [
+          { key: "collectionCode", label: "Collection Code", type: "text" },
+          { key: "customerName", label: "Customer", type: "text" },
+          { key: "date", label: "Date", type: "date" },
+          { key: "amount", label: "Amount", type: "currency" },
+          { key: "paymentOptionName", label: "Payment Option", type: "text" },
+          { key: "bankName", label: "Bank", type: "text" },
+          { key: "chequeNo", label: "Cheque No", type: "text" },
+          { key: "voucherNo", label: "Voucher No", type: "text" },
+          { key: "status", label: "Status", type: "text" },
+        ];
+        const data = filteredColl.map((item: any) => ({
+          collectionCode: item.collectionCode,
+          customerName: item.customer?.name || "—",
+          date: item.date,
+          amount: isVatAuditor ? "N/A (Audit Mode)" : item.amount,
+          paymentOptionName: item.paymentOption?.name || "—",
+          bankName: maskBankName(item.bank),
+          chequeNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          voucherNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          status: item.status,
+        }));
+        exportToPDF({
+          title: "Cash Collections",
+          columns,
+          data,
+          orientation: "landscape",
+          isVatAuditor,
+          vatMaskedColumns: isVatAuditor ? ["amount", "chequeNo", "voucherNo"] : [],
+          company: companyProfile,
+          financialFooter,
+        });
+        toast({ title: "Exported", description: "Cash Collections exported to PDF" });
+      } else {
+        const columns: ColumnDef[] = [
+          { key: "deliveryCode", label: "Delivery Code", type: "text" },
+          { key: "supplierName", label: "Supplier", type: "text" },
+          { key: "date", label: "Date", type: "date" },
+          { key: "amount", label: "Amount", type: "currency" },
+          { key: "paymentOptionName", label: "Payment Option", type: "text" },
+          { key: "bankName", label: "Bank", type: "text" },
+          { key: "chequeNo", label: "Cheque No", type: "text" },
+          { key: "voucherNo", label: "Voucher No", type: "text" },
+          { key: "status", label: "Status", type: "text" },
+        ];
+        const data = filteredDel.map((item: any) => ({
+          deliveryCode: item.deliveryCode,
+          supplierName: item.supplier?.name || "—",
+          date: item.date,
+          amount: isVatAuditor ? "N/A (Audit Mode)" : item.amount,
+          paymentOptionName: item.paymentOption?.name || "—",
+          bankName: maskBankName(item.bank),
+          chequeNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo),
+          voucherNo: isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo),
+          status: item.status,
+        }));
+        exportToPDF({
+          title: "Cash Deliveries",
+          columns,
+          data,
+          orientation: "landscape",
+          isVatAuditor,
+          vatMaskedColumns: isVatAuditor ? ["amount", "chequeNo", "voucherNo"] : [],
+          company: companyProfile,
+          financialFooter,
+        });
+        toast({ title: "Exported", description: "Cash Deliveries exported to PDF" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // ---- Import CSV ----
+  const importCSV = (type: "collection" | "delivery") => {
+    const apiBase = type === "collection" ? "/api/cash-collections" : "/api/cash-deliveries";
+    const formFields = type === "collection"
+      ? [
+          { key: "collectionCode", label: "Collection Code", type: "text" as const },
+          { key: "customerId", label: "Customer", type: "text" as const, required: true },
+          { key: "date", label: "Date", type: "date" as const, required: true },
+          { key: "amount", label: "Amount", type: "number" as const, required: true },
+          { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+        ]
+      : [
+          { key: "deliveryCode", label: "Delivery Code", type: "text" as const },
+          { key: "supplierId", label: "Supplier", type: "text" as const, required: true },
+          { key: "date", label: "Date", type: "date" as const, required: true },
+          { key: "amount", label: "Amount", type: "number" as const, required: true },
+          { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+        ];
+    importFromCSV({ apiPath: apiBase, formFields }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+      if (type === "collection") loadCollections(); else loadDeliveries();
+    });
+  };
+
+  // ---- Dealer: Access Restricted ----
+  if (isDealer) {
+    return (
+      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md w-full"><CardContent className="p-8 text-center">
+          <Lock className="w-12 h-12 mx-auto mb-4 text-red-500" />
+          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h3>
+          <p className="text-muted-foreground">You don&apos;t have permission to view Cash Collections &amp; Deliveries.</p>
+        </CardContent></Card>
+      </div>
+    );
+  }
+
+  // ---- Render ----
+  return (
+    <div className="page-enter space-y-4">
+      {/* VAT Auditor Mode Badge */}
+      {isVatAuditor && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+          <span className="text-sm text-amber-700 dark:text-amber-400">Financial amounts, cheque/voucher numbers and bank account details are masked for audit compliance</span>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Banknote className="w-6 h-6" />Cash Collections &amp; Deliveries
+        </h2>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={() => importCSV(activeTab === "collections" ? "collection" : "delivery")}>
+            <Upload className="w-4 h-4 mr-1" />Import CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => exportCSV(activeTab === "collections" ? "collection" : "delivery")}>
+            <Download className="w-4 h-4 mr-1" />Export CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => exportPDFHandler(activeTab === "collections" ? "collection" : "delivery")}>
+            <FileDown className="w-4 h-4 mr-1" />Export PDF
+          </Button>
+          <Button
+            size="sm"
+            className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+            onClick={() => openCreate(activeTab === "collections" ? "collection" : "delivery")}
+            disabled={activeTab === "deliveries" && isSR}
+          >
+            <Plus className="w-4 h-4 mr-1" />{activeTab === "collections" ? "Record Collection" : "Record Delivery"}
+          </Button>
+        </div>
+      </div>
+
+      {/* SR Delivery Restriction Banner */}
+      {isSR && activeTab === "deliveries" && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+          <Lock className="w-4 h-4 text-yellow-600" />
+          <span className="text-sm text-yellow-700 dark:text-yellow-400 font-medium">Only managers can create cash deliveries</span>
+        </div>
+      )}
+
+      {/* Tabs - SR cannot see Cash Deliveries tab */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex overflow-x-auto gap-1 pb-1 scrollbar-none">
+          <TabsTrigger value="collections">Cash Collections</TabsTrigger>
+          {!isSR && <TabsTrigger value="deliveries">Cash Deliveries</TabsTrigger>}
+        </TabsList>
+
+        {/* ============ COLLECTIONS TAB ============ */}
+        <TabsContent value="collections" className="space-y-4">
+          {/* Stat Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+            {[
+              { label: "Total Collections", value: collStats.total, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+              { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(collStats.totalAmount), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+              { label: "Pending", value: collStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+              { label: "Ledger Posted", value: collStats.ledgerPosted, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+            ].map((stat, i) => (
+              <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
+                <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+                <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
+              </CardContent></Card>
+            ))}
+          </div>
+
+          {/* Table */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input placeholder="Search by code, customer..." value={collSearch} onChange={e => setCollSearch(e.target.value)} className="pl-10" />
+                </div>
+                <div className="flex items-center gap-1">
+                  <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[140px]" placeholder="From" />
+                  <span className="text-xs text-muted-foreground">—</span>
+                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[140px]" placeholder="To" />
+                </div>
+                {(dateFrom || dateTo) && (
+                  <Button variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }} className="text-xs">
+                    <X className="w-3 h-3 mr-1" />Clear Filters
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={loadCollections}><RefreshCw className="w-4 h-4" /></Button>
+              </div>
+              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                <Table className="min-w-[600px]">
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-10">+</TableHead>
+                      <TableHead>Collection Code</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Payment Option</TableHead>
+                      <TableHead>Bank</TableHead>
+                      <TableHead>Cheque No</TableHead>
+                      <TableHead>Voucher No</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="w-20 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {collLoading ? (
+                      <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                    ) : filteredColl.length === 0 ? (
+                      <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No cash collections found</TableCell></TableRow>
+                    ) : filteredColl.map((item: any) => (
+                      <React.Fragment key={item.id}>
+                        <TableRow className="data-table-row hover:bg-muted/50">
+                          <TableCell>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleCollExpand(item.id)}>
+                              {collExpandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.collectionCode}</TableCell>
+                          <TableCell>{item.customer?.name || "—"}</TableCell>
+                          <TableCell>{fmtDate(item.date)}</TableCell>
+                          <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmtCurrency(item.amount)}</TableCell>
+                          <TableCell>{item.paymentOption?.name || "—"}</TableCell>
+                          <TableCell>{maskBankName(item.bank)}</TableCell>
+                          <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.chequeNo)}</TableCell>
+                          <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.voucherNo)}</TableCell>
+                          <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => openEdit(item, "collection")}><Edit className="w-3.5 h-3.5" /></Button>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-red-500"
+                                        disabled={!isAdmin}
+                                        onClick={() => { setFormType("collection"); setDeleteItem(item); }}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  {!isAdmin && <TooltipContent><p>Only administrators can delete financial posts</p></TooltipContent>}
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {collExpandedRows.has(item.id) && (
+                          <TableRow>
+                            <TableCell colSpan={11} className="bg-muted/30 p-3">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                                <div><span className="text-muted-foreground">Customer:</span> <span className="font-medium text-slate-900 dark:text-white">{item.customer?.name || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{maskBankName(item.bank)}</span></div>
+                                <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Cheque No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo)}</span></div>
+                                <div><span className="text-muted-foreground">Voucher No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo)}</span></div>
+                                <div><span className="text-muted-foreground">CoA Account:</span> <span className="font-medium text-slate-900 dark:text-white">{item.chartOfAccount ? `${item.chartOfAccount.code} - ${item.chartOfAccount.name}` : "—"}</span></div>
+                                <div><span className="text-muted-foreground">Ledger Posted:</span> <span className="font-medium">{item.ledgerPosted ? <Badge className="bg-emerald-100 text-emerald-700">Yes</Badge> : <Badge className="bg-slate-100 text-slate-500">No</Badge>}</span></div>
+                                <div><span className="text-muted-foreground">Debit Entry:</span> <span className="font-mono font-medium text-slate-900 dark:text-white">{item.debitEntryCode || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Credit Entry:</span> <span className="font-mono font-medium text-slate-900 dark:text-white">{item.creditEntryCode || "—"}</span></div>
+                                <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{displayField(item.description)}</span></div>
+                                <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">Showing {filteredColl.length} of {collData.length} cash collections</div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============ DELIVERIES TAB ============ */}
+        {!isSR && (
+          <TabsContent value="deliveries" className="space-y-4">
+            {/* Stat Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+              {[
+                { label: "Total Deliveries", value: delStats.total, icon: ArrowDownCircle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+                { label: "Total Amount", value: isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(delStats.totalAmount), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+                { label: "Pending", value: delStats.pending, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+                { label: "Ledger Posted", value: delStats.ledgerPosted, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+              ].map((stat, i) => (
+                <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
+                  <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+                  <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
+                </CardContent></Card>
+              ))}
+            </div>
+
+            {/* Table */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input placeholder="Search by code, supplier..." value={delSearch} onChange={e => setDelSearch(e.target.value)} className="pl-10" />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[140px]" placeholder="From" />
+                    <span className="text-xs text-muted-foreground">—</span>
+                    <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[140px]" placeholder="To" />
+                  </div>
+                  {(dateFrom || dateTo) && (
+                    <Button variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); }} className="text-xs">
+                      <X className="w-3 h-3 mr-1" />Clear Filters
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={loadDeliveries}><RefreshCw className="w-4 h-4" /></Button>
+                </div>
+                <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+                  <Table className="min-w-[600px]">
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead className="w-10">+</TableHead>
+                        <TableHead>Delivery Code</TableHead>
+                        <TableHead>Supplier</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Payment Option</TableHead>
+                        <TableHead>Bank</TableHead>
+                        <TableHead>Cheque No</TableHead>
+                        <TableHead>Voucher No</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-20 text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {delLoading ? (
+                        <TableRow><TableCell colSpan={11} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+                      ) : filteredDel.length === 0 ? (
+                        <TableRow><TableCell colSpan={11} className="h-24 text-center text-muted-foreground">No cash deliveries found</TableCell></TableRow>
+                      ) : filteredDel.map((item: any) => (
+                        <React.Fragment key={item.id}>
+                          <TableRow className="data-table-row hover:bg-muted/50">
+                            <TableCell>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleDelExpand(item.id)}>
+                                {delExpandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.deliveryCode}</TableCell>
+                            <TableCell>{item.supplier?.name || "—"}</TableCell>
+                            <TableCell>{fmtDate(item.date)}</TableCell>
+                            <TableCell className="font-mono">{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : fmtCurrency(item.amount)}</TableCell>
+                            <TableCell>{item.paymentOption?.name || "—"}</TableCell>
+                            <TableCell>{maskBankName(item.bank)}</TableCell>
+                            <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.chequeNo)}</TableCell>
+                            <TableCell>{isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">N/A (Audit Mode)</span> : displayField(item.voucherNo)}</TableCell>
+                            <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => openEdit(item, "delivery")} disabled={isSR}><Edit className="w-3.5 h-3.5" /></Button>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-red-500"
+                                          disabled={!isAdmin}
+                                          onClick={() => { setFormType("delivery"); setDeleteItem(item); }}
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </span>
+                                    </TooltipTrigger>
+                                    {!isAdmin && <TooltipContent><p>Only administrators can delete financial posts</p></TooltipContent>}
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {delExpandedRows.has(item.id) && (
+                            <TableRow>
+                              <TableCell colSpan={11} className="bg-muted/30 p-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                                  <div><span className="text-muted-foreground">Supplier:</span> <span className="font-medium text-slate-900 dark:text-white">{item.supplier?.name || "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{maskBankName(item.bank)}</span></div>
+                                  <div><span className="text-muted-foreground">Payment Option:</span> <span className="font-medium text-slate-900 dark:text-white">{item.paymentOption?.name || "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Cheque No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.chequeNo)}</span></div>
+                                  <div><span className="text-muted-foreground">Voucher No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : displayField(item.voucherNo)}</span></div>
+                                  <div><span className="text-muted-foreground">CoA Account:</span> <span className="font-medium text-slate-900 dark:text-white">{item.chartOfAccount ? `${item.chartOfAccount.code} - ${item.chartOfAccount.name}` : "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Ledger Posted:</span> <span className="font-medium">{item.ledgerPosted ? <Badge className="bg-emerald-100 text-emerald-700">Yes</Badge> : <Badge className="bg-slate-100 text-slate-500">No</Badge>}</span></div>
+                                  <div><span className="text-muted-foreground">Debit Entry:</span> <span className="font-mono font-medium text-slate-900 dark:text-white">{item.debitEntryCode || "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Credit Entry:</span> <span className="font-mono font-medium text-slate-900 dark:text-white">{item.creditEntryCode || "—"}</span></div>
+                                  <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{displayField(item.description)}</span></div>
+                                  <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">Showing {filteredDel.length} of {delData.length} cash deliveries</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
+
+      {/* ============ CREATE / EDIT DIALOG ============ */}
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editItem ? "Edit" : formType === "collection" ? "Record Collection" : "Record Delivery"} {formType === "collection" ? "Cash Collection" : "Cash Delivery"}
+            </DialogTitle>
+            <DialogDescription>{editItem ? "Edit the details below" : "Fill in the details to record a new entry"}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {formType === "collection" ? (
+              /* ---- Collection Form ---- */
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Collection Code</Label>
+                    <Input className="bg-muted cursor-not-allowed" value={collForm.collectionCode || "Auto-generated"} readOnly />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Customer <span className="text-red-500">*</span></Label>
+                    <Select
+                      value={collForm.customerId || ""}
+                      onValueChange={v => {
+                        setCollForm({ ...collForm, customerId: v });
+                        fetchCustomerOutstanding(v);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
+                      <SelectContent>
+                        {customers.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {customerOutstanding !== null && (
+                      <p className={`text-xs font-medium ${customerOutstanding > 0 ? "text-red-600" : "text-green-600"}`}>
+                        Outstanding: {fmtCurrency(customerOutstanding)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Date <span className="text-red-500">*</span></Label>
+                    <Input type="date" value={collForm.date || ""} onChange={e => setCollForm({ ...collForm, date: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Amount <span className="text-red-500">*</span></Label>
+                    <Input type="number" step="0.01" value={collForm.amount || ""} onChange={e => setCollForm({ ...collForm, amount: Number(e.target.value) })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Payment Option</Label>
+                    <Select value={collForm.paymentOptionId || ""} onValueChange={v => setCollForm({ ...collForm, paymentOptionId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Payment Option" /></SelectTrigger>
+                      <SelectContent>
+                        {paymentOptions.map((po: any) => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Bank</Label>
+                    <Select value={collForm.bankId || ""} onValueChange={v => setCollForm({ ...collForm, bankId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
+                      <SelectContent>
+                        {banks.map((b: any) => <SelectItem key={b.id} value={b.id}>{isVatAuditor ? `${b.bankName?.split(" - ")[0] || b.bankName} (Audit Mode)` : b.bankName}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cheque No</Label>
+                    <Input value={collForm.chequeNo || ""} onChange={e => setCollForm({ ...collForm, chequeNo: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Voucher No</Label>
+                    <Input value={collForm.voucherNo || ""} onChange={e => setCollForm({ ...collForm, voucherNo: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Status</Label>
+                    <Select value={collForm.status || "Approved"} onValueChange={v => setCollForm({ ...collForm, status: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Pending">Pending</SelectItem>
+                        <SelectItem value="Approved">Approved</SelectItem>
+                        <SelectItem value="Rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description</Label>
+                  <Textarea value={collForm.description || ""} onChange={e => setCollForm({ ...collForm, description: e.target.value })} placeholder="Description..." />
+                </div>
+              </>
+            ) : (
+              /* ---- Delivery Form ---- */
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Delivery Code</Label>
+                    <Input className="bg-muted cursor-not-allowed" value={delForm.deliveryCode || "Auto-generated"} readOnly />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Supplier <span className="text-red-500">*</span></Label>
+                    <Select
+                      value={delForm.supplierId || ""}
+                      onValueChange={v => {
+                        setDelForm({ ...delForm, supplierId: v });
+                        fetchSupplierPayable(v);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger>
+                      <SelectContent>
+                        {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {supplierPayable !== null && (
+                      <p className={`text-xs font-medium ${supplierPayable > 0 ? "text-red-600" : "text-green-600"}`}>
+                        Payable: {fmtCurrency(supplierPayable)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Date <span className="text-red-500">*</span></Label>
+                    <Input type="date" value={delForm.date || ""} onChange={e => setDelForm({ ...delForm, date: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Amount <span className="text-red-500">*</span></Label>
+                    <Input type="number" step="0.01" value={delForm.amount || ""} onChange={e => setDelForm({ ...delForm, amount: Number(e.target.value) })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Payment Option</Label>
+                    <Select value={delForm.paymentOptionId || ""} onValueChange={v => setDelForm({ ...delForm, paymentOptionId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Payment Option" /></SelectTrigger>
+                      <SelectContent>
+                        {paymentOptions.map((po: any) => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Bank</Label>
+                    <Select value={delForm.bankId || ""} onValueChange={v => setDelForm({ ...delForm, bankId: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
+                      <SelectContent>
+                        {banks.map((b: any) => <SelectItem key={b.id} value={b.id}>{isVatAuditor ? `${b.bankName?.split(" - ")[0] || b.bankName} (Audit Mode)` : b.bankName}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cheque No</Label>
+                    <Input value={delForm.chequeNo || ""} onChange={e => setDelForm({ ...delForm, chequeNo: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Voucher No</Label>
+                    <Input value={delForm.voucherNo || ""} onChange={e => setDelForm({ ...delForm, voucherNo: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Status</Label>
+                    <Select value={delForm.status || "Approved"} onValueChange={v => setDelForm({ ...delForm, status: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Pending">Pending</SelectItem>
+                        <SelectItem value="Approved">Approved</SelectItem>
+                        <SelectItem value="Rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Description</Label>
+                  <Textarea value={delForm.description || ""} onChange={e => setDelForm({ ...delForm, description: e.target.value })} placeholder="Description..." />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+              {saving ? "Saving..." : editItem ? "Update" : formType === "collection" ? "Record Collection" : "Record Delivery"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ DELETE CONFIRMATION DIALOG ============ */}
+      <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
+        <DialogContent className="max-w-[95vw] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirm Deactivate</DialogTitle>
+            <DialogDescription>Are you sure you want to deactivate this {formType === "collection" ? "cash collection" : "cash delivery"}? The record will be marked as inactive and associated bank impact will be reversed.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={!isAdmin}>
+              {isAdmin ? "Deactivate" : "Admin Only"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

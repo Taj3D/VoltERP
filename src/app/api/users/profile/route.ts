@@ -1,31 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { verifyToken, extractBearerToken } from "@/lib/jwt-utils";
-
-// Helper: Resolve user from JWT token only (x-user-email removed for security)
-async function resolveUser(req: NextRequest): Promise<{ id: string; email: string } | null> {
-  const authHeader = req.headers.get("authorization");
-  const bearerToken = extractBearerToken(authHeader);
-
-  if (bearerToken) {
-    const tokenResult = await verifyToken(bearerToken, "access");
-    if (tokenResult.valid) {
-      return { id: tokenResult.payload.userId, email: tokenResult.payload.email };
-    }
-  }
-
-  return null;
-}
+import { withApiSecurity } from "@/lib/api-security";
 
 // GET /api/users/profile - Fetch the current user's profile
 export async function GET(req: NextRequest) {
-  try {
-    const resolved = await resolveUser(req);
-    if (!resolved) {
-      return NextResponse.json({ error: "Unauthorized: authentication required" }, { status: 401 });
-    }
+  const security = await withApiSecurity(req, "UserProfile", "GET");
+  if (!security.authorized) return security.response;
 
-    const user = await db.user.findUnique({ where: { email: resolved.email } });
+  try {
+    const user = await db.user.findUnique({ where: { email: security.user.email } });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
@@ -37,6 +20,8 @@ export async function GET(req: NextRequest) {
       phone: user.phone || "",
       address: user.address || "",
       photo: user.photo || "",
+      voterIdFront: user.voterIdFront || "",
+      voterIdBack: user.voterIdBack || "",
       role: user.role,
       isActive: user.isActive,
       createdAt: user.createdAt,
@@ -52,19 +37,17 @@ export async function GET(req: NextRequest) {
 
 // PUT /api/users/profile - Update the current user's profile
 export async function PUT(req: NextRequest) {
-  try {
-    const resolved = await resolveUser(req);
-    if (!resolved) {
-      return NextResponse.json({ error: "Unauthorized: authentication required" }, { status: 401 });
-    }
+  const security = await withApiSecurity(req, "UserProfile", "PUT");
+  if (!security.authorized) return security.response;
 
-    const user = await db.user.findUnique({ where: { email: resolved.email } });
+  try {
+    const user = await db.user.findUnique({ where: { email: security.user.email } });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const body = await req.json();
-    const { name, phone, address, photo } = body;
+    const { name, phone, address, photo, voterIdFront, voterIdBack } = body;
 
     // Validate name
     if (name !== undefined && (!name || name.trim().length === 0)) {
@@ -75,12 +58,20 @@ export async function PUT(req: NextRequest) {
     if (photo && photo.length > 7 * 1024 * 1024) {
       return NextResponse.json({ error: "Profile photo is too large (max 5MB)" }, { status: 400 });
     }
+    if (voterIdFront && voterIdFront.length > 7 * 1024 * 1024) {
+      return NextResponse.json({ error: "Voter ID front image is too large (max 5MB)" }, { status: 400 });
+    }
+    if (voterIdBack && voterIdBack.length > 7 * 1024 * 1024) {
+      return NextResponse.json({ error: "Voter ID back image is too large (max 5MB)" }, { status: 400 });
+    }
 
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name.trim();
     if (phone !== undefined) updateData.phone = phone.trim() || null;
     if (address !== undefined) updateData.address = address.trim() || null;
     if (photo !== undefined) updateData.photo = photo || null;
+    if (voterIdFront !== undefined) updateData.voterIdFront = voterIdFront || null;
+    if (voterIdBack !== undefined) updateData.voterIdBack = voterIdBack || null;
 
     const updatedUser = await db.user.update({
       where: { id: user.id },
@@ -108,6 +99,8 @@ export async function PUT(req: NextRequest) {
       phone: updatedUser.phone || "",
       address: updatedUser.address || "",
       photo: updatedUser.photo || "",
+      voterIdFront: updatedUser.voterIdFront || "",
+      voterIdBack: updatedUser.voterIdBack || "",
       role: updatedUser.role,
       pdfExports: updatedUser.pdfExports,
       csvImports: updatedUser.csvImports,

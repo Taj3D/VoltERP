@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "sqlite"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================
@@ -24,9 +26,11 @@ model User {
   company   Company? @relation(fields: [companyId], references: [id])
 
   // Profile fields
-  phone      String? // User phone number
-  address    String? // User address
-  photo      String? // Profile photo (base64 or URL)
+  phone        String? // User phone number
+  address      String? // User address
+  photo        String? // Profile photo (base64 or URL)
+  voterIdFront String? // Voter ID front card image
+  voterIdBack  String? // Voter ID back card image
   pdfExports Int     @default(0) // Count of PDF exports performed
   csvImports Int     @default(0) // Count of CSV imports performed
   csvExports Int     @default(0) // Count of CSV exports performed
@@ -555,6 +559,18 @@ model Product {
   posSaleLines            PosSaleLine[]
   damageLogs              DamageLog[]
 
+  // Warranty fields — Phase 19: Product warranty (years/months per type)
+  compressorWarranty      Int?
+  compressorWarrantyUnit  String?   @default("years")  // "years" or "months"
+  panelWarranty           Int?
+  panelWarrantyUnit       String?   @default("years")
+  serviceWarranty         Int?
+  serviceWarrantyUnit     String?   @default("years")
+  motorWarranty           Int?
+  motorWarrantyUnit       String?   @default("years")
+  sparePartsWarranty      Int?
+  sparePartsWarrantyUnit  String?   @default("years")
+
   @@index([categoryId])
   @@index([brandId])
   @@index([godownId])
@@ -722,6 +738,10 @@ model Customer {
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
   nidNumber          String? // National ID / Voter ID number
+  guarantorName      String? // Guarantor full name
+  guarantorContact   String? // Guarantor phone number
+  guarantorAddress   String? // Guarantor address
+  guarantorFatherName String? // Guarantor's father name
   companyId          String? // Multi-tenant isolation
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())
@@ -762,6 +782,7 @@ model Supplier {
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
   nidNumber          String? // National ID / Voter ID number
+  logoUrl            String? // Company/dealer logo URL
   companyId          String? // Multi-tenant isolation
   isActive           Boolean            @default(true)
   createdAt          DateTime           @default(now())
@@ -1695,16 +1716,16 @@ model SmsNotificationTrigger {
 // ============================================================
 
 model SmsAutomationConfig {
-  id                     String   @id @default(cuid())
-  smsAlertOnPurchase     Boolean  @default(false)
-  smsAlertOnCollection   Boolean  @default(false)
-  smsAlertOnStockReceive Boolean  @default(false)
-  smsAlertOnHrLifecycle  Boolean  @default(false)
-  companyId              String?
-  isActive               Boolean  @default(true)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  company                Company? @relation(fields: [companyId], references: [id])
+  id                      String   @id @default(cuid())
+  autoSmsOnPurchase       Boolean  @default(false)
+  autoSmsOnReceipt        Boolean  @default(false)
+  autoSmsOnStockReceive   Boolean  @default(false)
+  autoSmsOnEmployeeEvent  Boolean  @default(false)
+  companyId               String?
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  company                 Company? @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
 }
@@ -2082,6 +2103,7 @@ model InvoiceTemplate {
   // Custom terms/notes
   termsAndConditions    String? // Custom terms & conditions text
   customFooterNote      String? // Custom footer note (overrides system note)
+  isDefault             Boolean  @default(false)
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt

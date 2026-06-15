@@ -7,85 +7,117 @@ export async function GET(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const { searchParams } = new URL(request.url);
-    const includeDetails = searchParams.get('includeDetails') === 'true';
-    const headType = searchParams.get('headType');
+    const transactionType = searchParams.get('type'); // 'asset' | 'liability' | null (all)
+    const investmentHeadId = searchParams.get('investmentHeadId');
+    const assetCategory = searchParams.get('assetCategory');
+    const liabilityType = searchParams.get('liabilityType');
+    const liabilityFlowType = searchParams.get('flowType'); // 'received' | 'pay'
 
-    const where: any = { isActive: true };
-    if (headType) where.type = headType;
-    // Multi-tenant filtering: if authenticated user has a companyId, filter by it
-    if (security.user.companyId) where.companyId = security.user.companyId;
+    // Multi-tenant filter
+    const companyFilter: any = {};
+    if (security.user.companyId) companyFilter.companyId = security.user.companyId;
 
-    if (includeDetails) {
-      const investmentHeads = await db.investmentHead.findMany({
-        where,
+    // Specific investment head filter
+    const headFilter: any = {};
+    if (investmentHeadId) headFilter.investmentHeadId = investmentHeadId;
+
+    const isVatAuditor = security.user.role === 'vat_auditor';
+
+    const transactions: any[] = [];
+
+    // Fetch Assets unless filtered to liabilities only
+    if (!transactionType || transactionType === 'asset') {
+      const assetWhere: any = { isActive: true, ...companyFilter, ...headFilter };
+      if (assetCategory) assetWhere.assetCategory = assetCategory;
+
+      const assets = await db.asset.findMany({
+        where: assetWhere,
         include: {
-          assets: {
-            where: { isActive: true },
-            orderBy: { date: 'desc' },
-          },
-          liabilities: {
-            where: { isActive: true },
-            include: { investmentHead: true },
-            orderBy: { date: 'desc' },
+          investmentHead: {
+            select: { id: true, name: true, code: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { date: 'desc' },
       });
 
-      const isVatAuditor = security.authorized && security.user.role === 'vat_auditor';
-
-      const enriched = investmentHeads.map((head) => {
-        const totalAssets = head.assets.reduce((sum, a) => sum + a.amount, 0);
-        const totalLiabilities = head.liabilities.reduce((sum, l) => sum + l.amount, 0);
-        const receivedLiabilities = head.liabilities
-          .filter((l) => l.type === 'received')
-          .reduce((sum, l) => sum + l.amount, 0);
-        const payLiabilities = head.liabilities
-          .filter((l) => l.type === 'pay')
-          .reduce((sum, l) => sum + l.amount, 0);
-        // Balance formula: opening balance + additions (assets) - withdrawals (liabilities)
-        const netValue = head.openingBalance + totalAssets - totalLiabilities;
-
-        return {
-          ...head,
-          totalAssets: isVatAuditor ? 'N/A (Audit Mode)' : totalAssets,
-          totalLiabilities: isVatAuditor ? 'N/A (Audit Mode)' : totalLiabilities,
-          receivedLiabilities: isVatAuditor ? 'N/A (Audit Mode)' : receivedLiabilities,
-          payLiabilities: isVatAuditor ? 'N/A (Audit Mode)' : payLiabilities,
-          netValue: isVatAuditor ? 'N/A (Audit Mode)' : netValue,
-          assets: isVatAuditor ? head.assets.map(a => ({ ...a, amount: 'N/A (Audit Mode)' })) : head.assets,
-          liabilities: isVatAuditor ? head.liabilities.map(l => ({ ...l, amount: 'N/A (Audit Mode)' })) : head.liabilities,
-        };
-      });
-
-      const grandTotalAssets = isVatAuditor ? 'N/A (Audit Mode)' : enriched.reduce((sum, h) => sum + (typeof h.totalAssets === 'number' ? h.totalAssets : 0), 0);
-      const grandTotalLiabilities = isVatAuditor ? 'N/A (Audit Mode)' : enriched.reduce((sum, h) => sum + (typeof h.totalLiabilities === 'number' ? h.totalLiabilities : 0), 0);
-      const grandOpeningBalances = isVatAuditor ? 'N/A (Audit Mode)' : investmentHeads.reduce((sum, h) => sum + h.openingBalance, 0);
-      const grandNetValue = isVatAuditor ? 'N/A (Audit Mode)' : (typeof grandOpeningBalances === 'number' ? grandOpeningBalances : 0) + (typeof grandTotalAssets === 'number' ? grandTotalAssets : 0) - (typeof grandTotalLiabilities === 'number' ? grandTotalLiabilities : 0);
-
-      return NextResponse.json({
-        investmentHeads: enriched,
-        summary: {
-          totalHeads: enriched.length,
-          grandOpeningBalances,
-          grandTotalAssets,
-          grandTotalLiabilities,
-          grandNetValue,
-        },
-      });
+      for (const asset of assets) {
+        transactions.push({
+          id: asset.id,
+          transactionType: 'asset',
+          date: asset.date,
+          amount: isVatAuditor ? 'N/A (Audit Mode)' : asset.amount,
+          assetCategory: asset.assetCategory,
+          description: asset.description,
+          investmentHeadId: asset.investmentHeadId,
+          investmentHeadName: asset.investmentHead?.name,
+          investmentHeadCode: asset.investmentHead?.code,
+          companyId: asset.companyId,
+          createdAt: asset.createdAt,
+        });
+      }
     }
 
-    const investmentHeads = await db.investmentHead.findMany({
-      where,
-      include: {
-        _count: {
-          select: { assets: { where: { isActive: true } }, liabilities: { where: { isActive: true } } },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Fetch Liabilities unless filtered to assets only
+    if (!transactionType || transactionType === 'liability') {
+      const liabilityWhere: any = { isActive: true, ...companyFilter, ...headFilter };
+      if (liabilityType) liabilityWhere.liabilityType = liabilityType;
+      if (liabilityFlowType) liabilityWhere.type = liabilityFlowType;
 
-    return NextResponse.json(investmentHeads);
+      const liabilities = await db.liability.findMany({
+        where: liabilityWhere,
+        include: {
+          investmentHead: {
+            select: { id: true, name: true, code: true },
+          },
+        },
+        orderBy: { date: 'desc' },
+      });
+
+      for (const liability of liabilities) {
+        transactions.push({
+          id: liability.id,
+          transactionType: 'liability',
+          date: liability.date,
+          amount: isVatAuditor ? 'N/A (Audit Mode)' : liability.amount,
+          type: liability.type, // 'received' or 'pay'
+          liabilityType: liability.liabilityType, // 'SHORT_TERM' or 'LONG_TERM'
+          description: liability.description,
+          investmentHeadId: liability.investmentHeadId,
+          investmentHeadName: liability.investmentHead?.name,
+          investmentHeadCode: liability.investmentHead?.code,
+          companyId: liability.companyId,
+          createdAt: liability.createdAt,
+        });
+      }
+    }
+
+    // Sort combined results by date descending
+    transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Summary
+    const assetCount = transactions.filter((t) => t.transactionType === 'asset').length;
+    const liabilityCount = transactions.filter((t) => t.transactionType === 'liability').length;
+    const totalAssetAmount = isVatAuditor
+      ? 'N/A (Audit Mode)'
+      : transactions
+          .filter((t) => t.transactionType === 'asset')
+          .reduce((sum, t) => sum + (typeof t.amount === 'number' ? t.amount : 0), 0);
+    const totalLiabilityAmount = isVatAuditor
+      ? 'N/A (Audit Mode)'
+      : transactions
+          .filter((t) => t.transactionType === 'liability')
+          .reduce((sum, t) => sum + (typeof t.amount === 'number' ? t.amount : 0), 0);
+
+    return NextResponse.json({
+      investments: transactions,
+      summary: {
+        totalTransactions: transactions.length,
+        assetCount,
+        liabilityCount,
+        totalAssetAmount,
+        totalLiabilityAmount,
+      },
+    });
   } catch (error) {
     console.error('Error fetching investments:', error);
     return NextResponse.json({ error: 'Failed to fetch investments' }, { status: 500 });

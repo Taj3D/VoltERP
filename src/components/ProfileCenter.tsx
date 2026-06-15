@@ -32,7 +32,7 @@ import {
   Lock, CheckCircle, AlertTriangle, Activity, Eye, Camera,
   Pencil, Save, X, Upload, BarChart3, TrendingUp, Clock,
   Image as ImageIcon, ChevronDown, ChevronUp, Zap, Search,
-  ShieldAlert, ShieldCheck, History
+  ShieldAlert, ShieldCheck, History, Globe, Hash
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +45,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -66,7 +67,13 @@ interface ProfileUser {
   companyId: string | null;
   photo?: string | null;  // Maps to User.photo in Prisma
   phone?: string | null;
+  address?: string | null;  // Maps to User.address in Prisma
   designation?: string | null;  // Derived from Employee.designation, not stored on User
+  voterIdFront?: string | null;  // Voter ID front card image
+  voterIdBack?: string | null;   // Voter ID back card image
+  pdfExports?: number;    // Count of PDF exports performed
+  csvImports?: number;    // Count of CSV imports performed
+  csvExports?: number;    // Count of CSV exports performed
 }
 
 interface ActivityLog {
@@ -90,6 +97,10 @@ interface CompanyInfo {
   email: string | null;
   logo?: string | null;
   brandLogo?: string | null;
+  mobile?: string | null;
+  website?: string | null;
+  vatNumber?: string | null;
+  tradeLicense?: string | null;
 }
 
 interface EmployeeInfo {
@@ -145,8 +156,9 @@ const DATE_RANGE_OPTIONS = [
 
 const TRACKING_STORAGE_KEY = "ems_action_tracking";
 
-// Comprehensive raw username pattern check
-const RAW_USERNAME_PATTERNS = /^(emart\.|admin\.|user\.|sys\.|test\.)/i;
+// Comprehensive raw username pattern check — no longer masks "emart." prefix
+// since user emails like emart.amit should be visible in the UI
+const RAW_USERNAME_PATTERNS = /^(admin\.|user\.|sys\.|test\.)/i;
 
 const CHART_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -185,6 +197,7 @@ function getAuthUser(): ProfileUser | null {
           companyId: parsed.user.companyId || null,
           photo: parsed.user.photo || null,
           phone: parsed.user.phone || null,
+          address: parsed.user.address || null,
           designation: parsed.user.designation || null,
         };
       }
@@ -291,6 +304,7 @@ export default function ProfileCenter() {
   const [editName, setEditName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editDesignation, setEditDesignation] = useState("");
+  const [editAddress, setEditAddress] = useState("");
   const [editProfileImage, setEditProfileImage] = useState<string | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -301,6 +315,18 @@ export default function ProfileCenter() {
   const [companyLogoUploading, setCompanyLogoUploading] = useState(false);
   const [editCompanyLogo, setEditCompanyLogo] = useState<string | null>(null);
   const companyLogoInputRef = useRef<HTMLInputElement>(null);
+
+  // Company info editing state (Company Info tab)
+  const [isEditingCompany, setIsEditingCompany] = useState(false);
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editCompanyAddress, setEditCompanyAddress] = useState("");
+  const [editCompanyPhone, setEditCompanyPhone] = useState("");
+  const [editCompanyEmail, setEditCompanyEmail] = useState("");
+  const [editCompanyMobile, setEditCompanyMobile] = useState("");
+  const [editCompanyWebsite, setEditCompanyWebsite] = useState("");
+  const [editCompanyVatNumber, setEditCompanyVatNumber] = useState("");
+  const [editCompanyTradeLicense, setEditCompanyTradeLicense] = useState("");
+  const [savingCompanyInfo, setSavingCompanyInfo] = useState(false);
 
   // Action tracking state (client-side)
   const [actionTracking, setActionTracking] = useState<ActionTrackingSummary>({
@@ -339,6 +365,17 @@ export default function ProfileCenter() {
   // Recent password activity state
   const [passwordActivity, setPasswordActivity] = useState<ActivityLog[]>([]);
 
+  // Voter ID image upload state
+  const [editVoterIdFront, setEditVoterIdFront] = useState<string | null>(null);
+  const [editVoterIdBack, setEditVoterIdBack] = useState<string | null>(null);
+  const voterIdFrontInputRef = useRef<HTMLInputElement>(null);
+  const voterIdBackInputRef = useRef<HTMLInputElement>(null);
+
+  // Server-side export counters (from User model)
+  const [serverCounters, setServerCounters] = useState<{ pdfExports: number; csvImports: number; csvExports: number }>({
+    pdfExports: 0, csvImports: 0, csvExports: 0,
+  });
+
   // ────────────────────────────────────────────────────────
   // INITIAL LOAD
   // ────────────────────────────────────────────────────────
@@ -349,6 +386,7 @@ export default function ProfileCenter() {
       setEditName(getSafeDisplayName(authUser.displayName || authUser.name));
       setEditPhone(authUser.phone || "");
       setEditDesignation(authUser.designation || "");
+      setEditAddress(authUser.address || "");
       setEditProfileImage(authUser.photo || null);
       loadCompanyAndEmployee(authUser);
       loadProfileFromServer();
@@ -399,13 +437,27 @@ export default function ProfileCenter() {
           companyId: serverProfile.companyId,
           photo: serverProfile.photo || null,
           phone: serverProfile.phone,
+          address: serverProfile.address || null,
           designation: serverProfile.designation || null,
+          voterIdFront: serverProfile.voterIdFront || null,
+          voterIdBack: serverProfile.voterIdBack || null,
+          pdfExports: serverProfile.pdfExports || 0,
+          csvImports: serverProfile.csvImports || 0,
+          csvExports: serverProfile.csvExports || 0,
         };
         setUser(updatedUser);
         setEditName(safeName);
         setEditPhone(updatedUser.phone || "");
         setEditDesignation(updatedUser.designation || "");
+        setEditAddress(updatedUser.address || "");
         setEditProfileImage(updatedUser.photo || null);
+        setEditVoterIdFront(updatedUser.voterIdFront || null);
+        setEditVoterIdBack(updatedUser.voterIdBack || null);
+        setServerCounters({
+          pdfExports: serverProfile.pdfExports || 0,
+          csvImports: serverProfile.csvImports || 0,
+          csvExports: serverProfile.csvExports || 0,
+        });
 
         // Update localStorage auth state
         try {
@@ -418,6 +470,7 @@ export default function ProfileCenter() {
               parsed.user.photo = serverProfile.photo;
               parsed.user.phone = serverProfile.phone;
               parsed.user.designation = serverProfile.designation;
+              parsed.user.address = serverProfile.address;
               localStorage.setItem("ems_auth", JSON.stringify(parsed));
             }
           }
@@ -446,6 +499,15 @@ export default function ProfileCenter() {
           if (userCompany) {
             setCompanyInfo(userCompany);
             setEditCompanyLogo(userCompany.logo || userCompany.brandLogo || null);
+            // Populate company edit fields
+            setEditCompanyName(userCompany.name || "");
+            setEditCompanyAddress(userCompany.address || "");
+            setEditCompanyPhone(userCompany.phone || "");
+            setEditCompanyEmail(userCompany.email || "");
+            setEditCompanyMobile(userCompany.mobile || "");
+            setEditCompanyWebsite(userCompany.website || "");
+            setEditCompanyVatNumber(userCompany.vatNumber || "");
+            setEditCompanyTradeLicense(userCompany.tradeLicense || "");
           }
         }
       }
@@ -664,8 +726,14 @@ export default function ProfileCenter() {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast({ title: "File Too Large", description: "Profile image must be smaller than 2MB.", variant: "destructive" });
+    const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      toast({ title: "Invalid Format", description: "Accepted formats: JPG, PNG, GIF, WebP.", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Profile photo must be smaller than 5MB.", variant: "destructive" });
       return;
     }
 
@@ -692,8 +760,14 @@ export default function ProfileCenter() {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      toast({ title: "File Too Large", description: "Company logo must be smaller than 2MB.", variant: "destructive" });
+    const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      toast({ title: "Invalid Format", description: "Accepted formats: JPG, PNG, GIF, WebP.", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Company logo must be smaller than 5MB.", variant: "destructive" });
       return;
     }
 
@@ -702,18 +776,17 @@ export default function ProfileCenter() {
       const base64 = reader.result as string;
       setEditCompanyLogo(base64);
 
-      // Save to server immediately
+      // Save to server immediately via company-branding API (Admin-only)
       if (companyInfo) {
         setCompanyLogoUploading(true);
         try {
           const headers = getAuthHeaders();
-          const res = await fetch(`/api/companies/${companyInfo.id}`, {
+          const res = await fetch("/api/company-branding", {
             method: "PUT",
             headers,
             body: JSON.stringify({ logo: base64 }),
           });
           if (res.ok) {
-            const updated = await res.json();
             setCompanyInfo(prev => prev ? { ...prev, logo: base64 } : prev);
             toast({ title: "Logo Updated", description: "Company logo has been saved successfully." });
           } else {
@@ -731,6 +804,76 @@ export default function ProfileCenter() {
       toast({ title: "Upload Failed", description: "Failed to read logo file. Please try again.", variant: "destructive" });
     };
     reader.readAsDataURL(file);
+  };
+
+  // ────────────────────────────────────────────────────────
+  // VOTER ID IMAGE UPLOAD HANDLERS
+  // ────────────────────────────────────────────────────────
+  const handleVoterIdUpload = (side: "front" | "back") => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid File", description: "Please select an image file (PNG, JPG, GIF, WebP).", variant: "destructive" });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Voter ID image must be smaller than 5MB.", variant: "destructive" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      if (side === "front") {
+        setEditVoterIdFront(base64);
+      } else {
+        setEditVoterIdBack(base64);
+      }
+    };
+    reader.onerror = () => {
+      toast({ title: "Upload Failed", description: "Failed to read image file. Please try again.", variant: "destructive" });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Save voter ID images to server
+  const handleSaveVoterIdImages = async () => {
+    setSavingProfile(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch("/api/auth/profile", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          voterIdFront: editVoterIdFront,
+          voterIdBack: editVoterIdBack,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Failed to update voter ID images" }));
+        throw new Error(errData.error || "Failed to update voter ID images");
+      }
+
+      const data = await res.json();
+      if (user) {
+        setUser(prev => prev ? {
+          ...prev,
+          voterIdFront: data.user?.voterIdFront ?? editVoterIdFront,
+          voterIdBack: data.user?.voterIdBack ?? editVoterIdBack,
+        } : prev);
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+      toast({ title: "Voter ID Updated", description: "Voter ID images have been saved successfully." });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to update voter ID images", variant: "destructive" });
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   // ────────────────────────────────────────────────────────
@@ -758,6 +901,7 @@ export default function ProfileCenter() {
           name: editName.trim(),
           photo: editProfileImage,
           phone: editPhone.trim() || null,
+          address: editAddress.trim() || null,
           designation: editDesignation.trim() || null,
         }),
       });
@@ -778,6 +922,7 @@ export default function ProfileCenter() {
           displayName: safeName,
           photo: data.user.photo,
           phone: data.user.phone,
+          address: data.user.address,
           designation: data.user.designation,
         };
         setUser(updatedUser);
@@ -794,6 +939,7 @@ export default function ProfileCenter() {
             parsed.user.photo = data.user.photo;
             parsed.user.phone = data.user.phone;
             parsed.user.designation = data.user.designation;
+            parsed.user.address = data.user.address;
             localStorage.setItem("ems_auth", JSON.stringify(parsed));
           }
         }
@@ -861,6 +1007,64 @@ export default function ProfileCenter() {
   };
 
   // ────────────────────────────────────────────────────────
+  // SAVE COMPANY INFO UPDATES
+  // ────────────────────────────────────────────────────────
+  const handleSaveCompanyInfo = async () => {
+    if (!companyInfo) return;
+    if (!editCompanyName.trim()) {
+      toast({ title: "Validation Error", description: "Company name cannot be empty.", variant: "destructive" });
+      return;
+    }
+    // Only Admin can modify company branding
+    if (user?.role !== "admin") {
+      toast({ title: "Access Denied", description: "Only administrators can modify company branding.", variant: "destructive" });
+      return;
+    }
+    setSavingCompanyInfo(true);
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch("/api/company-branding", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          name: editCompanyName.trim(),
+          address: editCompanyAddress.trim() || null,
+          phone: editCompanyPhone.trim() || null,
+          email: editCompanyEmail.trim() || null,
+          mobile: editCompanyMobile.trim() || null,
+          website: editCompanyWebsite.trim() || null,
+          vatNumber: editCompanyVatNumber.trim() || null,
+          tradeLicense: editCompanyTradeLicense.trim() || null,
+        }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        const updated = result.company || result;
+        setCompanyInfo(prev => prev ? {
+          ...prev,
+          name: updated.name || editCompanyName.trim(),
+          address: updated.address ?? (editCompanyAddress.trim() || null),
+          phone: updated.phone ?? (editCompanyPhone.trim() || null),
+          email: updated.email ?? (editCompanyEmail.trim() || null),
+          mobile: updated.mobile ?? (editCompanyMobile.trim() || null),
+          website: updated.website ?? (editCompanyWebsite.trim() || null),
+          vatNumber: updated.vatNumber ?? (editCompanyVatNumber.trim() || null),
+          tradeLicense: updated.tradeLicense ?? (editCompanyTradeLicense.trim() || null),
+        } : prev);
+        setIsEditingCompany(false);
+        toast({ title: "Company Info Updated", description: "Company information has been saved successfully." });
+      } else {
+        const errData = await res.json().catch(() => ({ error: "Failed to update company info" }));
+        toast({ title: "Error", description: errData.error || "Failed to update company info", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to update company info", variant: "destructive" });
+    } finally {
+      setSavingCompanyInfo(false);
+    }
+  };
+
+  // ────────────────────────────────────────────────────────
   // ADMIN SELF PASSWORD CHANGE
   // ────────────────────────────────────────────────────────
   const handleSelfPasswordChange = async () => {
@@ -915,20 +1119,18 @@ export default function ProfileCenter() {
   const getDesignation = (): string => {
     if (employeeInfo?.designation?.name) return employeeInfo.designation.name;
     if (user?.designation) return user.designation;
-    if (user?.role) return ROLE_LABELS[user.role];
+    // Return the user's email as the designation/identifier
+    if (user?.email) return user.email;
     return "N/A";
   };
 
   const getInitials = (): string => {
-    if (!user?.displayName && !user?.name) return "U";
-    const name = user.displayName || user.name;
-    // Comprehensive raw username pattern check
-    if (RAW_USERNAME_PATTERNS.test(name)) return "U";
-    const parts = name.split(" ");
-    if (parts.length >= 2) {
-      return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+    // Use email for initials since email is the primary display identifier
+    if (user?.email) {
+      // Take first two chars of email (e.g., "em" from "emart.amit")
+      return user.email.slice(0, 2).toUpperCase();
     }
-    return name.charAt(0).toUpperCase();
+    return "U";
   };
 
   const formatTimestamp = (dateStr: string): string => {
@@ -1022,6 +1224,7 @@ export default function ProfileCenter() {
                 setEditName(safeDisplayName);
                 setEditPhone(user.phone || "");
                 setEditDesignation(user.designation || "");
+                setEditAddress(user.address || "");
                 setEditProfileImage(user.photo || null);
               }}>
                 <X className="w-4 h-4 mr-2" />
@@ -1046,6 +1249,10 @@ export default function ProfileCenter() {
       <Tabs defaultValue="profile" className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="company">
+            <Building2 className="w-3.5 h-3.5 mr-1" />
+            Company Info
+          </TabsTrigger>
           <TabsTrigger value="tracking">
             <BarChart3 className="w-3.5 h-3.5 mr-1" />
             Action Tracking
@@ -1059,10 +1266,12 @@ export default function ProfileCenter() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="admin-reset">
-            <KeyRound className="w-3.5 h-3.5 mr-1" />
-            Password Security
-          </TabsTrigger>
+          {user.role === ROLES.ADMIN && (
+            <TabsTrigger value="admin-reset">
+              <KeyRound className="w-3.5 h-3.5 mr-1" />
+              Password Security
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ════════════════════════════════════════════════════
@@ -1144,21 +1353,19 @@ export default function ProfileCenter() {
                     </div>
                   )}
 
-                  {/* Role Badge */}
-                  <Badge
-                    className={`${user.role ? ROLE_BADGE_COLORS[user.role] : ""} px-3 py-1 text-xs font-medium border`}
-                  >
-                    <Shield className="w-3 h-3 mr-1" />
-                    {user.role ? ROLE_LABELS[user.role] : "User"}
-                  </Badge>
+                  {/* Role badge hidden per requirement — role names not visible in UI */}
 
                   <Separator />
 
                   {/* Contact Details */}
                   <div className="w-full space-y-3 text-left">
+                    {/* Role label hidden per requirement — only email visible */}
+
+                    {/* Email (read-only) */}
                     <div className="flex items-center gap-2 text-sm">
                       <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <span className="text-muted-foreground truncate">{user.email}</span>
+                      <span className="text-muted-foreground truncate" title={user.email}>{user.email}</span>
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">Read-only</Badge>
                     </div>
 
                     {/* Phone (editable) */}
@@ -1176,6 +1383,24 @@ export default function ProfileCenter() {
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
                         <span className="text-muted-foreground">{user.phone || "—"}</span>
+                      </div>
+                    )}
+
+                    {/* Address (editable) */}
+                    {isEditing ? (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-1.5" />
+                        <Input
+                          value={editAddress}
+                          onChange={(e) => setEditAddress(e.target.value)}
+                          placeholder="Address"
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 text-sm">
+                        <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                        <span className="text-muted-foreground break-words">{user.address || "—"}</span>
                       </div>
                     )}
 
@@ -1231,7 +1456,7 @@ export default function ProfileCenter() {
               </CardContent>
             </Card>
 
-            {/* Company & Tenant Info + Company Logo Upload */}
+            {/* Company & Tenant Info + Company Logo Upload (Admin only for logo changes) */}
             <Card className="lg:col-span-2 border-0 shadow-md">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -1239,46 +1464,55 @@ export default function ProfileCenter() {
                     <Building2 className="w-5 h-5 text-[#2563eb]" />
                     Tenant Company Information
                   </CardTitle>
-                  {/* Company Logo Upload */}
-                  <div className="flex items-center gap-2">
-                    {editCompanyLogo ? (
-                      <div className="relative group">
-                        <img
-                          src={editCompanyLogo}
-                          alt="Company Logo"
-                          className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
-                        />
-                        <div
-                          className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                          onClick={() => companyLogoInputRef.current?.click()}
-                        >
-                          <Camera className="w-4 h-4 text-white" />
+                  {/* Company Logo Upload (Admin only) */}
+                  {user?.role === "admin" && (
+                    <div className="flex items-center gap-2">
+                      {editCompanyLogo ? (
+                        <div className="relative group">
+                          <img
+                            src={editCompanyLogo}
+                            alt="Company Logo"
+                            className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
+                          />
+                          <div
+                            className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            onClick={() => companyLogoInputRef.current?.click()}
+                          >
+                            <Camera className="w-4 h-4 text-white" />
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => companyLogoInputRef.current?.click()}
-                        disabled={companyLogoUploading}
-                      >
-                        {companyLogoUploading ? (
-                          <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
-                        ) : (
-                          <ImageIcon className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        Upload Logo
-                      </Button>
-                    )}
-                    <input
-                      ref={companyLogoInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleCompanyLogoUpload}
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          onClick={() => companyLogoInputRef.current?.click()}
+                          disabled={companyLogoUploading}
+                        >
+                          {companyLogoUploading ? (
+                            <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                          ) : (
+                            <ImageIcon className="w-3.5 h-3.5 mr-1" />
+                          )}
+                          Upload Logo
+                        </Button>
+                      )}
+                      <input
+                        ref={companyLogoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleCompanyLogoUpload}
+                      />
+                    </div>
+                  )}
+                  {user?.role !== "admin" && editCompanyLogo && (
+                    <img
+                      src={editCompanyLogo}
+                      alt="Company Logo"
+                      className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
                     />
-                  </div>
+                  )}
                 </div>
                 <CardDescription>
                   Company details associated with your account
@@ -1347,7 +1581,7 @@ export default function ProfileCenter() {
                                 if (companyInfo) {
                                   try {
                                     const headers = getAuthHeaders();
-                                    await fetch(`/api/companies/${companyInfo.id}`, {
+                                    await fetch("/api/company-branding", {
                                       method: "PUT",
                                       headers,
                                       body: JSON.stringify({ logo: null }),
@@ -1382,93 +1616,73 @@ export default function ProfileCenter() {
           </div>
 
           {/* Change Password Section (Admin-only with RBAC interlock) */}
+          {user.role === ROLES.ADMIN && (
           <Card className="border-0 shadow-md border-l-4 border-l-amber-500">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-amber-500" />
                 Change My Password
-                {user.role !== "admin" && (
-                  <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[10px] ml-2">
-                    <Lock className="w-3 h-3 mr-1" />
-                    ADMIN ONLY
-                  </Badge>
-                )}
               </CardTitle>
               <CardDescription>
-                {user.role === ROLES.ADMIN
-                  ? "Update your account password. All changes are audited."
-                  : "Only users with the ADMIN role can change passwords. This route is protected by a server-side RBAC interlock."}
+                Update your account password. All changes are audited.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {user.role !== "admin" ? (
-                <div className="p-6 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-center">
-                  <div className="w-14 h-14 mx-auto rounded-full bg-red-100 dark:bg-red-900/40 flex items-center justify-center mb-3">
-                    <Shield className="w-7 h-7 text-red-500" />
+              <div className="max-w-md space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="current-pw">Current Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="current-pw"
+                      type="password"
+                      placeholder="Enter current password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="pl-10"
+                    />
                   </div>
-                  <h4 className="text-base font-semibold text-red-600 dark:text-red-400">403 Forbidden: Privilege Escalation Blocked</h4>
-                  <p className="text-sm text-red-500/80 dark:text-red-400/80 mt-2 max-w-md mx-auto">
-                    Your role ({ROLE_LABELS[user.role]}) does not have permission to change passwords.
-                    Only administrators can modify user credentials. Any attempt to bypass this interlock
-                    will be logged and reported to the security audit trail.
-                  </p>
                 </div>
-              ) : (
-                <div className="max-w-md space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="current-pw">Current Password</Label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="current-pw"
-                        type="password"
-                        placeholder="Enter current password"
-                        value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-pw">New Password</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="new-pw"
+                      type="password"
+                      placeholder="Minimum 6 characters"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="pl-10"
+                    />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-pw">New Password</Label>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="new-pw"
-                        type="password"
-                        placeholder="Minimum 6 characters"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirm-pw">Confirm New Password</Label>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        id="confirm-pw"
-                        type="password"
-                        placeholder="Confirm new password"
-                        value={confirmNewPassword}
-                        onChange={(e) => setConfirmNewPassword(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    className="bg-[#2563eb] hover:bg-[#1d4ed8] w-full"
-                    onClick={handleSelfPasswordChange}
-                    disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
-                  >
-                    {changingPassword ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
-                    Change Password
-                  </Button>
                 </div>
-              )}
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-pw">Confirm New Password</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      id="confirm-pw"
+                      type="password"
+                      placeholder="Confirm new password"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                <Button
+                  className="bg-[#2563eb] hover:bg-[#1d4ed8] w-full"
+                  onClick={handleSelfPasswordChange}
+                  disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
+                >
+                  {changingPassword ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Change Password
+                </Button>
+              </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Role Access Summary */}
           <Card className="border-0 shadow-md">
@@ -1492,9 +1706,9 @@ export default function ProfileCenter() {
                     <div
                       className={`w-8 h-8 rounded-full ${ROLE_COLORS[role]} mx-auto flex items-center justify-center text-white text-xs font-bold mb-2`}
                     >
-                      {ROLE_LABELS[role].charAt(0)}
+                      {role.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-xs font-medium">{ROLE_LABELS[role]}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{role === 'vat_auditor' ? 'vat' : role}</p>
                     {user.role === role && (
                       <Badge className="mt-1 bg-[#2563eb] text-white text-[9px] px-1.5 py-0">
                         Current
@@ -1505,10 +1719,482 @@ export default function ProfileCenter() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Export/Import Counters from User Model */}
+          <Card className="border-0 shadow-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-[#2563eb]" />
+                Export / Import Counters
+              </CardTitle>
+              <CardDescription>
+                Server-side counters from your User record (pdfExports, csvImports, csvExports)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200/50 dark:border-red-800/30 text-center">
+                  <FileDown className="w-6 h-6 text-red-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverCounters.pdfExports}</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF Exports</p>
+                </div>
+                <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/10 border border-green-200/50 dark:border-green-800/30 text-center">
+                  <FileDown className="w-6 h-6 text-green-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverCounters.csvExports}</p>
+                  <p className="text-xs text-muted-foreground mt-1">CSV Exports</p>
+                </div>
+                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/10 border border-blue-200/50 dark:border-blue-800/30 text-center">
+                  <FileUp className="w-6 h-6 text-blue-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{serverCounters.csvImports}</p>
+                  <p className="text-xs text-muted-foreground mt-1">CSV Imports</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Voter ID Image Uploads */}
+          <Card className="border-0 shadow-md">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <ImageIcon className="w-5 h-5 text-[#2563eb]" />
+                    Voter ID Images
+                  </CardTitle>
+                  <CardDescription>
+                    Upload front and back images of your Voter ID card
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+                  onClick={handleSaveVoterIdImages}
+                  disabled={savingProfile}
+                >
+                  {savingProfile ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                  Save Voter ID
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* Voter ID Front */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Voter ID — Front</Label>
+                  {editVoterIdFront ? (
+                    <div className="relative group">
+                      <img
+                        src={editVoterIdFront}
+                        alt="Voter ID Front"
+                        className="w-full h-40 rounded-lg object-contain border border-border/50 bg-white p-1"
+                      />
+                      <div
+                        className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        onClick={() => voterIdFrontInputRef.current?.click()}
+                      >
+                        <Camera className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="w-full h-40 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                      onClick={() => voterIdFrontInputRef.current?.click()}
+                    >
+                      <div className="text-center">
+                        <Upload className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                        <span className="text-sm text-muted-foreground">Upload Front</span>
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={voterIdFrontInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleVoterIdUpload("front")}
+                  />
+                  {editVoterIdFront && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      onClick={() => setEditVoterIdFront(null)}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Remove Front
+                    </Button>
+                  )}
+                </div>
+
+                {/* Voter ID Back */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Voter ID — Back</Label>
+                  {editVoterIdBack ? (
+                    <div className="relative group">
+                      <img
+                        src={editVoterIdBack}
+                        alt="Voter ID Back"
+                        className="w-full h-40 rounded-lg object-contain border border-border/50 bg-white p-1"
+                      />
+                      <div
+                        className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                        onClick={() => voterIdBackInputRef.current?.click()}
+                      >
+                        <Camera className="w-6 h-6 text-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="w-full h-40 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                      onClick={() => voterIdBackInputRef.current?.click()}
+                    >
+                      <div className="text-center">
+                        <Upload className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                        <span className="text-sm text-muted-foreground">Upload Back</span>
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={voterIdBackInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleVoterIdUpload("back")}
+                  />
+                  {editVoterIdBack && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      onClick={() => setEditVoterIdBack(null)}
+                    >
+                      <X className="w-3.5 h-3.5 mr-1" />
+                      Remove Back
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground/60 mt-3">Max 5MB per image • Accepted: JPG, PNG, GIF, WebP</p>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB B: ENHANCED ACTION TRACKING
+            TAB B: COMPANY INFO (ADMIN-ONLY EDITING)
+            ════════════════════════════════════════════════════ */}
+        <TabsContent value="company" className="space-y-6">
+          {companyInfo ? (
+            <>
+              {/* Read-Only Banner for Non-Admin Users */}
+              {user?.role !== "admin" && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                    READ-ONLY MODE — Company branding can only be modified by Admin users. Contact your administrator to request changes.
+                  </span>
+                </div>
+              )}
+
+              {/* Company Branding Card */}
+              <Card className="border-0 shadow-md">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Building2 className="w-5 h-5 text-[#2563eb]" />
+                        Company Branding
+                        {user?.role !== "admin" && (
+                          <Badge variant="outline" className="border-amber-400 text-amber-400 text-xs ml-2">Read Only</Badge>
+                        )}
+                      </CardTitle>
+                      <CardDescription>
+                        {user?.role === "admin"
+                          ? "Edit company information and branding. Changes will appear in PDF invoices."
+                          : "View company information and branding. Only Admin users can make changes."}
+                      </CardDescription>
+                    </div>
+                    {user?.role === "admin" && (
+                      !isEditingCompany ? (
+                        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => setIsEditingCompany(true)}>
+                          <Pencil className="w-4 h-4 mr-2" />
+                          Edit Company Info
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => {
+                            setIsEditingCompany(false);
+                            setEditCompanyName(companyInfo.name || "");
+                            setEditCompanyAddress(companyInfo.address || "");
+                            setEditCompanyPhone(companyInfo.phone || "");
+                            setEditCompanyEmail(companyInfo.email || "");
+                            setEditCompanyMobile(companyInfo.mobile || "");
+                            setEditCompanyWebsite(companyInfo.website || "");
+                            setEditCompanyVatNumber(companyInfo.vatNumber || "");
+                            setEditCompanyTradeLicense(companyInfo.tradeLicense || "");
+                          }}>
+                            <X className="w-4 h-4 mr-2" />
+                            Cancel
+                          </Button>
+                          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSaveCompanyInfo} disabled={savingCompanyInfo}>
+                            {savingCompanyInfo ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                            Save Changes
+                          </Button>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Company Logo Section */}
+                  <div className="flex flex-col sm:flex-row items-start gap-4 pb-4 border-b border-border/50">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Company Logo</Label>
+                      <div className="flex items-center gap-3">
+                        {editCompanyLogo ? (
+                          <div className="relative group">
+                            <img
+                              src={editCompanyLogo}
+                              alt="Company Logo"
+                              className="w-24 h-24 rounded-lg object-contain border border-border/50 bg-white p-1 shadow-sm"
+                            />
+                            {user?.role === "admin" && (
+                              <div
+                                className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                onClick={() => companyLogoInputRef.current?.click()}
+                              >
+                                <Camera className="w-6 h-6 text-white" />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          user?.role === "admin" ? (
+                            <div
+                              className="w-24 h-24 rounded-lg border-2 border-dashed border-border/60 flex items-center justify-center cursor-pointer hover:border-[#2563eb] transition-colors bg-muted/20"
+                              onClick={() => companyLogoInputRef.current?.click()}
+                            >
+                              <div className="text-center">
+                                <Upload className="w-6 h-6 mx-auto text-muted-foreground/50" />
+                                <span className="text-[10px] text-muted-foreground mt-1 block">Upload Logo</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-24 h-24 rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center">
+                              <span className="text-[10px] text-muted-foreground">No Logo</span>
+                            </div>
+                          )
+                        )}
+                        <div className="space-y-1.5">
+                          {user?.role === "admin" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => companyLogoInputRef.current?.click()}
+                              disabled={companyLogoUploading}
+                            >
+                              {companyLogoUploading ? (
+                                <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              ) : (
+                                <Upload className="w-3 h-3 mr-1" />
+                              )}
+                              {editCompanyLogo ? "Replace" : "Upload"}
+                            </Button>
+                          )}
+                          {editCompanyLogo && user?.role === "admin" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              onClick={async () => {
+                                setEditCompanyLogo(null);
+                                if (companyInfo) {
+                                  try {
+                                    const headers = getAuthHeaders();
+                                    await fetch("/api/company-branding", {
+                                      method: "PUT",
+                                      headers,
+                                      body: JSON.stringify({ logo: null }),
+                                    });
+                                    setCompanyInfo(prev => prev ? { ...prev, logo: null } : prev);
+                                    toast({ title: "Logo Removed", description: "Company logo has been removed." });
+                                  } catch {
+                                    toast({ title: "Error", description: "Failed to remove logo", variant: "destructive" });
+                                  }
+                                }
+                              }}
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Remove
+                            </Button>
+                          )}
+                          <p className="text-[10px] text-muted-foreground/60">
+                            {user?.role === "admin" ? "Max 5MB • JPG, PNG, GIF, WebP" : "Contact admin to change logo"}
+                          </p>
+                        </div>
+                        <input
+                          ref={companyLogoInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/gif,image/webp"
+                          className="hidden"
+                          onChange={user?.role === "admin" ? handleCompanyLogoUpload : undefined}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Company Details Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Company Name */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Building2 className="w-3 h-3" /> Company Name <span className="text-red-500">*</span>
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyName} onChange={(e) => setEditCompanyName(e.target.value)} placeholder="Company Name" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.name || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Company Email */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Mail className="w-3 h-3" /> Email
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input type="email" value={editCompanyEmail} onChange={(e) => setEditCompanyEmail(e.target.value)} placeholder="company@example.com" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.email || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Phone */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> Phone
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyPhone} onChange={(e) => setEditCompanyPhone(e.target.value)} placeholder="+880-..." />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.phone || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Mobile */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> Mobile (Invoice)
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyMobile} onChange={(e) => setEditCompanyMobile(e.target.value)} placeholder="+880-..." />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.mobile || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Website */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Globe className="w-3 h-3" /> Website
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyWebsite} onChange={(e) => setEditCompanyWebsite(e.target.value)} placeholder="https://example.com" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {companyInfo.website ? (
+                            <a href={companyInfo.website} target="_blank" rel="noopener noreferrer" className="text-[#2563eb] hover:underline">
+                              {companyInfo.website}
+                            </a>
+                          ) : "—"}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* VAT Number */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Hash className="w-3 h-3" /> VAT Number
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyVatNumber} onChange={(e) => setEditCompanyVatNumber(e.target.value)} placeholder="VAT-XXXXX" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.vatNumber || "—"}</p>
+                      )}
+                    </div>
+
+                    {/* Trade License */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <FileText className="w-3 h-3" /> Trade License
+                      </Label>
+                      {isEditingCompany ? (
+                        <Input value={editCompanyTradeLicense} onChange={(e) => setEditCompanyTradeLicense(e.target.value)} placeholder="TL-XXXXX" />
+                      ) : (
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{companyInfo.tradeLicense || "—"}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Address (full width) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> Address
+                    </Label>
+                    {isEditingCompany ? (
+                      <Textarea value={editCompanyAddress} onChange={(e) => setEditCompanyAddress(e.target.value)} placeholder="Full company address" rows={2} />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 dark:text-white whitespace-pre-line">{companyInfo.address || "—"}</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Logo in PDF Invoice Preview */}
+              <Card className="border-0 shadow-md border-l-4 border-l-green-500">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Eye className="w-5 h-5 text-green-500" />
+                    Invoice Logo Preview
+                  </CardTitle>
+                  <CardDescription>
+                    How your company logo will appear on PDF invoices
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-4 p-4 rounded-lg bg-white dark:bg-slate-900 border border-border/50">
+                    {editCompanyLogo ? (
+                      <img
+                        src={editCompanyLogo}
+                        alt="Company Logo Preview"
+                        className="h-12 object-contain"
+                      />
+                    ) : (
+                      <div className="h-12 w-20 rounded border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                        No Logo
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">{companyInfo.name}</p>
+                      <p className="text-xs text-muted-foreground">{companyInfo.address || companyInfo.phone || "—"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card className="border-0 shadow-md">
+              <CardContent className="p-8 text-center">
+                <Building2 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                <h3 className="text-base font-semibold">No Company Associated</h3>
+                <p className="text-sm text-muted-foreground mt-2">Your account is not linked to a company.</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Contact your administrator to link your account to a company.</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* ════════════════════════════════════════════════════
+            TAB C: ENHANCED ACTION TRACKING
             ════════════════════════════════════════════════════ */}
         <TabsContent value="tracking" className="space-y-4">
           {/* Server-side Visual Summary Cards */}
@@ -1950,8 +2636,9 @@ export default function ProfileCenter() {
         </TabsContent>
 
         {/* ════════════════════════════════════════════════════
-            TAB D: ENHANCED ADMIN PASSWORD SECURITY
+            TAB D: ENHANCED ADMIN PASSWORD SECURITY (ADMIN ONLY)
             ════════════════════════════════════════════════════ */}
+        {user.role === ROLES.ADMIN && (
         <TabsContent value="admin-reset" className="space-y-4">
           {/* Security Warning Banner */}
           <Card className="border-0 shadow-md bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/10 dark:to-orange-900/10 border-l-4 border-l-amber-500">
@@ -1972,7 +2659,7 @@ export default function ProfileCenter() {
             </CardContent>
           </Card>
 
-          {user.role === ROLES.ADMIN ? (
+          {user.role === ROLES.ADMIN && (
             <>
               {/* Admin: All Users List with Reset Password */}
               <Card className="border-0 shadow-md border-l-4 border-l-[#2563eb]">
@@ -1999,7 +2686,6 @@ export default function ProfileCenter() {
                             <TableHead className="w-[40px]">#</TableHead>
                             <TableHead>User Name</TableHead>
                             <TableHead>Email / Login ID</TableHead>
-                            <TableHead>Role</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -2016,22 +2702,13 @@ export default function ProfileCenter() {
                                       ROLE_COLORS[u.role as UserRole] || "bg-gray-500"
                                     } flex items-center justify-center text-white text-[10px] font-bold shrink-0`}
                                   >
-                                    {getSafeDisplayName(u.name).charAt(0).toUpperCase()}
+                                    {u.email?.charAt(0).toUpperCase() || "U"}
                                   </div>
-                                  <span className="text-sm font-medium">{getSafeDisplayName(u.name)}</span>
+                                  <span className="text-sm font-medium">{u.email}</span>
                                 </div>
                               </TableCell>
                               <TableCell>
                                 <span className="text-sm text-muted-foreground">{u.email}</span>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  className={`${
-                                    ROLE_BADGE_COLORS[u.role as UserRole] || ""
-                                  } text-[11px] px-2 py-0.5 border`}
-                                >
-                                  {ROLE_LABELS[u.role as UserRole] || u.role}
-                                </Badge>
                               </TableCell>
                               <TableCell className="text-right">
                                 <Button
@@ -2098,30 +2775,6 @@ export default function ProfileCenter() {
                 </CardContent>
               </Card>
             </>
-          ) : (
-            /* Non-admin: Access Denied Card */
-            <Card className="border-0 shadow-md">
-              <CardContent className="p-8">
-                <div className="max-w-md mx-auto text-center">
-                  <div className="w-20 h-20 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
-                    <ShieldAlert className="w-10 h-10 text-red-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-red-600 dark:text-red-400">403 — Access Denied</h3>
-                  <p className="text-sm text-muted-foreground mt-3">
-                    Your role ({ROLE_LABELS[user.role]}) does not have permission to manage passwords.
-                  </p>
-                  <p className="text-xs text-muted-foreground/60 mt-2">
-                    Only users with the ADMIN role can reset passwords and view password activity. 
-                    All access attempts are logged.
-                  </p>
-                  <div className="mt-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800">
-                    <p className="text-xs text-red-600 dark:text-red-400 font-mono">
-                      ERROR: PRIVILEGE_ESCALATION_BLOCKED
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           )}
 
           {/* Password Reset Dialog */}
@@ -2153,13 +2806,7 @@ export default function ProfileCenter() {
                       <p className="text-sm font-medium">{getSafeDisplayName(resetTargetUser?.name)}</p>
                       <p className="text-xs text-muted-foreground">{resetTargetUser?.email}</p>
                     </div>
-                    <Badge
-                      className={`ml-auto ${
-                        ROLE_BADGE_COLORS[resetTargetUser?.role as UserRole] || ""
-                      } text-[10px] px-1.5 py-0 border`}
-                    >
-                      {resetTargetUser?.role ? ROLE_LABELS[resetTargetUser.role as UserRole] : ""}
-                    </Badge>
+                    {/* Role badge hidden per requirement */}
                   </div>
                 </div>
 
@@ -2218,6 +2865,7 @@ export default function ProfileCenter() {
             </DialogContent>
           </Dialog>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   );

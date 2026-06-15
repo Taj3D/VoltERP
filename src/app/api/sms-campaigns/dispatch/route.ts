@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 import { dispatchSmsBatch, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
+import { getCachedSmsSettings } from '@/lib/sms-settings-cache';
 
 // ============================================================
 // GSM 03.38 Detection Helper
@@ -48,15 +49,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load active SmsSetting for this companyId
-    const settingWhere: Record<string, unknown> = { isActive: true };
-    if (campaign.companyId) {
-      settingWhere.OR = [{ companyId: campaign.companyId }, { companyId: null }];
+    // Load active SmsSetting for this companyId (cached)
+    // Try company-specific setting first, then fall back to global setting
+    let activeSetting = await getCachedSmsSettings(campaign.companyId);
+    if (!activeSetting && campaign.companyId) {
+      activeSetting = await getCachedSmsSettings(null);
     }
-    const activeSetting = await db.smsSetting.findFirst({
-      where: settingWhere,
-      orderBy: { createdAt: 'desc' },
-    });
 
     if (!activeSetting) {
       return NextResponse.json(

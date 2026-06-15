@@ -6,9 +6,49 @@
 // Batch Insert, Row-Level Validation, Two-Pass Page Footer
 // ============================================================
 
-import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
-import Papa from "papaparse";
+// Type-only imports (erased at compile time, no runtime impact)
+import type { jsPDF as JsPDFType } from "jspdf";
+
+// ============================================================
+// LAZY IMPORTS: JsPDFType, autoTable, and Papa are loaded on-demand
+// to prevent "Invalid hook call" (React error #321) in production.
+//
+// Root cause: Top-level static imports of jsPDF/papaparse cause
+// Next.js webpack to bundle them in the initial chunk. In
+// production builds, the module resolution order can create a
+// scenario where React's internal module state detects a
+// duplicate or out-of-order module load, triggering error #321.
+//
+// Fix: Dynamic imports ensure these heavy client-side-only
+// libraries load ONLY when the user actually clicks
+// Export PDF / Export CSV / Import CSV — never during the
+// initial page render or hydration cycle.
+// ============================================================
+
+let jsPDFModule: typeof import("jspdf") | null = null;
+let autoTableModule: typeof import("jspdf-autotable") | null = null;
+let papaModule: typeof import("papaparse") | null = null;
+
+async function loadJsPDF(): Promise<typeof import("jspdf")> {
+  if (!jsPDFModule) {
+    jsPDFModule = await import("jspdf");
+  }
+  return jsPDFModule;
+}
+
+async function loadAutoTable(): Promise<typeof import("jspdf-autotable")> {
+  if (!autoTableModule) {
+    autoTableModule = await import("jspdf-autotable");
+  }
+  return autoTableModule;
+}
+
+async function loadPapa(): Promise<typeof import("papaparse")> {
+  if (!papaModule) {
+    papaModule = await import("papaparse");
+  }
+  return papaModule;
+}
 
 // NOTE: We use the standalone autoTable(doc, options) function instead of the
 // applyPlugin(jsPDF) + doc.autoTable() pattern. The applyPlugin approach patches
@@ -30,12 +70,16 @@ export interface ColumnDef {
 export interface FieldDef {
   key: string;
   label: string;
-  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image";
+  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image" | "section" | "warrantyGroup";
   required?: boolean;
   options?: { value: string; label: string }[];
   placeholder?: string;
   defaultValue?: any;
   step?: string;
+  /** For section type: icon name to display */
+  sectionIcon?: string;
+  /** For warrantyGroup type: the unit field key (e.g. "compressorWarrantyUnit") */
+  unitKey?: string;
 }
 
 /** Company profile for dynamic branding in PDF header/footer */
@@ -85,7 +129,7 @@ export interface PDFOptions {
   /** Optional summary rows rendered below the main table with different styling */
   summaryRows?: SummaryRow[];
   /** Custom header callback — called on each page after the standard header is drawn */
-  customHeader?: (doc: jsPDF, pageNumber: number, pageWidth: number, pageHeight: number) => void;
+  customHeader?: (doc: JsPDFType, pageNumber: number, pageWidth: number, pageHeight: number) => void;
   /** Optional company profile for dynamic branding in header/footer */
   company?: CompanyProfile;
   /** System notice statement rendered below the subtitle in the header */
@@ -134,7 +178,10 @@ const MASKING_SENTINEL = "N/A (Audit Mode)";
 // a Bengali-to-Latin digit replacement pass.
 // ============================================================
 
-import { fmtCurrency } from '@/lib/number-format';
+import { fmtCurrency, toLatinDigits, toEnglishDigits } from '@/lib/number-format';
+
+// Re-export toEnglishDigits for use across the application
+export { toEnglishDigits };
 
 /** Format a number as BDT currency string with guaranteed Latin digits and 2 decimal places */
 export function formatBDT(value: number): string {
@@ -156,11 +203,11 @@ export function sanitizeCurrencyValue(value: any): number {
   
   // Remove known corruption patterns:
   // - Currency prefix "Tk." (English notation)
-  // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯
+  // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯ → CONVERT to Latin 0-9
   // - Comma separators that may have digit corruption
   // - Any non-ASCII digits that might have been inserted
   raw = raw.replace(/Tk\.\s*/g, ''); // Remove Tk. currency prefix
-  raw = raw.replace(/[\u09E6-\u09EF]/g, ''); // Remove Bengali digits
+  raw = raw.replace(/[\u09E6-\u09EF]/g, d => String(d.charCodeAt(0) - 0x09E6 + 0x0030)); // Convert Bengali digits to Latin
   raw = raw.replace(/[^\d.\-]/g, ''); // Keep only digits, decimal point, and minus sign
   
   // Handle multiple decimal points (keep only the first)
@@ -299,13 +346,13 @@ function formatCellValue(
   if (type === "date") {
     if (!value) return "\u2014";
     try {
-      return new Date(value).toLocaleDateString("en-GB", {
+      return toLatinDigits(new Date(value).toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
-      });
+      }));
     } catch {
-      return String(value);
+      return toLatinDigits(String(value));
     }
   }
   if (type === "number") {
@@ -394,7 +441,7 @@ function calculateColumnWidths(
 // ============================================================
 
 function drawCorporateHeader(
-  doc: jsPDF,
+  doc: JsPDFType,
   title: string,
   subtitle: string | undefined,
   isVatAuditor: boolean,
@@ -484,11 +531,11 @@ function drawCorporateHeader(
   doc.setFontSize(8);
   doc.setTextColor(255, 255, 255);
   const now = new Date();
-  const timestamp = `Generated: ${now.toLocaleDateString("en-GB", {
+  const timestamp = `Generated: ${toLatinDigits(now.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  })} ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  }))} ${toLatinDigits(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}`;
   const tsWidth = doc.getTextWidth(timestamp);
   doc.text(timestamp, pageWidth - margin - tsWidth, 11);
 
@@ -552,7 +599,7 @@ function drawCorporateHeader(
 // ============================================================
 
 function drawFooter(
-  doc: jsPDF,
+  doc: JsPDFType,
   pageNumber: number,
   totalPagesPlaceholder: string,
   pageWidth: number,
@@ -624,8 +671,8 @@ function drawFooter(
 
     // Printed By + Print Date (left-aligned)
     const now = new Date();
-    const printDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-    const printTime = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const printDate = toLatinDigits(now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+    const printTime = toLatinDigits(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
     const printedByText = `Printed By: ${financialFooter.printedBy}  |  Print Date: ${printDate} ${printTime}`;
     doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);
@@ -659,7 +706,7 @@ function drawFooter(
 // ============================================================
 
 function fixPageXOfY(
-  doc: jsPDF,
+  doc: JsPDFType,
   pageHeight: number,
   pageWidth: number,
   margin: number,
@@ -717,7 +764,7 @@ function fixPageXOfY(
 // Summary Rows, Custom Header Callback, Column Bounds
 // ============================================================
 
-export function exportToPDF(options: PDFOptions): void {
+export async function exportToPDF(options: PDFOptions): Promise<void> {
   const {
     title,
     subtitle,
@@ -731,6 +778,10 @@ export function exportToPDF(options: PDFOptions): void {
     customHeader,
     company,
   } = options;
+
+  // Lazy-load jsPDF and autoTable to prevent React error #321
+  const { jsPDF } = await loadJsPDF();
+  const { autoTable } = await loadAutoTable();
 
   try {
     const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
@@ -922,7 +973,7 @@ export function exportToPDF(options: PDFOptions): void {
 // For report pages that provide pre-formatted headers and rows
 // ============================================================
 
-export function exportToPDFSimple(
+export async function exportToPDFSimple(
   title: string,
   headers: string[],
   rows: string[][],
@@ -930,7 +981,11 @@ export function exportToPDFSimple(
   subtitle?: string,
   company?: CompanyProfile,
   financialFooter?: PDFOptions["financialFooter"]
-): void {
+): Promise<void> {
+  // Lazy-load jsPDF and autoTable to prevent React error #321
+  const { jsPDF } = await loadJsPDF();
+  const { autoTable } = await loadAutoTable();
+
   try {
     const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1014,7 +1069,7 @@ export interface AuditReportOptions {
 
 /** Draw a classification badge on the header area */
 function drawClassificationBadge(
-  doc: jsPDF,
+  doc: JsPDFType,
   classification: "CONFIDENTIAL" | "INTERNAL" | "PUBLIC",
   pageWidth: number,
   margin: number
@@ -1041,7 +1096,7 @@ function drawClassificationBadge(
 
 /** Draw an integrity score gauge on the PDF */
 function drawIntegrityScore(
-  doc: jsPDF,
+  doc: JsPDFType,
   score: number,
   startY: number,
   margin: number,
@@ -1090,7 +1145,7 @@ function drawIntegrityScore(
 
 /** Draw the system disclaimer at the bottom of the audit report */
 function drawSystemDisclaimer(
-  doc: jsPDF,
+  doc: JsPDFType,
   startY: number,
   margin: number,
   pageWidth: number,
@@ -1131,7 +1186,7 @@ function drawSystemDisclaimer(
   doc.text(lines, margin + 3 + labelWidth, y + 4.5);
 }
 
-export function exportAuditReportPDF(options: AuditReportOptions): void {
+export async function exportAuditReportPDF(options: AuditReportOptions): Promise<void> {
   const {
     title,
     subtitle,
@@ -1145,6 +1200,10 @@ export function exportAuditReportPDF(options: AuditReportOptions): void {
     financialFooter,
     classification = "INTERNAL",
   } = options;
+
+  // Lazy-load jsPDF and autoTable to prevent React error #321
+  const { jsPDF } = await loadJsPDF();
+  const { autoTable } = await loadAutoTable();
 
   try {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -1338,7 +1397,7 @@ export function exportAuditReportPDF(options: AuditReportOptions): void {
 // numeric values unquoted, proper escaping for Tk.  symbol
 // ============================================================
 
-export function exportToCSV(options: CSVOptions): void {
+export async function exportToCSV(options: CSVOptions): Promise<void> {
   const {
     title,
     columns,
@@ -1347,6 +1406,9 @@ export function exportToCSV(options: CSVOptions): void {
     vatMaskedColumns = [],
     filename,
   } = options;
+
+  // Papa is used for CSV generation
+  const Papa = (await loadPapa()).default;
 
   try {
     const vatMaskSet = new Set(vatMaskedColumns);
@@ -1404,11 +1466,11 @@ export function exportToCSV(options: CSVOptions): void {
 // EXPORT CSV — Simple header/body overload
 // ============================================================
 
-export function exportToCSVSimple(
+export async function exportToCSVSimple(
   title: string,
   headers: string[],
   rows: string[][]
-): void {
+): Promise<void> {
   try {
     const headerRow = headers.map((h) => escapeCSVField(h, false)).join(",");
     const dataRows = rows.map((row) =>
@@ -1646,6 +1708,9 @@ function formatDateForCSV(value: any): string {
 
 export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> {
   const { apiPath, formFields, onProgress, batchSize = 10 } = opts;
+
+  // Lazy-load Papa to prevent React error #321
+  const Papa = (await loadPapa()).default;
 
   return new Promise((resolve) => {
     const input = document.createElement("input");

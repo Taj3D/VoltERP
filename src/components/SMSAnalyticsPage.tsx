@@ -50,7 +50,7 @@ const fmtCurrency = (v: any) => {
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return fmtCurrency(v);
-  if (type === "date") return v ? new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") {
     const num = Number(v);
@@ -65,7 +65,7 @@ const fmtEmpty = (v: any) => {
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
 
 // SMS Character Bounds Computation (Client-side mirror)
 const computeClientSmsSegments = (message: string) => {
@@ -436,12 +436,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   // COMPUTED KPIs
   // ============================================================
 
-  const totalSent = smsLogs.length;
-  const totalCost = smsLogs.reduce((sum: number, log: any) => sum + (Number(log.cost) || 0), 0);
+  const totalSent = smsLogs.filter((l: any) => l.status !== "Sending").length;
+  const totalCost = smsLogs.filter((l: any) => l.status !== "Sending").reduce((sum: number, log: any) => sum + (Number(log.cost) || 0), 0);
   const avgCostPerSms = totalSent > 0 ? totalCost / totalSent : 0;
-  const deliveredCount = smsLogs.filter((l: any) => l.status === "Delivered" || l.status === "delivered").length;
+  const deliveredCount = smsLogs.filter((l: any) => l.status === "Delivered" || l.status === "delivered" || l.status === "Sent" || l.status === "sent").length;
   const pendingCount = smsLogs.filter((l: any) => l.status === "Pending" || l.status === "pending" || l.status === "Queued").length;
   const failedCount = smsLogs.filter((l: any) => l.status === "Failed" || l.status === "failed").length;
+  const sendingCount = smsLogs.filter((l: any) => l.status === "Sending").length;
   const deliveryRate = totalSent > 0 ? ((deliveredCount / totalSent) * 100) : 0;
 
   const unpaidBills = smsBills.filter((b: any) => b.status === "Unpaid").length;
@@ -485,7 +486,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const dailySmsTrend = useMemo(() => {
     const dayMap = new Map<string, { date: string; sent: number; delivered: number; failed: number }>();
     smsLogs.forEach((log: any) => {
-      const dateStr = log.sentAt ? new Date(log.sentAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "Unknown";
+      const dateStr = (() => { if (!log.sentAt) return "Unknown"; const dt = new Date(log.sentAt); return isNaN(dt.getTime()) ? "Unknown" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); })();
       const existing = dayMap.get(dateStr) || { date: dateStr, sent: 0, delivered: 0, failed: 0 };
       existing.sent++;
       if (log.status === "Delivered" || log.status === "delivered") existing.delivered++;
@@ -528,55 +529,173 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
     }
 
     setSmsSending(true);
-    try {
-      if (sendMode === "single") {
-        await apiFetch("/api/sms-logs", {
+
+    if (sendMode === "single") {
+      // ─── WhatsApp-like Optimistic UI: Single SMS ───
+      // 1. Immediately add a "Sending..." entry to local smsLogs state
+      const optimisticId = `temp-${Date.now()}`;
+      const { charCount: optCharCount, isUnicode: optIsUnicode, segmentCount: optSegCount } = computeClientSmsSegments(smsMessage.trim());
+      const optRate = optIsUnicode ? unicodeCostPerSegment : costPerSegment;
+      const estimatedCost = optSegCount * optRate;
+
+      const optimisticLog = {
+        id: optimisticId,
+        recipient: smsRecipient.trim(),
+        message: smsMessage.trim(),
+        charCount: optCharCount,
+        smsSegmentCount: optSegCount,
+        isUnicode: optIsUnicode,
+        status: "Sending",
+        sentAt: new Date().toISOString(),
+        cost: estimatedCost,
+        campaignName: null,
+        isOptimistic: true,
+      };
+
+      // 2. Clear the form immediately (like WhatsApp clears the input)
+      const savedRecipient = smsRecipient.trim();
+      const savedMessage = smsMessage.trim();
+      setSmsRecipient("");
+      setSmsMessage("");
+
+      // 3. Add optimistic entry to the top of the logs
+      setSmsLogs((prev) => [optimisticLog, ...prev]);
+
+      // 4. Make the API call (gateway dispatch happens server-side now)
+      try {
+        const result = await apiFetch("/api/sms-logs", {
           method: "POST",
           body: JSON.stringify({
-            recipient: smsRecipient.trim(),
-            message: smsMessage.trim(),
-            status: "Pending",
+            recipient: savedRecipient,
+            message: savedMessage,
           }),
         });
-        toast({ title: "SMS Sent", description: `Message queued for ${smsRecipient}` });
-      } else {
-        // Bulk SMS with batchMode API
-        const rawRecipients = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
-        // Deduplicate recipients
-        const uniqueRecipients = [...new Set(rawRecipients)];
-        const duplicatesRemoved = rawRecipients.length - uniqueRecipients.length;
-        if (duplicatesRemoved > 0) {
-          toast({ title: "Duplicates Removed", description: `${duplicatesRemoved} duplicate number(s) removed from recipient list`, variant: "destructive" });
+
+        // 5. Replace the optimistic entry with the real one
+        setSmsLogs((prev) =>
+          prev.map((log) =>
+            log.id === optimisticId
+              ? { ...(result as any), isOptimistic: false }
+              : log
+          )
+        );
+
+        const finalStatus = (result as any)?.status || "Sent";
+        if (finalStatus === "Sent") {
+          toast({ title: "✓ SMS Sent", description: `Message delivered to ${savedRecipient}` });
+        } else if (finalStatus === "Failed") {
+          toast({ title: "SMS Failed", description: `Gateway error for ${savedRecipient}: ${(result as any)?.gatewayResponse || "Unknown error"}`, variant: "destructive" });
+        } else {
+          toast({ title: "SMS Queued", description: `Message queued for ${savedRecipient} (Pending delivery)` });
         }
-        if (uniqueRecipients.length === 0) {
-          toast({ title: "Error", description: "No valid unique recipients found", variant: "destructive" });
-          setSmsSending(false);
-          return;
-        }
-        await apiFetch("/api/sms-logs", {
+      } catch (e: any) {
+        // 6. Mark the optimistic entry as Failed
+        setSmsLogs((prev) =>
+          prev.map((log) =>
+            log.id === optimisticId
+              ? { ...log, status: "Failed", isOptimistic: false }
+              : log
+          )
+        );
+        toast({ title: "Failed", description: e.message || "Failed to send SMS", variant: "destructive" });
+      } finally {
+        setSmsSending(false);
+        // Refresh data from server to ensure consistency
+        loadData();
+      }
+    } else {
+      // ─── WhatsApp-like Optimistic UI: Bulk SMS ───
+      const rawRecipients = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
+      const uniqueRecipients = [...new Set(rawRecipients)];
+      const duplicatesRemoved = rawRecipients.length - uniqueRecipients.length;
+
+      if (duplicatesRemoved > 0) {
+        toast({ title: "Duplicates Removed", description: `${duplicatesRemoved} duplicate number(s) removed from recipient list`, variant: "destructive" });
+      }
+      if (uniqueRecipients.length === 0) {
+        toast({ title: "Error", description: "No valid unique recipients found", variant: "destructive" });
+        setSmsSending(false);
+        return;
+      }
+
+      // 1. Create optimistic entries for each recipient
+      const { charCount: optCharCount, isUnicode: optIsUnicode, segmentCount: optSegCount } = computeClientSmsSegments(smsMessage.trim());
+      const optRate = optIsUnicode ? unicodeCostPerSegment : costPerSegment;
+      const estimatedCost = optSegCount * optRate;
+
+      const bulkMessage = smsMessage.trim();
+      const bulkCampaignName = campaignName || null;
+
+      const optimisticEntries = uniqueRecipients.map((recipient, i) => ({
+        id: `temp-bulk-${Date.now()}-${i}`,
+        recipient,
+        message: bulkMessage,
+        charCount: optCharCount,
+        smsSegmentCount: optSegCount,
+        isUnicode: optIsUnicode,
+        status: "Sending",
+        sentAt: new Date().toISOString(),
+        cost: estimatedCost,
+        campaignName: bulkCampaignName,
+        isOptimistic: true,
+      }));
+
+      // 2. Clear form immediately
+      setSmsBulkRecipients("");
+      setSmsMessage("");
+      setCampaignName("");
+
+      // 3. Add optimistic entries to the top of the logs
+      setSmsLogs((prev) => [...optimisticEntries, ...prev]);
+
+      // 4. Make the API call
+      try {
+        const result = await apiFetch("/api/sms-logs", {
           method: "POST",
           body: JSON.stringify({
             batchMode: true,
             recipients: uniqueRecipients,
-            message: smsMessage.trim(),
-            campaignName: campaignName || undefined,
-            status: "Pending",
+            message: bulkMessage,
+            campaignName: bulkCampaignName || undefined,
           }),
-        });
-        toast({
-          title: "Bulk SMS Complete",
-          description: `Campaign queued for ${uniqueRecipients.length} recipient(s)${duplicatesRemoved > 0 ? ` (${duplicatesRemoved} duplicates removed)` : ''}`,
-        });
+        }) as any[];
+
+        // 5. Replace optimistic entries with real ones
+        if (Array.isArray(result)) {
+          const resultMap = new Map(result.map((r: any) => [r.recipient, r]));
+          setSmsLogs((prev) => {
+            // Remove all optimistic entries for this batch
+            const withoutOptimistic = prev.filter(
+              (log) => !optimisticEntries.some((oe) => oe.id === log.id)
+            );
+            // Prepend real results
+            return [...result.map((r: any) => ({ ...r, isOptimistic: false })), ...withoutOptimistic];
+          });
+
+          const sentCount = result.filter((r: any) => r.status === "Sent").length;
+          const failedCount = result.filter((r: any) => r.status === "Failed").length;
+          const pendingCount = result.filter((r: any) => r.status === "Pending").length;
+
+          toast({
+            title: "Bulk SMS Complete",
+            description: `Sent: ${sentCount}, Failed: ${failedCount}, Pending: ${pendingCount}${duplicatesRemoved > 0 ? ` (${duplicatesRemoved} duplicates removed)` : ''}`,
+          });
+        }
+      } catch (e: any) {
+        // 6. Mark all optimistic entries as Failed
+        setSmsLogs((prev) =>
+          prev.map((log) =>
+            optimisticEntries.some((oe) => oe.id === log.id)
+              ? { ...log, status: "Failed", isOptimistic: false }
+              : log
+          )
+        );
+        toast({ title: "Failed", description: e.message || "Failed to send bulk SMS", variant: "destructive" });
+      } finally {
+        setSmsSending(false);
+        // Refresh data from server to ensure consistency
+        loadData();
       }
-      setSmsRecipient("");
-      setSmsBulkRecipients("");
-      setSmsMessage("");
-      setCampaignName("");
-      loadData();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setSmsSending(false);
     }
   };
 
@@ -801,6 +920,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const statusColor = (status: string) => {
     switch (status?.toLowerCase()) {
       case "delivered": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+      case "sending": return "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400";
       case "pending": case "queued": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
       case "failed": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
       case "sent": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
@@ -856,6 +976,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       icon: Clock,
       color: "text-orange-600",
       bg: "bg-orange-50 dark:bg-orange-900/30",
+    },
+    {
+      label: "Sending",
+      value: sendingCount,
+      icon: Activity,
+      color: "text-cyan-600",
+      bg: "bg-cyan-50 dark:bg-cyan-900/30",
     },
     {
       label: "Failed SMS",
@@ -1532,6 +1659,9 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </TableCell>
                           <TableCell>
                             <Badge className={statusColor(log.status)}>
+                              {log.status === "Sending" && (
+                                <Clock className="w-3 h-3 mr-1 animate-spin inline" />
+                              )}
                               {log.status || "Unknown"}
                             </Badge>
                           </TableCell>
@@ -2164,11 +2294,15 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                       smsLogs.slice(0, 10).map((log: any, idx: number) => (
                         <div key={log.id || idx} className="flex items-center gap-3 px-4 py-2.5 border-b last:border-b-0 hover:bg-muted/50">
                           <div className={`w-2 h-2 rounded-full ${
-                            log.status === "Delivered" || log.status === "delivered"
+                            log.status === "Sending"
+                              ? "bg-cyan-500 animate-pulse"
+                              : log.status === "Delivered" || log.status === "delivered"
                               ? "bg-emerald-500"
                               : log.status === "Failed" || log.status === "failed"
                                 ? "bg-red-500"
-                                : "bg-yellow-500"
+                                : log.status === "Sent" || log.status === "sent"
+                                  ? "bg-blue-500"
+                                  : "bg-yellow-500"
                           }`} />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
@@ -2708,20 +2842,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             </CardContent>
           </Card>
 
-          {/* ── SMS Automation Master Toggles ── */}
+          {/* ── Auto SMS Triggers ── */}
           <div className="mt-6">
             <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                 <Zap className="w-5 h-5 text-amber-500" />
-                Auto SMS Toggles / স্বয়ংক্রিয় এসএমএস নিয়ন্ত্রণ
+                Auto SMS Triggers / স্বয়ংক্রিয় এসএমএস ট্রিগার
               </h3>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                { key: "smsAlertOnPurchase", label: "Sales Purchase / ক্রয় বিক্রয়", desc: "Auto-SMS on purchase/sales confirmation", icon: ShoppingCart, color: "blue" },
-                { key: "smsAlertOnCollection", label: "Payment Collection / পেমেন্ট সংগ্রহ", desc: "Auto-SMS on payment receipt", icon: DollarSign, color: "green" },
-                { key: "smsAlertOnStockReceive", label: "Godown Receive / গুডাম গ্রহণ", desc: "Auto-SMS when inventory received at godown", icon: Package, color: "orange" },
-                { key: "smsAlertOnHrLifecycle", label: "HR Lifecycle / কর্মী জীবনচক্র", desc: "Auto-SMS on employee joining/events", icon: Users, color: "purple" },
+                { key: "autoSmsOnPurchase", label: "Customer Purchase SMS / ক্রেতা ক্রয় এসএমএস", desc: "Auto SMS to customer when they purchase a product — includes product info, invoice number & amount", icon: ShoppingCart, color: "blue" },
+                { key: "autoSmsOnReceipt", label: "Cash/Bank Receipt SMS / নগদ/ব্যাংক রশিদ এসএমএস", desc: "Auto SMS to customer/dealer when cash or bank payment is received — includes payment method & amount", icon: DollarSign, color: "green" },
+                { key: "autoSmsOnStockReceive", label: "Stock Receipt SMS / স্টক গ্রহণ এসএমএস", desc: "Auto SMS to supplier when products are received at godown/showroom — includes product, quantity & location", icon: Package, color: "orange" },
+                { key: "autoSmsOnEmployeeEvent", label: "Employee Event SMS / কর্মী ইভেন্ট এসএমএস", desc: "Auto SMS for employee events — exam date, joining date, confirmation & other HR milestones", icon: Users, color: "purple" },
               ].map((toggle) => {
                 const isEnabled = automationConfig?.[toggle.key] ?? false;
                 return (
@@ -2738,8 +2872,8 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs font-medium ${isEnabled ? "text-emerald-600" : "text-slate-400"}`}>
-                            {isEnabled ? "ON / চালু" : "OFF / বন্ধ"}
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded ${isEnabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                            {isEnabled ? "ON" : "OFF"}
                           </span>
                           {isAdmin ? (
                             <Switch
@@ -2751,14 +2885,14 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                                   await apiFetch("/api/sms-automation", {
                                     method: "PUT",
                                     body: JSON.stringify({
-                                      smsAlertOnPurchase: updated.smsAlertOnPurchase ?? false,
-                                      smsAlertOnCollection: updated.smsAlertOnCollection ?? false,
-                                      smsAlertOnStockReceive: updated.smsAlertOnStockReceive ?? false,
-                                      smsAlertOnHrLifecycle: updated.smsAlertOnHrLifecycle ?? false,
+                                      autoSmsOnPurchase: updated.autoSmsOnPurchase ?? false,
+                                      autoSmsOnReceipt: updated.autoSmsOnReceipt ?? false,
+                                      autoSmsOnStockReceive: updated.autoSmsOnStockReceive ?? false,
+                                      autoSmsOnEmployeeEvent: updated.autoSmsOnEmployeeEvent ?? false,
                                     }),
                                   });
                                   setAutomationConfig((prev: any) => ({ ...prev, [toggle.key]: checked }));
-                                  toast({ title: checked ? "Enabled / চালু" : "Disabled / বন্ধ", description: `${toggle.label} ${checked ? "enabled" : "disabled"}` });
+                                  toast({ title: checked ? "Enabled" : "Disabled", description: `${toggle.label} auto-SMS ${checked ? "enabled" : "disabled"}` });
                                 } catch (e: any) {
                                   toast({ title: "Error", description: e.message, variant: "destructive" });
                                 } finally {
@@ -2775,7 +2909,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Only administrators can modify automation toggles</p>
+                                <p>Only administrators can modify auto-SMS triggers</p>
                               </TooltipContent>
                             </Tooltip>
                           )}
