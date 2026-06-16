@@ -110,6 +110,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.profileImage !== undefined) updateData.profileImage = body.profileImage || null;
       if (body.nidFrontImage !== undefined) updateData.nidFrontImage = body.nidFrontImage || null;
       if (body.nidBackImage !== undefined) updateData.nidBackImage = body.nidBackImage || null;
+      if (body.nidNumber !== undefined) updateData.nidNumber = body.nidNumber ? stripHtml(String(body.nidNumber)) : null;
+      if (body.creditStatus !== undefined) updateData.creditStatus = body.creditStatus;
       if (body.guarantorName !== undefined) updateData.guarantorName = body.guarantorName ? stripHtml(String(body.guarantorName)) : null;
       if (body.guarantorContact !== undefined) updateData.guarantorContact = body.guarantorContact ? stripHtml(String(body.guarantorContact)) : null;
       if (body.guarantorAddress !== undefined) updateData.guarantorAddress = body.guarantorAddress ? stripHtml(String(body.guarantorAddress)) : null;

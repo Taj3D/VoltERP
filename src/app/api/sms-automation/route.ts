@@ -25,6 +25,10 @@ const DEFAULT_AUTOMATION_CONFIG = {
   autoSmsOnReceipt: false,
   autoSmsOnStockReceive: false,
   autoSmsOnEmployeeEvent: false,
+  autoSmsOnPaymentReceive: false,
+  autoSmsOnGodownReceive: false,
+  autoSmsOnEmployeeJoin: false,
+  autoSmsOnEmployeeExam: false,
   companyId: null,
   isActive: true,
   createdAt: null,
@@ -112,6 +116,10 @@ export async function POST(request: NextRequest) {
     const autoSmsOnReceipt = Boolean(body.autoSmsOnReceipt ?? false);
     const autoSmsOnStockReceive = Boolean(body.autoSmsOnStockReceive ?? false);
     const autoSmsOnEmployeeEvent = Boolean(body.autoSmsOnEmployeeEvent ?? false);
+    const autoSmsOnPaymentReceive = Boolean(body.autoSmsOnPaymentReceive ?? false);
+    const autoSmsOnGodownReceive = Boolean(body.autoSmsOnGodownReceive ?? false);
+    const autoSmsOnEmployeeJoin = Boolean(body.autoSmsOnEmployeeJoin ?? false);
+    const autoSmsOnEmployeeExam = Boolean(body.autoSmsOnEmployeeExam ?? false);
 
     const record = await db.smsAutomationConfig.create({
       data: {
@@ -119,6 +127,10 @@ export async function POST(request: NextRequest) {
         autoSmsOnReceipt,
         autoSmsOnStockReceive,
         autoSmsOnEmployeeEvent,
+        autoSmsOnPaymentReceive,
+        autoSmsOnGodownReceive,
+        autoSmsOnEmployeeJoin,
+        autoSmsOnEmployeeExam,
         isActive: true,
         ...(companyId && { companyId }),
       },
@@ -137,6 +149,10 @@ export async function POST(request: NextRequest) {
         autoSmsOnReceipt: record.autoSmsOnReceipt,
         autoSmsOnStockReceive: record.autoSmsOnStockReceive,
         autoSmsOnEmployeeEvent: record.autoSmsOnEmployeeEvent,
+        autoSmsOnPaymentReceive: record.autoSmsOnPaymentReceive,
+        autoSmsOnGodownReceive: record.autoSmsOnGodownReceive,
+        autoSmsOnEmployeeJoin: record.autoSmsOnEmployeeJoin,
+        autoSmsOnEmployeeExam: record.autoSmsOnEmployeeExam,
         companyId: record.companyId,
       }),
     }).catch(() => {});
@@ -200,6 +216,10 @@ export async function PUT(request: NextRequest) {
     const autoSmsOnReceipt = Boolean(body.autoSmsOnReceipt ?? false);
     const autoSmsOnStockReceive = Boolean(body.autoSmsOnStockReceive ?? false);
     const autoSmsOnEmployeeEvent = Boolean(body.autoSmsOnEmployeeEvent ?? false);
+    const autoSmsOnPaymentReceive = Boolean(body.autoSmsOnPaymentReceive ?? false);
+    const autoSmsOnGodownReceive = Boolean(body.autoSmsOnGodownReceive ?? false);
+    const autoSmsOnEmployeeJoin = Boolean(body.autoSmsOnEmployeeJoin ?? false);
+    const autoSmsOnEmployeeExam = Boolean(body.autoSmsOnEmployeeExam ?? false);
 
     // Find the existing active config for the current tenant
     const existingConfig = await db.smsAutomationConfig.findFirst({
@@ -220,6 +240,10 @@ export async function PUT(request: NextRequest) {
           autoSmsOnReceipt,
           autoSmsOnStockReceive,
           autoSmsOnEmployeeEvent,
+          autoSmsOnPaymentReceive,
+          autoSmsOnGodownReceive,
+          autoSmsOnEmployeeJoin,
+          autoSmsOnEmployeeExam,
         },
       });
     } else {
@@ -230,6 +254,10 @@ export async function PUT(request: NextRequest) {
           autoSmsOnReceipt,
           autoSmsOnStockReceive,
           autoSmsOnEmployeeEvent,
+          autoSmsOnPaymentReceive,
+          autoSmsOnGodownReceive,
+          autoSmsOnEmployeeJoin,
+          autoSmsOnEmployeeExam,
           isActive: true,
           ...(companyId && { companyId }),
         },
@@ -250,6 +278,10 @@ export async function PUT(request: NextRequest) {
         autoSmsOnReceipt: result.autoSmsOnReceipt,
         autoSmsOnStockReceive: result.autoSmsOnStockReceive,
         autoSmsOnEmployeeEvent: result.autoSmsOnEmployeeEvent,
+        autoSmsOnPaymentReceive: result.autoSmsOnPaymentReceive,
+        autoSmsOnGodownReceive: result.autoSmsOnGodownReceive,
+        autoSmsOnEmployeeJoin: result.autoSmsOnEmployeeJoin,
+        autoSmsOnEmployeeExam: result.autoSmsOnEmployeeExam,
         companyId: result.companyId,
       }),
     }).catch(() => {});

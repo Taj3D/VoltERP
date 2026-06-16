@@ -2853,17 +2853,20 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 { key: "autoSmsOnPurchase", label: "Customer Purchase SMS / ক্রেতা ক্রয় এসএমএস", desc: "Auto SMS to customer when they purchase a product — includes product info, invoice number & amount", icon: ShoppingCart, color: "blue" },
-                { key: "autoSmsOnReceipt", label: "Cash/Bank Receipt SMS / নগদ/ব্যাংক রশিদ এসএমএস", desc: "Auto SMS to customer/dealer when cash or bank payment is received — includes payment method & amount", icon: DollarSign, color: "green" },
-                { key: "autoSmsOnStockReceive", label: "Stock Receipt SMS / স্টক গ্রহণ এসএমএস", desc: "Auto SMS to supplier when products are received at godown/showroom — includes product, quantity & location", icon: Package, color: "orange" },
-                { key: "autoSmsOnEmployeeEvent", label: "Employee Event SMS / কর্মী ইভেন্ট এসএমএস", desc: "Auto SMS for employee events — exam date, joining date, confirmation & other HR milestones", icon: Users, color: "purple" },
+                { key: "autoSmsOnPaymentReceive", label: "Payment Receive SMS / পেমেন্ট গ্রহণ এসএমএস", desc: "Auto SMS on cash/bank/bkash/nagad payment received from customer/dealer — includes payment method & amount", icon: DollarSign, color: "green" },
+                { key: "autoSmsOnGodownReceive", label: "Godown Receive SMS / গুডাউন গ্রহণ এসএমএস", desc: "Auto SMS to supplier when products are received at godown/showroom — includes product, quantity & location", icon: Package, color: "orange" },
+                { key: "autoSmsOnEmployeeJoin", label: "Employee Join SMS / কর্মী যোগদান এসএমএস", desc: "Auto SMS when a new employee joins — includes welcome message, joining date & designation", icon: Users, color: "purple" },
+                { key: "autoSmsOnEmployeeExam", label: "Employee Exam SMS / কর্মী পরীক্ষা এসএমএস", desc: "Auto SMS when an employee has an exam date — includes exam date, time & venue", icon: FileText, color: "teal" },
               ].map((toggle) => {
                 const isEnabled = automationConfig?.[toggle.key] ?? false;
+                const colorClass = toggle.color === "blue" ? "border-l-blue-500" : toggle.color === "green" ? "border-l-emerald-500" : toggle.color === "orange" ? "border-l-orange-500" : toggle.color === "purple" ? "border-l-purple-500" : toggle.color === "teal" ? "border-l-teal-500" : "border-l-slate-500";
+                const iconBgClass = toggle.color === "blue" ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600" : toggle.color === "green" ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : toggle.color === "orange" ? "bg-orange-50 dark:bg-orange-900/30 text-orange-600" : toggle.color === "purple" ? "bg-purple-50 dark:bg-purple-900/30 text-purple-600" : toggle.color === "teal" ? "bg-teal-50 dark:bg-teal-900/30 text-teal-600" : "bg-slate-50 dark:bg-slate-900/30 text-slate-600";
                 return (
-                  <Card key={toggle.key} className={`border-l-4 ${toggle.color === "blue" ? "border-l-blue-500" : toggle.color === "green" ? "border-l-emerald-500" : toggle.color === "orange" ? "border-l-orange-500" : "border-l-purple-500"}`}>
+                  <Card key={toggle.key} className={`border-l-4 ${colorClass}`}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${toggle.color === "blue" ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600" : toggle.color === "green" ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600" : toggle.color === "orange" ? "bg-orange-50 dark:bg-orange-900/30 text-orange-600" : "bg-purple-50 dark:bg-purple-900/30 text-purple-600"}`}>
+                          <div className={`p-2 rounded-lg ${iconBgClass}`}>
                             <toggle.icon className="w-5 h-5" />
                           </div>
                           <div>
@@ -2889,6 +2892,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                                       autoSmsOnReceipt: updated.autoSmsOnReceipt ?? false,
                                       autoSmsOnStockReceive: updated.autoSmsOnStockReceive ?? false,
                                       autoSmsOnEmployeeEvent: updated.autoSmsOnEmployeeEvent ?? false,
+                                      autoSmsOnPaymentReceive: updated.autoSmsOnPaymentReceive ?? false,
+                                      autoSmsOnGodownReceive: updated.autoSmsOnGodownReceive ?? false,
+                                      autoSmsOnEmployeeJoin: updated.autoSmsOnEmployeeJoin ?? false,
+                                      autoSmsOnEmployeeExam: updated.autoSmsOnEmployeeExam ?? false,
                                     }),
                                   });
                                   setAutomationConfig((prev: any) => ({ ...prev, [toggle.key]: checked }));

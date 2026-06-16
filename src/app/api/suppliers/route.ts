@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
         const row = body.data[i];
         try {
           // Image validation
-          const imgError = validateImageFields(row, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+          const imgError = validateImageFields(row, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
           if (imgError) { errors.push(`Row ${i + 1}: ${imgError}`); continue; }
 
           // Case-insensitive duplicate name check
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
               nidFrontImage: row.nidFrontImage || null,
               nidBackImage: row.nidBackImage || null,
               nidNumber: row.nidNumber ? stripHtml(String(row.nidNumber)) : null,
-              logoUrl: row.logoUrl ? stripHtml(String(row.logoUrl)) : null,
+              logoUrl: nullIfEmpty(row.logoUrl),
               companyId: security.user.companyId || null,
               isActive: row.isActive ?? true,
             },
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Single mode ──
-    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
     // Phone/email validation
@@ -304,7 +304,7 @@ export async function POST(request: NextRequest) {
           nidFrontImage: body.nidFrontImage || null,
           nidBackImage: body.nidBackImage || null,
           nidNumber: body.nidNumber ? stripHtml(String(body.nidNumber)) : null,
-          logoUrl: body.logoUrl ? stripHtml(String(body.logoUrl)) : null,
+          logoUrl: nullIfEmpty(body.logoUrl),
           companyId: security.user.companyId || null,
           isActive: body.isActive ?? true,
         },

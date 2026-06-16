@@ -3,17 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 import type { UserRole } from '@/lib/api-security';
 
-// Activity logging helper — fire-and-forget
-async function logActivity(userEmail: string, actionType: string, module: string, details: string) {
-  try {
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/user-activity`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-User-Email': userEmail },
-      body: JSON.stringify({ actionType, module, details }),
-    });
-  } catch {}
-}
-
 // ============================================================
 // GET /api/card-type-setups — List all card type setups for the authenticated user's company
 // ============================================================
@@ -171,13 +160,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Activity log for batch import — module token "Payment-Gateway-Setup", actionType "IMPORT_CSV"
-      logActivity(
-        security.user.email,
-        'IMPORT_CSV',
-        'Payment-Gateway-Setup',
-        `Batch import: ${results.length} succeeded, ${errors.length} failed`
-      );
+      // Activity log for batch import — audit entry already created via tx.auditLog in main transaction
+      // The logActivity helper with X-User-Email header was removed (dead code — /api/user-activity has no POST handler)
 
       return NextResponse.json(
         { imported: results.length, failed: errors.length, errors, data: results },
@@ -248,13 +232,7 @@ export async function POST(request: NextRequest) {
       return record;
     });
 
-    // Activity logging — fire-and-forget, module token "Payment-Gateway-Setup"
-    logActivity(
-      security.user.email,
-      'CREATE',
-      'Payment-Gateway-Setup',
-      `Created card type setup "${item.paymentOption?.name || item.id} - ${item.cardType?.name || item.id}" (ID: ${item.id})`
-    );
+    // Audit entry already created via tx.auditLog in main transaction
 
     // Add computed display field to response
     const responseItem = {

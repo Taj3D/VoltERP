@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const result = await createSingleCashCollection(body, userId, userName, companyId);
 
-    // Automated SMS: Financial Collection Event
+    // Automated SMS: Financial Collection Event (legacy toggle)
     if (result) {
       try {
         const { triggerFinancialCollectionSms } = await import('@/lib/sms-event-hooks');
@@ -223,6 +223,22 @@ export async function POST(request: NextRequest) {
         });
       } catch (smsError) {
         console.error('[CashCollections] SMS trigger failed (non-blocking):', smsError);
+      }
+
+      // NEW: Auto SMS on Payment Receive (autoSmsOnPaymentReceive toggle)
+      try {
+        const { triggerPaymentReceivedSms } = await import('@/lib/sms-event-hooks');
+        await triggerPaymentReceivedSms({
+          id: (result as any).id,
+          customerId: (result as any).customerId || undefined,
+          supplierId: (result as any).supplierId || undefined,
+          amount: (result as any).amount,
+          paymentMethod: (result as any).paymentMethod || 'Cash',
+          date: (result as any).date,
+          companyId: (result as any).companyId || undefined,
+        });
+      } catch (smsError) {
+        console.error('[CashCollections] PaymentReceived SMS trigger failed (non-blocking):', smsError);
       }
     }
 

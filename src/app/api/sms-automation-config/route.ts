@@ -27,6 +27,10 @@ export async function GET(request: NextRequest) {
       autoSmsOnReceipt: config?.autoSmsOnReceipt ?? false,
       autoSmsOnStockReceive: config?.autoSmsOnStockReceive ?? false,
       autoSmsOnEmployeeEvent: config?.autoSmsOnEmployeeEvent ?? false,
+      autoSmsOnPaymentReceive: config?.autoSmsOnPaymentReceive ?? false,
+      autoSmsOnGodownReceive: config?.autoSmsOnGodownReceive ?? false,
+      autoSmsOnEmployeeJoin: config?.autoSmsOnEmployeeJoin ?? false,
+      autoSmsOnEmployeeExam: config?.autoSmsOnEmployeeExam ?? false,
     });
   } catch (error) {
     console.error('[SmsAutomationConfig] GET error:', error);
@@ -36,6 +40,10 @@ export async function GET(request: NextRequest) {
         autoSmsOnReceipt: false,
         autoSmsOnStockReceive: false,
         autoSmsOnEmployeeEvent: false,
+        autoSmsOnPaymentReceive: false,
+        autoSmsOnGodownReceive: false,
+        autoSmsOnEmployeeJoin: false,
+        autoSmsOnEmployeeExam: false,
       },
       { status: 200 } // Graceful fallback — never block UI on config fetch failure
     );

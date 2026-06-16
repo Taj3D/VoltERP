@@ -467,7 +467,7 @@ export async function POST(request: NextRequest) {
       details: `Received ${receivedItems.length} item(s) against PO ${purchaseOrder.poNumber}. Status: ${result.receivingStatus}`,
     });
 
-    // Automated SMS: Inventory Ingestion Event
+    // Automated SMS: Inventory Ingestion Event (legacy toggle)
     for (const line of receivedItems) {
       try {
         // Find the stock entry just created for this received item
@@ -496,6 +496,38 @@ export async function POST(request: NextRequest) {
       } catch (smsError) {
         console.error('[PO-Receive] SMS trigger failed (non-blocking):', smsError);
       }
+    }
+
+    // NEW: Auto SMS on Godown/Showroom Stock Receive (autoSmsOnGodownReceive toggle)
+    try {
+      // Build a summary of received items for the SMS
+      const receivedProducts = await db.product.findMany({
+        where: { id: { in: receivedItems.map(item => item.productId) } },
+        select: { id: true, name: true },
+      });
+      const itemSummary = receivedProducts.map(p => p.name).join(', ');
+
+      // Look up godown name
+      let godownName = 'Warehouse';
+      if (purchaseOrder.godownId) {
+        const godown = await db.godown.findUnique({
+          where: { id: purchaseOrder.godownId },
+          select: { name: true },
+        });
+        if (godown) godownName = godown.name;
+      }
+
+      const { triggerPurchaseOrderReceivedSms } = await import('@/lib/sms-event-hooks');
+      await triggerPurchaseOrderReceivedSms({
+        purchaseOrderId: purchaseOrder.id,
+        poNumber: purchaseOrder.poNumber,
+        supplierId: purchaseOrder.supplierId,
+        itemSummary,
+        godownName,
+        companyId: purchaseOrder.companyId || undefined,
+      });
+    } catch (smsError) {
+      console.error('[PO-Receive] GodownReceive SMS trigger failed (non-blocking):', smsError);
     }
 
     return NextResponse.json(result, { status: 200 });

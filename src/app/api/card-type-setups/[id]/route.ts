@@ -3,17 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, maskForVatAuditor } from '@/lib/api-security';
 import type { UserRole } from '@/lib/api-security';
 
-// Activity logging helper — fire-and-forget
-async function logActivity(userEmail: string, actionType: string, module: string, details: string) {
-  try {
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/user-activity`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-User-Email': userEmail },
-      body: JSON.stringify({ actionType, module, details }),
-    });
-  } catch {}
-}
-
 // ============================================================
 // GET /api/card-type-setups/[id] — Get a single card type setup by ID
 // ============================================================
@@ -174,13 +163,7 @@ export async function PUT(
       return record;
     });
 
-    // Activity logging — fire-and-forget, module token "Payment-Gateway-Setup"
-    logActivity(
-      security.user.email,
-      'UPDATE',
-      'Payment-Gateway-Setup',
-      `Updated card type setup "${item.paymentOption?.name || item.id} - ${item.cardType?.name || item.id}" (ID: ${item.id})`
-    );
+    // Audit entry already created via tx.auditLog in main transaction
 
     // Add computed display field to response
     const responseItem = {
@@ -254,13 +237,7 @@ export async function DELETE(
       });
     });
 
-    // Activity logging — fire-and-forget, module token "Payment-Gateway-Setup"
-    logActivity(
-      security.user.email,
-      'DELETE',
-      'Payment-Gateway-Setup',
-      `Deleted card type setup (ID: ${existing.id}) — soft delete`
-    );
+    // Audit entry already created via tx.auditLog in main transaction
 
     return NextResponse.json({ success: true });
   } catch (error) {

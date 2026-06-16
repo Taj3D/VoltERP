@@ -28,6 +28,7 @@ model User {
   // Profile fields
   phone        String? // User phone number
   address      String? // User address
+  designation  String? // User designation / job title
   photo        String? // Profile photo (base64 or URL)
   voterIdFront String? // Voter ID front card image
   voterIdBack  String? // Voter ID back card image
@@ -1734,16 +1735,20 @@ model SmsNotificationTrigger {
 // ============================================================
 
 model SmsAutomationConfig {
-  id                      String   @id @default(cuid())
-  autoSmsOnPurchase       Boolean  @default(false)
-  autoSmsOnReceipt        Boolean  @default(false)
-  autoSmsOnStockReceive   Boolean  @default(false)
-  autoSmsOnEmployeeEvent  Boolean  @default(false)
-  companyId               String?
-  isActive                Boolean  @default(true)
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-  company                 Company? @relation(fields: [companyId], references: [id])
+  id                       String   @id @default(cuid())
+  autoSmsOnPurchase        Boolean  @default(false) // Customer Purchase SMS
+  autoSmsOnReceipt         Boolean  @default(false) // Legacy: Cash/Bank Receipt SMS (retained for backward compat)
+  autoSmsOnStockReceive    Boolean  @default(false) // Legacy: Stock Receipt SMS (retained for backward compat)
+  autoSmsOnEmployeeEvent   Boolean  @default(false) // Legacy: Employee Event SMS (retained for backward compat)
+  autoSmsOnPaymentReceive  Boolean  @default(false) // NEW: Auto SMS on cash/bank/bkash/nagad payment receive
+  autoSmsOnGodownReceive   Boolean  @default(false) // NEW: Auto SMS to supplier on godown/showroom stock receive
+  autoSmsOnEmployeeJoin    Boolean  @default(false) // NEW: Auto SMS on new employee joining
+  autoSmsOnEmployeeExam    Boolean  @default(false) // NEW: Auto SMS on employee exam date
+  companyId                String?
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  company                  Company? @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
 }

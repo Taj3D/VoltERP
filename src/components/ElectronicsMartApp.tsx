@@ -283,7 +283,7 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     icon: Users,
     items: [
       { key: "designations", label: "Designations", apiPath: "/api/designations", columns: [{ key: "name", label: "Name", type: "text" }, { key: "departmentId", label: "Department", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "departmentId", label: "Department", type: "select", required: true, options: [] }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "employees", label: "Employees", apiPath: "/api/employees", columns: [{ key: "employeeCode", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "designationId", label: "Designation", type: "text" }, { key: "departmentId", label: "Department", type: "text" }, { key: "phone", label: "Phone", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "designationId", label: "Designation", type: "select", required: true, options: [] }, { key: "departmentId", label: "Department", type: "select", required: true, options: [] }, { key: "joiningDate", label: "Joining Date", type: "date", required: true }, { key: "phone", label: "Phone", type: "text" }, { key: "address", label: "Address", type: "textarea" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "employees", label: "Employees", apiPath: "/api/employees", columns: [{ key: "employeeCode", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "designationId", label: "Designation", type: "text" }, { key: "departmentId", label: "Department", type: "text" }, { key: "phone", label: "Phone", type: "text" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "name", label: "Name", type: "text", required: true }, { key: "designationId", label: "Designation", type: "select", required: true, options: [] }, { key: "departmentId", label: "Department", type: "select", required: true, options: [] }, { key: "joiningDate", label: "Joining Date", type: "date", required: true }, { key: "phone", label: "Phone", type: "text" }, { key: "address", label: "Address", type: "textarea" }, { key: "photo", label: "Photo", type: "image", placeholder: "Upload employee photo (max 5MB)" }, { key: "nidFrontImage", label: "NID Front", type: "image", placeholder: "Upload NID front side (max 5MB)" }, { key: "nidBackImage", label: "NID Back", type: "image", placeholder: "Upload NID back side (max 5MB)" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
       { key: "employee-leaves", label: "Employee Leave", apiPath: "/api/employee-leaves", columns: [{ key: "employeeId", label: "Employee", type: "text" }, { key: "leaveType", label: "Leave Type", type: "text" }, { key: "fromDate", label: "From", type: "date" }, { key: "toDate", label: "To", type: "date" }, { key: "status", label: "Status", type: "text" }], formFields: [{ key: "employeeId", label: "Employee", type: "select", required: true, options: [] }, { key: "leaveType", label: "Leave Type", type: "select", required: true, options: [{ value: "Casual", label: "Casual" }, { value: "Sick", label: "Sick" }, { value: "Annual", label: "Annual" }, { value: "Maternity", label: "Maternity" }] }, { key: "fromDate", label: "From Date", type: "date", required: true }, { key: "toDate", label: "To Date", type: "date", required: true }, { key: "reason", label: "Reason", type: "textarea" }, { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }], defaultValue: "Pending" }] },
     ],
   },
@@ -292,8 +292,8 @@ const SIDEBAR_CONFIG: SidebarGroup[] = [
     label: "Customers & Suppliers",
     icon: UserCircle,
     items: [
-      { key: "customers", label: "Customers", apiPath: "/api/customers", columns: [{ key: "customerCode", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "phone", label: "Phone", type: "text" }, { key: "customerType", label: "Type", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "openingBalanceType", label: "Dr/Cr", type: "text" }, { key: "creditLimit", label: "Credit Limit", type: "currency" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "customerCode", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Customer Name", type: "text", required: true }, { key: "phone", label: "Phone", type: "text" }, { key: "email", label: "Email", type: "email" }, { key: "address", label: "Address", type: "textarea" }, { key: "customerType", label: "Customer Type", type: "select", required: true, options: [{ value: "Regular", label: "Regular" }, { value: "Dealer", label: "Dealer" }] }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "openingBalanceType", label: "Opening Type", type: "select", options: [{ value: "Dr", label: "Dr (Debit)" }, { value: "Cr", label: "Cr (Credit)" }] }, { key: "creditLimit", label: "Credit Limit", type: "number", defaultValue: 0 }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
-      { key: "suppliers", label: "Suppliers", apiPath: "/api/suppliers", columns: [{ key: "supplierCode", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "phone", label: "Phone", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "openingBalanceType", label: "Dr/Cr", type: "text" }, { key: "creditLimit", label: "Credit Limit", type: "currency" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "supplierCode", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Supplier Name", type: "text", required: true }, { key: "phone", label: "Phone", type: "text" }, { key: "email", label: "Email", type: "email" }, { key: "address", label: "Address", type: "textarea" }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "openingBalanceType", label: "Opening Type", type: "select", options: [{ value: "Cr", label: "Cr (Credit)" }, { value: "Dr", label: "Dr (Debit)" }] }, { key: "creditLimit", label: "Credit Limit", type: "number", defaultValue: 0 }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "customers", label: "Customers", apiPath: "/api/customers", columns: [{ key: "customerCode", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "phone", label: "Phone", type: "text" }, { key: "customerType", label: "Type", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "openingBalanceType", label: "Dr/Cr", type: "text" }, { key: "creditLimit", label: "Credit Limit", type: "currency" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "customerCode", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Customer Name", type: "text", required: true }, { key: "phone", label: "Phone", type: "text" }, { key: "email", label: "Email", type: "email" }, { key: "address", label: "Address", type: "textarea" }, { key: "customerType", label: "Customer Type", type: "select", required: true, options: [{ value: "Regular", label: "Regular" }, { value: "Dealer", label: "Dealer" }] }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "openingBalanceType", label: "Opening Type", type: "select", options: [{ value: "Dr", label: "Dr (Debit)" }, { value: "Cr", label: "Cr (Credit)" }] }, { key: "creditLimit", label: "Credit Limit", type: "number", defaultValue: 0 }, { key: "profileImage", label: "Profile Photo", type: "image", placeholder: "Upload profile photo (max 5MB)" }, { key: "nidFrontImage", label: "NID Front", type: "image", placeholder: "Upload NID front side (max 5MB)" }, { key: "nidBackImage", label: "NID Back", type: "image", placeholder: "Upload NID back side (max 5MB)" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
+      { key: "suppliers", label: "Suppliers", apiPath: "/api/suppliers", columns: [{ key: "supplierCode", label: "Code", type: "text" }, { key: "name", label: "Name", type: "text" }, { key: "phone", label: "Phone", type: "text" }, { key: "openingBalance", label: "Opening Balance", type: "currency" }, { key: "openingBalanceType", label: "Dr/Cr", type: "text" }, { key: "creditLimit", label: "Credit Limit", type: "currency" }, { key: "isActive", label: "Status", type: "boolean" }], formFields: [{ key: "supplierCode", label: "Code", type: "text", required: false, placeholder: "Auto-generated" }, { key: "name", label: "Supplier Name", type: "text", required: true }, { key: "phone", label: "Phone", type: "text" }, { key: "email", label: "Email", type: "email" }, { key: "address", label: "Address", type: "textarea" }, { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0 }, { key: "openingBalanceType", label: "Opening Type", type: "select", options: [{ value: "Cr", label: "Cr (Credit)" }, { value: "Dr", label: "Dr (Debit)" }] }, { key: "creditLimit", label: "Credit Limit", type: "number", defaultValue: 0 }, { key: "profileImage", label: "Profile Photo", type: "image", placeholder: "Upload profile photo (max 5MB)" }, { key: "nidFrontImage", label: "NID Front", type: "image", placeholder: "Upload NID front side (max 5MB)" }, { key: "nidBackImage", label: "NID Back", type: "image", placeholder: "Upload NID back side (max 5MB)" }, { key: "logoUrl", label: "Company Logo", type: "image", placeholder: "Upload company logo (max 5MB)" }, { key: "isActive", label: "Active", type: "checkbox", defaultValue: true }] },
     ],
   },
   {
@@ -694,7 +694,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
 
   const openCreate = async () => {
     const defaults: Record<string, any> = {};
-    formFields.forEach(f => { defaults[f.key] = f.defaultValue ?? (f.type === "checkbox" ? false : f.type === "number" ? 0 : ""); });
+    formFields.forEach(f => { defaults[f.key] = f.defaultValue ?? (f.type === "checkbox" ? false : f.type === "number" ? 0 : f.type === "image" ? null : ""); });
     // Auto-generate code if field exists
     const codeField = formFields.find(f => f.key === "code");
     if (codeField && !editItem) {
@@ -721,7 +721,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
 
   const openEdit = (item: any) => {
     const vals: Record<string, any> = {};
-    formFields.forEach(f => { vals[f.key] = item[f.key] ?? f.defaultValue ?? ""; });
+    formFields.forEach(f => { vals[f.key] = item[f.key] ?? f.defaultValue ?? (f.type === "image" ? null : ""); });
     setFormData(vals);
     setEditItem(item);
     setShowForm(true);
@@ -866,7 +866,11 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
                             {Object.entries(item).filter(([k]) => k !== "id" && !visibleColumns.some(c => c.key === k) && (isVatAuditor ? !VAT_HIDDEN_COLS.includes(k) : true)).map(([key, val]) => (
                               <div key={key}>
                                 <span className="text-muted-foreground capitalize">{key.replace(/([A-Z])/g, " $1")}: </span>
-                                <span className="font-medium text-slate-900 dark:text-white">{String(val ?? "—")}</span>
+                                {typeof val === "string" && val.startsWith("data:image") ? (
+                                  <img src={val} alt={key} className="inline-block w-12 h-12 rounded object-cover border border-border" />
+                                ) : (
+                                  <span className="font-medium text-slate-900 dark:text-white">{String(val ?? "—").length > 100 ? String(val ?? "—").substring(0, 100) + "…" : String(val ?? "—")}</span>
+                                )}
                               </div>
                             ))}
                             {item._count && Object.entries(item._count).map(([key, val]) => (
@@ -918,6 +922,14 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
                   </div>
                 ) : field.type === "date" ? (
                   <Input id={field.key} type="date" value={formData[field.key] ?? ""} onChange={e => setFormData({ ...formData, [field.key]: e.target.value })} />
+                ) : field.type === "image" ? (
+                  <ImageUploadField
+                    value={formData[field.key] ?? null}
+                    onChange={(base64) => setFormData({ ...formData, [field.key]: base64 })}
+                    placeholder={field.placeholder || `Upload ${field.label}`}
+                    maxSizeMB={5}
+                    onError={(msg) => toast({ title: "Image Error", description: msg, variant: "destructive" })}
+                  />
                 ) : (
                   <Input id={field.key} type={field.type} step={field.step} placeholder={field.placeholder} value={formData[field.key] ?? ""} onChange={e => setFormData({ ...formData, [field.key]: field.type === "number" ? Number(e.target.value) : e.target.value })} />
                 )}
@@ -1244,7 +1256,7 @@ function ProductsPage() {
         { label: "Low Stock", value: String(lowStock) },
         { label: "Out of Stock", value: String(outOfStock) },
         { label: "Active SKUs", value: String(activeSKUs) },
-        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue))}` }]),
+        ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `Tk. ${toLatinDigits(new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue)))}` }]),
       ];
       const summaryRows = summaryRowsData.map(r => ({ cells: [r.label, r.value] }));
       const { user } = useAuth();
@@ -2727,7 +2739,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
   };
 
   return (
-    <aside className={`${embedded ? "relative w-full h-full" : `fixed left-0 top-0 z-40 h-full ${collapsed ? "w-16" : "w-64"}`} bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 flex flex-col overflow-hidden shadow-xl`}>
+    <aside className={`${embedded ? "relative w-full h-full" : `fixed left-0 top-0 z-40 h-full ${collapsed ? "w-16" : "w-64"}`} bg-[#0a1628] dark:bg-[#060e1a] text-slate-300 transition-all duration-300 ${embedded ? "flex" : "hidden md:flex"} flex-col overflow-hidden shadow-xl`}>
       {/* Header */}
       <div className={`flex items-center justify-between border-b border-white/10 ${collapsed ? "p-2" : "p-4"}`}>
         {(!collapsed || embedded) && (
@@ -2766,16 +2778,19 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
               <button
                 onClick={() => {
                   if (collapsed) {
-                    onNavigate(group.items[0]?.key || group.key);
-                  } else if (expandedGroups.has(group.key)) {
+                    // When collapsed, expand the sidebar instead of navigating
+                    onToggle();
+                    return;
+                  }
+                  if (expandedGroups.has(group.key)) {
                     // Already expanded — navigate to first child
                     onNavigate(group.items[0]?.key || group.key);
                   } else {
                     toggleGroup(group.key);
                   }
                 }}
-                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/10 hover:text-white ${expandedGroups.has(group.key) ? "text-blue-300" : ""} ${collapsed ? "justify-center" : ""}`}
-                title={collapsed ? group.label : undefined}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors hover:bg-white/10 hover:text-white ${expandedGroups.has(group.key) ? "text-blue-300" : ""} ${collapsed ? "justify-center" : ""} ${collapsed && group.items.some(item => item.key === currentPage) ? "bg-blue-500/15 text-blue-300" : ""}`}
+                title={group.label}
               >
                 <group.icon className="w-4 h-4 shrink-0" />
                 {!collapsed && (
@@ -2787,8 +2802,8 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
               </button>
               {/* Collapsed: show active indicator dot if any item in this group is active */}
               {collapsed && group.items.some(item => item.key === currentPage) && (
-                <div className="flex justify-center">
-                  <span className="w-1 h-1 rounded-full bg-blue-400" />
+                <div className="flex justify-center mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-sm shadow-blue-400/50" />
                 </div>
               )}
               {expandedGroups.has(group.key) && !collapsed && (
@@ -6347,15 +6362,13 @@ function AppLayout() {
 
       {/* Mobile sidebar — Sheet component for proper drawer behavior */}
       <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-        <SheetContent side="left" className="p-0 w-[280px] sm:w-[300px] bg-sidebar border-sidebar-border">
+        <SheetContent side="left" className="p-0 w-[280px] sm:w-[300px] bg-[#0a1628] dark:bg-[#060e1a] border-white/10">
           <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={false} onToggle={() => setMobileMenuOpen(false)} embedded />
         </SheetContent>
       </Sheet>
 
-      {/* Desktop sidebar */}
-      <div className="hidden md:contents">
-        <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      </div>
+      {/* Desktop sidebar — hidden on mobile via own CSS, shown on md+ */}
+      <Sidebar currentPage={currentPage} onNavigate={navigate} collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
       {/* VAT Auditor Banner */}
       {isVatAuditor && (
@@ -6365,8 +6378,8 @@ function AppLayout() {
       )}
 
       {/* Main content */}
-      <main className={`flex-1 min-h-0 overflow-y-auto pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`} style={{ overflowX: 'clip' }}>
-        <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8 min-w-0 overflow-hidden">
+      <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden pt-12 sm:pt-14 transition-[margin] duration-300 ${sidebarCollapsed ? "md:ml-16" : "md:ml-64"} ${isVatAuditor ? "mt-10" : ""}`}>
+        <div className="px-3 sm:px-4 md:px-6 max-w-[1600px] pb-8 min-w-0">
           {/* Breadcrumb Navigation */}
           {currentPage !== "dashboard" && (
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-1 pt-1">

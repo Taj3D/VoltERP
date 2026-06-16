@@ -331,7 +331,7 @@ export async function POST(request: NextRequest) {
       return record;
     });
 
-    // Automated SMS: HR Lifecycle Event
+    // Automated SMS: HR Lifecycle Event (legacy toggle)
     try {
       const { triggerHRLifecycleSms } = await import('@/lib/sms-event-hooks');
       await triggerHRLifecycleSms({
@@ -344,6 +344,32 @@ export async function POST(request: NextRequest) {
       });
     } catch (smsError) {
       console.error('[Employees] SMS trigger failed (non-blocking):', smsError);
+    }
+
+    // NEW: Auto SMS on Employee Join (autoSmsOnEmployeeJoin toggle)
+    try {
+      const { triggerEmployeeJoinedSms } = await import('@/lib/sms-event-hooks');
+      // Look up designation name
+      let designationName: string | undefined;
+      if (item.designationId) {
+        try {
+          const designation = await db.designation.findUnique({
+            where: { id: item.designationId },
+            select: { name: true },
+          });
+          designationName = designation?.name || undefined;
+        } catch {}
+      }
+      await triggerEmployeeJoinedSms({
+        id: item.id,
+        name: item.name,
+        phone: item.phone || undefined,
+        joiningDate: item.joiningDate,
+        designation: designationName,
+        companyId: item.companyId || undefined,
+      });
+    } catch (smsError) {
+      console.error('[Employees] EmployeeJoined SMS trigger failed (non-blocking):', smsError);
     }
 
     return NextResponse.json(item, { status: 201 });

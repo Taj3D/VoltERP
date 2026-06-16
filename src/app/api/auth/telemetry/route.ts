@@ -1,15 +1,19 @@
 // ============================================================
 // AUTH TELEMETRY API — Export/Import Action Telemetry
 // POST: Logs export/import actions to the AuditLog table
-// Every PDF export, CSV export, and CSV import across ALL
-// modules triggers this endpoint to append metadata, timestamp,
-// and target module to the user's live profile activity logs.
+// AND increments the corresponding counter (pdfExports,
+// csvExports, csvImports) in the User model for server-side
+// tracking. Every PDF export, CSV export, and CSV import
+// across ALL modules triggers this endpoint to append
+// metadata, timestamp, and target module to the user's
+// live profile activity logs.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { withApiSecurity } from "@/lib/api-security";
+import { withApiSecurity, invalidateUserCache } from "@/lib/api-security";
 import { logUserActivity } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
+import { db } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   try {
@@ -61,6 +65,27 @@ export async function POST(request: NextRequest) {
       userName: security.user.name,
       details: telemetryDetails,
     });
+
+    // ── Increment the corresponding counter in the User model ──
+    // This provides server-side tracking of export/import counts per user
+    try {
+      const counterField = actionType === "PDF_EXPORT"
+        ? "pdfExports"
+        : actionType === "CSV_EXPORT"
+          ? "csvExports"
+          : "csvImports";
+
+      await db.user.update({
+        where: { id: security.user.id },
+        data: { [counterField]: { increment: 1 } },
+      });
+
+      // Invalidate cached user so next request reflects the new counter
+      invalidateUserCache(security.user.id);
+    } catch (counterError) {
+      // Non-critical: log but don't fail the telemetry request
+      console.warn(`Failed to increment ${actionType} counter for user ${security.user.email}:`, counterError);
+    }
 
     return NextResponse.json({
       success: true,

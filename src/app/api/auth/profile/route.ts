@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         voterIdBack: true,
         phone: true,
         address: true,
+        designation: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -64,7 +65,7 @@ export async function PUT(request: NextRequest) {
     if (!security.authorized) return security.response;
 
     const body = await request.json();
-    const { name, photo, phone, address, voterIdFront, voterIdBack } = body;
+    const { name, photo, phone, address, designation, voterIdFront, voterIdBack } = body;
 
     // Build update data — only allow specific fields
     const updateData: Record<string, unknown> = {};
@@ -118,6 +119,16 @@ export async function PUT(request: NextRequest) {
         );
       }
       updateData.address = address;
+    }
+
+    if (designation !== undefined) {
+      if (designation !== null && typeof designation !== "string") {
+        return NextResponse.json(
+          { error: "Designation must be a valid string." },
+          { status: 400 }
+        );
+      }
+      updateData.designation = designation;
     }
 
     if (voterIdFront !== undefined) {
@@ -190,6 +201,7 @@ export async function PUT(request: NextRequest) {
         voterIdBack: true,
         phone: true,
         address: true,
+        designation: true,
         pdfExports: true,
         csvImports: true,
         csvExports: true,

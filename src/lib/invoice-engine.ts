@@ -9,6 +9,7 @@
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { toLatinDigits } from "@/lib/number-format";
+import { getCachedCompanyProfile } from "@/lib/company-branding-cache";
 
 // ============================================================
 // TYPES
@@ -303,7 +304,9 @@ function drawCompanyHeader(
     try {
       let dataUrl = company.logo;
       if (!dataUrl.startsWith("data:")) {
-        dataUrl = `data:image/png;base64,${dataUrl}`;
+        // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
+        const isJpeg = dataUrl.startsWith("/9j/");
+        dataUrl = `data:image/${isJpeg ? "jpeg" : "png"};base64,${dataUrl}`;
       }
       const format = dataUrl.includes("image/jpeg") ? "JPEG" : "PNG";
       doc.addImage(dataUrl, format, MARGIN_LEFT, y, logoW, logoH);
@@ -318,7 +321,8 @@ function drawCompanyHeader(
     try {
       let brandDataUrl = company.brandLogo;
       if (!brandDataUrl.startsWith("data:")) {
-        brandDataUrl = `data:image/png;base64,${brandDataUrl}`;
+        const isBrandJpeg = brandDataUrl.startsWith("/9j/");
+        brandDataUrl = `data:image/${isBrandJpeg ? "jpeg" : "png"};base64,${brandDataUrl}`;
       }
       const format = brandDataUrl.includes("image/jpeg") ? "JPEG" : "PNG";
       doc.addImage(brandDataUrl, format, PAGE_WIDTH - MARGIN_RIGHT - logoW, y, logoW, logoH);
@@ -1053,13 +1057,42 @@ function checkPageOverflow(
 
 export function exportInvoicePDF(options: InvoicePDFOptions): void {
   const {
-    company,
+    company: providedCompany,
     template,
     invoice,
     filename,
     isVatAuditor = false,
     vatMaskedFields = [],
   } = options;
+
+  // ── Auto-load company profile from branding cache when not provided ──
+  // Note: invoice-engine uses synchronous jsPDF, so we try the cache first.
+  // If not cached, the invoice-engine requires a company to be passed in.
+  // The SalesModulePage and other callers should ensure company data is loaded.
+  let company = providedCompany;
+  if (!company || !company.name) {
+    const cached = getCachedCompanyProfile();
+    if (cached) {
+      // Merge: use provided company fields as overrides, fill missing from cache
+      company = {
+        name: company?.name || cached.name,
+        address: company?.address || cached.address,
+        phone: company?.phone || cached.phone,
+        mobile: company?.mobile || cached.mobile,
+        email: company?.email || cached.email,
+        logo: company?.logo || cached.logo,
+        brandLogo: company?.brandLogo || cached.brandLogo,
+        logoWidth: company?.logoWidth || cached.logoWidth,
+        logoHeight: company?.logoHeight || cached.logoHeight,
+        vatNumber: company?.vatNumber || cached.vatNumber,
+        tradeLicense: company?.tradeLicense || cached.tradeLicense,
+        thankYouMsg: company?.thankYouMsg || cached.thankYouMsg,
+        systemNote: company?.systemNote || cached.systemNote,
+        showBarcode: company?.showBarcode !== undefined ? company.showBarcode : cached.showBarcode,
+        showPayInWord: company?.showPayInWord !== undefined ? company.showPayInWord : cached.showPayInWord,
+      };
+    }
+  }
 
   try {
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });

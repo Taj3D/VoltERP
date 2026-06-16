@@ -401,7 +401,7 @@ const MODULE_CONFIGS: ModuleConfig[] = [
       { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
       { key: "nidFrontImage", label: "NID Front", type: "image" },
       { key: "nidBackImage", label: "NID Back", type: "image" },
-      { key: "logoUrl", label: "Logo URL", type: "text", placeholder: "https://example.com/logo.png" },
+      { key: "logoUrl", label: "Company Logo", type: "image", placeholder: "Upload company logo (max 5MB)" },
       { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
     ],
     vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
@@ -797,6 +797,10 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
         toast({ title: "Validation Error", description: "End date cannot be before start date", variant: "destructive" });
         return;
       }
+      // Auto-calculate totalDays from date range
+      const diffMs = to.getTime() - from.getTime();
+      const calculatedDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
+      formData.totalDays = calculatedDays;
     }
 
     // Phase 8: Snapshot for optimistic rollback

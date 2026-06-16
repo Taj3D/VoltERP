@@ -25,6 +25,10 @@ const TRIGGER_TOGGLE_MAP: Record<string, string> = {
   collection: 'autoSmsOnReceipt',
   stock_receive: 'autoSmsOnStockReceive',
   hr_lifecycle: 'autoSmsOnEmployeeEvent',
+  payment_received: 'autoSmsOnPaymentReceive',
+  purchase_order_received: 'autoSmsOnGodownReceive',
+  employee_joined: 'autoSmsOnEmployeeJoin',
+  employee_exam_date: 'autoSmsOnEmployeeExam',
 };
 
 const VALID_TRIGGER_TYPES = Object.keys(TRIGGER_TOGGLE_MAP);

@@ -11,7 +11,7 @@ import { dispatchSingleSms, buildGatewayConfig } from '@/lib/sms-gateway-dispatc
 
 // ── Type Definitions ──────────────────────────────────────────
 
-type EventType = 'SalesConfirmation' | 'FinancialCollection' | 'InventoryIngestion' | 'HRLifecycle';
+type EventType = 'SalesConfirmation' | 'FinancialCollection' | 'InventoryIngestion' | 'HRLifecycle' | 'PaymentReceived' | 'PurchaseOrderReceived' | 'EmployeeJoined' | 'EmployeeExamDate';
 
 interface TriggerEventSmsParams {
   eventType: EventType;
@@ -82,6 +82,10 @@ export async function triggerEventSms(
       'FinancialCollection': 'autoSmsOnReceipt',
       'InventoryIngestion': 'autoSmsOnStockReceive',
       'HRLifecycle': 'autoSmsOnEmployeeEvent',
+      'PaymentReceived': 'autoSmsOnPaymentReceive',
+      'PurchaseOrderReceived': 'autoSmsOnGodownReceive',
+      'EmployeeJoined': 'autoSmsOnEmployeeJoin',
+      'EmployeeExamDate': 'autoSmsOnEmployeeExam',
     };
     const configField = eventTypeToConfigField[eventType];
     if (configField) {
@@ -635,4 +639,206 @@ export function parseBulkPhoneList(input: string): BulkPhoneParseResult {
   }
 
   return result;
+}
+
+// ── 8. Payment Received SMS (NEW) ──────────────────────────────
+
+/**
+ * triggerPaymentReceivedSms — Sends an SMS when a cash/bank/bkash/nagad
+ * payment is received from a customer/dealer. Uses the autoSmsOnPaymentReceive toggle.
+ */
+export async function triggerPaymentReceivedSms(collection: {
+  id: string;
+  customerId?: string;
+  supplierId?: string;
+  amount: number;
+  paymentMethod: string;
+  date: Date | string;
+  companyId?: string;
+}): Promise<void> {
+  try {
+    let recipientPhone: string | null = null;
+    let clientName: string = 'N/A';
+
+    if (collection.customerId) {
+      const customer = await db.customer.findUnique({
+        where: { id: collection.customerId },
+        select: { name: true, phone: true },
+      });
+      if (customer) {
+        clientName = customer.name;
+        recipientPhone = customer.phone ?? null;
+      }
+    } else if (collection.supplierId) {
+      const supplier = await db.supplier.findUnique({
+        where: { id: collection.supplierId },
+        select: { name: true, phone: true },
+      });
+      if (supplier) {
+        clientName = supplier.name;
+        recipientPhone = supplier.phone ?? null;
+      }
+    }
+
+    if (!recipientPhone) return;
+
+    const phoneValidation = validatePhonePrefix(recipientPhone);
+    if (!phoneValidation.valid) return;
+
+    const receiptRef = `RCT-${collection.id.slice(-6).toUpperCase()}`;
+
+    await triggerEventSms({
+      eventType: 'PaymentReceived',
+      recipientPhone: phoneValidation.formatted,
+      templateVariables: {
+        clientName,
+        amount: formatCurrency(collection.amount),
+        paymentMethod: collection.paymentMethod,
+        date: formatDate(collection.date),
+        receiptRef,
+      },
+      companyId: collection.companyId,
+    });
+  } catch (error) {
+    console.error('[SmsEventHooks] triggerPaymentReceivedSms failed:', error);
+  }
+}
+
+// ── 9. Purchase Order Received SMS (NEW) ───────────────────────
+
+/**
+ * triggerPurchaseOrderReceivedSms — Sends an SMS to the supplier when
+ * products are received at a godown/showroom. Uses autoSmsOnGodownReceive toggle.
+ */
+export async function triggerPurchaseOrderReceivedSms(params: {
+  purchaseOrderId: string;
+  poNumber: string;
+  supplierId: string;
+  itemSummary: string;
+  godownName: string;
+  companyId?: string;
+}): Promise<void> {
+  try {
+    // Look up supplier phone
+    const supplier = await db.supplier.findUnique({
+      where: { id: params.supplierId },
+      select: { name: true, phone: true },
+    });
+
+    if (!supplier || !supplier.phone) return;
+
+    const phoneValidation = validatePhonePrefix(supplier.phone);
+    if (!phoneValidation.valid) return;
+
+    await triggerEventSms({
+      eventType: 'PurchaseOrderReceived',
+      recipientPhone: phoneValidation.formatted,
+      templateVariables: {
+        supplierName: supplier.name,
+        itemSummary: params.itemSummary,
+        godownName: params.godownName,
+        poNumber: params.poNumber,
+        date: formatDate(new Date()),
+      },
+      companyId: params.companyId,
+    });
+  } catch (error) {
+    console.error('[SmsEventHooks] triggerPurchaseOrderReceivedSms failed:', error);
+  }
+}
+
+// ── 10. Employee Joined SMS (NEW) ──────────────────────────────
+
+/**
+ * triggerEmployeeJoinedSms — Sends a welcome SMS when a new employee joins.
+ * Uses the autoSmsOnEmployeeJoin toggle.
+ */
+export async function triggerEmployeeJoinedSms(employee: {
+  id: string;
+  name: string;
+  phone?: string;
+  joiningDate: Date | string;
+  designation?: string;
+  companyId?: string;
+}): Promise<void> {
+  try {
+    if (!employee.phone) return;
+
+    const phoneValidation = validatePhonePrefix(employee.phone);
+    if (!phoneValidation.valid) return;
+
+    let companyName: string = 'N/A';
+    if (employee.companyId) {
+      try {
+        const company = await db.company.findUnique({
+          where: { id: employee.companyId },
+          select: { name: true },
+        });
+        if (company) companyName = company.name;
+      } catch {}
+    }
+
+    await triggerEventSms({
+      eventType: 'EmployeeJoined',
+      recipientPhone: phoneValidation.formatted,
+      templateVariables: {
+        employeeName: employee.name,
+        joiningDate: formatDate(employee.joiningDate),
+        designation: employee.designation || 'N/A',
+        companyName,
+      },
+      companyId: employee.companyId,
+    });
+  } catch (error) {
+    console.error('[SmsEventHooks] triggerEmployeeJoinedSms failed:', error);
+  }
+}
+
+// ── 11. Employee Exam Date SMS (NEW) ───────────────────────────
+
+/**
+ * triggerEmployeeExamDateSms — Sends an SMS when an employee has an exam date.
+ * Uses the autoSmsOnEmployeeExam toggle.
+ */
+export async function triggerEmployeeExamDateSms(employee: {
+  id: string;
+  name: string;
+  phone?: string;
+  examDate: string;
+  examTime: string;
+  venue?: string;
+  companyId?: string;
+}): Promise<void> {
+  try {
+    if (!employee.phone) return;
+
+    const phoneValidation = validatePhonePrefix(employee.phone);
+    if (!phoneValidation.valid) return;
+
+    let companyName: string = 'N/A';
+    if (employee.companyId) {
+      try {
+        const company = await db.company.findUnique({
+          where: { id: employee.companyId },
+          select: { name: true },
+        });
+        if (company) companyName = company.name;
+      } catch {}
+    }
+
+    await triggerEventSms({
+      eventType: 'EmployeeExamDate',
+      recipientPhone: phoneValidation.formatted,
+      templateVariables: {
+        employeeName: employee.name,
+        examDate: employee.examDate,
+        examTime: employee.examTime,
+        venue: employee.venue || 'Please contact HR',
+        companyName,
+      },
+      companyId: employee.companyId,
+    });
+  } catch (error) {
+    console.error('[SmsEventHooks] triggerEmployeeExamDateSms failed:', error);
+  }
 }

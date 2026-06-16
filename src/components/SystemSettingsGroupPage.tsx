@@ -39,6 +39,7 @@ import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import { apiFetch, type UserRole, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
 import { toLatinDigits } from "@/lib/number-format";
+import { clearCompanyProfileCache } from "@/lib/company-branding-cache";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -49,10 +50,10 @@ const settingsNumberFmt = new Intl.NumberFormat("en-US");
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
-  if (type === "currency") return `Tk. ${settingsCurrencyFmt.format(Number(v))}`;
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(settingsCurrencyFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return settingsNumberFmt.format(Number(v));
+  if (type === "number") return toLatinDigits(settingsNumberFmt.format(Number(v)));
   return String(v);
 };
 
@@ -397,6 +398,8 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
         method: "PUT",
         body: JSON.stringify(companyEdits),
       });
+      // Clear the company branding cache so next PDF export fetches fresh data
+      clearCompanyProfileCache();
       toast({ title: "Saved", description: "Company branding saved successfully" });
       loadCompany();
     } catch (e: any) {

@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
         voterIdBack: true,
         phone: true,
         address: true,
+        designation: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,

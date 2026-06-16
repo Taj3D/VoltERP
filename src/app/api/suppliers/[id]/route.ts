@@ -8,6 +8,8 @@ function stripHtml(input: string): string {
   return input.replace(/<[^>]*>/g, '').trim();
 }
 
+const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
+
 // Phone validation
 function isValidPhone(phone: string): boolean {
   const bdPhone = /^\+?880\d{10}$/;
@@ -54,7 +56,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
-    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
     // Phone/email validation
@@ -103,7 +105,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.nidFrontImage !== undefined) updateData.nidFrontImage = body.nidFrontImage || null;
       if (body.nidBackImage !== undefined) updateData.nidBackImage = body.nidBackImage || null;
       if (body.nidNumber !== undefined) updateData.nidNumber = body.nidNumber ? stripHtml(String(body.nidNumber)) : null;
-      if (body.logoUrl !== undefined) updateData.logoUrl = body.logoUrl ? stripHtml(String(body.logoUrl)) : null;
+      if (body.logoUrl !== undefined) updateData.logoUrl = nullIfEmpty(body.logoUrl);
       if (body.isActive !== undefined) updateData.isActive = body.isActive;
 
       const record = await tx.supplier.update({

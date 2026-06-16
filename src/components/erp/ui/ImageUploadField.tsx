@@ -14,7 +14,7 @@ interface ImageUploadFieldProps {
   onError?: (message: string) => void;
 }
 
-const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 export default function ImageUploadField({
   value,
@@ -35,7 +35,7 @@ export default function ImageUploadField({
 
       // Validate type
       if (!ACCEPTED_TYPES.includes(file.type)) {
-        const msg = "Only JPEG, PNG, and WebP files are allowed";
+        const msg = "Only JPEG, PNG, GIF, and WebP files are allowed";
         setError(msg);
         onError?.(msg);
         return;
@@ -156,7 +156,7 @@ export default function ImageUploadField({
               : placeholder || "Drop image here or click to browse"}
           </p>
           <p className="text-[10px] text-muted-foreground/60 mt-1">
-            JPEG / PNG / WebP, max {maxSizeMB}MB
+            JPEG / PNG / GIF / WebP, max {maxSizeMB}MB
           </p>
         </div>
       )}
@@ -164,7 +164,7 @@ export default function ImageUploadField({
       <input
         ref={inputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/gif,image/webp"
         className="hidden"
         onChange={handleFileChange}
       />

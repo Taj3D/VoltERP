@@ -179,6 +179,7 @@ const MASKING_SENTINEL = "N/A (Audit Mode)";
 // ============================================================
 
 import { fmtCurrency, toLatinDigits, toEnglishDigits } from '@/lib/number-format';
+import { loadCompanyProfile, getCachedCompanyProfile } from '@/lib/company-branding-cache';
 
 // Re-export toEnglishDigits for use across the application
 export { toEnglishDigits };
@@ -468,7 +469,12 @@ function drawCorporateHeader(
     const logoH = company.logoHeight || 20;
     const logoY = (headerHeight - logoH) / 2; // vertically centered in header
     try {
-      const logoUrl = company.logo.startsWith("data:") ? company.logo : `data:image/png;base64,${company.logo}`;
+      let logoUrl = company.logo;
+      if (!logoUrl.startsWith("data:")) {
+        // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
+        const isJpeg = logoUrl.startsWith("/9j/");
+        logoUrl = `data:image/${isJpeg ? "jpeg" : "png"};base64,${logoUrl}`;
+      }
       doc.addImage(logoUrl, margin, logoY, logoW, logoH);
     } catch {
       // If logo rendering fails, skip it silently
@@ -482,7 +488,11 @@ function drawCorporateHeader(
     const brandH = company.logoHeight || 20;
     const brandY = (headerHeight - brandH) / 2;
     try {
-      const brandUrl = company.brandLogo.startsWith("data:") ? company.brandLogo : `data:image/png;base64,${company.brandLogo}`;
+      let brandUrl = company.brandLogo;
+      if (!brandUrl.startsWith("data:")) {
+        const isBrandJpeg = brandUrl.startsWith("/9j/");
+        brandUrl = `data:image/${isBrandJpeg ? "jpeg" : "png"};base64,${brandUrl}`;
+      }
       doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
     } catch {
       // If brand logo fails, skip it
@@ -776,8 +786,24 @@ export async function exportToPDF(options: PDFOptions): Promise<void> {
     filename,
     summaryRows,
     customHeader,
-    company,
+    company: providedCompany,
   } = options;
+
+  // ── Auto-load company profile from branding cache when not provided ──
+  let company = providedCompany;
+  if (!company) {
+    const cached = getCachedCompanyProfile();
+    if (cached) {
+      company = cached;
+    } else {
+      try {
+        const loaded = await loadCompanyProfile();
+        if (loaded) company = loaded;
+      } catch {
+        // Silently fail — callers use fallback defaults in drawCorporateHeader
+      }
+    }
+  }
 
   // Lazy-load jsPDF and autoTable to prevent React error #321
   const { jsPDF } = await loadJsPDF();
@@ -982,6 +1008,22 @@ export async function exportToPDFSimple(
   company?: CompanyProfile,
   financialFooter?: PDFOptions["financialFooter"]
 ): Promise<void> {
+  // ── Auto-load company profile from branding cache when not provided ──
+  let resolvedCompany = company;
+  if (!resolvedCompany) {
+    const cached = getCachedCompanyProfile();
+    if (cached) {
+      resolvedCompany = cached;
+    } else {
+      try {
+        const loaded = await loadCompanyProfile();
+        if (loaded) resolvedCompany = loaded;
+      } catch {
+        // Silently fail — callers use fallback defaults in drawCorporateHeader
+      }
+    }
+  }
+
   // Lazy-load jsPDF and autoTable to prevent React error #321
   const { jsPDF } = await loadJsPDF();
   const { autoTable } = await loadAutoTable();
@@ -993,7 +1035,7 @@ export async function exportToPDFSimple(
     const margin = 14;
 
     // Corporate header
-    const tableStartY = drawCorporateHeader(doc, title, subtitle, false, pageWidth, margin, company);
+    const tableStartY = drawCorporateHeader(doc, title, subtitle, false, pageWidth, margin, resolvedCompany);
 
     const TOTAL_PLACEHOLDER = "{total}";
     const colWidths = calculateColumnWidths(headers.length, pageWidth, margin);
@@ -1028,12 +1070,12 @@ export async function exportToPDFSimple(
       alternateRowStyles: { fillColor: [240, 244, 252] },
       columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
       didDrawPage: (data: any) => {
-        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, resolvedCompany, financialFooter);
       },
     });
 
     // Second pass: fix Page X of Y
-    fixPageXOfY(doc, pageHeight, pageWidth, margin, financialFooter, company);
+    fixPageXOfY(doc, pageHeight, pageWidth, margin, financialFooter, resolvedCompany);
 
     const rawFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const safeFilename = rawFilename.replace(/\.pdf$/i, "");
@@ -1196,10 +1238,26 @@ export async function exportAuditReportPDF(options: AuditReportOptions): Promise
     integrityScore,
     isVatAuditor = false,
     vatMaskedColumns = [],
-    company,
+    company: providedCompany,
     financialFooter,
     classification = "INTERNAL",
   } = options;
+
+  // ── Auto-load company profile from branding cache when not provided ──
+  let company = providedCompany;
+  if (!company) {
+    const cached = getCachedCompanyProfile();
+    if (cached) {
+      company = cached;
+    } else {
+      try {
+        const loaded = await loadCompanyProfile();
+        if (loaded) company = loaded;
+      } catch {
+        // Silently fail — callers use fallback defaults in drawCorporateHeader
+      }
+    }
+  }
 
   // Lazy-load jsPDF and autoTable to prevent React error #321
   const { jsPDF } = await loadJsPDF();

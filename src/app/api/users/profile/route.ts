@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
       email: user.email,
       phone: user.phone || "",
       address: user.address || "",
+      designation: user.designation || "",
       photo: user.photo || "",
       voterIdFront: user.voterIdFront || "",
       voterIdBack: user.voterIdBack || "",
@@ -47,7 +48,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, phone, address, photo, voterIdFront, voterIdBack } = body;
+    const { name, phone, address, designation, photo, voterIdFront, voterIdBack } = body;
 
     // Validate name
     if (name !== undefined && (!name || name.trim().length === 0)) {
@@ -69,6 +70,7 @@ export async function PUT(req: NextRequest) {
     if (name !== undefined) updateData.name = name.trim();
     if (phone !== undefined) updateData.phone = phone.trim() || null;
     if (address !== undefined) updateData.address = address.trim() || null;
+    if (designation !== undefined) updateData.designation = designation.trim() || null;
     if (photo !== undefined) updateData.photo = photo || null;
     if (voterIdFront !== undefined) updateData.voterIdFront = voterIdFront || null;
     if (voterIdBack !== undefined) updateData.voterIdBack = voterIdBack || null;
@@ -98,6 +100,7 @@ export async function PUT(req: NextRequest) {
       email: updatedUser.email,
       phone: updatedUser.phone || "",
       address: updatedUser.address || "",
+      designation: updatedUser.designation || "",
       photo: updatedUser.photo || "",
       voterIdFront: updatedUser.voterIdFront || "",
       voterIdBack: updatedUser.voterIdBack || "",

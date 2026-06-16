@@ -96,7 +96,7 @@ const companyLocks = new Map<string, Promise<AutoSmsResult>>();
  * 6. Summary truncation — prevents 10+ SMS units from oversized data.
  */
 export async function dispatchAutoSms(params: {
-  triggerType: 'purchase' | 'collection' | 'stock_receive' | 'hr_lifecycle';
+  triggerType: 'purchase' | 'collection' | 'stock_receive' | 'hr_lifecycle' | 'payment_received' | 'purchase_order_received' | 'employee_joined' | 'employee_exam_date';
   recipient: string;
   message: string;
   companyId: string | null | undefined;
@@ -201,7 +201,7 @@ export async function dispatchAutoSms(params: {
  * ALWAYS called inside a serialized per-company lock.
  */
 async function executeDispatchInternal(params: {
-  triggerType: 'purchase' | 'collection' | 'stock_receive' | 'hr_lifecycle';
+  triggerType: 'purchase' | 'collection' | 'stock_receive' | 'hr_lifecycle' | 'payment_received' | 'purchase_order_received' | 'employee_joined' | 'employee_exam_date';
   recipient: string;
   message: string;
   companyId: string;
@@ -226,6 +226,10 @@ async function executeDispatchInternal(params: {
     collection: config.autoSmsOnReceipt,
     stock_receive: config.autoSmsOnStockReceive,
     hr_lifecycle: config.autoSmsOnEmployeeEvent,
+    payment_received: config.autoSmsOnPaymentReceive,
+    purchase_order_received: config.autoSmsOnGodownReceive,
+    employee_joined: config.autoSmsOnEmployeeJoin,
+    employee_exam_date: config.autoSmsOnEmployeeExam,
   };
 
   const isEnabled = toggleMap[triggerType];
@@ -458,4 +462,76 @@ export function buildHrJoiningSms(params: {
   const name = sanitizeSmsVariable(truncateSummary(params.employeeName, 30));
   const joiningDate = sanitizeSmsVariable(params.joiningDate);
   return `Welcome ${name} to the team! Your official joining date is confirmed on ${joiningDate}. Check your email for login credentials.`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// NEW TRIGGER TEMPLATE BUILDERS — Expanded Auto-SMS Triggers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * buildPaymentReceivedSms — TRIGGER E: Payment Receive Alert
+ * "Dear [Name], payment of Tk. [Amount] received via [PaymentMethod]. Ref: [ReferenceNo]. Thank you."
+ */
+export function buildPaymentReceivedSms(params: {
+  clientName: string;
+  amount: string | number;
+  paymentMethod: string;
+  referenceNo: string;
+}): string {
+  const name = sanitizeSmsVariable(truncateSummary(params.clientName, 30));
+  const amount = sanitizeSmsVariable(String(params.amount));
+  const method = sanitizeSmsVariable(truncateSummary(params.paymentMethod, 20));
+  const refNo = sanitizeSmsVariable(truncateSummary(params.referenceNo, 25));
+  return `Dear ${name}, payment of Tk. ${amount} received via ${method}. Ref: ${refNo}. Thank you.`;
+}
+
+/**
+ * buildGodownReceiveSms — TRIGGER F: Godown/Showroom Stock Receive Notification
+ * "Dear [SupplierName], your products [ItemSummary] have been received at [GodownName] against PO [PoNo]. Thank you."
+ */
+export function buildGodownReceiveSms(params: {
+  supplierName: string;
+  itemSummary: string;
+  godownName: string;
+  poNo: string;
+}): string {
+  const supplier = sanitizeSmsVariable(truncateSummary(params.supplierName, 30));
+  const items = sanitizeSmsVariable(truncateSummary(params.itemSummary, 50));
+  const godown = sanitizeSmsVariable(truncateSummary(params.godownName, 25));
+  const poNo = sanitizeSmsVariable(params.poNo);
+  return `Dear ${supplier}, your products ${items} have been received at ${godown} against PO ${poNo}. Thank you.`;
+}
+
+/**
+ * buildEmployeeJoinSms — TRIGGER G: New Employee Joining SMS
+ * "Welcome [EmployeeName]! Your joining is confirmed on [JoiningDate] as [Designation]. Please contact HR for onboarding details."
+ */
+export function buildEmployeeJoinSms(params: {
+  employeeName: string;
+  joiningDate: string;
+  designation: string;
+}): string {
+  const name = sanitizeSmsVariable(truncateSummary(params.employeeName, 30));
+  const joiningDate = sanitizeSmsVariable(params.joiningDate);
+  const designation = sanitizeSmsVariable(truncateSummary(params.designation, 25));
+  return `Welcome ${name}! Your joining is confirmed on ${joiningDate} as ${designation}. Please contact HR for onboarding details.`;
+}
+
+/**
+ * buildEmployeeExamSms — TRIGGER H: Employee Exam Date SMS
+ * "Dear [EmployeeName], your exam is scheduled on [ExamDate] at [Time]. Venue: [Venue]. Please prepare accordingly."
+ */
+export function buildEmployeeExamSms(params: {
+  employeeName: string;
+  examDate: string;
+  time: string;
+  venue?: string;
+}): string {
+  const name = sanitizeSmsVariable(truncateSummary(params.employeeName, 30));
+  const examDate = sanitizeSmsVariable(params.examDate);
+  const time = sanitizeSmsVariable(params.time);
+  const venue = params.venue
+    ? sanitizeSmsVariable(truncateSummary(params.venue, 40))
+    : 'Please contact HR for details';
+  return `Dear ${name}, your exam is scheduled on ${examDate} at ${time}. Venue: ${venue}. Please prepare accordingly.`;
 }

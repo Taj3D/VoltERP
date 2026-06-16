@@ -142,7 +142,9 @@ function drawCompanyHeader(
     try {
       let dataUrl = company.logo;
       if (!dataUrl.startsWith('data:')) {
-        dataUrl = `data:image/png;base64,${dataUrl}`;
+        // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
+        const isJpeg = dataUrl.startsWith('/9j/');
+        dataUrl = `data:image/${isJpeg ? 'jpeg' : 'png'};base64,${dataUrl}`;
       }
       // Detect format from data URL
       const format = dataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
@@ -158,7 +160,8 @@ function drawCompanyHeader(
     try {
       let brandDataUrl = company.brandLogo;
       if (!brandDataUrl.startsWith('data:')) {
-        brandDataUrl = `data:image/png;base64,${brandDataUrl}`;
+        const isBrandJpeg = brandDataUrl.startsWith('/9j/');
+        brandDataUrl = `data:image/${isBrandJpeg ? 'jpeg' : 'png'};base64,${brandDataUrl}`;
       }
       const format = brandDataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
       doc.addImage(brandDataUrl, format, PAGE_WIDTH - MARGIN_RIGHT - logoW, y, logoW, logoH);
