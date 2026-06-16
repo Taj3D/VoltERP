@@ -42,7 +42,17 @@ export async function loadCompanyProfile(): Promise<CompanyProfile | null> {
 
   fetchPromise = (async () => {
     try {
-      const res = await fetch("/api/company-branding");
+      // Build auth headers from the singleton authState (same pattern as apiFetch).
+      // This ensures the company-branding endpoint (which requires SystemConfig RBAC)
+      // receives a valid JWT Bearer token, returning the full company profile
+      // including the base64 logo used in PDF invoice headers.
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      // Lazy-import authState to avoid circular dependency at module load time.
+      const { authState } = await import("./api-client");
+      if (authState.accessToken) {
+        headers["Authorization"] = `Bearer ${authState.accessToken}`;
+      }
+      const res = await fetch("/api/company-branding", { headers });
       if (!res.ok) {
         return null;
       }

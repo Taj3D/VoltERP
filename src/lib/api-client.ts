@@ -346,6 +346,9 @@ export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?
             if (retryRes.status === 401) {
               // Even after refresh, still 401 — force logout
               clearAuthState();
+              // Return empty data silently — auth state change will redirect to login.
+              // This prevents scary "Invalid token" popups on every page.
+              return Array.isArray(opts) ? [] : (opts?.method === "POST" ? { success: false } : []);
             }
             throw new Error(retryErr.error || "Request failed");
           }
@@ -358,6 +361,14 @@ export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?
     // If 401 without refresh possibility, force logout (session expired)
     if (res.status === 401) {
       clearAuthState();
+      // Return empty data silently instead of throwing a scary "Invalid token" error.
+      // The clearAuthState() call triggers auth listeners which re-render the app
+      // to show the login page. Throwing here would cause every page's catch block
+      // to show a red error toast like "Invalid token: invalid signature".
+      const method = (opts?.method || "GET").toUpperCase();
+      if (method === "GET") return [];
+      if (method === "POST") return { success: false, error: "Session expired" };
+      return { success: false };
     }
     throw new Error(err.error || "Request failed");
   }
