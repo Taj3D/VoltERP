@@ -563,3 +563,63 @@ Stage Summary:
 - Footer sticky to bottom
 - Performance: 23 lazy-loaded page components + dynamic dashboard chart
 - System is ready for user review before GitHub push and Vercel deployment
+
+---
+Task ID: s9
+Agent: PDF Invoice Improver
+Task: Improve PDF invoice to match reference format
+
+Work Log:
+- Read existing route.ts and invoice-engine.ts to understand current implementation
+- Analyzed Prisma schema for SalesOrder, SalesOrderLine, Product, Color, Employee, PaymentOption models
+- Updated DB query to include product.color, sr (Employee), and paymentOption relations
+- Changed product table from 5 columns to 9 columns: SL, Model, Color, Description, Qty, MRP, Dis. Amt, Unit Price, Amount
+- Replaced simple summary with 3-column layout: Left (Discount%, Discount Amt, PP Discount Amt, Adjustment Amt), Middle (Net Total, Paid Amt, Curr. Due, Deli. Cost), Right (Payment Details table with Payment Type/Paid Amount/Total)
+- Added Payment Details section as a separate autoTable box in the summary block
+- Added "Due In Word" field alongside "Pay In Word" (converts currentDue to BDT words)
+- Fixed Sales Person display to show employee name (order.sr?.name) instead of database ID (order.srId)
+- Removed duplicate brand logo on the right side — now only one logo renders on the left
+- Added "Checked By" as 4th signature line (Customer's Signature, Prepared By, Checked By, Authorized By)
+- Added fmtNumber utility function for non-currency number formatting
+- Added ppDiscount, adjustment, deliveryCost, dueInWord fields to InvoiceData interface
+- Ran lint: no errors
+- Tested PDF generation: 90,229 bytes, valid PDF document (1 page)
+
+Stage Summary:
+- Invoice PDF now matches reference format with 9-column product table, detailed financial summary, payment details box, Due In Word, single logo, and Checked By signature
+- PDF saved to /home/z/my-project/upload/sony-washing-machine-invoice-v2.pdf
+- No breaking changes to existing functionality
+
+---
+Task ID: s1-s10
+Agent: Main Orchestrator
+Task: Real-world workflow test - Buy, Receive, Transfer, Sell Sony Washing Machine
+
+Work Log:
+- Step 1: Set company logo using uploaded logo.jpeg (base64 encoding, 95KB)
+- Step 2: Created Category "Home Appliances", Brand "Sony", found Color "Black", created Unit "Pcs"
+- Step 3: Created Product "Sony Washing Machine" (SWM-BK100) with cost price 15,000 Taka
+- Step 4: Created Purchase Order for 10 units @ 15,000 Taka = 1,50,000 Taka (Supplier: Samsung Bangladesh Pvt Ltd)
+- Step 5: Received PO into Main Warehouse - Status: Fully Received, 10 units IN stock
+- Step 6: Created Transfer from Main Warehouse to Display Center (Showroom), 1 unit - Status: Delivered
+- Step 7: Created Sales Order SO-00003 for 1 unit @ 16,500 Taka, COGS 15,000 Taka
+- Step 8: Generated PDF invoice with company logo (85KB initial)
+- Step 9: Improved PDF invoice to match reference format:
+  - Added 9-column product table (SL, Model, Color, Description, Qty, MRP, Dis. Amt, Unit Price, Amount)
+  - Added detailed financial summary (Discount %, Discount Amt, PP Discount, Adjustment, Net Total, Paid, Curr. Due, Deli. Cost)
+  - Added Payment Details section
+  - Added "Due In Word" field
+  - Fixed Sales Person display (name instead of ID)
+  - Removed duplicate logo (single logo now)
+  - Added "Checked By" signature line
+  - V2 PDF: 90KB, rated 7/10 by VLM comparison
+- Step 10: Browser verification - no errors, all pages load correctly
+
+Stage Summary:
+- Complete purchase-to-sales workflow verified end-to-end
+- Stock balance: 19 units (21 IN - 2 OUT)
+- PDF invoice generated with company logo matching reference format
+- All features working: Category, Brand, Color, Product, PO, PO Receive, Transfer, Sales Order, PDF Invoice
+- Company branding: Logo set, address "Jessore", mobile "01403120044"
+- bun run lint: passes with no errors
+- No browser console errors

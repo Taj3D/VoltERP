@@ -1,9 +1,8 @@
 // ============================================================
 // INVOICE PDF GENERATION API
-// Generates a professional sales invoice PDF with company logo
-// Fixed: Logo rendering, title, item table, customer details,
-// Bengali fallback, date format, VAT, Pay In Word, signatures,
-// layout, system note
+// Generates a professional sales invoice PDF matching reference format
+// Features: 9-column product table, detailed financial summary,
+// payment details box, Due In Word, single logo, Checked By signature
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -62,11 +61,15 @@ interface InvoiceData {
   items: InvoiceLineItem[];
   discountPercent?: number;
   discountAmount?: number;
+  ppDiscount?: number;
+  adjustment?: number;
   netTotal: number;
   paidAmount: number;
   currentDue: number;
+  deliveryCost?: number;
   paymentDetails?: InvoicePaymentDetail[];
   payInWord?: string;
+  dueInWord?: string;
   remarks?: string;
   barcodeData?: string;
   printedBy?: string;
@@ -93,6 +96,13 @@ function fmtCurrency(value: number | undefined | null): string {
   const num = Number(value);
   if (isNaN(num)) return '—';
   return toLatinDigits(`Tk. ${bdtFormatter.format(num)}`);
+}
+
+function fmtNumber(value: number | undefined | null): string {
+  if (value === null || value === undefined) return '—';
+  const num = Number(value);
+  if (isNaN(num)) return '—';
+  return toLatinDigits(bdtFormatter.format(num));
 }
 
 function fmtDate(dateStr: string | undefined | null): string {
@@ -127,6 +137,10 @@ function getSafeThankYouMsg(msg: string | undefined): string {
   return msg;
 }
 
+// ============================================================
+// HELPER: Draw Company Header Section (Single Logo)
+// ============================================================
+
 function drawCompanyHeader(
   doc: jsPDF,
   company: InvoiceCompanyProfile,
@@ -137,35 +151,20 @@ function drawCompanyHeader(
   const logoH = company.logoHeight || 20;
   let textStartX = MARGIN_LEFT;
 
-  // Draw company logo (left side)
+  // Draw company logo (left side only — no duplicate brand logo on right)
   if (company.logo) {
     try {
       let dataUrl = company.logo;
       if (!dataUrl.startsWith('data:')) {
-        // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
         const isJpeg = dataUrl.startsWith('/9j/');
         dataUrl = `data:image/${isJpeg ? 'jpeg' : 'png'};base64,${dataUrl}`;
       }
-      // Detect format from data URL
       const format = dataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
       doc.addImage(dataUrl, format, MARGIN_LEFT, y, logoW, logoH);
       textStartX = MARGIN_LEFT + logoW + 4;
     } catch {
       textStartX = MARGIN_LEFT;
     }
-  }
-
-  // Draw brand logo on the right side
-  if (company.brandLogo) {
-    try {
-      let brandDataUrl = company.brandLogo;
-      if (!brandDataUrl.startsWith('data:')) {
-        const isBrandJpeg = brandDataUrl.startsWith('/9j/');
-        brandDataUrl = `data:image/${isBrandJpeg ? 'jpeg' : 'png'};base64,${brandDataUrl}`;
-      }
-      const format = brandDataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
-      doc.addImage(brandDataUrl, format, PAGE_WIDTH - MARGIN_RIGHT - logoW, y, logoW, logoH);
-    } catch { /* skip */ }
   }
 
   // Company Name
@@ -206,7 +205,7 @@ function drawCompanyHeader(
     y += 5;
   }
 
-  // VAT Number (always show if set)
+  // VAT Number
   if (company.vatNumber) {
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
@@ -249,6 +248,10 @@ function drawCompanyHeader(
 
   return y;
 }
+
+// ============================================================
+// HELPER: Draw Metadata Grid
+// ============================================================
 
 function drawMetadataGrid(doc: jsPDF, invoice: InvoiceData, startY: number): number {
   let y = startY;
@@ -318,13 +321,22 @@ function drawMetadataGrid(doc: jsPDF, invoice: InvoiceData, startY: number): num
   return y + gridHeight + 3;
 }
 
+// ============================================================
+// HELPER: Draw Items Table (9 columns matching reference format)
+// SL | Model | Color | Description | Qty | MRP | Dis. Amt | Unit Price | Amount
+// ============================================================
+
 function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): number {
   const columns = [
-    { header: 'SL', width: 10, key: 'sl', align: 'center' as const },
-    { header: 'Description', width: 75, key: 'description', align: 'left' as const },
-    { header: 'Qty', width: 18, key: 'qty', align: 'center' as const },
-    { header: 'Unit Price', width: 32, key: 'unitPrice', align: 'right' as const },
-    { header: 'Amount', width: 32, key: 'amount', align: 'right' as const },
+    { header: 'SL', width: 8, key: 'sl', align: 'center' as const },
+    { header: 'Model', width: 20, key: 'model', align: 'left' as const },
+    { header: 'Color', width: 16, key: 'color', align: 'left' as const },
+    { header: 'Description', width: 40, key: 'description', align: 'left' as const },
+    { header: 'Qty', width: 12, key: 'qty', align: 'center' as const },
+    { header: 'MRP', width: 22, key: 'mrp', align: 'right' as const },
+    { header: 'Dis. Amt', width: 22, key: 'discountAmt', align: 'right' as const },
+    { header: 'Unit Price', width: 22, key: 'unitPrice', align: 'right' as const },
+    { header: 'Amount', width: 22, key: 'amount', align: 'right' as const },
   ];
 
   // Scale columns to fill content width
@@ -338,18 +350,67 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
   const columnStyles: Record<number, any> = {};
   columns.forEach((c, i) => { columnStyles[i] = { cellWidth: c.width, halign: c.align }; });
 
-  const body = items.map(item => [
-    String(item.sl),
-    safeStr(item.description, 'Item'),
-    String(item.qty),
-    fmtCurrency(item.unitPrice),
-    fmtCurrency(item.amount),
-  ]);
+  const body = items.map(item => {
+    const row: string[] = [];
+    for (const col of columns) {
+      switch (col.key) {
+        case 'sl':
+          row.push(String(item.sl));
+          break;
+        case 'model':
+          row.push(safeStr(item.model));
+          break;
+        case 'color':
+          row.push(safeStr(item.color));
+          break;
+        case 'description':
+          row.push(safeStr(item.description, 'Item'));
+          break;
+        case 'qty':
+          row.push(String(item.qty));
+          break;
+        case 'mrp':
+          row.push(fmtCurrency(item.mrp));
+          break;
+        case 'discountAmt':
+          row.push(item.discountAmt ? fmtCurrency(item.discountAmt) : '—');
+          break;
+        case 'unitPrice':
+          row.push(fmtCurrency(item.unitPrice));
+          break;
+        case 'amount':
+          row.push(fmtCurrency(item.amount));
+          break;
+        default:
+          row.push('');
+      }
+    }
+    return row;
+  });
 
   // Total row
   const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
   const totalAmount = items.reduce((sum, i) => sum + i.amount, 0);
-  body.push(['', 'Total', String(totalQty), '', fmtCurrency(totalAmount)]);
+  const totalRow: string[] = [];
+  for (const col of columns) {
+    switch (col.key) {
+      case 'sl':
+        totalRow.push('');
+        break;
+      case 'description':
+        totalRow.push('Total');
+        break;
+      case 'qty':
+        totalRow.push(String(totalQty));
+        break;
+      case 'amount':
+        totalRow.push(fmtCurrency(totalAmount));
+        break;
+      default:
+        totalRow.push('');
+    }
+  }
+  body.push(totalRow);
 
   autoTable(doc, {
     head: [headers],
@@ -357,8 +418,8 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
     startY,
     margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: 10 },
     styles: {
-      fontSize: 8,
-      cellPadding: 2.5,
+      fontSize: 7,
+      cellPadding: 2,
       textColor: [30, 41, 59],
       lineWidth: 0.2,
       lineColor: [203, 213, 225],
@@ -368,9 +429,9 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
       fillColor: [10, 22, 40],
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 8,
+      fontSize: 7,
       halign: 'center',
-      cellPadding: 2.5,
+      cellPadding: 2,
     },
     columnStyles,
     didParseCell: (data: any) => {
@@ -385,6 +446,11 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
   return lastTable ? lastTable.finalY + 3 : startY + 30;
 }
 
+// ============================================================
+// HELPER: Draw Summary Block (3-column layout matching reference)
+// Left: Discount/Adjustment | Middle: Net Totals | Right: Payment Details
+// ============================================================
+
 function drawSummaryBlock(doc: jsPDF, invoice: InvoiceData, startY: number): number {
   let y = startY;
 
@@ -393,30 +459,120 @@ function drawSummaryBlock(doc: jsPDF, invoice: InvoiceData, startY: number): num
   doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
   y += 3;
 
-  doc.setFontSize(9);
+  const colWidth = CONTENT_WIDTH / 3;
+  const leftX = MARGIN_LEFT;
+  const midX = MARGIN_LEFT + colWidth;
+  const rightX = MARGIN_LEFT + colWidth * 2;
+  const rowHeight = 5.5;
+
+  doc.setFontSize(8);
   doc.setTextColor(10, 22, 40);
 
-  const summaryItems: Array<{ label: string; value: string; bold?: boolean }> = [];
+  // ── LEFT SECTION: Discount & Adjustments ──
+  const leftItems: Array<{ label: string; value: string }> = [];
 
+  if (invoice.discountPercent !== undefined && invoice.discountPercent > 0) {
+    leftItems.push({ label: 'Discount (%):', value: fmtNumber(invoice.discountPercent) });
+  }
   if (invoice.discountAmount !== undefined && invoice.discountAmount > 0) {
-    summaryItems.push({ label: 'Discount:', value: fmtCurrency(invoice.discountAmount) });
+    leftItems.push({ label: 'Discount Amt.:', value: fmtCurrency(invoice.discountAmount) });
   }
-  summaryItems.push({ label: 'Net Total:', value: fmtCurrency(invoice.netTotal), bold: true });
-  summaryItems.push({ label: 'Paid Amount:', value: fmtCurrency(invoice.paidAmount) });
-  if (invoice.currentDue > 0) {
-    summaryItems.push({ label: 'Current Due:', value: fmtCurrency(invoice.currentDue), bold: true });
+  if (invoice.ppDiscount !== undefined && invoice.ppDiscount > 0) {
+    leftItems.push({ label: 'PP Discount Amt:', value: fmtCurrency(invoice.ppDiscount) });
+  }
+  if (invoice.adjustment !== undefined && invoice.adjustment !== 0) {
+    leftItems.push({ label: 'Adjustment Amt:', value: fmtCurrency(invoice.adjustment) });
   }
 
-  for (const item of summaryItems) {
+  let rowY = y + 2;
+  for (const item of leftItems) {
     doc.setFont('helvetica', 'bold');
-    doc.text(item.label, MARGIN_LEFT + 2, y + 4);
-    doc.setFont('helvetica', item.bold ? 'bold' : 'normal');
-    doc.text(item.value, MARGIN_LEFT + 45, y + 4);
-    y += 6;
+    doc.text(item.label, leftX + 2, rowY + 3);
+    doc.setFont('helvetica', 'normal');
+    doc.text(item.value, leftX + 35, rowY + 3);
+    rowY += rowHeight;
   }
 
-  return y + 2;
+  // ── MIDDLE SECTION: Totals ──
+  const midItems: Array<{ label: string; value: string; bold?: boolean }> = [];
+
+  midItems.push({ label: 'Net Total:', value: fmtCurrency(invoice.netTotal), bold: true });
+  midItems.push({ label: 'Paid Amt:', value: fmtCurrency(invoice.paidAmount) });
+  midItems.push({ label: 'Curr. Due:', value: fmtCurrency(invoice.currentDue), bold: true });
+  if (invoice.deliveryCost !== undefined && invoice.deliveryCost > 0) {
+    midItems.push({ label: 'Deli. Cost:', value: fmtCurrency(invoice.deliveryCost) });
+  }
+
+  rowY = y + 2;
+  for (const item of midItems) {
+    doc.setFont('helvetica', 'bold');
+    doc.text(item.label, midX + 2, rowY + 3);
+    doc.setFont('helvetica', item.bold ? 'bold' : 'normal');
+    doc.text(item.value, midX + 28, rowY + 3);
+    rowY += rowHeight;
+  }
+
+  // ── RIGHT SECTION: Payment Details Box ──
+  if (invoice.paymentDetails && invoice.paymentDetails.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('Payment Details', rightX + 2, y + 4);
+
+    const paymentHeaders = ['Payment Type', 'Paid Amount'];
+    const paymentBody = invoice.paymentDetails.map(pd => [
+      safeStr(pd.paymentType),
+      fmtCurrency(pd.paidAmount),
+    ]);
+
+    // Add total row
+    const totalPaid = invoice.paymentDetails.reduce((sum, pd) => sum + pd.paidAmount, 0);
+    paymentBody.push(['Total', fmtCurrency(totalPaid)]);
+
+    autoTable(doc, {
+      head: [paymentHeaders],
+      body: paymentBody,
+      startY: y + 6,
+      margin: { left: rightX, right: MARGIN_RIGHT, bottom: 10 },
+      styles: {
+        fontSize: 7,
+        cellPadding: 1.5,
+        textColor: [30, 41, 59],
+        lineWidth: 0.15,
+        lineColor: [203, 213, 225],
+      },
+      headStyles: {
+        fillColor: [10, 22, 40],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7,
+        cellPadding: 2,
+      },
+      columnStyles: {
+        0: { cellWidth: colWidth * 0.55, halign: 'left' },
+        1: { cellWidth: colWidth * 0.45, halign: 'right' },
+      },
+      didParseCell: (data: any) => {
+        // Bold the total row in payment details
+        if (data.row.index === paymentBody.length - 1 && data.section === 'body') {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [240, 244, 252];
+        }
+      },
+    });
+  }
+
+  const leftEndY = y + 2 + leftItems.length * rowHeight;
+  const midEndY = y + 2 + midItems.length * rowHeight;
+  const lastTable = (doc as any).lastAutoTable;
+  const tableEndY = lastTable ? lastTable.finalY + 2 : y + 20;
+
+  return Math.max(leftEndY, midEndY, tableEndY) + 3;
 }
+
+// ============================================================
+// HELPER: Draw Footer Section
+// Features: Pay In Word, Due In Word, 4 signature lines (incl. Checked By)
+// ============================================================
 
 function drawFooterSection(
   doc: jsPDF,
@@ -434,10 +590,23 @@ function drawFooterSection(
     doc.setTextColor(10, 22, 40);
     doc.text('Pay In Word:', MARGIN_LEFT + 2, y + 3);
     doc.setFont('helvetica', 'normal');
-    // Split long text across lines if needed
-    const maxTextWidth = CONTENT_WIDTH - 28;
+    const maxTextWidth = CONTENT_WIDTH - 30;
     const lines = doc.splitTextToSize(payInWordText, maxTextWidth);
-    doc.text(lines, MARGIN_LEFT + 28, y + 3);
+    doc.text(lines, MARGIN_LEFT + 30, y + 3);
+    y += 4 + lines.length * 4;
+  }
+
+  // ── Due In Word ──
+  if (invoice.currentDue > 0 && company.showPayInWord !== false) {
+    const dueInWordText = invoice.dueInWord || numberToWordsBDT(invoice.currentDue);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(10, 22, 40);
+    doc.text('Due In Word:', MARGIN_LEFT + 2, y + 3);
+    doc.setFont('helvetica', 'normal');
+    const maxTextWidth = CONTENT_WIDTH - 30;
+    const lines = doc.splitTextToSize(dueInWordText, maxTextWidth);
+    doc.text(lines, MARGIN_LEFT + 30, y + 3);
     y += 4 + lines.length * 4;
   }
 
@@ -456,8 +625,8 @@ function drawFooterSection(
   doc.text(thankYouMsg, PAGE_WIDTH / 2 - thankYouWidth / 2, y);
   y += 7;
 
-  // Signature lines (3 columns: Customer, Prepared By, Authorized By)
-  const sigSectionWidth = CONTENT_WIDTH / 3;
+  // Signature lines (4 columns: Customer, Prepared By, Checked By, Authorized By)
+  const sigSectionWidth = CONTENT_WIDTH / 4;
   const sigY = y + 12;
 
   doc.setDrawColor(150, 150, 150);
@@ -466,16 +635,17 @@ function drawFooterSection(
   const signatureItems = [
     { label: "Customer's Signature", x: MARGIN_LEFT },
     { label: 'Prepared By', x: MARGIN_LEFT + sigSectionWidth },
-    { label: 'Authorized By', x: MARGIN_LEFT + sigSectionWidth * 2 },
+    { label: 'Checked By', x: MARGIN_LEFT + sigSectionWidth * 2 },
+    { label: 'Authorized By', x: MARGIN_LEFT + sigSectionWidth * 3 },
   ];
 
   for (const sig of signatureItems) {
-    doc.line(sig.x, sigY, sig.x + sigSectionWidth - 15, sigY);
+    doc.line(sig.x, sigY, sig.x + sigSectionWidth - 10, sigY);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
     const labelWidth = doc.getTextWidth(sig.label);
-    doc.text(sig.label, sig.x + (sigSectionWidth - 15) / 2 - labelWidth / 2, sigY + 4);
+    doc.text(sig.label, sig.x + (sigSectionWidth - 10) / 2 - labelWidth / 2, sigY + 4);
   }
 
   y = sigY + 8;
@@ -507,6 +677,10 @@ function drawFooterSection(
   return y + 5;
 }
 
+// ============================================================
+// API ROUTE: GET /api/sales-orders/invoice-pdf?id=xxx
+// ============================================================
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'SalesOrders', 'GET');
   if (!security.authorized) return security.response;
@@ -519,7 +693,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sales order ID is required' }, { status: 400 });
     }
 
-    // Fetch the sales order with all details
+    // Fetch the sales order with all details including product color, SR employee, and payment option
     const order = await db.salesOrder.findUnique({
       where: { id: salesOrderId },
       include: {
@@ -530,11 +704,14 @@ export async function GET(request: NextRequest) {
               include: {
                 category: true,
                 brand: true,
+                color: true,
               },
             },
           },
         },
         godown: true,
+        sr: true,
+        paymentOption: true,
       },
     });
 
@@ -569,6 +746,27 @@ export async function GET(request: NextRequest) {
       showPayInWord: true,
     };
 
+    // Calculate paid amount: for Completed/Delivered orders, paid = grandTotal
+    // For other statuses, paid could be partial — default to grandTotal
+    const netTotal = Number(order.grandTotal);
+    const paidAmount = Number(order.grandTotal); // Default: fully paid
+    const currentDue = netTotal - paidAmount;
+
+    // Build payment details from the sales order's payment option
+    const paymentDetails: InvoicePaymentDetail[] = [];
+    if (order.paymentOption) {
+      paymentDetails.push({
+        paymentType: order.paymentOption.name,
+        paidAmount: paidAmount,
+      });
+    } else {
+      // Default payment type
+      paymentDetails.push({
+        paymentType: 'Cash',
+        paidAmount: paidAmount,
+      });
+    }
+
     // Build invoice data
     const invoice: InvoiceData = {
       invoiceNo: order.invoiceNo || `SO-${String(order.id).padStart(5, '0')}`,
@@ -578,43 +776,51 @@ export async function GET(request: NextRequest) {
       customerMobile: order.customer?.phone || undefined,
       customerAddress: order.customer?.address || undefined,
       prevDue: 0,
-      totalDue: Number(order.grandTotal),
+      totalDue: netTotal,
       items: order.lines.map((line, idx) => ({
         sl: idx + 1,
+        model: line.product?.sku || '',
+        color: line.product?.color?.name || '',
         description: line.product?.name || 'Item',
-        model: line.product?.sku || undefined,
         qty: line.quantity,
+        mrp: line.product?.salePrice ? Number(line.product.salePrice) : Number(line.rate),
+        discountAmt: line.discountAmount ? Number(line.discountAmount) : (line.discountPercent ? Number(line.rate) * line.quantity * Number(line.discountPercent) / 100 : 0),
         unitPrice: Number(line.rate),
         amount: Number(line.total),
       })),
       discountPercent: order.discountPercent ? Number(order.discountPercent) : undefined,
       discountAmount: order.discount ? Number(order.discount) : undefined,
-      netTotal: Number(order.grandTotal),
-      paidAmount: Number(order.grandTotal),
-      currentDue: 0,
-      payInWord: numberToWordsBDT(Number(order.grandTotal)),
+      ppDiscount: undefined,
+      adjustment: undefined,
+      netTotal,
+      paidAmount,
+      currentDue,
+      deliveryCost: undefined,
+      paymentDetails,
+      payInWord: numberToWordsBDT(netTotal),
+      dueInWord: currentDue > 0 ? numberToWordsBDT(currentDue) : undefined,
       barcodeData: order.invoiceNo,
       printedBy: security.user?.name || undefined,
-      salesPerson: order.srId || undefined,
+      salesPerson: order.sr?.name || undefined,
       invoiceType: 'Sales Invoice',
     };
 
     // Generate PDF
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-    // 1. Company Header
+    // 1. Company Header (single logo)
     let y = drawCompanyHeader(doc, companyProfile, invoice.invoiceType);
 
     // 2. Metadata Grid
     y = drawMetadataGrid(doc, invoice, y);
 
-    // 3. Items Table
+    // 3. Items Table (9 columns)
     y = drawItemsTable(doc, invoice.items, y);
 
-    // 4. Summary Block
+    // 4. Summary Block (3-column: discounts | totals | payment details)
     y = drawSummaryBlock(doc, invoice, y);
 
-    // 5. Footer Section (follows content flow — no excessive white space)
+    // 5. Footer Section (Pay In Word, Due In Word, 4 signatures incl. Checked By)
     drawFooterSection(doc, invoice, companyProfile, y);
 
     // Generate PDF buffer

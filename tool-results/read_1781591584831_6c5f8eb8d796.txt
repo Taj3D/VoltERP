@@ -1,0 +1,1162 @@
+     1→     1→// ============================================================
+     2→     2→// VoltERP — ELECTRONICS MART IMS
+     3→     3→// Dynamic Invoice PDF Engine (Client-Side)
+     4→     4→// Fixed: Logo rendering, title, item table, customer details,
+     5→     5→// Bengali fallback, date format, VAT, Pay In Word, signatures,
+     6→     6→// layout, system note — matches server-side route.ts
+     7→     7→// ============================================================
+     8→     8→
+     9→     9→import { jsPDF } from "jspdf";
+    10→    10→import { autoTable } from "jspdf-autotable";
+    11→    11→import { toLatinDigits } from "@/lib/number-format";
+    12→    12→import { getCachedCompanyProfile } from "@/lib/company-branding-cache";
+    13→    13→
+    14→    14→// ============================================================
+    15→    15→// TYPES
+    16→    16→// ============================================================
+    17→    17→
+    18→    18→export interface InvoiceCompanyProfile {
+    19→    19→  name: string;
+    20→    20→  address?: string;
+    21→    21→  phone?: string;
+    22→    22→  mobile?: string;
+    23→    23→  email?: string;
+    24→    24→  logo?: string;
+    25→    25→  brandLogo?: string;
+    26→    26→  logoWidth?: number;
+    27→    27→  logoHeight?: number;
+    28→    28→  vatNumber?: string;
+    29→    29→  tradeLicense?: string;
+    30→    30→  thankYouMsg?: string;
+    31→    31→  systemNote?: string;
+    32→    32→  showBarcode?: boolean;
+    33→    33→  showPayInWord?: boolean;
+    34→    34→}
+    35→    35→
+    36→    36→export interface InvoiceTemplateConfig {
+    37→    37→  showLogo?: boolean;
+    38→    38→  showBrandLogo?: boolean;
+    39→    39→  showMobile?: boolean;
+    40→    40→  showAddress?: boolean;
+    41→    41→  showVatNumber?: boolean;
+    42→    42→  showTradeLicense?: boolean;
+    43→    43→  showCustomerCode?: boolean;
+    44→    44→  showPrevDue?: boolean;
+    45→    45→  showTotalDue?: boolean;
+    46→    46→  showRemindDate?: boolean;
+    47→    47→  showModel?: boolean;
+    48→    48→  showColor?: boolean;
+    49→    49→  showDescription?: boolean;
+    50→    50→  showMRP?: boolean;
+    51→    51→  showDiscountAmt?: boolean;
+    52→    52→  showUnitPrice?: boolean;
+    53→    53→  showDiscountPct?: boolean;
+    54→    54→  showPPDiscount?: boolean;
+    55→    55→  showAdjustment?: boolean;
+    56→    56→  showDeliveryCost?: boolean;
+    57→    57→  showPaymentDetails?: boolean;
+    58→    58→  showCustomerSignature?: boolean;
+    59→    59→  showPreparedBy?: boolean;
+    60→    60→  showCheckedBy?: boolean;
+    61→    61→  showAuthorizedBy?: boolean;
+    62→    62→  showPrintedBy?: boolean;
+    63→    63→  showSalesPerson?: boolean;
+    64→    64→  showPrintDate?: boolean;
+    65→    65→  termsAndConditions?: string;
+    66→    66→  customFooterNote?: string;
+    67→    67→}
+    68→    68→
+    69→    69→export interface InvoiceLineItem {
+    70→    70→  sl: number;
+    71→    71→  model?: string;
+    72→    72→  color?: string;
+    73→    73→  description?: string;
+    74→    74→  qty: number;
+    75→    75→  mrp?: number;
+    76→    76→  discountAmt?: number;
+    77→    77→  unitPrice: number;
+    78→    78→  amount: number;
+    79→    79→}
+    80→    80→
+    81→    81→export interface InvoicePaymentDetail {
+    82→    82→  paymentType: string;
+    83→    83→  paidAmount: number;
+    84→    84→}
+    85→    85→
+    86→    86→export interface InvoiceData {
+    87→    87→  invoiceNo: string;
+    88→    88→  invoiceDate: string;
+    89→    89→  customerCode?: string;
+    90→    90→  customerName: string;
+    91→    91→  customerMobile?: string;
+    92→    92→  customerAddress?: string;
+    93→    93→  prevDue?: number;
+    94→    94→  totalDue?: number;
+    95→    95→  remindDate?: string;
+    96→    96→  items: InvoiceLineItem[];
+    97→    97→  discountPercent?: number;
+    98→    98→  discountAmount?: number;
+    99→    99→  ppDiscount?: number;
+   100→   100→  adjustment?: number;
+   101→   101→  netTotal: number;
+   102→   102→  paidAmount: number;
+   103→   103→  currentDue: number;
+   104→   104→  deliveryCost?: number;
+   105→   105→  paymentDetails?: InvoicePaymentDetail[];
+   106→   106→  payInWord?: string;
+   107→   107→  dueInWord?: string;
+   108→   108→  remarks?: string;
+   109→   109→  barcodeData?: string;
+   110→   110→  printedBy?: string;
+   111→   111→  salesPerson?: string;
+   112→   112→  invoiceType: string;
+   113→   113→}
+   114→   114→
+   115→   115→export interface InvoicePDFOptions {
+   116→   116→  company: InvoiceCompanyProfile;
+   117→   117→  template: InvoiceTemplateConfig;
+   118→   118→  invoice: InvoiceData;
+   119→   119→  filename?: string;
+   120→   120→  isVatAuditor?: boolean;
+   121→   121→  vatMaskedFields?: string[];
+   122→   122→}
+   123→   123→
+   124→   124→// ============================================================
+   125→   125→// CONSTANTS
+   126→   126→// ============================================================
+   127→   127→
+   128→   128→const PAGE_WIDTH = 210;
+   129→   129→const PAGE_HEIGHT = 297;
+   130→   130→const MARGIN_LEFT = 10;
+   131→   131→const MARGIN_RIGHT = 10;
+   132→   132→const MARGIN_TOP = 8;
+   133→   133→const MARGIN_BOTTOM = 8;
+   134→   134→const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT;
+   135→   135→
+   136→   136→const VAT_MASKING_SENTINEL = "N/A (Audit Mode)";
+   137→   137→
+   138→   138→// ============================================================
+   139→   139→// UTILITY: Number to Words (BDT Format)
+   140→   140→// ============================================================
+   141→   141→
+   142→   142→const ONES = [
+   143→   143→  "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+   144→   144→  "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+   145→   145→  "Seventeen", "Eighteen", "Nineteen",
+   146→   146→];
+   147→   147→
+   148→   148→const TENS = [
+   149→   149→  "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
+   150→   150→];
+   151→   151→
+   152→   152→function convertHundreds(num: number): string {
+   153→   153→  if (num === 0) return "";
+   154→   154→  let result = "";
+   155→   155→  if (num >= 100) {
+   156→   156→    result += ONES[Math.floor(num / 100)] + " Hundred";
+   157→   157→    num %= 100;
+   158→   158→    if (num > 0) result += " ";
+   159→   159→  }
+   160→   160→  if (num >= 20) {
+   161→   161→    result += TENS[Math.floor(num / 10)];
+   162→   162→    num %= 10;
+   163→   163→    if (num > 0) result += " " + ONES[num];
+   164→   164→  } else if (num > 0) {
+   165→   165→    result += ONES[num];
+   166→   166→  }
+   167→   167→  return result;
+   168→   168→}
+   169→   169→
+   170→   170→export function numberToWordsBDT(amount: number): string {
+   171→   171→  if (amount === 0) return "Taka Zero Only";
+   172→   172→
+   173→   173→  const isNegative = amount < 0;
+   174→   174→  const absAmount = Math.abs(amount);
+   175→   175→  const taka = Math.floor(absAmount);
+   176→   176→  const paisa = Math.round((absAmount - taka) * 100);
+   177→   177→
+   178→   178→  let takaWords = "";
+   179→   179→
+   180→   180→  if (taka === 0) {
+   181→   181→    takaWords = "Zero";
+   182→   182→  } else {
+   183→   183→    if (taka >= 10000000) {
+   184→   184→      const crore = Math.floor(taka / 10000000);
+   185→   185→      takaWords += convertHundreds(crore) + " Crore";
+   186→   186→      const remainder = taka % 10000000;
+   187→   187→      if (remainder > 0) takaWords += " ";
+   188→   188→    }
+   189→   189→    const afterCrore = taka % 10000000;
+   190→   190→    if (afterCrore >= 100000) {
+   191→   191→      const lakh = Math.floor(afterCrore / 100000);
+   192→   192→      takaWords += convertHundreds(lakh) + " Lakh";
+   193→   193→      const remainder = afterCrore % 100000;
+   194→   194→      if (remainder > 0) takaWords += " ";
+   195→   195→    }
+   196→   196→    const afterLakh = afterCrore % 100000;
+   197→   197→    if (afterLakh >= 1000) {
+   198→   198→      const thousand = Math.floor(afterLakh / 1000);
+   199→   199→      takaWords += convertHundreds(thousand) + " Thousand";
+   200→   200→      const remainder = afterLakh % 1000;
+   201→   201→      if (remainder > 0) takaWords += " ";
+   202→   202→    }
+   203→   203→    const belowThousand = afterLakh % 1000;
+   204→   204→    if (belowThousand > 0) {
+   205→   205→      takaWords += convertHundreds(belowThousand);
+   206→   206→    }
+   207→   207→  }
+   208→   208→
+   209→   209→  let result = "";
+   210→   210→  if (isNegative) result += "Minus ";
+   211→   211→
+   212→   212→  if (paisa > 0) {
+   213→   213→    result += "Taka " + takaWords + " and Paisa " + convertHundreds(paisa) + " Only";
+   214→   214→  } else {
+   215→   215→    result += "Taka " + takaWords + " Only";
+   216→   216→  }
+   217→   217→
+   218→   218→  return result.trim().replace(/\s+/g, " ");
+   219→   219→}
+   220→   220→
+   221→   221→// ============================================================
+   222→   222→// UTILITY FUNCTIONS
+   223→   223→// ============================================================
+   224→   224→
+   225→   225→const invoiceBdtFormatter = new Intl.NumberFormat("en-US", {
+   226→   226→  minimumFractionDigits: 2,
+   227→   227→  maximumFractionDigits: 2,
+   228→   228→  useGrouping: true,
+   229→   229→});
+   230→   230→
+   231→   231→function fmtCurrency(value: number | undefined | null, isMasked?: boolean): string {
+   232→   232→  if (isMasked) return VAT_MASKING_SENTINEL;
+   233→   233→  if (value === null || value === undefined) return "\u2014";
+   234→   234→  const num = Number(value);
+   235→   235→  if (isNaN(num)) return "\u2014";
+   236→   236→  return toLatinDigits(`Tk. ${invoiceBdtFormatter.format(num)}`);
+   237→   237→}
+   238→   238→
+   239→   239→function fmtNumber(value: number | undefined | null): string {
+   240→   240→  if (value === null || value === undefined) return "\u2014";
+   241→   241→  const num = Number(value);
+   242→   242→  if (isNaN(num)) return "\u2014";
+   243→   243→  return toLatinDigits(invoiceBdtFormatter.format(num));
+   244→   244→}
+   245→   245→
+   246→   246→function fmtDate(dateStr: string | undefined | null): string {
+   247→   247→  if (!dateStr) return "\u2014";
+   248→   248→  try {
+   249→   249→    const d = new Date(dateStr);
+   250→   250→    if (isNaN(d.getTime())) return toLatinDigits(String(dateStr));
+   251→   251→    return toLatinDigits(d.toLocaleDateString("en-GB", {
+   252→   252→      day: "2-digit",
+   253→   253→      month: "short",
+   254→   254→      year: "numeric",
+   255→   255→    }));
+   256→   256→  } catch {
+   257→   257→    return toLatinDigits(String(dateStr));
+   258→   258→  }
+   259→   259→}
+   260→   260→
+   261→   261→function safeStr(value: string | undefined | null, fallback: string = ""): string {
+   262→   262→  if (value === null || value === undefined || value === "") return fallback;
+   263→   263→  return value;
+   264→   264→}
+   265→   265→
+   266→   266→function isFieldMasked(fieldName: string, isVatAuditor?: boolean, vatMaskedFields?: string[]): boolean {
+   267→   267→  if (!isVatAuditor) return false;
+   268→   268→  if (!vatMaskedFields || vatMaskedFields.length === 0) return false;
+   269→   269→  return vatMaskedFields.some((m) => m.toLowerCase() === fieldName.toLowerCase());
+   270→   270→}
+   271→   271→
+   272→   272→// Check if a string contains non-ASCII (e.g., Bengali) characters
+   273→   273→function hasNonAscii(str: string): boolean {
+   274→   274→  return /[^\x00-\x7F]/.test(str);
+   275→   275→}
+   276→   276→
+   277→   277→// Get a safe thank-you message (fallback for Bengali text that jsPDF can't render)
+   278→   278→function getSafeThankYouMsg(msg: string | undefined): string {
+   279→   279→  const fallback = "Thank You! Come Again.";
+   280→   280→  if (!msg) return fallback;
+   281→   281→  if (hasNonAscii(msg)) {
+   282→   282→    return fallback;
+   283→   283→  }
+   284→   284→  return msg;
+   285→   285→}
+   286→   286→
+   287→   287→// ============================================================
+   288→   288→// HELPER: Draw Company Header Section
+   289→   289→// ============================================================
+   290→   290→
+   291→   291→function drawCompanyHeader(
+   292→   292→  doc: jsPDF,
+   293→   293→  company: InvoiceCompanyProfile,
+   294→   294→  template: InvoiceTemplateConfig,
+   295→   295→  invoiceType: string
+   296→   296→): number {
+   297→   297→  let y = MARGIN_TOP;
+   298→   298→  const logoW = company.logoWidth || 30;
+   299→   299→  const logoH = company.logoHeight || 20;
+   300→   300→  let textStartX = MARGIN_LEFT;
+   301→   301→
+   302→   302→  // Draw company logo (left side)
+   303→   303→  if (company.logo && template.showLogo !== false) {
+   304→   304→    try {
+   305→   305→      let dataUrl = company.logo;
+   306→   306→      if (!dataUrl.startsWith("data:")) {
+   307→   307→        // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
+   308→   308→        const isJpeg = dataUrl.startsWith("/9j/");
+   309→   309→        dataUrl = `data:image/${isJpeg ? "jpeg" : "png"};base64,${dataUrl}`;
+   310→   310→      }
+   311→   311→      const format = dataUrl.includes("image/jpeg") ? "JPEG" : "PNG";
+   312→   312→      doc.addImage(dataUrl, format, MARGIN_LEFT, y, logoW, logoH);
+   313→   313→      textStartX = MARGIN_LEFT + logoW + 4;
+   314→   314→    } catch {
+   315→   315→      textStartX = MARGIN_LEFT;
+   316→   316→    }
+   317→   317→  }
+   318→   318→
+   319→   319→  // Draw brand logo on the right side
+   320→   320→  if (company.brandLogo && template.showBrandLogo !== false) {
+   321→   321→    try {
+   322→   322→      let brandDataUrl = company.brandLogo;
+   323→   323→      if (!brandDataUrl.startsWith("data:")) {
+   324→   324→        const isBrandJpeg = brandDataUrl.startsWith("/9j/");
+   325→   325→        brandDataUrl = `data:image/${isBrandJpeg ? "jpeg" : "png"};base64,${brandDataUrl}`;
+   326→   326→      }
+   327→   327→      const format = brandDataUrl.includes("image/jpeg") ? "JPEG" : "PNG";
+   328→   328→      doc.addImage(brandDataUrl, format, PAGE_WIDTH - MARGIN_RIGHT - logoW, y, logoW, logoH);
+   329→   329→    } catch { /* skip */ }
+   330→   330→  }
+   331→   331→
+   332→   332→  // Company Name
+   333→   333→  doc.setFontSize(16);
+   334→   334→  doc.setFont("helvetica", "bold");
+   335→   335→  doc.setTextColor(10, 22, 40);
+   336→   336→  doc.text(safeStr(company.name, "Company Name"), textStartX, y + 7);
+   337→   337→  y += 10;
+   338→   338→
+   339→   339→  // Address
+   340→   340→  if (company.address && template.showAddress !== false) {
+   341→   341→    doc.setFontSize(9);
+   342→   342→    doc.setFont("helvetica", "bold");
+   343→   343→    doc.text(company.address, textStartX, y + 3);
+   344→   344→    y += 6;
+   345→   345→  }
+   346→   346→
+   347→   347→  // Mobile
+   348→   348→  if (company.mobile && template.showMobile !== false) {
+   349→   349→    doc.setFontSize(9);
+   350→   350→    doc.setFont("helvetica", "bold");
+   351→   351→    doc.text(`Mobile: ${company.mobile}`, textStartX, y + 3);
+   352→   352→    y += 6;
+   353→   353→  } else if (company.phone) {
+   354→   354→    doc.setFontSize(9);
+   355→   355→    doc.setFont("helvetica", "bold");
+   356→   356→    doc.text(`Phone: ${company.phone}`, textStartX, y + 3);
+   357→   357→    y += 6;
+   358→   358→  }
+   359→   359→
+   360→   360→  // Email
+   361→   361→  if (company.email) {
+   362→   362→    doc.setFontSize(8);
+   363→   363→    doc.setFont("helvetica", "normal");
+   364→   364→    doc.setTextColor(80, 80, 80);
+   365→   365→    doc.text(company.email, textStartX, y + 3);
+   366→   366→    doc.setTextColor(10, 22, 40);
+   367→   367→    y += 5;
+   368→   368→  }
+   369→   369→
+   370→   370→  // VAT Number (always show if set — don't require template flag)
+   371→   371→  if (company.vatNumber) {
+   372→   372→    doc.setFontSize(8);
+   373→   373→    doc.setFont("helvetica", "normal");
+   374→   374→    doc.setTextColor(80, 80, 80);
+   375→   375→    doc.text(`VAT No: ${company.vatNumber}`, textStartX, y + 3);
+   376→   376→    doc.setTextColor(10, 22, 40);
+   377→   377→    y += 5;
+   378→   378→  }
+   379→   379→
+   380→   380→  // Trade License
+   381→   381→  if (company.tradeLicense && template.showTradeLicense) {
+   382→   382→    doc.setFontSize(8);
+   383→   383→    doc.setFont("helvetica", "normal");
+   384→   384→    doc.setTextColor(80, 80, 80);
+   385→   385→    doc.text(`Trade License: ${company.tradeLicense}`, textStartX, y + 3);
+   386→   386→    doc.setTextColor(10, 22, 40);
+   387→   387→    y += 5;
+   388→   388→  }
+   389→   389→
+   390→   390→  // Separator line
+   391→   391→  y += 2;
+   392→   392→  doc.setDrawColor(10, 22, 40);
+   393→   393→  doc.setLineWidth(0.5);
+   394→   394→  doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
+   395→   395→  y += 4;
+   396→   396→
+   397→   397→  // Invoice Title — centered, bold
+   398→   398→  doc.setFontSize(12);
+   399→   399→  doc.setFont("helvetica", "bold");
+   400→   400→  doc.setTextColor(10, 22, 40);
+   401→   401→  const titleText = safeStr(invoiceType, "Sales Invoice");
+   402→   402→  const titleWidth = doc.getTextWidth(titleText);
+   403→   403→  doc.text(titleText, PAGE_WIDTH / 2 - titleWidth / 2, y);
+   404→   404→  y += 3;
+   405→   405→
+   406→   406→  // Separator line
+   407→   407→  doc.setLineWidth(0.3);
+   408→   408→  doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
+   409→   409→  y += 4;
+   410→   410→
+   411→   411→  return y;
+   412→   412→}
+   413→   413→
+   414→   414→// ============================================================
+   415→   415→// HELPER: Draw Metadata Grid
+   416→   416→// ============================================================
+   417→   417→
+   418→   418→function drawMetadataGrid(
+   419→   419→  doc: jsPDF,
+   420→   420→  invoice: InvoiceData,
+   421→   421→  template: InvoiceTemplateConfig,
+   422→   422→  startY: number,
+   423→   423→  isVatAuditor?: boolean,
+   424→   424→  vatMaskedFields?: string[]
+   425→   425→): number {
+   426→   426→  let y = startY;
+   427→   427→  const colWidth = CONTENT_WIDTH / 2;
+   428→   428→  const leftX = MARGIN_LEFT;
+   429→   429→  const rightX = MARGIN_LEFT + colWidth;
+   430→   430→  const rowHeight = 5.5;
+   431→   431→
+   432→   432→  doc.setFontSize(8);
+   433→   433→  doc.setTextColor(10, 22, 40);
+   434→   434→
+   435→   435→  // LEFT COLUMN — Customer info
+   436→   436→  const leftItems: Array<{ label: string; value: string }> = [];
+   437→   437→  leftItems.push({ label: "Invoice No:", value: safeStr(invoice.invoiceNo) });
+   438→   438→  if (invoice.customerCode && template.showCustomerCode !== false) {
+   439→   439→    leftItems.push({ label: "Customer Code:", value: safeStr(invoice.customerCode) });
+   440→   440→  }
+   441→   441→  leftItems.push({ label: "Customer Name:", value: safeStr(invoice.customerName) });
+   442→   442→  if (invoice.customerMobile) {
+   443→   443→    leftItems.push({ label: "Mobile No:", value: safeStr(invoice.customerMobile) });
+   444→   444→  }
+   445→   445→  if (invoice.customerAddress && template.showAddress !== false) {
+   446→   446→    leftItems.push({ label: "Address:", value: safeStr(invoice.customerAddress) });
+   447→   447→  }
+   448→   448→
+   449→   449→  // RIGHT COLUMN — Date & Due info
+   450→   450→  const rightItems: Array<{ label: string; value: string }> = [];
+   451→   451→  rightItems.push({ label: "Invoice Date:", value: fmtDate(invoice.invoiceDate) });
+   452→   452→  if (invoice.prevDue !== undefined && invoice.prevDue > 0 && template.showPrevDue !== false) {
+   453→   453→    const masked = isFieldMasked("prevDue", isVatAuditor, vatMaskedFields);
+   454→   454→    rightItems.push({ label: "Prev.Due:", value: fmtCurrency(invoice.prevDue, masked) });
+   455→   455→  }
+   456→   456→  if (invoice.totalDue !== undefined && invoice.totalDue > 0 && template.showTotalDue !== false) {
+   457→   457→    const masked = isFieldMasked("totalDue", isVatAuditor, vatMaskedFields);
+   458→   458→    rightItems.push({ label: "Total Due:", value: fmtCurrency(invoice.totalDue, masked) });
+   459→   459→  }
+   460→   460→  if (invoice.remindDate && template.showRemindDate) {
+   461→   461→    rightItems.push({ label: "Remind Date:", value: fmtDate(invoice.remindDate) });
+   462→   462→  }
+   463→   463→
+   464→   464→  // Draw the grid with light background
+   465→   465→  const maxRows = Math.max(leftItems.length, rightItems.length);
+   466→   466→  const gridHeight = maxRows * rowHeight + 4;
+   467→   467→
+   468→   468→  doc.setFillColor(248, 250, 252);
+   469→   469→  doc.rect(MARGIN_LEFT, y, CONTENT_WIDTH, gridHeight, "F");
+   470→   470→
+   471→   471→  doc.setDrawColor(203, 213, 225);
+   472→   472→  doc.setLineWidth(0.2);
+   473→   473→  doc.rect(MARGIN_LEFT, y, CONTENT_WIDTH, gridHeight);
+   474→   474→
+   475→   475→  doc.line(MARGIN_LEFT + colWidth, y, MARGIN_LEFT + colWidth, y + gridHeight);
+   476→   476→
+   477→   477→  // Draw left column items
+   478→   478→  let rowY = y + 4;
+   479→   479→  for (const item of leftItems) {
+   480→   480→    doc.setFont("helvetica", "bold");
+   481→   481→    doc.setFontSize(8);
+   482→   482→    doc.text(item.label, leftX + 2, rowY);
+   483→   483→    doc.setFont("helvetica", "normal");
+   484→   484→    doc.text(item.value, leftX + 32, rowY);
+   485→   485→    doc.setDrawColor(230, 230, 230);
+   486→   486→    doc.line(leftX + 2, rowY + 2, leftX + colWidth - 2, rowY + 2);
+   487→   487→    rowY += rowHeight;
+   488→   488→  }
+   489→   489→
+   490→   490→  // Draw right column items
+   491→   491→  rowY = y + 4;
+   492→   492→  for (const item of rightItems) {
+   493→   493→    doc.setFont("helvetica", "bold");
+   494→   494→    doc.setFontSize(8);
+   495→   495→    doc.text(item.label, rightX + 2, rowY);
+   496→   496→    doc.setFont("helvetica", "normal");
+   497→   497→    doc.text(item.value, rightX + 32, rowY);
+   498→   498→    doc.setDrawColor(230, 230, 230);
+   499→   499→    doc.line(rightX + 2, rowY + 2, rightX + colWidth - 2, rowY + 2);
+   500→   500→    rowY += rowHeight;
+   501→   501→  }
+   502→   502→
+   503→   503→  return y + gridHeight + 3;
+   504→   504→}
+   505→   505→
+   506→   506→// ============================================================
+   507→   507→// HELPER: Draw Items Table
+   508→   508→// Fixed: Always shows SL | Description | Qty | Unit Price | Amount
+   509→   509→// ============================================================
+   510→   510→
+   511→   511→function drawItemsTable(
+   512→   512→  doc: jsPDF,
+   513→   513→  items: InvoiceLineItem[],
+   514→   514→  template: InvoiceTemplateConfig,
+   515→   515→  startY: number,
+   516→   516→  isVatAuditor?: boolean,
+   517→   517→  vatMaskedFields?: string[]
+   518→   518→): number {
+   519→   519→  // Build dynamic columns based on template toggles
+   520→   520→  const columns: Array<{ header: string; width: number; key: string; align: "left" | "right" | "center"; isCurrency?: boolean }> = [];
+   521→   521→
+   522→   522→  columns.push({ header: "SL", width: 10, key: "sl", align: "center" });
+   523→   523→
+   524→   524→  // Description is always shown (core requirement)
+   525→   525→  if (template.showDescription !== false) {
+   526→   526→    columns.push({ header: "Description", width: 75, key: "description", align: "left" });
+   527→   527→  } else {
+   528→   528→    // If description is hidden, show model or a generic column
+   529→   529→    if (template.showModel !== false) {
+   530→   530→      columns.push({ header: "Model", width: 75, key: "model", align: "left" });
+   531→   531→    }
+   532→   532→  }
+   533→   533→
+   534→   534→  columns.push({ header: "Qty", width: 18, key: "qty", align: "center" });
+   535→   535→
+   536→   536→  if (template.showMRP !== false) {
+   537→   537→    columns.push({ header: "MRP", width: 25, key: "mrp", align: "right", isCurrency: true });
+   538→   538→  }
+   539→   539→  if (template.showDiscountAmt !== false) {
+   540→   540→    columns.push({ header: "Dis. Amt", width: 25, key: "discountAmt", align: "right", isCurrency: true });
+   541→   541→  }
+   542→   542→  if (template.showUnitPrice !== false) {
+   543→   543→    columns.push({ header: "Unit Price", width: 30, key: "unitPrice", align: "right", isCurrency: true });
+   544→   544→  }
+   545→   545→
+   546→   546→  columns.push({ header: "Amount", width: 30, key: "amount", align: "right", isCurrency: true });
+   547→   547→
+   548→   548→  // Recalculate column widths proportionally
+   549→   549→  const totalSpecWidth = columns.reduce((sum, c) => sum + c.width, 0);
+   550→   550→  if (totalSpecWidth !== CONTENT_WIDTH) {
+   551→   551→    const scale = CONTENT_WIDTH / totalSpecWidth;
+   552→   552→    columns.forEach((c) => {
+   553→   553→      c.width = Math.round(c.width * scale * 10) / 10;
+   554→   554→    });
+   555→   555→  }
+   556→   556→
+   557→   557→  const headers = columns.map((c) => c.header);
+   558→   558→  const columnStyles: Record<number, any> = {};
+   559→   559→  columns.forEach((c, i) => {
+   560→   560→    columnStyles[i] = { cellWidth: c.width, halign: c.align };
+   561→   561→  });
+   562→   562→
+   563→   563→  const body = items.map((item) => {
+   564→   564→    const row: string[] = [];
+   565→   565→    for (const col of columns) {
+   566→   566→      switch (col.key) {
+   567→   567→        case "sl":
+   568→   568→          row.push(String(item.sl));
+   569→   569→          break;
+   570→   570→        case "model":
+   571→   571→          row.push(safeStr(item.model));
+   572→   572→          break;
+   573→   573→        case "color":
+   574→   574→          row.push(safeStr(item.color));
+   575→   575→          break;
+   576→   576→        case "description":
+   577→   577→          row.push(safeStr(item.description, "Item"));
+   578→   578→          break;
+   579→   579→        case "qty":
+   580→   580→          row.push(String(item.qty));
+   581→   581→          break;
+   582→   582→        case "mrp": {
+   583→   583→          const masked = isFieldMasked("mrp", isVatAuditor, vatMaskedFields);
+   584→   584→          row.push(fmtCurrency(item.mrp, masked));
+   585→   585→          break;
+   586→   586→        }
+   587→   587→        case "discountAmt": {
+   588→   588→          const masked = isFieldMasked("discountAmt", isVatAuditor, vatMaskedFields);
+   589→   589→          row.push(fmtCurrency(item.discountAmt, masked));
+   590→   590→          break;
+   591→   591→        }
+   592→   592→        case "unitPrice": {
+   593→   593→          const masked = isFieldMasked("unitPrice", isVatAuditor, vatMaskedFields);
+   594→   594→          row.push(fmtCurrency(item.unitPrice, masked));
+   595→   595→          break;
+   596→   596→        }
+   597→   597→        case "amount": {
+   598→   598→          const masked = isFieldMasked("amount", isVatAuditor, vatMaskedFields);
+   599→   599→          row.push(fmtCurrency(item.amount, masked));
+   600→   600→          break;
+   601→   601→        }
+   602→   602→        default:
+   603→   603→          row.push("");
+   604→   604→      }
+   605→   605→    }
+   606→   606→    return row;
+   607→   607→  });
+   608→   608→
+   609→   609→  // Total row
+   610→   610→  const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+   611→   611→  const totalAmount = items.reduce((sum, i) => sum + i.amount, 0);
+   612→   612→  const totalRow: string[] = [];
+   613→   613→  for (const col of columns) {
+   614→   614→    switch (col.key) {
+   615→   615→      case "sl":
+   616→   616→        totalRow.push("");
+   617→   617→        break;
+   618→   618→      case "qty":
+   619→   619→        totalRow.push(String(totalQty));
+   620→   620→        break;
+   621→   621→      case "amount": {
+   622→   622→        const masked = isFieldMasked("amount", isVatAuditor, vatMaskedFields);
+   623→   623→        totalRow.push(fmtCurrency(totalAmount, masked));
+   624→   624→        break;
+   625→   625→      }
+   626→   626→      case "model":
+   627→   627→      case "color":
+   628→   628→      case "description":
+   629→   629→        if (col === columns.find((c) => c.key === "description") || (col.key === "model" && !columns.find((c) => c.key === "description"))) {
+   630→   630→          totalRow.push("Total");
+   631→   631→        } else {
+   632→   632→          totalRow.push("");
+   633→   633→        }
+   634→   634→        break;
+   635→   635→      default:
+   636→   636→        totalRow.push("");
+   637→   637→    }
+   638→   638→  }
+   639→   639→
+   640→   640→  autoTable(doc, {
+   641→   641→    head: [headers],
+   642→   642→    body: [...body, totalRow],
+   643→   643→    startY: startY,
+   644→   644→    margin: { left: MARGIN_LEFT, right: MARGIN_RIGHT, bottom: 10 },
+   645→   645→    styles: {
+   646→   646→      fontSize: 8,
+   647→   647→      cellPadding: 2.5,
+   648→   648→      textColor: [30, 41, 59],
+   649→   649→      lineWidth: 0.2,
+   650→   650→      lineColor: [203, 213, 225],
+   651→   651→      overflow: "linebreak",
+   652→   652→    },
+   653→   653→    headStyles: {
+   654→   654→      fillColor: [10, 22, 40],
+   655→   655→      textColor: [255, 255, 255],
+   656→   656→      fontStyle: "bold",
+   657→   657→      fontSize: 8,
+   658→   658→      halign: "center",
+   659→   659→      cellPadding: 2.5,
+   660→   660→    },
+   661→   661→    bodyStyles: {
+   662→   662→      textColor: [30, 41, 59],
+   663→   663→    },
+   664→   664→    columnStyles,
+   665→   665→    didParseCell: (data: any) => {
+   666→   666→      if (data.row.index === body.length && data.section === "body") {
+   667→   667→        data.cell.styles.fillColor = [240, 244, 252];
+   668→   668→        data.cell.styles.fontStyle = "bold";
+   669→   669→        data.cell.styles.fontSize = 8;
+   670→   670→      }
+   671→   671→    },
+   672→   672→  });
+   673→   673→
+   674→   674→  const lastTable = (doc as any).lastAutoTable;
+   675→   675→  return lastTable ? lastTable.finalY + 3 : startY + 30;
+   676→   676→}
+   677→   677→
+   678→   678→// ============================================================
+   679→   679→// HELPER: Draw Summary Block
+   680→   680→// ============================================================
+   681→   681→
+   682→   682→function drawSummaryBlock(
+   683→   683→  doc: jsPDF,
+   684→   684→  invoice: InvoiceData,
+   685→   685→  template: InvoiceTemplateConfig,
+   686→   686→  startY: number,
+   687→   687→  isVatAuditor?: boolean,
+   688→   688→  vatMaskedFields?: string[]
+   689→   689→): number {
+   690→   690→  let y = startY;
+   691→   691→
+   692→   692→  // Separator line
+   693→   693→  doc.setDrawColor(10, 22, 40);
+   694→   694→  doc.setLineWidth(0.3);
+   695→   695→  doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
+   696→   696→  y += 3;
+   697→   697→
+   698→   698→  const colWidth = CONTENT_WIDTH / 3;
+   699→   699→  const leftX = MARGIN_LEFT;
+   700→   700→  const midX = MARGIN_LEFT + colWidth;
+   701→   701→  const rightX = MARGIN_LEFT + colWidth * 2;
+   702→   702→  const rowHeight = 5.5;
+   703→   703→
+   704→   704→  doc.setFontSize(8);
+   705→   705→  doc.setTextColor(10, 22, 40);
+   706→   706→
+   707→   707→  // ── LEFT SECTION: Discount & Adjustments ──
+   708→   708→  const leftItems: Array<{ label: string; value: string }> = [];
+   709→   709→
+   710→   710→  if (template.showDiscountPct !== false && invoice.discountPercent !== undefined) {
+   711→   711→    leftItems.push({ label: "Discount (%):", value: fmtNumber(invoice.discountPercent) });
+   712→   712→  }
+   713→   713→  if (template.showDiscountAmt !== false && invoice.discountAmount !== undefined) {
+   714→   714→    const masked = isFieldMasked("discountAmount", isVatAuditor, vatMaskedFields);
+   715→   715→    leftItems.push({ label: "Discount Amt.:", value: fmtCurrency(invoice.discountAmount, masked) });
+   716→   716→  }
+   717→   717→  if (template.showPPDiscount !== false && invoice.ppDiscount !== undefined) {
+   718→   718→    const masked = isFieldMasked("ppDiscount", isVatAuditor, vatMaskedFields);
+   719→   719→    leftItems.push({ label: "PP Discount Amt:", value: fmtCurrency(invoice.ppDiscount, masked) });
+   720→   720→  }
+   721→   721→  if (template.showAdjustment !== false && invoice.adjustment !== undefined) {
+   722→   722→    const masked = isFieldMasked("adjustment", isVatAuditor, vatMaskedFields);
+   723→   723→    leftItems.push({ label: "Adjustment Amt:", value: fmtCurrency(invoice.adjustment, masked) });
+   724→   724→  }
+   725→   725→
+   726→   726→  let rowY = y + 2;
+   727→   727→  for (const item of leftItems) {
+   728→   728→    doc.setFont("helvetica", "bold");
+   729→   729→    doc.text(item.label, leftX + 2, rowY + 3);
+   730→   730→    doc.setFont("helvetica", "normal");
+   731→   731→    doc.text(item.value, leftX + 35, rowY + 3);
+   732→   732→    rowY += rowHeight;
+   733→   733→  }
+   734→   734→
+   735→   735→  // ── MIDDLE SECTION: Totals ──
+   736→   736→  const midItems: Array<{ label: string; value: string; bold?: boolean }> = [];
+   737→   737→
+   738→   738→  {
+   739→   739→    const masked = isFieldMasked("netTotal", isVatAuditor, vatMaskedFields);
+   740→   740→    midItems.push({ label: "Net Total:", value: fmtCurrency(invoice.netTotal, masked), bold: true });
+   741→   741→  }
+   742→   742→  {
+   743→   743→    const masked = isFieldMasked("paidAmount", isVatAuditor, vatMaskedFields);
+   744→   744→    midItems.push({ label: "Paid Amt:", value: fmtCurrency(invoice.paidAmount, masked) });
+   745→   745→  }
+   746→   746→  {
+   747→   747→    const masked = isFieldMasked("currentDue", isVatAuditor, vatMaskedFields);
+   748→   748→    midItems.push({ label: "Curr. Due:", value: fmtCurrency(invoice.currentDue, masked), bold: true });
+   749→   749→  }
+   750→   750→  if (template.showDeliveryCost !== false && invoice.deliveryCost !== undefined) {
+   751→   751→    const masked = isFieldMasked("deliveryCost", isVatAuditor, vatMaskedFields);
+   752→   752→    midItems.push({ label: "Deli. Cost:", value: fmtCurrency(invoice.deliveryCost, masked) });
+   753→   753→  }
+   754→   754→
+   755→   755→  rowY = y + 2;
+   756→   756→  for (const item of midItems) {
+   757→   757→    doc.setFont("helvetica", "bold");
+   758→   758→    doc.text(item.label, midX + 2, rowY + 3);
+   759→   759→    doc.setFont("helvetica", item.bold ? "bold" : "normal");
+   760→   760→    doc.text(item.value, midX + 28, rowY + 3);
+   761→   761→    rowY += rowHeight;
+   762→   762→  }
+   763→   763→
+   764→   764→  // ── RIGHT SECTION: Payment Details ──
+   765→   765→  if (template.showPaymentDetails !== false && invoice.paymentDetails && invoice.paymentDetails.length > 0) {
+   766→   766→    doc.setFont("helvetica", "bold");
+   767→   767→    doc.setFontSize(7);
+   768→   768→    doc.text("Payment Details", rightX + 2, y + 4);
+   769→   769→
+   770→   770→    const paymentHeaders = ["Payment Type", "Paid Amount"];
+   771→   771→    const paymentBody = invoice.paymentDetails.map((pd) => {
+   772→   772→      const masked = isFieldMasked("paidAmount", isVatAuditor, vatMaskedFields);
+   773→   773→      return [safeStr(pd.paymentType), fmtCurrency(pd.paidAmount, masked)];
+   774→   774→    });
+   775→   775→
+   776→   776→    autoTable(doc, {
+   777→   777→      head: [paymentHeaders],
+   778→   778→      body: paymentBody,
+   779→   779→      startY: y + 6,
+   780→   780→      margin: { left: rightX, right: MARGIN_RIGHT, bottom: MARGIN_BOTTOM },
+   781→   781→      styles: {
+   782→   782→        fontSize: 7,
+   783→   783→        cellPadding: 1.5,
+   784→   784→        textColor: [30, 41, 59],
+   785→   785→        lineWidth: 0.15,
+   786→   786→        lineColor: [203, 213, 225],
+   787→   787→      },
+   788→   788→      headStyles: {
+   789→   789→        fillColor: [10, 22, 40],
+   790→   790→        textColor: [255, 255, 255],
+   791→   791→        fontStyle: "bold",
+   792→   792→        fontSize: 7,
+   793→   793→        cellPadding: 2,
+   794→   794→      },
+   795→   795→      columnStyles: {
+   796→   796→        0: { cellWidth: colWidth * 0.55, halign: "left" },
+   797→   797→        1: { cellWidth: colWidth * 0.45, halign: "right" },
+   798→   798→      },
+   799→   799→    });
+   800→   800→  }
+   801→   801→
+   802→   802→  const leftEndY = y + 2 + leftItems.length * rowHeight;
+   803→   803→  const midEndY = y + 2 + midItems.length * rowHeight;
+   804→   804→  const lastTable = (doc as any).lastAutoTable;
+   805→   805→  const tableEndY = lastTable ? lastTable.finalY + 2 : y + 20;
+   806→   806→
+   807→   807→  return Math.max(leftEndY, midEndY, tableEndY) + 3;
+   808→   808→}
+   809→   809→
+   810→   810→// ============================================================
+   811→   811→// HELPER: Draw Extra Fields (Pay In Word, Due In Word, Barcode)
+   812→   812→// ============================================================
+   813→   813→
+   814→   814→function drawExtraFields(
+   815→   815→  doc: jsPDF,
+   816→   816→  invoice: InvoiceData,
+   817→   817→  company: InvoiceCompanyProfile,
+   818→   818→  template: InvoiceTemplateConfig,
+   819→   819→  startY: number,
+   820→   820→  isVatAuditor?: boolean,
+   821→   821→  vatMaskedFields?: string[]
+   822→   822→): number {
+   823→   823→  let y = startY;
+   824→   824→
+   825→   825→  // Pay In Word (shown if company setting allows)
+   826→   826→  if (company.showPayInWord !== false) {
+   827→   827→    const payInWordText = invoice.payInWord || numberToWordsBDT(invoice.netTotal);
+   828→   828→    const masked = isFieldMasked("netTotal", isVatAuditor, vatMaskedFields);
+   829→   829→    doc.setFontSize(8);
+   830→   830→    doc.setFont("helvetica", "bold");
+   831→   831→    doc.setTextColor(10, 22, 40);
+   832→   832→    doc.text("Pay In Word:", MARGIN_LEFT + 2, y + 3);
+   833→   833→    doc.setFont("helvetica", "normal");
+   834→   834→    const maxTextWidth = CONTENT_WIDTH - 28;
+   835→   835→    const lines = doc.splitTextToSize(masked ? VAT_MASKING_SENTINEL : payInWordText, maxTextWidth);
+   836→   836→    doc.text(lines, MARGIN_LEFT + 28, y + 3);
+   837→   837→    y += 4 + lines.length * 4;
+   838→   838→  }
+   839→   839→
+   840→   840→  // Due In Word
+   841→   841→  if (invoice.currentDue > 0 && company.showPayInWord !== false) {
+   842→   842→    const dueInWordText = invoice.dueInWord || numberToWordsBDT(invoice.currentDue);
+   843→   843→    const masked = isFieldMasked("currentDue", isVatAuditor, vatMaskedFields);
+   844→   844→    doc.setFont("helvetica", "bold");
+   845→   845→    doc.text("Due In Word:", MARGIN_LEFT + 2, y + 3);
+   846→   846→    doc.setFont("helvetica", "normal");
+   847→   847→    const maxTextWidth = CONTENT_WIDTH - 28;
+   848→   848→    const lines = doc.splitTextToSize(masked ? VAT_MASKING_SENTINEL : dueInWordText, maxTextWidth);
+   849→   849→    doc.text(lines, MARGIN_LEFT + 28, y + 3);
+   850→   850→    y += 4 + lines.length * 4;
+   851→   851→  }
+   852→   852→
+   853→   853→  // Remarks
+   854→   854→  if (invoice.remarks) {
+   855→   855→    doc.setFont("helvetica", "bold");
+   856→   856→    doc.text("Remarks:", MARGIN_LEFT + 2, y + 3);
+   857→   857→    doc.setFont("helvetica", "normal");
+   858→   858→    const maxWidth = CONTENT_WIDTH - 28;
+   859→   859→    const remarksText = doc.splitTextToSize(invoice.remarks, maxWidth);
+   860→   860→    doc.text(remarksText, MARGIN_LEFT + 28, y + 3);
+   861→   861→    y += 4 + remarksText.length * 4;
+   862→   862→  }
+   863→   863→
+   864→   864→  // Barcode (simplified)
+   865→   865→  if (company.showBarcode && invoice.barcodeData) {
+   866→   866→    try {
+   867→   867→      const barcodeX = PAGE_WIDTH - MARGIN_RIGHT - 55;
+   868→   868→      const barcodeY = y;
+   869→   869→      const barcodeWidth = 50;
+   870→   870→      const barcodeHeight = 10;
+   871→   871→
+   872→   872→      doc.setDrawColor(0, 0, 0);
+   873→   873→      doc.setLineWidth(0.3);
+   874→   874→
+   875→   875→      const lineCount = Math.min(invoice.barcodeData.length * 3, 60);
+   876→   876→      const lineWidth = (barcodeWidth - 4) / lineCount;
+   877→   877→      for (let i = 0; i < lineCount; i++) {
+   878→   878→        const x = barcodeX + 2 + i * lineWidth;
+   879→   879→        const isBar = (i + Math.floor(i / 3)) % 2 === 0;
+   880→   880→        if (isBar) {
+   881→   881→          doc.setFillColor(0, 0, 0);
+   882→   882→          doc.rect(x, barcodeY + 1, Math.max(lineWidth * 0.6, 0.3), barcodeHeight - 2, "F");
+   883→   883→        }
+   884→   884→      }
+   885→   885→
+   886→   886→      doc.setFontSize(6);
+   887→   887→      doc.setFont("helvetica", "normal");
+   888→   888→      doc.setTextColor(0, 0, 0);
+   889→   889→      const barcodeText = invoice.barcodeData.substring(0, 20);
+   890→   890→      const textWidth = doc.getTextWidth(barcodeText);
+   891→   891→      doc.text(barcodeText, barcodeX + barcodeWidth / 2 - textWidth / 2, barcodeY + barcodeHeight + 1);
+   892→   892→      y = barcodeY + barcodeHeight + 6;
+   893→   893→    } catch { /* skip */ }
+   894→   894→  }
+   895→   895→
+   896→   896→  return y + 2;
+   897→   897→}
+   898→   898→
+   899→   899→// ============================================================
+   900→   900→// HELPER: Draw Footer Section
+   901→   901→// Fixed: Bengali fallback, visible signature labels, no contradiction
+   902→   902→// ============================================================
+   903→   903→
+   904→   904→function drawFooterSection(
+   905→   905→  doc: jsPDF,
+   906→   906→  invoice: InvoiceData,
+   907→   907→  company: InvoiceCompanyProfile,
+   908→   908→  template: InvoiceTemplateConfig,
+   909→   909→  startY: number
+   910→   910→): number {
+   911→   911→  let y = startY;
+   912→   912→
+   913→   913→  // Separator line
+   914→   914→  doc.setDrawColor(10, 22, 40);
+   915→   915→  doc.setLineWidth(0.3);
+   916→   916→  doc.line(MARGIN_LEFT, y, PAGE_WIDTH - MARGIN_RIGHT, y);
+   917→   917→  y += 5;
+   918→   918→
+   919→   919→  // Thank You message (with Bengali fallback)
+   920→   920→  const thankYouMsg = getSafeThankYouMsg(company.thankYouMsg);
+   921→   921→  doc.setFontSize(10);
+   922→   922→  doc.setFont("helvetica", "bold");
+   923→   923→  doc.setTextColor(10, 22, 40);
+   924→   924→  const thankYouWidth = doc.getTextWidth(thankYouMsg);
+   925→   925→  doc.text(thankYouMsg, PAGE_WIDTH / 2 - thankYouWidth / 2, y);
+   926→   926→  y += 7;
+   927→   927→
+   928→   928→  // Signature lines (3 columns: Customer, Prepared By, Authorized By)
+   929→   929→  const sigSectionWidth = CONTENT_WIDTH / 3;
+   930→   930→  const sigY = y + 12;
+   931→   931→
+   932→   932→  doc.setDrawColor(150, 150, 150);
+   933→   933→  doc.setLineWidth(0.2);
+   934→   934→
+   935→   935→  const signatureItems: Array<{ label: string; x: number; show: boolean }> = [
+   936→   936→    { label: "Customer's Signature", x: MARGIN_LEFT, show: template.showCustomerSignature !== false },
+   937→   937→    { label: "Prepared By", x: MARGIN_LEFT + sigSectionWidth, show: template.showPreparedBy !== false },
+   938→   938→    { label: "Authorized By", x: MARGIN_LEFT + sigSectionWidth * 2, show: template.showAuthorizedBy !== false },
+   939→   939→  ];
+   940→   940→
+   941→   941→  for (const sig of signatureItems) {
+   942→   942→    if (sig.show) {
+   943→   943→      doc.line(sig.x, sigY, sig.x + sigSectionWidth - 15, sigY);
+   944→   944→      doc.setFontSize(7);
+   945→   945→      doc.setFont("helvetica", "normal");
+   946→   946→      doc.setTextColor(100, 100, 100);
+   947→   947→      const labelWidth = doc.getTextWidth(sig.label);
+   948→   948→      doc.text(sig.label, sig.x + (sigSectionWidth - 15) / 2 - labelWidth / 2, sigY + 4);
+   949→   949→    }
+   950→   950→  }
+   951→   951→
+   952→   952→  y = sigY + 8;
+   953→   953→
+   954→   954→  // System meta info
+   955→   955→  doc.setTextColor(100, 100, 100);
+   956→   956→  doc.setFontSize(7);
+   957→   957→  doc.setFont("helvetica", "normal");
+   958→   958→
+   959→   959→  const systemParts: string[] = [];
+   960→   960→  if (invoice.printedBy && template.showPrintedBy !== false) {
+   961→   961→    systemParts.push(`Printed By: ${invoice.printedBy}`);
+   962→   962→  }
+   963→   963→  if (invoice.salesPerson && template.showSalesPerson !== false) {
+   964→   964→    systemParts.push(`Sales Person: ${invoice.salesPerson}`);
+   965→   965→  }
+   966→   966→  if (template.showPrintDate !== false) {
+   967→   967→    systemParts.push(`Print Date: ${toLatinDigits(new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }))}`);
+   968→   968→  }
+   969→   969→  if (systemParts.length > 0) {
+   970→   970→    doc.text(systemParts.join("  |  "), MARGIN_LEFT + 2, y);
+   971→   971→    y += 4;
+   972→   972→  }
+   973→   973→
+   974→   974→  // System-generated note
+   975→   975→  const systemNote = company.systemNote || "This is a system generated invoice.";
+   976→   976→  doc.setFontSize(7);
+   977→   977→  doc.setFont("helvetica", "italic");
+   978→   978→  doc.setTextColor(130, 130, 130);
+   979→   979→  const noteWidth = doc.getTextWidth(systemNote);
+   980→   980→  doc.text(systemNote, PAGE_WIDTH / 2 - noteWidth / 2, y);
+   981→   981→  y += 4;
+   982→   982→
+   983→   983→  // Terms and conditions
+   984→   984→  if (template.termsAndConditions) {
+   985→   985→    doc.setFontSize(7);
+   986→   986→    doc.setFont("helvetica", "normal");
+   987→   987→    doc.setTextColor(100, 100, 100);
+   988→   988→    doc.text("Terms & Conditions:", MARGIN_LEFT + 2, y);
+   989→   989→    y += 4;
+   990→   990→    const tncLines = doc.splitTextToSize(template.termsAndConditions, CONTENT_WIDTH - 4);
+   991→   991→    doc.text(tncLines, MARGIN_LEFT + 2, y);
+   992→   992→    y += tncLines.length * 3.5;
+   993→   993→  }
+   994→   994→
+   995→   995→  // Custom footer note
+   996→   996→  if (template.customFooterNote) {
+   997→   997→    doc.setFontSize(7);
+   998→   998→    doc.setFont("helvetica", "italic");
+   999→   999→    doc.setTextColor(120, 120, 120);
+  1000→  1000→    const customLines = doc.splitTextToSize(template.customFooterNote, CONTENT_WIDTH - 4);
+  1001→  1001→    doc.text(customLines, MARGIN_LEFT + 2, y);
+  1002→  1002→    y += customLines.length * 3.5;
+  1003→  1003→  }
+  1004→  1004→
+  1005→  1005→  return y;
+  1006→  1006→}
+  1007→  1007→
+  1008→  1008→// ============================================================
+  1009→  1009→// HELPER: Draw Continuation Header for multi-page
+  1010→  1010→// ============================================================
+  1011→  1011→
+  1012→  1012→function drawContinuationHeader(
+  1013→  1013→  doc: jsPDF,
+  1014→  1014→  company: InvoiceCompanyProfile,
+  1015→  1015→  invoice: InvoiceData,
+  1016→  1016→  pageNumber: number
+  1017→  1017→): number {
+  1018→  1018→  let y = MARGIN_TOP;
+  1019→  1019→
+  1020→  1020→  doc.setFillColor(10, 22, 40);
+  1021→  1021→  doc.rect(MARGIN_LEFT, y, CONTENT_WIDTH, 10, "F");
+  1022→  1022→
+  1023→  1023→  doc.setTextColor(255, 255, 255);
+  1024→  1024→  doc.setFontSize(9);
+  1025→  1025→  doc.setFont("helvetica", "bold");
+  1026→  1026→  doc.text(safeStr(company.name, "Company"), MARGIN_LEFT + 3, y + 4);
+  1027→  1027→
+  1028→  1028→  doc.setFontSize(8);
+  1029→  1029→  doc.setFont("helvetica", "normal");
+  1030→  1030→  const pageInfo = `${invoice.invoiceType} #${invoice.invoiceNo} \u2014 Page ${pageNumber} (Continued)`;
+  1031→  1031→  const pageInfoWidth = doc.getTextWidth(pageInfo);
+  1032→  1032→  doc.text(pageInfo, PAGE_WIDTH - MARGIN_RIGHT - pageInfoWidth - 3, y + 4);
+  1033→  1033→
+  1034→  1034→  y += 14;
+  1035→  1035→  return y;
+  1036→  1036→}
+  1037→  1037→
+  1038→  1038→function checkPageOverflow(
+  1039→  1039→  doc: jsPDF,
+  1040→  1040→  currentY: number,
+  1041→  1041→  requiredSpace: number,
+  1042→  1042→  company: InvoiceCompanyProfile,
+  1043→  1043→  invoice: InvoiceData,
+  1044→  1044→  currentPage: number
+  1045→  1045→): { y: number; page: number } {
+  1046→  1046→  if (currentY + requiredSpace > PAGE_HEIGHT - MARGIN_BOTTOM - 20) {
+  1047→  1047→    doc.addPage();
+  1048→  1048→    const newY = drawContinuationHeader(doc, company, invoice, currentPage + 1);
+  1049→  1049→    return { y: newY, page: currentPage + 1 };
+  1050→  1050→  }
+  1051→  1051→  return { y: currentY, page: currentPage };
+  1052→  1052→}
+  1053→  1053→
+  1054→  1054→// ============================================================
+  1055→  1055→// CORE FUNCTION: Export Invoice PDF
+  1056→  1056→// ============================================================
+  1057→  1057→
+  1058→  1058→export function exportInvoicePDF(options: InvoicePDFOptions): void {
+  1059→  1059→  const {
+  1060→  1060→    company: providedCompany,
+  1061→  1061→    template,
+  1062→  1062→    invoice,
+  1063→  1063→    filename,
+  1064→  1064→    isVatAuditor = false,
+  1065→  1065→    vatMaskedFields = [],
+  1066→  1066→  } = options;
+  1067→  1067→
+  1068→  1068→  // ── Auto-load company profile from branding cache when not provided ──
+  1069→  1069→  // Note: invoice-engine uses synchronous jsPDF, so we try the cache first.
+  1070→  1070→  // If not cached, the invoice-engine requires a company to be passed in.
+  1071→  1071→  // The SalesModulePage and other callers should ensure company data is loaded.
+  1072→  1072→  let company = providedCompany;
+  1073→  1073→  if (!company || !company.name) {
+  1074→  1074→    const cached = getCachedCompanyProfile();
+  1075→  1075→    if (cached) {
+  1076→  1076→      // Merge: use provided company fields as overrides, fill missing from cache
+  1077→  1077→      company = {
+  1078→  1078→        name: company?.name || cached.name,
+  1079→  1079→        address: company?.address || cached.address,
+  1080→  1080→        phone: company?.phone || cached.phone,
+  1081→  1081→        mobile: company?.mobile || cached.mobile,
+  1082→  1082→        email: company?.email || cached.email,
+  1083→  1083→        logo: company?.logo || cached.logo,
+  1084→  1084→        brandLogo: company?.brandLogo || cached.brandLogo,
+  1085→  1085→        logoWidth: company?.logoWidth || cached.logoWidth,
+  1086→  1086→        logoHeight: company?.logoHeight || cached.logoHeight,
+  1087→  1087→        vatNumber: company?.vatNumber || cached.vatNumber,
+  1088→  1088→        tradeLicense: company?.tradeLicense || cached.tradeLicense,
+  1089→  1089→        thankYouMsg: company?.thankYouMsg || cached.thankYouMsg,
+  1090→  1090→        systemNote: company?.systemNote || cached.systemNote,
+  1091→  1091→        showBarcode: company?.showBarcode !== undefined ? company.showBarcode : cached.showBarcode,
+  1092→  1092→        showPayInWord: company?.showPayInWord !== undefined ? company.showPayInWord : cached.showPayInWord,
+  1093→  1093→      };
+  1094→  1094→    }
+  1095→  1095→  }
+  1096→  1096→
+  1097→  1097→  try {
+  1098→  1098→    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  1099→  1099→    let currentPage = 1;
+  1100→  1100→
+  1101→  1101→    // ── 1. Company Header Section ──
+  1102→  1102→    let y = drawCompanyHeader(doc, company, template, invoice.invoiceType);
+  1103→  1103→
+  1104→  1104→    // ── 2. Metadata Grid Section ──
+  1105→  1105→    const overflow = checkPageOverflow(doc, y, 40, company, invoice, currentPage);
+  1106→  1106→    y = overflow.y;
+  1107→  1107→    currentPage = overflow.page;
+  1108→  1108→
+  1109→  1109→    y = drawMetadataGrid(doc, invoice, template, y, isVatAuditor, vatMaskedFields);
+  1110→  1110→
+  1111→  1111→    // ── 3. Items Table Section ──
+  1112→  1112→    const itemsPerPage = 15;
+  1113→  1113→    const totalItems = invoice.items.length;
+  1114→  1114→
+  1115→  1115→    if (totalItems > 0) {
+  1116→  1116→      if (totalItems > itemsPerPage) {
+  1117→  1117→        const firstPageItems = invoice.items.slice(0, itemsPerPage);
+  1118→  1118→        y = drawItemsTable(doc, firstPageItems, template, y, isVatAuditor, vatMaskedFields);
+  1119→  1119→
+  1120→  1120→        let itemOffset = itemsPerPage;
+  1121→  1121→        while (itemOffset < totalItems) {
+  1122→  1122→          const pageItems = invoice.items.slice(itemOffset, itemOffset + itemsPerPage);
+  1123→  1123→          const pageOverflow = checkPageOverflow(doc, y, 40, company, invoice, currentPage);
+  1124→  1124→          y = pageOverflow.y;
+  1125→  1125→          currentPage = pageOverflow.page;
+  1126→  1126→          y = drawItemsTable(doc, pageItems, template, y, isVatAuditor, vatMaskedFields);
+  1127→  1127→          itemOffset += itemsPerPage;
+  1128→  1128→        }
+  1129→  1129→      } else {
+  1130→  1130→        y = drawItemsTable(doc, invoice.items, template, y, isVatAuditor, vatMaskedFields);
+  1131→  1131→      }
+  1132→  1132→    }
+  1133→  1133→
+  1134→  1134→    // ── 4. Summary Block ──
+  1135→  1135→    const summaryOverflow = checkPageOverflow(doc, y, 40, company, invoice, currentPage);
+  1136→  1136→    y = summaryOverflow.y;
+  1137→  1137→    currentPage = summaryOverflow.page;
+  1138→  1138→
+  1139→  1139→    y = drawSummaryBlock(doc, invoice, template, y, isVatAuditor, vatMaskedFields);
+  1140→  1140→
+  1141→  1141→    // ── 5. Extra Fields (Pay In Word, Due In Word, Barcode) ──
+  1142→  1142→    const extraOverflow = checkPageOverflow(doc, y, 30, company, invoice, currentPage);
+  1143→  1143→    y = extraOverflow.y;
+  1144→  1144→    currentPage = extraOverflow.page;
+  1145→  1145→
+  1146→  1146→    y = drawExtraFields(doc, invoice, company, template, y, isVatAuditor, vatMaskedFields);
+  1147→  1147→
+  1148→  1148→    // ── 6. Footer Section (follows content flow — no excessive white space) ──
+  1149→  1149→    const footerOverflow = checkPageOverflow(doc, y, 50, company, invoice, currentPage);
+  1150→  1150→    y = footerOverflow.y;
+  1151→  1151→    currentPage = footerOverflow.page;
+  1152→  1152→
+  1153→  1153→    drawFooterSection(doc, invoice, company, template, y);
+  1154→  1154→
+  1155→  1155→    // Save the PDF
+  1156→  1156→    doc.save(filename || `Invoice_${invoice.invoiceNo}.pdf`);
+  1157→  1157→  } catch (error) {
+  1158→  1158→    console.error("Invoice PDF generation error:", error);
+  1159→  1159→    throw error;
+  1160→  1160→  }
+  1161→  1161→}
+  1162→  1162→
