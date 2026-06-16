@@ -1,0 +1,228 @@
+/home/z/my-project/src/components/InvestmentGroupPage.tsx:1080:      exportToCSV({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/InvestmentGroupPage.tsx:1090:      exportToPDF({
+/home/z/my-project/src/components/InvestmentGroupPage.tsx:1231:    importFromCSV({ apiPath, formFields: fields }).then((result) => {
+/home/z/my-project/src/components/InvestmentGroupPage.tsx:2117:                        const result = await importFromCSV({
+/home/z/my-project/src/components/AuditTrailViewer.tsx:528:      exportToCSV({
+/home/z/my-project/src/components/AuditTrailViewer.tsx:573:      const result = await importFromCSV({
+/home/z/my-project/src/components/StructureModulePage.tsx:610:      exportToPDF({
+/home/z/my-project/src/components/StructureModulePage.tsx:653:      exportToCSV({
+/home/z/my-project/src/components/StructureModulePage.tsx:669:    importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:517:      exportToCSV({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:528:      exportToPDF({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:800:              importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1124:            importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1262:            importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1397:            importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1561:              importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1677:              importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1792:              importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:1972:                importFromCSV({
+/home/z/my-project/src/components/FinancialAuditGroupPage.tsx:2028:                  importFromCSV({
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:565:      exportToPDFSimple("Chart-of-Accounts", headers, rows, "landscape", `Total: ${accounts.filter((a: any) => !a.isRoot).length} accounts`, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:579:      exportToCSVSimple("Chart-of-Accounts", headers, rows);
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:588:      const result = await importFromCSV({
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:621:      exportToPDFSimple(
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:643:      exportToCSVSimple("Voucher-Register", headers, rows);
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:658:      exportToPDFSimple("Voucher-Register", headers, rows, "landscape", `${vouchers.length} vouchers`, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:667:      const result = await importFromCSV({
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:705:      exportToPDFSimple(
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:731:      exportToCSVSimple("Ledger-Statement", headers, rows);
+/home/z/my-project/src/components/AccountsLedgerPage.tsx:740:      const result = await importFromCSV({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:730:      exportToCSV({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:746:      exportToPDF({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:770:      exportToCSV({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:786:      exportToPDF({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:818:      exportToPDF({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:852:      exportToPDF({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:882:    importFromCSV({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:896:    importFromCSV({
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:1263:                    exportToCSV({ title: "SMS Report", columns: reportColumns, data: smsReport, isVatAuditor, vatMaskedColumns: ["cost"], filename: "sms-report" });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:1374:                  exportToPDF({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:1390:                  exportToCSV({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox" });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:1397:                importFromCSV({ apiPath: "/api/sms-inbox", formFields: [
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:2384:                  exportToPDF({ title: "SMS Campaigns", columns: campaignColumns, data: smsCampaigns, isVatAuditor, vatMaskedColumns: ["totalCost"], filename: "sms-campaigns", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:2400:                  exportToCSV({ title: "SMS Campaigns", columns: campaignColumns, data: smsCampaigns, isVatAuditor, vatMaskedColumns: ["totalCost"], filename: "sms-campaigns" });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:2407:                importFromCSV({ apiPath: "/api/sms-campaigns", formFields: [
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:2590:                    exportToCSV({ title: "SMS Settings", columns: settingsColumns, data: smsSettings, isVatAuditor, vatMaskedColumns: ["ratePerSms", "unicodeRate", "setupCost"], filename: "sms-settings" });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:2953:                    exportToPDF({ title: "SMS Notification Triggers", columns: triggerColumns, data: smsTriggers, isVatAuditor, filename: "sms-triggers", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+/home/z/my-project/src/components/SMSAnalyticsPage.tsx:2967:                    exportToCSV({ title: "SMS Notification Triggers", columns: triggerColumns, data: smsTriggers, isVatAuditor, filename: "sms-triggers" });
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:455:      exportToPDF({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:490:      exportToCSV({ title: "Company Settings", columns, data: exportData, isVatAuditor, vatMaskedColumns: [] });
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:498:    importFromCSV({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:1296:      exportToPDF({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:1322:      exportToCSV({ title: "Invoice Templates", columns, data: filteredTemplates, isVatAuditor });
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:1330:    importFromCSV({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:1831:      exportToPDF({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:1858:      exportToCSV({ title: "Number Formats", columns, data: dataWithPreview, isVatAuditor });
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:1866:    importFromCSV({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:2263:      exportToPDF({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:2292:      exportToCSV({ title: "Audit Trail", columns, data: exportData, isVatAuditor, vatMaskedColumns: ["details"] });
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:2302:      const result = await importFromCSV({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:2637:      exportToPDF({
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:2659:      exportToCSV({ title: "Performance & Cache", columns, data, isVatAuditor });
+/home/z/my-project/src/components/SystemSettingsGroupPage.tsx:2667:    importFromCSV({
+/home/z/my-project/src/components/_deprecated/AccountsLedgerPage.tsx:549:      exportToPDFSimple(
+/home/z/my-project/src/components/_deprecated/AccountsLedgerPage.tsx:571:      exportToCSVSimple("Voucher-Register", headers, rows);
+/home/z/my-project/src/components/_deprecated/AccountsLedgerPage.tsx:594:      exportToPDFSimple(
+/home/z/my-project/src/components/_deprecated/AccountsLedgerPage.tsx:620:      exportToCSVSimple("Ledger-Statement", headers, rows);
+/home/z/my-project/src/components/_deprecated/GoldenHandoverPage.tsx:586:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/ExpensesIncomesPage.tsx:323:      exportToCSVSimple(tabLabel, headers, rows);
+/home/z/my-project/src/components/_deprecated/ExpensesIncomesPage.tsx:356:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/ExpensesIncomesPage.tsx:383:    importFromCSV({
+/home/z/my-project/src/components/_deprecated/CashCollectionsDeliveriesPage.tsx:418:        exportToCSVSimple("Cash Collections", headers, rows);
+/home/z/my-project/src/components/_deprecated/CashCollectionsDeliveriesPage.tsx:430:        exportToCSVSimple("Cash Deliveries", headers, rows);
+/home/z/my-project/src/components/_deprecated/CashCollectionsDeliveriesPage.tsx:471:        exportToPDF({
+/home/z/my-project/src/components/_deprecated/CashCollectionsDeliveriesPage.tsx:504:        exportToPDF({
+/home/z/my-project/src/components/_deprecated/CashCollectionsDeliveriesPage.tsx:538:    importFromCSV({ apiPath: apiBase, formFields }).then(result => {
+/home/z/my-project/src/components/_deprecated/BankTransactionsPage.tsx:450:      exportToCSV({
+/home/z/my-project/src/components/_deprecated/BankTransactionsPage.tsx:564:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/BankTransactionsPage.tsx:592:    importFromCSV({
+/home/z/my-project/src/components/_deprecated/StagingQAPage.tsx:379:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/SecurityAuditCenter.tsx:452:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/SecurityAuditCenter.tsx:489:      exportToCSV({
+/home/z/my-project/src/components/_deprecated/SecurityAuditCenter.tsx:514:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/MultiBranchConsolidationPage.tsx:778:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/FinancialStatementsPage.tsx:389:      exportToCSVSimple("Trial-Balance", headers, rows);
+/home/z/my-project/src/components/_deprecated/FinancialStatementsPage.tsx:420:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/FinancialStatementsPage.tsx:463:      exportToCSVSimple("Income-Statement", headers, rows);
+/home/z/my-project/src/components/_deprecated/FinancialStatementsPage.tsx:497:      exportToPDF({
+/home/z/my-project/src/components/_deprecated/FinancialStatementsPage.tsx:537:      exportToCSVSimple("Balance-Sheet", headers, rows);
+/home/z/my-project/src/components/_deprecated/FinancialStatementsPage.tsx:570:      exportToPDF({
+/home/z/my-project/src/components/OperationsModulePage.tsx:506:      exportToPDF({
+/home/z/my-project/src/components/OperationsModulePage.tsx:545:      exportToCSV({ title: "SR Target Setup", columns: SR_TARGET_COLUMNS, data: exportData, isVatAuditor, vatMaskedColumns: maskedColumns });
+/home/z/my-project/src/components/OperationsModulePage.tsx:554:    importFromCSV({
+/home/z/my-project/src/components/OperationsModulePage.tsx:1145:      exportToPDF({
+/home/z/my-project/src/components/OperationsModulePage.tsx:1179:      exportToCSV({ title: "Payment Options", columns: PAYMENT_OPTION_COLUMNS, data: exportData });
+/home/z/my-project/src/components/OperationsModulePage.tsx:1188:    importFromCSV({ apiPath: "/api/payment-options", formFields: PAYMENT_OPTION_FIELDS }).then((result) => {
+/home/z/my-project/src/components/OperationsModulePage.tsx:1556:      exportToPDF({
+/home/z/my-project/src/components/OperationsModulePage.tsx:1589:      exportToCSV({ title: "Card Types", columns: CARD_TYPE_COLUMNS, data: exportData });
+/home/z/my-project/src/components/OperationsModulePage.tsx:1597:    importFromCSV({ apiPath: "/api/card-types", formFields: CARD_TYPE_FIELDS }).then((result) => {
+/home/z/my-project/src/components/OperationsModulePage.tsx:1997:      exportToPDF({
+/home/z/my-project/src/components/OperationsModulePage.tsx:2035:      exportToCSV({ title: "Card Type Setup", columns: CARD_TYPE_SETUP_COLUMNS, data: exportData, isVatAuditor, vatMaskedColumns: maskedColumns });
+/home/z/my-project/src/components/OperationsModulePage.tsx:2043:    importFromCSV({ apiPath: "/api/card-type-setup", formFields: CARD_TYPE_SETUP_FIELDS }).then((result) => {
+/home/z/my-project/src/components/BalanceSheetPeriodClosePage.tsx:185:      exportToCSVSimple(title, headers, rows);
+/home/z/my-project/src/components/BalanceSheetPeriodClosePage.tsx:195:      exportToPDFSimple(title, headers, rows, "landscape", undefined, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+/home/z/my-project/src/components/BalanceSheetPeriodClosePage.tsx:203:    importFromCSV({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:548:      exportToCSV({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/InventoryGroupPage.tsx:556:      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation: "landscape" });
+/home/z/my-project/src/components/InventoryGroupPage.tsx:562:    importFromCSV({ apiPath, formFields: fields }).then(result => {
+/home/z/my-project/src/components/InventoryGroupPage.tsx:945:            exportToPDF({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:1376:              exportToPDF({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:1781:                exportToPDF({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:1806:              const result = await importFromCSV({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:2061:      exportToPDF({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:2520:              const result = await importFromCSV({
+/home/z/my-project/src/components/InventoryGroupPage.tsx:3790:            const result = await importFromCSV({
+/home/z/my-project/src/components/StagingQAPage.tsx:379:      exportToPDF({
+/home/z/my-project/src/components/StagingQAPage.tsx:422:      exportToCSV({ title: "QA Test History", columns, data: filteredTestLogs, filename: "qa-test-history" });
+/home/z/my-project/src/components/StagingQAPage.tsx:432:      const result = await importFromCSV({
+/home/z/my-project/src/components/GoldenHandoverPage.tsx:586:      exportToPDF({
+/home/z/my-project/src/components/GoldenHandoverPage.tsx:649:      exportToCSV({ title: "Handover History", columns, data: filteredHandoverLogs, filename: "handover-history" });
+/home/z/my-project/src/components/GoldenHandoverPage.tsx:659:      const result = await importFromCSV({
+/home/z/my-project/src/components/SecurityAuditCenter.tsx:497:      exportToPDF({
+/home/z/my-project/src/components/SecurityAuditCenter.tsx:534:      exportToCSV({
+/home/z/my-project/src/components/SecurityAuditCenter.tsx:559:      exportToPDF({
+/home/z/my-project/src/components/SecurityAuditCenter.tsx:584:      const result = await importFromCSV({
+/home/z/my-project/src/components/ChartOfAccountsLedgerPage.tsx:341:      exportToCSVSimple(title, headers, rows);
+/home/z/my-project/src/components/ChartOfAccountsLedgerPage.tsx:351:      exportToPDFSimple(title, headers, rows, "landscape", undefined, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+/home/z/my-project/src/components/ChartOfAccountsLedgerPage.tsx:359:    importFromCSV({
+/home/z/my-project/src/components/ChartOfAccountsLedgerPage.tsx:374:    importFromCSV({
+/home/z/my-project/src/components/InterestPercentageEnginePage.tsx:403:      exportToPDF({
+/home/z/my-project/src/components/InterestPercentageEnginePage.tsx:452:      exportToPDF({
+/home/z/my-project/src/components/InterestPercentageEnginePage.tsx:529:      exportToCSV({
+/home/z/my-project/src/components/InterestPercentageEnginePage.tsx:565:      exportToCSV({
+/home/z/my-project/src/components/InterestPercentageEnginePage.tsx:594:    importFromCSV({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:270:      exportToPDF({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:300:      exportToCSV({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:440:              importFromCSV({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:633:              importFromCSV({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:874:              importFromCSV({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:1110:              importFromCSV({
+/home/z/my-project/src/components/AccountingReportsPage.tsx:1413:              importFromCSV({
+/home/z/my-project/src/components/CustomerSupplierLedgerPage.tsx:223:      exportToCSVSimple(title, headers, rows);
+/home/z/my-project/src/components/CustomerSupplierLedgerPage.tsx:233:      exportToPDFSimple(title, headers, rows, "landscape", undefined, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+/home/z/my-project/src/components/CustomerSupplierLedgerPage.tsx:241:    importFromCSV({
+/home/z/my-project/src/components/CashCollectionsDeliveriesPage.tsx:527:        exportToCSVSimple("Cash Collections", headers, rows);
+/home/z/my-project/src/components/CashCollectionsDeliveriesPage.tsx:539:        exportToCSVSimple("Cash Deliveries", headers, rows);
+/home/z/my-project/src/components/CashCollectionsDeliveriesPage.tsx:580:        exportToPDF({
+/home/z/my-project/src/components/CashCollectionsDeliveriesPage.tsx:614:        exportToPDF({
+/home/z/my-project/src/components/CashCollectionsDeliveriesPage.tsx:649:    importFromCSV({ apiPath: apiBase, formFields }).then(result => {
+/home/z/my-project/src/components/PersonnelCRMGroupPage.tsx:916:      exportToCSV({
+/home/z/my-project/src/components/PersonnelCRMGroupPage.tsx:958:      exportToPDF({
+/home/z/my-project/src/components/PersonnelCRMGroupPage.tsx:987:    importFromCSV({ apiPath: config.apiPath, formFields: config.formFields }).then((result) => {
+/home/z/my-project/src/components/BankTransactionsPage.tsx:543:      exportToCSV({
+/home/z/my-project/src/components/BankTransactionsPage.tsx:657:      exportToPDF({
+/home/z/my-project/src/components/BankTransactionsPage.tsx:685:    importFromCSV({
+/home/z/my-project/src/components/ExpensesIncomesPage.tsx:411:      exportToCSVSimple(tabLabel, headers, rows);
+/home/z/my-project/src/components/ExpensesIncomesPage.tsx:444:      exportToPDF({
+/home/z/my-project/src/components/ExpensesIncomesPage.tsx:471:    importFromCSV({
+/home/z/my-project/src/components/MultiBranchConsolidationPage.tsx:778:      exportToPDF({
+/home/z/my-project/src/components/MultiBranchConsolidationPage.tsx:815:      exportToCSV({ title: "Branch Consolidation", columns, data: branches, filename: "branch-consolidation" });
+/home/z/my-project/src/components/MultiBranchConsolidationPage.tsx:825:      const result = await importFromCSV({
+/home/z/my-project/src/components/BasicModulesGroupPage.tsx:864:      exportToCSV({
+/home/z/my-project/src/components/BasicModulesGroupPage.tsx:895:      exportToPDF({
+/home/z/my-project/src/components/BasicModulesGroupPage.tsx:926:    importFromCSV({ apiPath: config.apiPath, formFields: config.formFields }).then((result) => {
+/home/z/my-project/src/components/ReturnReplacementModulePage.tsx:583:      exportToPDF({
+/home/z/my-project/src/components/ReturnReplacementModulePage.tsx:591:      exportToCSV({ title: "Purchase Return Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/ReturnReplacementModulePage.tsx:621:      exportToPDF({
+/home/z/my-project/src/components/ReturnReplacementModulePage.tsx:629:      exportToCSV({ title: "Replacement Order Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/ReturnReplacementModulePage.tsx:643:      const result = await importFromCSV({
+/home/z/my-project/src/components/ReturnReplacementModulePage.tsx:667:      const result = await importFromCSV({
+/home/z/my-project/src/components/StockModulePage.tsx:901:      exportToPDF({
+/home/z/my-project/src/components/StockModulePage.tsx:914:      exportToCSV({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/StockModulePage.tsx:920:    importFromCSV({ apiPath, formFields: fields }).then(result => {
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:452:      exportToCSVSimple("Trial-Balance", headers, rows);
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:483:      exportToPDF({
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:526:      exportToCSVSimple("Income-Statement", headers, rows);
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:560:      exportToPDF({
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:600:      exportToCSVSimple("Balance-Sheet", headers, rows);
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:633:      exportToPDF({
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:657:      const result = await importFromCSV({
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:678:      const result = await importFromCSV({
+/home/z/my-project/src/components/FinancialStatementsPage.tsx:699:      const result = await importFromCSV({
+/home/z/my-project/src/components/SalesModulePage.tsx:921:      exportToPDF({
+/home/z/my-project/src/components/SalesModulePage.tsx:929:      exportToCSV({ title: "Sales Order Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/SalesModulePage.tsx:971:      exportToPDF({
+/home/z/my-project/src/components/SalesModulePage.tsx:979:      exportToCSV({ title: "Hire Sales Ledger", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/SalesModulePage.tsx:1021:      exportToPDF({
+/home/z/my-project/src/components/SalesModulePage.tsx:1029:      exportToCSV({ title: "Sales Return Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+/home/z/my-project/src/components/SalesModulePage.tsx:1057:    importFromCSV({ apiPath, formFields: fields }).then(result => {
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:334:    exportToCSVSimple("Stock Alerts", headers, rows);
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:347:    exportToPDFSimple("Stock Alerts & KPI Summary", headers, body, "landscape", subtitle, undefined, { preparedBy: printedBy || "System", checkedBy: "", authorizedBy: "", printedBy: printedBy || "System" });
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:357:    exportToCSVSimple("Financial Ratios", headers, rows);
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:367:    exportToPDFSimple("Financial Ratios", headers, body, "portrait", undefined, undefined, { preparedBy: printedBy || "System", checkedBy: "", authorizedBy: "", printedBy: printedBy || "System" });
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:377:    exportToCSVSimple("Stock Alerts", stockHeaders, stockRows);
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:381:    exportToCSVSimple("Financial Ratios", ratioHeaders, ratioRows);
+/home/z/my-project/src/components/DashboardAnalyticsPage.tsx:552:    exportToPDFSimple(
+/home/z/my-project/src/components/AccountManagementPage.tsx:402:      exportToPDF({
+/home/z/my-project/src/components/AccountManagementPage.tsx:421:      exportToCSVSimple(`Account_${activeTab}`, headers, rows);
+/home/z/my-project/src/components/AccountManagementPage.tsx:493:    importFromCSV({
+/home/z/my-project/src/components/MISReportEngine.tsx:600:      exportToCSVSimple(reportData.title || "MIS Report", headers, rows);
+/home/z/my-project/src/components/MISReportEngine.tsx:626:      exportToPDFSimple(reportData.title || "MIS Report", headers, body, "landscape", subtitle, undefined, {
+/home/z/my-project/src/components/MISReportEngine.tsx:649:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:762:  const exportCSV = () => { try { exportToCSV({ title, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:764:  const exportPDF = () => { try { exportToPDF({ title: `Existing ${title}`, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to PDF` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:766:  const importCSV = () => { importFromCSV({ apiPath, formFields }).then(result => { toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" }); loadData(); }); };
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:1186:      exportToCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:1262:      exportToPDF({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:1295:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:1826:    try { exportToPDF({ title, columns: dynamicColumns, data: data, orientation: "portrait", subtitle: `Period: ${dateFrom} to ${dateTo}` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:1833:    try { exportToCSVSimple(title, headers, rows); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:3073:    try { exportToCSVSimple("Purchase Orders", headers, rows); toast({ title: "Exported", description: "Purchase Orders exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:3079:    try { exportToPDFSimple("Purchase Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:3083:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:3590:    try { exportToCSVSimple("Sales Orders", headers, rows); toast({ title: "Exported", description: "Sales Orders exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:3596:    try { exportToPDFSimple("Sales Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:3600:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:4134:    try { exportToCSVSimple("Hire Sales", headers, rows); toast({ title: "Exported", description: "Hire Sales exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:4140:    try { exportToPDFSimple("Hire Sales", headers, body, "landscape"); toast({ title: "Exported", description: "Hire Sales exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:4144:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:4756:    try { exportToCSVSimple("Sales Returns", headers, rows); toast({ title: "Exported", description: "Sales Returns exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:4762:    try { exportToPDFSimple("Sales Returns", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:4766:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:5318:    try { exportToCSVSimple("Purchase Returns", headers, rows); toast({ title: "Exported", description: "Purchase Returns exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:5324:    try { exportToPDFSimple("Purchase Returns", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:5328:    importFromCSV({
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:5812:    try { exportToCSVSimple("Stock Transfers", headers, rows); toast({ title: "Exported", description: "Stock Transfers exported to CSV" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:5818:    try { exportToPDFSimple("Stock Transfers", headers, body, "landscape"); toast({ title: "Exported", description: "Stock Transfers exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+/home/z/my-project/src/components/ElectronicsMartApp.tsx:5822:    importFromCSV({

@@ -553,7 +553,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const doExportPDF = (title: string, columns: ExportColumnDef[], data: any[], extraMasked?: string[]) => {
     try {
       const maskedKeys = [...getVatMaskedKeys(columns), ...(extraMasked || [])];
-      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation: "landscape" });
+      const userName = auth.user?.displayName || auth.user?.name || "System";
+      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation: "landscape", financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" }, systemNotice: "This is a computer-generated document. Verify with official records." });
       toast({ title: "PDF Exported", description: `${title} data exported` });
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };

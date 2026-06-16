@@ -136,6 +136,7 @@ function LazyFallback({ name }: { name?: string }) {
 import AppHeader from "@/components/erp/layout/AppHeader";
 import { exportToPDF, exportToPDFSimple, exportToCSV, exportToCSVSimple, importFromCSV, getVatMaskedKeys, VAT_MASKED_COLUMNS } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, PDFOptions, CSVOptions, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
+import { getCachedCompanyProfile, loadCompanyProfile as loadCompanyBranding } from "@/lib/company-branding-cache";
 
 // ============================================================
 // TYPES & INTERFACES
@@ -232,6 +233,21 @@ const fmt = (v: any, type?: string) => {
 };
 
 const fmtDate = (d: string | Date) => d ? toLatinDigits(new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })) : "—";
+
+// ── PDF Branding Helpers ──
+// Get current user display name from localStorage for PDF financial footer
+function getPrintedBy(): string {
+  try {
+    const auth = JSON.parse(localStorage.getItem("ems_auth") || "{}");
+    return auth.user?.displayName || auth.user?.name || "System";
+  } catch { return "System"; }
+}
+
+// Shared financial footer for PDF exports
+function getPDFFinancialFooter() {
+  const name = getPrintedBy();
+  return { preparedBy: name, checkedBy: "", authorizedBy: "", printedBy: name || "System" };
+}
 
 // apiFetch is now imported from @/lib/api-client
 
@@ -630,6 +646,25 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, { value: string; label: string }[]>>({});
+  const [companyProfile, setCompanyProfile] = useState<ExportCompanyProfile | null>(null);
+
+  // Load company branding for PDF exports
+  useEffect(() => {
+    const loadBranding = async () => {
+      try {
+        // Use fetch with explicit auth header to avoid apiFetch caching issues
+        const auth = JSON.parse(localStorage.getItem("ems_auth") || "{}");
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (auth.accessToken) headers["Authorization"] = `Bearer ${auth.accessToken}`;
+        const res = await fetch("/api/company-branding", { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.company) setCompanyProfile(data.company);
+        }
+      } catch {}
+    };
+    loadBranding();
+  }, []);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [categoryLookup, setCategoryLookup] = useState<Record<string, string>>({});
 
@@ -761,7 +796,12 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
 
   const exportCSV = () => { try { exportToCSV({ title, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to CSV` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
 
-  const exportPDF = () => { try { exportToPDF({ title: `Existing ${title}`, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns) }); toast({ title: "Exported", description: `${title} exported to PDF` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } };
+  const exportPDF = async () => {
+    try {
+      await exportToPDF({ title: `Existing ${title}`, columns: visibleColumns, data: filteredData, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(visibleColumns), company: companyProfile || undefined, financialFooter: getPDFFinancialFooter(), systemNotice: "This is a computer-generated document. Verify with official records." });
+      toast({ title: "Exported", description: `${title} exported to PDF` });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
 
   const importCSV = () => { importFromCSV({ apiPath, formFields }).then(result => { toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`, variant: result.failed > 0 ? "destructive" : "default" }); loadData(); }); };
 
@@ -1820,10 +1860,13 @@ function GenericReportPage({ title, reportType }: { title: string; reportType: s
     } finally { setLoading(false); }
   };
 
-  const exportPDF = () => {
+  const exportPDF = async () => {
     if (data.length === 0) return;
     const dynamicColumns = Object.keys(data[0]).filter(k => k !== "id").map(k => ({ key: k, label: k }));
-    try { exportToPDF({ title, columns: dynamicColumns, data: data, orientation: "portrait", subtitle: `Period: ${dateFrom} to ${dateTo}` }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try {
+      const company = getCachedCompanyProfile() || await loadCompanyBranding() || undefined;
+      await exportToPDF({ title, columns: dynamicColumns, data: data, orientation: "portrait", subtitle: `Period: ${dateFrom} to ${dateTo}`, company: company || undefined, financialFooter: getPDFFinancialFooter(), systemNotice: "This is a computer-generated document. Verify with official records." });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const exportCSVReport = () => {
@@ -3076,7 +3119,7 @@ function PurchaseOrdersPage({ onNavigate }: { onNavigate?: (page: string) => voi
   const exportPDF = () => {
     const headers = ["PO Number", "Supplier", "Date", "Sub Total", "VAT %", "VAT Amount", "Grand Total", "Status"];
     const body = filtered.map((item: any) => [item.poNumber, item.supplierName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), String(item.vatPercentage || 0), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
-    try { exportToPDFSimple("Purchase Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try { exportToPDFSimple("Purchase Orders", headers, body, "landscape", undefined, undefined, getPDFFinancialFooter()); toast({ title: "Exported", description: "Purchase Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -3593,7 +3636,7 @@ function SalesOrdersPage({ onNavigate }: { onNavigate?: (page: string) => void }
   const exportPDF = () => {
     const headers = ["Invoice No", "Customer", "Date", "Sub Total", "Discount", "VAT %", "VAT Amount", "Grand Total", "Status"];
     const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.discount, "currency"), String(item.vatPercentage || 0), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
-    try { exportToPDFSimple("Sales Orders", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try { exportToPDFSimple("Sales Orders", headers, body, "landscape", undefined, undefined, getPDFFinancialFooter()); toast({ title: "Exported", description: "Sales Orders exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -4137,7 +4180,7 @@ function HireSalesPage({ onNavigate }: { onNavigate?: (page: string) => void }) 
   const exportPDF = () => {
     const headers = ["Invoice No", "Customer", "Date", "Down Payment", "Grand Total", "Duration", "Installment", "Status"];
     const body = filtered.map((item: any) => [item.invoiceNo, item.customerName || "—", fmtDate(item.date), fmt(item.downPayment, "currency"), fmt(item.grandTotal, "currency"), String(item.duration || 0), fmt(item.installmentAmount, "currency"), item.currentStatus || item.status]);
-    try { exportToPDFSimple("Hire Sales", headers, body, "landscape"); toast({ title: "Exported", description: "Hire Sales exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try { exportToPDFSimple("Hire Sales", headers, body, "landscape", undefined, undefined, getPDFFinancialFooter()); toast({ title: "Exported", description: "Hire Sales exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -4759,7 +4802,7 @@ function SalesReturnsPage({ onNavigate }: { onNavigate?: (page: string) => void 
   const exportPDF = () => {
     const headers = ["Return No", "SO Invoice", "Customer", "Date", "SubTotal", "VAT", "GrandTotal", "Status"];
     const body = filtered.map((item: any) => [item.returnNo, item.salesOrder?.invoiceNo || "—", item.customer?.name || "—", fmtDate(item.date), fmt(item.subTotal, "currency"), fmt(item.vatAmount, "currency"), fmt(item.grandTotal, "currency"), item.status]);
-    try { exportToPDFSimple("Sales Returns", headers, body, "landscape"); toast({ title: "Exported", description: "Sales Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try { exportToPDFSimple("Sales Returns", headers, body, "landscape", undefined, undefined, getPDFFinancialFooter()); toast({ title: "Exported", description: "Sales Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -5321,7 +5364,7 @@ function PurchaseReturnsPage({ onNavigate }: { onNavigate?: (page: string) => vo
   const exportPDF = () => {
     const headers = ["Return No", "PO Number", "Supplier", "Date", "GrandTotal", "Status"];
     const body = filtered.map((item: any) => [item.returnNo, item.purchaseOrder?.poNumber || "—", item.purchaseOrder?.supplier?.name || "—", fmtDate(item.date), fmt(item.grandTotal, "currency"), item.status]);
-    try { exportToPDFSimple("Purchase Returns", headers, body, "landscape"); toast({ title: "Exported", description: "Purchase Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try { exportToPDFSimple("Purchase Returns", headers, body, "landscape", undefined, undefined, getPDFFinancialFooter()); toast({ title: "Exported", description: "Purchase Returns exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -5815,7 +5858,7 @@ function StockTransfersPage() {
   const exportPDF = () => {
     const headers = ["Transfer No", "From", "To", "Date", "Status", "Items", "Qty"];
     const body = filtered.map((item: any) => [item.transferNo, item.fromGodown?.name || "—", item.toGodown?.name || "—", fmtDate(item.date), item.shippingStatus || "Pending", String(item.totalItems || 0), String(item.totalQuantity || 0)]);
-    try { exportToPDFSimple("Stock Transfers", headers, body, "landscape"); toast({ title: "Exported", description: "Stock Transfers exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+    try { exportToPDFSimple("Stock Transfers", headers, body, "landscape", undefined, undefined, getPDFFinancialFooter()); toast({ title: "Exported", description: "Stock Transfers exported to PDF" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
   const importCSV = () => {
@@ -6134,6 +6177,13 @@ function AppLayout() {
   const userRole = user?.role || "admin";
   const { theme, setTheme } = useTheme();
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Preload company branding cache for PDF exports (logo, name, address)
+  useEffect(() => {
+    import("@/lib/company-branding-cache").then(({ loadCompanyProfile }) => {
+      loadCompanyProfile().catch(() => {});
+    });
+  }, []);
 
   // Cmd/Ctrl+K to open search
   useEffect(() => {

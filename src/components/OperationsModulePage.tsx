@@ -245,7 +245,7 @@ function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
     const loadProfile = async () => {
       try {
         const profile = await apiFetch("/api/company-branding");
-        setCompanyProfile(profile);
+        setCompanyProfile(profile.company || profile);
       } catch (err) {
         console.error('Error loading company branding:', err);
       }
@@ -986,7 +986,7 @@ function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isV
   // Load company profile
   useEffect(() => {
     const loadProfile = async () => {
-      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
+      try { const cp = await apiFetch("/api/company-branding"); setCompanyProfile(cp.company || cp); } catch (err) { console.error('Error loading company branding:', err); }
     };
     loadProfile();
   }, []);
@@ -1437,7 +1437,7 @@ function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAud
 
   useEffect(() => {
     const loadProfile = async () => {
-      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
+      try { const cp = await apiFetch("/api/company-branding"); setCompanyProfile(cp.company || cp); } catch (err) { console.error('Error loading company branding:', err); }
     };
     loadProfile();
   }, []);
@@ -1823,7 +1823,7 @@ function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVa
 
   useEffect(() => {
     const loadProfile = async () => {
-      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
+      try { const cp = await apiFetch("/api/company-branding"); setCompanyProfile(cp.company || cp); } catch (err) { console.error('Error loading company branding:', err); }
     };
     loadProfile();
   }, []);

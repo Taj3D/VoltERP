@@ -221,7 +221,7 @@ export default function FinancialStatementsPage({
   // ── Load Company Profile ──
   useEffect(() => {
     apiFetch("/api/company-branding")
-      .then(setCompanyProfile)
+      .then((res: any) => setCompanyProfile(res.company || res))
       .catch(() => {});
   }, []);
 

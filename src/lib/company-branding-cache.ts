@@ -25,6 +25,9 @@ export function getCachedCompanyProfile(): CompanyProfile | null {
  * Fetches the company branding profile from /api/company-branding
  * and caches it in memory. Returns the profile or null on failure.
  *
+ * Uses the authenticated apiFetch to include the Bearer token,
+ * since the company-branding endpoint requires authentication.
+ *
  * - If a fetch is already in-flight, returns the same promise (deduplication).
  * - If the cache is already populated, returns it immediately (no network call).
  * - On failure, returns null silently (callers should fall back to defaults).
@@ -42,18 +45,18 @@ export async function loadCompanyProfile(): Promise<CompanyProfile | null> {
 
   fetchPromise = (async () => {
     try {
-      const res = await fetch("/api/company-branding");
-      if (!res.ok) {
-        return null;
-      }
-      const data = await res.json();
+      // Use dynamic import to avoid circular dependency with api-client
+      const { apiFetch } = await import("./api-client");
+      const data = await apiFetch("/api/company-branding");
       if (data?.company) {
         cachedProfile = data.company as CompanyProfile;
         return cachedProfile;
       }
+      console.warn("[CompanyBrandingCache] API returned no company data:", data);
       return null;
-    } catch {
+    } catch (e) {
       // Silently fail — callers use fallback defaults
+      console.warn("[CompanyBrandingCache] Failed to load:", e);
       return null;
     } finally {
       fetchPromise = null;

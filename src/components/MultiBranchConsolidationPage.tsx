@@ -368,7 +368,7 @@ export default function MultiBranchConsolidationPage({
   const loadCompanyProfile = useCallback(async () => {
     try {
       const data = await apiFetch("/api/company-branding");
-      setCompanyProfile(data);
+      setCompanyProfile(data.company || data);
     } catch {
       // silent
     }

@@ -380,7 +380,7 @@ function StructureModuleTab({
     const loadProfile = async () => {
       try {
         const profile = await apiFetch("/api/company-branding");
-        setCompanyProfile(profile);
+        setCompanyProfile(profile.company || profile);
       } catch (err) {
         console.error('Error loading company branding:', err);
       }

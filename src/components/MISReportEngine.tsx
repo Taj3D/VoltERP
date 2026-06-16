@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Lock, Search, RefreshCw, Download, FileDown, Upload, BarChart3, Filter,
   ArrowUpDown, ChevronDown, ChevronUp, ChevronRight, Calendar, TrendingUp,
@@ -349,6 +349,9 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
   // --- Flag to skip tab-change effect when mounting from initialReport ---
   const [initialReportProcessed, setInitialReportProcessed] = useState(false);
 
+  // --- Ref for auto-generating reports on sidebar navigation ---
+  const autoGenerateRef = useRef<{ category: string; subtype: string } | null>(null);
+
   // --- Sync activeTab and subtype when initialReport prop changes (sidebar navigation) ---
   useEffect(() => {
     if (!initialReport) return;
@@ -360,8 +363,36 @@ export default function MISReportEngine({ initialReport }: MISReportEngineProps 
       // BUG FIX: Clear stale report data when navigating via sidebar
       setReportData(null);
       setCurrentPageNum(1);
+      // Auto-generate report after sidebar navigation
+      // Use a ref-based approach to avoid stale closures
+      autoGenerateRef.current = { category: mapped.category, subtype: mapped.subtype };
     }
-  }, [initialReport]);
+  }, [initialReport, activeTab]);
+
+  // --- Auto-generate report when navigating from sidebar ---
+  useEffect(() => {
+    if (!autoGenerateRef.current) return;
+    const { category, subtype: sub } = autoGenerateRef.current;
+    autoGenerateRef.current = null;
+    if (!sub) return;
+
+    const apiType = REPORT_CATEGORIES[category as ReportCategoryKey]?.apiType;
+    if (!apiType) return;
+
+    setLoading(true);
+    setReportData(null);
+    const url = `/api/mis-reports?type=${apiType}&subtype=${sub}&from=${fromDate}&to=${toDate}`;
+    apiFetch(url)
+      .then((data: any) => {
+        setReportData(data);
+        toast({ title: "Report Generated", description: data.title || "Report loaded successfully" });
+      })
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : "Failed to generate report";
+        toast({ title: "Error", description: message, variant: "destructive" });
+      })
+      .finally(() => setLoading(false));
+  }, [initialReport, fromDate, toDate, toast]);
 
   // --- Set default subtype when tab changes ---
   useEffect(() => {

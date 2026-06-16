@@ -491,7 +491,9 @@ function ModuleTab({ config, isVatAuditor, userRole }: {
   const loadCompanyProfile = useCallback(async () => {
     try {
       const result = await apiFetch("/api/company-branding");
-      if (result && typeof result === "object") {
+      if (result?.company && typeof result.company === "object") {
+        setCompanyProfile(result.company as CompanyProfile);
+      } else if (result && typeof result === "object") {
         setCompanyProfile(result as CompanyProfile);
       }
     } catch (err) {

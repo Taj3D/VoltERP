@@ -186,7 +186,7 @@ export default function SecurityAuditCenter() {
     (async () => {
       try {
         const data = await apiFetch("/api/company-branding");
-        setCompanyProfile(data.profile || data || null);
+        setCompanyProfile(data.company || data.profile || null);
       } catch {}
     })();
   }, []);
