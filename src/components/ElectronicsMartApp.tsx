@@ -969,7 +969,7 @@ function GenericModulePage({ title, apiPath, columns, formFields }: {
 
 function ProductsPage() {
   const { toast } = useToast();
-  const { isVatAuditor } = useAuth();
+  const { isVatAuditor, user } = useAuth();
   const [data, setData] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1259,7 +1259,6 @@ function ProductsPage() {
         ...(isVatAuditor ? [] : [{ label: "Total Inventory Value", value: `Tk. ${toLatinDigits(new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(sanitizeCurrency(totalInventoryValue)))}` }]),
       ];
       const summaryRows = summaryRowsData.map(r => ({ cells: [r.label, r.value] }));
-      const { user } = useAuth();
       exportToPDF({
         title: "Product Master List",
         subtitle: `Total: ${totalProducts} | In Stock: ${inStock} | Low: ${lowStock} | Out: ${outOfStock}`,

@@ -623,3 +623,22 @@ Stage Summary:
 - Company branding: Logo set, address "Jessore", mobile "01403120044"
 - bun run lint: passes with no errors
 - No browser console errors
+
+---
+Task ID: fix-products-pdf-hook
+Agent: Main Agent
+Task: Fix "Invalid hook call" React error when clicking PDF export in Products module
+
+Work Log:
+- Analyzed user screenshot showing "Invalid hook call" error popup on Products page PDF click
+- Found root cause: `useAuth()` was called inside `exportPDF()` callback function (line 1262 of ElectronicsMartApp.tsx) — violates React Rules of Hooks
+- Fixed by: (1) Adding `user` to the top-level `useAuth()` destructuring at component level (line 972), (2) Removing the illegal `useAuth()` call from inside the callback
+- Verified fix with `bun run lint` — passes cleanly
+- Tested via agent-browser: Products page "Export PDF" button now works correctly — PDF downloads without error
+- Also tested Stock page PDF and Purchase Order page PDF — all working
+- No other pages have similar issues (all other `useAuth()` calls are at component level)
+
+Stage Summary:
+- Bug: `useAuth()` called inside regular function callback in ProductsPage component
+- Fix: Move `user` destructuring to component-level `useAuth()` call
+- All PDF exports across the app are now working correctly
