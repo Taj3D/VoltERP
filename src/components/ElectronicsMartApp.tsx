@@ -1544,9 +1544,62 @@ function StockPage() {
     return data.filter((item: any) => item.productName?.toLowerCase().includes(s) || item.productCode?.toLowerCase().includes(s));
   }, [data, search]);
 
+  const stockColumns = [
+    { key: "productCode", label: "Product Code" },
+    { key: "productName", label: "Product Name" },
+    { key: "category", label: "Category" },
+    { key: "currentStock", label: "Stock Qty" },
+    { key: "costPrice", label: "Cost Price" },
+    { key: "salePrice", label: "Sale Price" },
+  ];
+
+  const handleExportPDF = () => {
+    try {
+      exportToPDF({
+        title: "Stock Overview",
+        columns: stockColumns,
+        data: filtered.map((item: any) => ({
+          ...item,
+          currentStock: (item.currentStock ?? item.totalStock) ?? 0,
+        })),
+      });
+      toast({ title: "Exported", description: "Stock overview exported to PDF" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      exportToCSV({
+        title: "Stock Overview",
+        columns: stockColumns,
+        data: filtered.map((item: any) => ({
+          ...item,
+          currentStock: (item.currentStock ?? item.totalStock) ?? 0,
+        })),
+      });
+      toast({ title: "Exported", description: "Stock overview exported to CSV" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const handleImportCSV = () => {
+    importFromCSV({ apiPath: "/api/stock-entries", formFields: stockColumns.map(c => ({ key: c.key, label: c.label, type: "text" })) })
+      .then(result => {
+        toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+        window.location.reload();
+      })
+      .catch((e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }));
+  };
+
   return (
     <div className="page-enter space-y-4">
-      <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Overview</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Overview</h2>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Import CSV</span></Button>
+          <Button variant="outline" size="sm" onClick={handleExportCSV}><FileSpreadsheet className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export CSV</span></Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export PDF</span></Button>
+        </div>
+      </div>
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-4">
@@ -1655,13 +1708,57 @@ function StockDetailsPage() {
   const totalIn = data.filter((d: any) => d.type === "IN").reduce((s: number, d: any) => s + (d.quantity || 0), 0);
   const totalOut = data.filter((d: any) => d.type === "OUT").reduce((s: number, d: any) => s + (d.quantity || 0), 0);
 
+  const stockDetailColumns = [
+    { key: "date", label: "Date" },
+    { key: "productName", label: "Product" },
+    { key: "type", label: "Type" },
+    { key: "quantity", label: "Quantity" },
+    { key: "reference", label: "Reference" },
+    { key: "notes", label: "Notes" },
+  ];
+
+  const handleExportPDF = () => {
+    try {
+      exportToPDF({ title: "Stock Details", columns: stockDetailColumns, data: filtered });
+      toast({ title: "Exported", description: "Stock details exported to PDF" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const handleExportCSV = () => {
+    try {
+      exportToCSV({ title: "Stock Details", columns: stockDetailColumns, data: filtered });
+      toast({ title: "Exported", description: "Stock details exported to CSV" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  const handleImportCSV = () => {
+    importFromCSV({ apiPath: "/api/stock-entries", formFields: [
+      { key: "productId", label: "Product ID", type: "text" },
+      { key: "type", label: "Type (IN/OUT)", type: "text" },
+      { key: "quantity", label: "Quantity", type: "number" },
+      { key: "reference", label: "Reference", type: "text" },
+      { key: "date", label: "Date", type: "date" },
+      { key: "notes", label: "Notes", type: "text" },
+    ] })
+      .then(result => {
+        toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+        loadData();
+      })
+      .catch((e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }));
+  };
+
   return (
     <div className="page-enter space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Details</h2>
-        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreateEntry}>
-          <Plus className="w-4 h-4 mr-1" />Create Stock Entry
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Import CSV</span></Button>
+          <Button variant="outline" size="sm" onClick={handleExportCSV}><FileSpreadsheet className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export CSV</span></Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">Export PDF</span></Button>
+          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreateEntry}>
+            <Plus className="w-4 h-4 mr-1" />Create Stock Entry
+          </Button>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {[
@@ -1995,7 +2092,10 @@ function ChangePasswordPage() {
     try {
       const res = await fetch("/api/auth/password", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Email": auth.user?.email || "" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${auth.accessToken}`,
+        },
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       const data = await res.json();
@@ -2056,7 +2156,7 @@ function ChangePasswordPage() {
 // ============================================================
 
 function ProfilePage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2081,7 +2181,7 @@ function ProfilePage() {
     setLoading(true);
     try {
       const res = await fetch("/api/users/profile", {
-        headers: { "Content-Type": "application/json", "X-User-Email": user.email },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
       });
       if (res.ok) {
         const data = await res.json();
@@ -2122,7 +2222,7 @@ function ProfilePage() {
     try {
       const res = await fetch("/api/users/profile", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Email": user.email },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
         body: JSON.stringify({
           name: profileData.name,
           phone: profileData.phone,
