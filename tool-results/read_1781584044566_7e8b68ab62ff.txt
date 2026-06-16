@@ -1,0 +1,1690 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo } from "react";
+     4→import {
+     5→  Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
+     6→  FileDown, Building2, Tag, Palette, Box, Layers, Building,
+     7→  Warehouse, CreditCard, Settings, Target, Hash, X, Shield,
+     8→  CheckCircle, ChevronRight, ChevronDown, Ruler, Loader2, AlertTriangle, Banknote,
+     9→  Power, Package,
+    10→} from "lucide-react";
+    11→import { Button } from "@/components/ui/button";
+    12→import { Input } from "@/components/ui/input";
+    13→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    14→import {
+    15→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+    16→} from "@/components/ui/dialog";
+    17→import {
+    18→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    19→} from "@/components/ui/select";
+    20→import {
+    21→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    22→} from "@/components/ui/table";
+    23→import { Badge } from "@/components/ui/badge";
+    24→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    25→import { Textarea } from "@/components/ui/textarea";
+    26→import { Label } from "@/components/ui/label";
+    27→import { Separator } from "@/components/ui/separator";
+    28→import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+    29→import { useToast } from "@/hooks/use-toast";
+    30→import {
+    31→  exportToPDF, exportToCSV, importFromCSV,
+    32→} from "@/lib/export-utils";
+    33→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
+    34→import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+    35→import { apiFetch, type UserRole, authState } from "@/lib/api-client";
+    36→import { useAuth } from "@/hooks/useAuth";
+    37→
+    38→// ============================================================
+    39→// UTILITY FUNCTIONS
+    40→// ============================================================
+    41→
+    42→const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    43→const bdFmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+    44→
+    45→const fmt = (v: any, type?: string) => {
+    46→  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
+    47→  if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
+    48→  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+    49→  if (type === "boolean") return v ? "Active" : "Inactive";
+    50→  if (type === "number") return bdFmtInt.format(Number(v));
+    51→  return String(v);
+    52→};
+    53→
+    54→const fmtCurrency = (v: any) => {
+    55→  if (v === null || v === undefined) return "—";
+    56→  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
+    57→  return `Tk. ${bdFmt.format(Number(v))}`;
+    58→};
+    59→
+    60→
+    61→// ============================================================
+    62→// AUTH
+    63→
+    64→// ============================================================
+    65→// MODULE CONFIGURATION
+    66→// ============================================================
+    67→
+    68→interface ModuleConfig {
+    69→  key: string;
+    70→  label: string;
+    71→  icon: React.ElementType;
+    72→  apiPath: string;
+    73→  columns: ExportColumnDef[];
+    74→  formFields: ExportFieldDef[];
+    75→  vatMaskedColumns?: string[];
+    76→  category?: "core" | "structural" | "operational";
+    77→}
+    78→
+    79→const MODULE_CONFIGS: ModuleConfig[] = [
+    80→  // ── Core Configurations ──
+    81→  {
+    82→    key: "companies", label: "Companies", icon: Building2, apiPath: "/api/companies",
+    83→    category: "core",
+    84→    columns: [
+    85→      { key: "code", label: "Code", type: "text" },
+    86→      { key: "name", label: "Company Name", type: "text" },
+    87→      { key: "address", label: "Address", type: "text" },
+    88→      { key: "phone", label: "Phone", type: "text" },
+    89→      { key: "mobile", label: "Mobile", type: "text" },
+    90→      { key: "email", label: "Email", type: "text" },
+    91→      { key: "vatNumber", label: "VAT No.", type: "text" },
+    92→      { key: "website", label: "Website", type: "text" },
+    93→      { key: "_count.products", label: "Products", type: "number" },
+    94→      { key: "_count.orderSheets", label: "Order Sheets", type: "number" },
+    95→      { key: "isActive", label: "Status", type: "boolean" },
+    96→    ],
+    97→    formFields: [
+    98→      // ── Basic Info ──
+    99→      { key: "code", label: "Code", type: "text", required: false, placeholder: "Auto-generated" },
+   100→      { key: "name", label: "Company Name", type: "text", required: true },
+   101→      // ── Contact ──
+   102→      { key: "address", label: "Address", type: "textarea", required: false },
+   103→      { key: "phone", label: "Phone", type: "text", required: false },
+   104→      { key: "mobile", label: "Mobile Number", type: "text", required: false, placeholder: "01XXXXXXXXX" },
+   105→      { key: "email", label: "Email", type: "email", required: false },
+   106→      { key: "website", label: "Website", type: "text", required: false, placeholder: "https://example.com" },
+   107→      // ── Business Registration ──
+   108→      { key: "vatNumber", label: "VAT/Tax Registration No", type: "text", required: false, placeholder: "e.g. BIN-123456" },
+   109→      { key: "tradeLicense", label: "Trade License No", type: "text", required: false, placeholder: "e.g. TL-2024-001" },
+   110→      // ── Invoice Settings ──
+   111→      { key: "invoicePrefix", label: "Invoice Prefix", type: "text", required: false, placeholder: "e.g. EM" },
+   112→      { key: "thankYouMsg", label: "Invoice Footer Message", type: "textarea", required: false, placeholder: "Thank You Come Again.", defaultValue: "Thank You Come Again." },
+   113→      { key: "systemNote", label: "System Generation Note", type: "textarea", required: false, placeholder: "This is a system generated invoice no need to seal & signature.", defaultValue: "This is a system generated invoice no need to seal & signature." },
+   114→      { key: "showBarcode", label: "Show Barcode on Invoice", type: "checkbox", defaultValue: true },
+   115→      { key: "showPayInWord", label: "Show Amount in Words", type: "checkbox", defaultValue: true },
+   116→      // ── Logo Settings ──
+   117→      { key: "logo", label: "Company Logo", type: "image" },
+   118→      { key: "brandLogo", label: "Brand Logo", type: "image" },
+   119→      { key: "logoWidth", label: "Logo Width (mm)", type: "number", required: false, defaultValue: 30, step: "1" },
+   120→      { key: "logoHeight", label: "Logo Height (mm)", type: "number", required: false, defaultValue: 20, step: "1" },
+   121→    ],
+   122→  },
+   123→  {
+   124→    key: "categories", label: "Categories", icon: Tag, apiPath: "/api/categories",
+   125→    category: "core",
+   126→    columns: [
+   127→      { key: "code", label: "Code", type: "text" },
+   128→      { key: "name", label: "Category Name", type: "text" },
+   129→      { key: "parent.name", label: "Parent Category", type: "text" },
+   130→      { key: "_count.products", label: "Products", type: "number" },
+   131→      { key: "_count.children", label: "Sub-Categories", type: "number" },
+   132→      { key: "isActive", label: "Status", type: "boolean" },
+   133→    ],
+   134→    formFields: [
+   135→      { key: "code", label: "Code", type: "text", required: false, placeholder: "Auto-generated (CAT-001)" },
+   136→      { key: "name", label: "Category Name", type: "text", required: true },
+   137→      { key: "parentCategoryId", label: "Parent Category", type: "select", required: false, options: [] },
+   138→      { key: "description", label: "Description", type: "textarea" },
+   139→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   140→    ],
+   141→  },
+   142→  {
+   143→    key: "colors", label: "Colors", icon: Palette, apiPath: "/api/colors",
+   144→    category: "core",
+   145→    columns: [
+   146→      { key: "name", label: "Color Name", type: "text" },
+   147→      { key: "colorCode", label: "Color Code", type: "text" },
+   148→      { key: "_count.products", label: "Products", type: "number" },
+   149→      { key: "isActive", label: "Status", type: "boolean" },
+   150→    ],
+   151→    formFields: [
+   152→      { key: "name", label: "Color Name", type: "text", required: true },
+   153→      { key: "colorCode", label: "Color Code (Hex)", type: "text", required: true, placeholder: "#000000" },
+   154→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   155→    ],
+   156→  },
+   157→  {
+   158→    key: "brands", label: "Brands", icon: Box, apiPath: "/api/brands",
+   159→    category: "core",
+   160→    columns: [
+   161→      { key: "code", label: "Code", type: "text" },
+   162→      { key: "name", label: "Brand Name", type: "text" },
+   163→      { key: "description", label: "Description", type: "text" },
+   164→      { key: "_count.products", label: "Products", type: "number" },
+   165→      { key: "isActive", label: "Status", type: "boolean" },
+   166→    ],
+   167→    formFields: [
+   168→      { key: "name", label: "Brand Name", type: "text", required: true },
+   169→      { key: "description", label: "Description", type: "textarea" },
+   170→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   171→    ],
+   172→  },
+   173→  {
+   174→    key: "banks", label: "Bank/Vault Profiles", icon: Banknote, apiPath: "/api/banks",
+   175→    category: "core",
+   176→    columns: [
+   177→      { key: "bankName", label: "Bank Name", type: "text" },
+   178→      { key: "bankType", label: "Type", type: "text" },
+   179→      { key: "branch", label: "Branch", type: "text" },
+   180→      { key: "accountNo", label: "Account No", type: "text" },
+   181→      { key: "accountHolder", label: "Account Holder", type: "text" },
+   182→      { key: "openingBalance", label: "Opening Balance", type: "currency" },
+   183→      { key: "currentBalance", label: "Current Balance", type: "currency" },
+   184→      { key: "chartOfAccount.name", label: "CoA Mapping", type: "text" },
+   185→      { key: "isActive", label: "Status", type: "boolean" },
+   186→    ],
+   187→    formFields: [
+   188→      { key: "bankName", label: "Bank Name", type: "text", required: true },
+   189→      { key: "bankType", label: "Account Type", type: "select", required: true, options: [
+   190→        { value: "Bank", label: "Bank Account" },
+   191→        { value: "MFS", label: "Mobile Financial Service (Bkash/Nagad)" },
+   192→        { value: "CashDrawer", label: "Physical Cash Drawer" },
+   193→      ]},
+   194→      { key: "branch", label: "Branch", type: "text" },
+   195→      { key: "accountNo", label: "Account No", type: "text", required: true },
+   196→      { key: "accountHolder", label: "Account Holder", type: "text", required: true },
+   197→      { key: "openingBalance", label: "Opening Balance", type: "number", defaultValue: 0, step: "0.01" },
+   198→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   199→    ],
+   200→    vatMaskedColumns: ["openingBalance", "currentBalance", "accountNo"],
+   201→  },
+   202→  {
+   203→    key: "units", label: "Units", icon: Ruler, apiPath: "/api/units",
+   204→    category: "core",
+   205→    columns: [
+   206→      { key: "code", label: "Code", type: "text" },
+   207→      { key: "name", label: "Unit Name", type: "text" },
+   208→      { key: "symbol", label: "Symbol", type: "text" },
+   209→      { key: "description", label: "Description", type: "text" },
+   210→      { key: "isActive", label: "Status", type: "boolean" },
+   211→    ],
+   212→    formFields: [
+   213→      { key: "name", label: "Unit Name", type: "text", required: true, placeholder: "e.g. Piece, Kilogram" },
+   214→      { key: "symbol", label: "Symbol", type: "text", required: false, placeholder: "e.g. pcs, kg, m, l" },
+   215→      { key: "description", label: "Description", type: "textarea" },
+   216→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   217→    ],
+   218→  },
+   219→  {
+   220→    key: "products", label: "Products", icon: Package, apiPath: "/api/products",
+   221→    category: "core",
+   222→    columns: [
+   223→      { key: "productCode", label: "Code", type: "text" },
+   224→      { key: "name", label: "Product Name", type: "text" },
+   225→      { key: "category.name", label: "Category", type: "text" },
+   226→      { key: "brand.name", label: "Brand", type: "text" },
+   227→      { key: "costPrice", label: "Purchase Price", type: "currency" },
+   228→      { key: "salePrice", label: "MRP/Retail", type: "currency" },
+   229→      { key: "wholesalePrice", label: "Wholesale", type: "currency" },
+   230→      { key: "dealerPrice", label: "Dealer", type: "currency" },
+   231→      { key: "currentStock", label: "Stock", type: "number" },
+   232→      { key: "stockStatus", label: "Stock Status", type: "text" },
+   233→      { key: "skuStatus", label: "SKU Status", type: "text" },
+   234→      { key: "_warranty", label: "Warranty", type: "text" },
+   235→      { key: "isActive", label: "Status", type: "boolean" },
+   236→    ],
+   237→    formFields: [
+   238→      { key: "name", label: "Product Name", type: "text", required: true },
+   239→      { key: "categoryId", label: "Category", type: "select", required: true, options: [] },
+   240→      { key: "brandId", label: "Brand", type: "select", required: false, options: [] },
+   241→      { key: "colorId", label: "Color", type: "select", required: false, options: [] },
+   242→      { key: "sku", label: "SKU", type: "text", required: false },
+   243→      { key: "barcode", label: "Barcode", type: "text", required: false },
+   244→      { key: "unit", label: "Unit", type: "select", required: false, options: [] },
+   245→      { key: "sizeCapacity", label: "Size/Capacity", type: "text", required: false },
+   246→      { key: "costPrice", label: "Purchase Price (Tk. )", type: "number", required: true, step: "0.01" },
+   247→      { key: "salePrice", label: "MRP/Retail Price (Tk. )", type: "number", required: true, step: "0.01" },
+   248→      { key: "wholesalePrice", label: "Wholesale Price (Tk. )", type: "number", defaultValue: 0, step: "0.01" },
+   249→      { key: "dealerPrice", label: "Dealer Price (Tk. )", type: "number", defaultValue: 0, step: "0.01" },
+   250→      { key: "openingStock", label: "Opening Stock", type: "number", defaultValue: 0, step: "0.01" },
+   251→      { key: "reorderLevel", label: "Reorder Level", type: "number", defaultValue: 0, step: "0.01" },
+   252→      { key: "godownId", label: "Warehouse", type: "select", required: false, options: [] },
+   253→      { key: "segmentId", label: "Segment", type: "select", required: false, options: [] },
+   254→      { key: "imeiNumber", label: "IMEI Number", type: "text", required: false },
+   255→      { key: "image", label: "Product Image", type: "image" },
+   256→      { key: "_warrantySection", label: "Warranty Information", type: "section", sectionIcon: "shield" },
+   257→      { key: "compressorWarranty", label: "Compressor Warranty", type: "warrantyGroup", unitKey: "compressorWarrantyUnit" },
+   258→      { key: "panelWarranty", label: "Panel Warranty", type: "warrantyGroup", unitKey: "panelWarrantyUnit" },
+   259→      { key: "serviceWarranty", label: "Service Warranty", type: "warrantyGroup", unitKey: "serviceWarrantyUnit" },
+   260→      { key: "motorWarranty", label: "Motor Warranty", type: "warrantyGroup", unitKey: "motorWarrantyUnit" },
+   261→      { key: "sparePartsWarranty", label: "Spare Parts Warranty", type: "warrantyGroup", unitKey: "sparePartsWarrantyUnit" },
+   262→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   263→    ],
+   264→    vatMaskedColumns: ["costPrice", "wholesalePrice", "dealerPrice"],
+   265→  },
+   266→  // ── Structural Infrastructure ──
+   267→  {
+   268→    key: "departments", label: "Departments", icon: Building, apiPath: "/api/departments",
+   269→    category: "structural",
+   270→    columns: [
+   271→      { key: "code", label: "Code", type: "text" },
+   272→      { key: "name", label: "Department Name", type: "text" },
+   273→      { key: "description", label: "Description", type: "text" },
+   274→      { key: "_count.employees", label: "Employees", type: "number" },
+   275→      { key: "_count.designations", label: "Designations", type: "number" },
+   276→      { key: "isActive", label: "Status", type: "boolean" },
+   277→    ],
+   278→    formFields: [
+   279→      { key: "name", label: "Department Name", type: "text", required: true },
+   280→      { key: "description", label: "Description", type: "textarea" },
+   281→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   282→    ],
+   283→  },
+   284→  {
+   285→    key: "godowns", label: "Godowns", icon: Warehouse, apiPath: "/api/godowns",
+   286→    category: "structural",
+   287→    columns: [
+   288→      { key: "code", label: "Code", type: "text" },
+   289→      { key: "name", label: "Warehouse Name", type: "text" },
+   290→      { key: "address", label: "Address", type: "text" },
+   291→      { key: "phone", label: "Phone", type: "text" },
+   292→      { key: "inCharge", label: "In Charge", type: "text" },
+   293→      { key: "status", label: "Status", type: "text" },
+   294→      { key: "capacityValue", label: "Capacity", type: "number" },
+   295→      { key: "capacityUnit", label: "Unit", type: "text" },
+   296→      { key: "_count.products", label: "Products", type: "number" },
+   297→      { key: "isActive", label: "Active", type: "boolean" },
+   298→    ],
+   299→    formFields: [
+   300→      { key: "name", label: "Warehouse Name", type: "text", required: true },
+   301→      { key: "address", label: "Address", type: "textarea", required: true },
+   302→      { key: "phone", label: "Phone", type: "text", required: true },
+   303→      { key: "inCharge", label: "In Charge", type: "text" },
+   304→      { key: "status", label: "Status", type: "select", required: true, options: [
+   305→        { value: "ACTIVE", label: "Active" },
+   306→        { value: "SUSPENDED", label: "Suspended (Emergency Closure)" },
+   307→      ]},
+   308→      { key: "capacityValue", label: "Capacity Value", type: "number", required: false, step: "0.01" },
+   309→      { key: "capacityUnit", label: "Capacity Unit", type: "select", required: false, options: [
+   310→        { value: "m³", label: "Cubic Meters (m³)" },
+   311→        { value: "sqft", label: "Square Feet (sqft)" },
+   312→        { value: "units", label: "Units/Items" },
+   313→        { value: "kg", label: "Kilograms (kg)" },
+   314→        { value: "tons", label: "Metric Tons" },
+   315→      ]},
+   316→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   317→    ],
+   318→  },
+   319→  {
+   320→    key: "segments", label: "Segments", icon: Layers, apiPath: "/api/segments",
+   321→    category: "structural",
+   322→    columns: [
+   323→      { key: "code", label: "Code", type: "text" },
+   324→      { key: "name", label: "Segment Name", type: "text" },
+   325→      { key: "description", label: "Description", type: "text" },
+   326→      { key: "_count.products", label: "Products", type: "number" },
+   327→      { key: "isActive", label: "Status", type: "boolean" },
+   328→    ],
+   329→    formFields: [
+   330→      { key: "name", label: "Segment Name", type: "text", required: true },
+   331→      { key: "description", label: "Description", type: "textarea" },
+   332→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   333→    ],
+   334→  },
+   335→  {
+   336→    key: "capacities", label: "Capacities", icon: Hash, apiPath: "/api/capacities",
+   337→    category: "structural",
+   338→    columns: [
+   339→      { key: "code", label: "Code", type: "text" },
+   340→      { key: "name", label: "Capacity Name", type: "text" },
+   341→      { key: "capacityValue", label: "Capacity Value", type: "number" },
+   342→      { key: "capacityUnit", label: "Unit", type: "text" },
+   343→      { key: "description", label: "Description", type: "text" },
+   344→      { key: "isActive", label: "Status", type: "boolean" },
+   345→    ],
+   346→    formFields: [
+   347→      { key: "name", label: "Capacity Name", type: "text", required: true },
+   348→      { key: "capacityValue", label: "Capacity Value", type: "number", required: true, step: "0.01" },
+   349→      { key: "capacityUnit", label: "Capacity Unit", type: "select", required: true, options: [
+   350→        { value: "m³", label: "Cubic Meters (m³)" },
+   351→        { value: "sqft", label: "Square Feet (sqft)" },
+   352→        { value: "units", label: "Units/Items" },
+   353→        { value: "kg", label: "Kilograms (kg)" },
+   354→        { value: "tons", label: "Metric Tons" },
+   355→      ]},
+   356→      { key: "description", label: "Description", type: "textarea" },
+   357→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   358→    ],
+   359→  },
+   360→  // ── Operational Framework ── Phase 7: Financial benchmark shields, card fee architecture, status toggles
+   361→  {
+   362→    key: "sr-targets", label: "SR Target Setup", icon: Target, apiPath: "/api/sr-targets",
+   363→    category: "operational",
+   364→    columns: [
+   365→      { key: "employee.name", label: "Employee", type: "text" },
+   366→      { key: "month", label: "Month", type: "number" },
+   367→      { key: "year", label: "Year", type: "number" },
+   368→      { key: "targetAmount", label: "Target Amount", type: "currency" },
+   369→      { key: "minimumSalesQuota", label: "Min Sales Quota", type: "currency" },
+   370→      { key: "commissionPercentage", label: "Commission %", type: "number" },
+   371→      { key: "status", label: "Channel Status", type: "text" },
+   372→      { key: "isActive", label: "Status", type: "boolean" },
+   373→    ],
+   374→    formFields: [
+   375→      { key: "employeeId", label: "Employee (SR)", type: "select", required: true, options: [] },
+   376→      { key: "month", label: "Month", type: "number", required: true },
+   377→      { key: "year", label: "Year", type: "number", required: true },
+   378→      { key: "targetAmount", label: "Target Amount (Tk. )", type: "number", required: true, step: "0.01" },
+   379→      { key: "minimumSalesQuota", label: "Minimum Sales Quota (Tk. )", type: "number", required: true, step: "0.01" },
+   380→      { key: "commissionPercentage", label: "Commission Percentage (%)", type: "number", required: true, step: "0.01" },
+   381→    ],
+   382→    vatMaskedColumns: ["targetAmount", "minimumSalesQuota", "commissionPercentage"],
+   383→  },
+   384→  {
+   385→    key: "payment-options", label: "Payment Options", icon: CreditCard, apiPath: "/api/payment-options",
+   386→    category: "operational",
+   387→    columns: [
+   388→      { key: "name", label: "Payment Option", type: "text" },
+   389→      { key: "status", label: "Channel Status", type: "text" },
+   390→      { key: "_count.cardTypeSetups", label: "Card Setups", type: "number" },
+   391→      { key: "isActive", label: "Status", type: "boolean" },
+   392→    ],
+   393→    formFields: [
+   394→      { key: "name", label: "Payment Option Name", type: "text", required: true },
+   395→      { key: "status", label: "Channel Status", type: "select", required: true, options: [{ value: "ACTIVE", label: "ACTIVE" }, { value: "INACTIVE", label: "INACTIVE" }] },
+   396→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   397→    ],
+   398→  },
+   399→  {
+   400→    key: "card-types", label: "Card Types", icon: CreditCard, apiPath: "/api/card-types",
+   401→    category: "operational",
+   402→    columns: [
+   403→      { key: "name", label: "Card Type", type: "text" },
+   404→      { key: "_count.cardTypeSetups", label: "Card Setups", type: "number" },
+   405→      { key: "isActive", label: "Status", type: "boolean" },
+   406→    ],
+   407→    formFields: [
+   408→      { key: "name", label: "Card Type Name", type: "text", required: true },
+   409→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   410→    ],
+   411→  },
+   412→  {
+   413→    key: "card-type-setup", label: "CardType Setup", icon: Settings, apiPath: "/api/card-type-setup",
+   414→    category: "operational",
+   415→    columns: [
+   416→      { key: "paymentOption.name", label: "Payment Option", type: "text" },
+   417→      { key: "cardType.name", label: "Card Type", type: "text" },
+   418→      { key: "chargePercentage", label: "Charge %", type: "number" },
+   419→      { key: "bankServiceCharge", label: "BSC %", type: "number" },
+   420→      { key: "customerConvFee", label: "Conv. Fee %", type: "number" },
+   421→      { key: "isActive", label: "Status", type: "boolean" },
+   422→    ],
+   423→    formFields: [
+   424→      { key: "paymentOptionId", label: "Payment Option", type: "select", required: true, options: [] },
+   425→      { key: "cardTypeId", label: "Card Type", type: "select", required: true, options: [] },
+   426→      { key: "chargePercentage", label: "Charge Percentage (%)", type: "number", defaultValue: 0, step: "0.01" },
+   427→      { key: "bankServiceCharge", label: "Bank Service Charge BSC (%)", type: "number", defaultValue: 0, step: "0.01" },
+   428→      { key: "customerConvFee", label: "Customer Conv. Fee (%)", type: "number", defaultValue: 0, step: "0.01" },
+   429→    ],
+   430→    vatMaskedColumns: ["chargePercentage", "bankServiceCharge", "customerConvFee"],
+   431→  },
+   432→];
+   433→
+   434→// ============================================================
+   435→// HELPER: Get nested value from object
+   436→// ============================================================
+   437→
+   438→function getNestedValue(obj: any, path: string): any {
+   439→  return path.split(".").reduce((acc, part) => acc?.[part], obj);
+   440→}
+   441→
+   442→// ============================================================
+   443→// GENERIC MODULE TAB COMPONENT
+   444→// ============================================================
+   445→
+   446→function ModuleTab({ config, isVatAuditor, userRole }: {
+   447→  config: ModuleConfig;
+   448→  isVatAuditor: boolean;
+   449→  userRole: UserRole;
+   450→}) {
+   451→  const { toast } = useToast();
+   452→  const [data, setData] = useState<any[]>([]);
+   453→  const [loading, setLoading] = useState(true);
+   454→  const [search, setSearch] = useState("");
+   455→  const [dialogOpen, setDialogOpen] = useState(false);
+   456→  const [editingItem, setEditingItem] = useState<any>(null);
+   457→  const [formData, setFormData] = useState<Record<string, any>>({});
+   458→  const [saving, setSaving] = useState(false);
+   459→  const [saveError, setSaveError] = useState<string | null>(null);
+   460→  const [dynamicOptions, setDynamicOptions] = useState<Record<string, any[]>>({});
+   461→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+   462→  const [companyProfile, setCompanyProfile] = useState<any>(null);
+   463→
+   464→  // Phase 6: Optimistic UI with snapshot rollback
+   465→  const [structuralSnapshot, setStructuralSnapshot] = useState<any[] | null>(null);
+   466→
+   467→  // Phase 7: Operational snapshot for rollback on connection drop
+   468→  const [operationsSnapshot, setOperationsSnapshot] = useState<any[] | null>(null);
+   469→
+   470→  // Phase 6: Capacity validation error state
+   471→  const [capacityError, setCapacityError] = useState(false);
+   472→
+   473→  // Phase 7: Financial benchmark validation error states
+   474→  const [srTargetError, setSrTargetError] = useState<string | null>(null);
+   475→  const [cardFeeError, setCardFeeError] = useState<string | null>(null);
+   476→
+   477→  // Phase 19: Warranty section collapsible state
+   478→  const [warrantyOpen, setWarrantyOpen] = useState(false);
+   479→
+   480→  const canMutate = userRole === "admin" || userRole === "manager";
+   481→
+   482→  const maskedColumns = useMemo(() => {
+   483→    if (!isVatAuditor) return [];
+   484→    return config.vatMaskedColumns || [];
+   485→  }, [isVatAuditor, config.vatMaskedColumns]);
+   486→
+   487→  // Phase 6: XSS Sanitization helper
+   488→  const sanitizeInput = (input: string): string => {
+   489→    return input.replace(/<[^>]*>/g, '').replace(/\r\n/g, '\n').replace(/  +/g, ' ').trim();
+   490→  };
+   491→
+   492→  // Load data
+   493→  const loadData = useCallback(async () => {
+   494→    setLoading(true);
+   495→    try {
+   496→      const result = await apiFetch(config.apiPath);
+   497→      setData(Array.isArray(result) ? result : []);
+   498→    } catch (e: any) {
+   499→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   500→    } finally {
+   501→      setLoading(false);
+   502→    }
+   503→  }, [config.apiPath, toast]);
+   504→
+   505→  // Load dynamic select options
+   506→  const loadOptions = useCallback(async () => {
+   507→    const selectFields = config.formFields.filter(f => f.type === "select" && !f.options?.length);
+   508→    const opts: Record<string, any[]> = {};
+   509→    for (const field of selectFields) {
+   510→      try {
+   511→        let apiPath = "";
+   512→        if (field.key === "parentCategoryId") apiPath = "/api/categories";
+   513→        else if (field.key === "employeeId") apiPath = "/api/employees";
+   514→        else if (field.key === "paymentOptionId") apiPath = "/api/payment-options";
+   515→        else if (field.key === "cardTypeId") apiPath = "/api/card-types";
+   516→        else if (field.key === "departmentId") apiPath = "/api/departments";
+   517→        else if (field.key === "designationId") apiPath = "/api/designations";
+   518→        else if (field.key === "categoryId") apiPath = "/api/categories";
+   519→        else if (field.key === "brandId") apiPath = "/api/brands";
+   520→        else if (field.key === "colorId") apiPath = "/api/colors";
+   521→        else if (field.key === "godownId") apiPath = "/api/godowns";
+   522→        else if (field.key === "segmentId") apiPath = "/api/segments";
+   523→        else if (field.key === "unit") apiPath = "/api/units";
+   524→        if (apiPath) {
+   525→          const items = await apiFetch(apiPath);
+   526→          opts[field.key] = Array.isArray(items) ? items : [];
+   527→        }
+   528→      } catch (err) {
+   529→        console.error(`Error loading options for ${field.key}:`, err);
+   530→        opts[field.key] = [];
+   531→      }
+   532→    }
+   533→    setDynamicOptions(opts);
+   534→  }, [config.formFields]);
+   535→
+   536→  useEffect(() => { loadData(); }, [loadData]);
+   537→  useEffect(() => { loadOptions(); }, [loadOptions]);
+   538→
+   539→  // Load company profile for white-label PDF
+   540→  useEffect(() => {
+   541→    const loadCompanyProfile = async () => {
+   542→      try {
+   543→        const profile = await apiFetch("/api/company-branding");
+   544→        setCompanyProfile(profile.company || profile);
+   545→      } catch (err) {
+   546→        console.error('Error loading company branding:', err);
+   547→      }
+   548→    };
+   549→    loadCompanyProfile();
+   550→  }, []);
+   551→
+   552→  // Filtered data
+   553→  const filteredData = useMemo(() => {
+   554→    if (!search.trim()) return data;
+   555→    const q = search.toLowerCase();
+   556→    return data.filter(item =>
+   557→      config.columns.some(col =>
+   558→        String(getNestedValue(item, col.key) ?? "").toLowerCase().includes(q)
+   559→      )
+   560→    );
+   561→  }, [data, search, config.columns]);
+   562→
+   563→  // KPI stats
+   564→  const stats = useMemo(() => {
+   565→    const total = data.length;
+   566→    const active = data.filter(d => d.isActive !== false).length;
+   567→    const inactive = total - active;
+   568→    return { total, active, inactive };
+   569→  }, [data]);
+   570→
+   571→  // Open create dialog
+   572→  const openCreate = () => {
+   573→    setEditingItem(null);
+   574→    setCapacityError(false);
+   575→    const defaults: Record<string, any> = {};
+   576→    config.formFields.forEach(f => {
+   577→      if (f.type === "section") return; // skip section headers
+   578→      if (f.type === "warrantyGroup") {
+   579→        // Initialize warranty value and unit
+   580→        defaults[f.key] = "";
+   581→        if (f.unitKey) defaults[f.unitKey] = "years";
+   582→        return;
+   583→      }
+   584→      if (f.defaultValue !== undefined) defaults[f.key] = f.defaultValue;
+   585→      else if (f.type === "checkbox") defaults[f.key] = true;
+   586→      else defaults[f.key] = "";
+   587→    });
+   588→    setFormData(defaults);
+   589→    setDialogOpen(true);
+   590→  };
+   591→
+   592→  // Open edit dialog
+   593→  const openEdit = (item: any) => {
+   594→    setEditingItem(item);
+   595→    setCapacityError(false);
+   596→    const values: Record<string, any> = {};
+   597→    config.formFields.forEach(f => {
+   598→      if (f.type === "section") return; // skip section headers
+   599→      if (f.type === "warrantyGroup") {
+   600→        const val = getNestedValue(item, f.key);
+   601→        values[f.key] = val !== undefined && val !== null ? val : "";
+   602→        if (f.unitKey) {
+   603→          const unitVal = getNestedValue(item, f.unitKey);
+   604→          values[f.unitKey] = unitVal || "years";
+   605→        }
+   606→        return;
+   607→      }
+   608→      const val = getNestedValue(item, f.key);
+   609→      if (val !== undefined && val !== null) values[f.key] = val;
+   610→      else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
+   611→      else values[f.key] = f.type === "checkbox" ? true : "";
+   612→    });
+   613→    // Special handling: Product unit field is stored as name string, but dropdown uses ID
+   614→    if (config.key === "products" && values.unit && typeof values.unit === "string") {
+   615→      const unitOptions = dynamicOptions['unit'] || [];
+   616→      const matchedUnit = unitOptions.find((u: any) => u.name === values.unit || u.symbol === values.unit);
+   617→      if (matchedUnit) {
+   618→        values.unit = matchedUnit.id;
+   619→      }
+   620→    }
+   621→    setFormData(values);
+   622→    setDialogOpen(true);
+   623→  };
+   624→
+   625→  // Phase 6: Emergency Closure toggle for godowns
+   626→  const handleEmergencyClosureToggle = async (item: any) => {
+   627→    const newStatus = item.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
+   628→    // Store snapshot for rollback
+   629→    setStructuralSnapshot([...data]);
+   630→    try {
+   631→      await apiFetch(`${config.apiPath}/${item.id}`, {
+   632→        method: "PUT",
+   633→        body: JSON.stringify({ ...item, status: newStatus }),
+   634→      });
+   635→      toast({
+   636→        title: newStatus === "SUSPENDED" ? "Emergency Closure Activated" : "Warehouse Reactivated",
+   637→        description: newStatus === "SUSPENDED"
+   638→          ? `${item.name} has been suspended. All stock transfers and receipt orders are now blocked.`
+   639→          : `${item.name} has been reactivated and is now operational.`,
+   640→        variant: newStatus === "SUSPENDED" ? "destructive" : "default",
+   641→      });
+   642→      // Optimistic update
+   643→      setData(prev => prev.map(d => d.id === item.id ? { ...d, status: newStatus } : d));
+   644→      // Fetch to confirm
+   645→      loadData();
+   646→    } catch (e: any) {
+   647→      // Rollback on failure
+   648→      setData(structuralSnapshot || []);
+   649→      toast({
+   650→        title: "Connection Lost",
+   651→        description: "Rolled back to pre-save state. Please try again.",
+   652→        variant: "destructive",
+   653→        duration: 8000,
+   654→      });
+   655→    }
+   656→  };
+   657→
+   658→  // Save (create or update) — Phase 6: sanitization, capacity validation, snapshot/rollback
+   659→  const handleSave = async () => {
+   660→    // Validate required fields
+   661→    for (const f of config.formFields) {
+   662→      if (f.required && !formData[f.key] && formData[f.key] !== 0) {
+   663→        toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+   664→        return;
+   665→      }
+   666→    }
+   667→
+   668→    // Phase 6: Capacity validation for capacities module
+   669→    if (config.key === "capacities") {
+   670→      if (formData.capacityValue !== undefined && formData.capacityValue !== "" && Number(formData.capacityValue) <= 0) {
+   671→        setCapacityError(true);
+   672→        toast({ title: "Validation Error", description: "Capacity value must be greater than zero", variant: "destructive" });
+   673→        return;
+   674→      }
+   675→      setCapacityError(false);
+   676→    }
+   677→
+   678→    // Phase 6: Capacity validation for godowns module
+   679→    if (config.key === "godowns") {
+   680→      if (formData.capacityValue !== undefined && formData.capacityValue !== "" && Number(formData.capacityValue) <= 0) {
+   681→        setCapacityError(true);
+   682→        toast({ title: "Validation Error", description: "Capacity value must be greater than zero", variant: "destructive" });
+   683→        return;
+   684→      }
+   685→      setCapacityError(false);
+   686→    }
+   687→
+   688→    // Phase 7: SR Target financial benchmark shields
+   689→    if (config.key === "sr-targets") {
+   690→      const targetAmt = Number(formData.targetAmount);
+   691→      const minQuota = Number(formData.minimumSalesQuota);
+   692→      const commPct = Number(formData.commissionPercentage);
+   693→
+   694→      if (!targetAmt || targetAmt <= 0) {
+   695→        setSrTargetError("Target Amount must be greater than zero");
+   696→        toast({ title: "Financial Benchmark Shield", description: "Target Amount must be greater than zero", variant: "destructive" });
+   697→        return;
+   698→      }
+   699→      if (!minQuota || minQuota <= 0) {
+   700→        setSrTargetError("Minimum Sales Quota must be greater than zero");
+   701→        toast({ title: "Financial Benchmark Shield", description: "Minimum Sales Quota must be greater than zero", variant: "destructive" });
+   702→        return;
+   703→      }
+   704→      if (isNaN(commPct) || commPct < 0) {
+   705→        setSrTargetError("Commission Percentage must be zero or positive");
+   706→        toast({ title: "Financial Benchmark Shield", description: "Commission Percentage must be zero or positive", variant: "destructive" });
+   707→        return;
+   708→      }
+   709→      setSrTargetError(null);
+   710→    }
+   711→
+   712→    // Phase 7: Card Type Setup — safeFinancial rate bounds validation (0 <= rate <= 10.00)
+   713→    if (config.key === "card-type-setup") {
+   714→      const bsc = Number(formData.bankServiceCharge);
+   715→      const convFee = Number(formData.customerConvFee);
+   716→
+   717→      if (isNaN(bsc) || bsc < 0 || bsc > 10) {
+   718→        setCardFeeError("Bank Service Charge must be between 0% and 10%");
+   719→        toast({ title: "Card Fee Architecture", description: "Bank Service Charge (BSC %) must be between 0% and 10%", variant: "destructive" });
+   720→        return;
+   721→      }
+   722→      if (isNaN(convFee) || convFee < 0 || convFee > 10) {
+   723→        setCardFeeError("Customer Convenience Fee must be between 0% and 10%");
+   724→        toast({ title: "Card Fee Architecture", description: "Customer Conv. Fee (%) must be between 0% and 10%", variant: "destructive" });
+   725→        return;
+   726→      }
+   727→      setCardFeeError(null);
+   728→    }
+   729→
+   730→    // Product pricing validation
+   731→    if (config.key === "products") {
+   732→      const costPrice = Number(formData.costPrice);
+   733→      const salePrice = Number(formData.salePrice);
+   734→      if (costPrice <= 0 || salePrice <= 0) {
+   735→        toast({ title: "Validation Error", description: "Purchase Price and MRP/Retail Price must be greater than zero", variant: "destructive" });
+   736→        return;
+   737→      }
+   738→      if (costPrice >= salePrice) {
+   739→        toast({ title: "Pricing Interlock", description: "Purchase Price must be less than MRP/Retail Price", variant: "destructive" });
+   740→        return;
+   741→      }
+   742→    }
+   743→
+   744→    // Phase 6: XSS Sanitization — sanitize all string fields
+   745→    const sanitizedData: Record<string, any> = {};
+   746→    for (const [key, value] of Object.entries(formData)) {
+   747→      // Skip section header keys (they start with _ and are not real data)
+   748→      if (key.startsWith("_") && key.endsWith("Section")) continue;
+   749→      if (typeof value === "string") {
+   750→        sanitizedData[key] = sanitizeInput(value);
+   751→      } else {
+   752→        sanitizedData[key] = value;
+   753→      }
+   754→    }
+   755→
+   756→    // Phase 19: Clean warranty fields — empty string → null for Int? fields
+   757→    if (config.key === "products") {
+   758→      const warrantyKeys = ["compressorWarranty", "panelWarranty", "serviceWarranty", "motorWarranty", "sparePartsWarranty"];
+   759→      for (const wk of warrantyKeys) {
+   760→        if (sanitizedData[wk] === "" || sanitizedData[wk] === undefined) {
+   761→          sanitizedData[wk] = null;
+   762→        } else {
+   763→          sanitizedData[wk] = Number(sanitizedData[wk]) || null;
+   764→        }
+   765→      }
+   766→      // Clean unit fields - ensure they have valid values
+   767→      const unitKeys = ["compressorWarrantyUnit", "panelWarrantyUnit", "serviceWarrantyUnit", "motorWarrantyUnit", "sparePartsWarrantyUnit"];
+   768→      for (const uk of unitKeys) {
+   769→        if (!sanitizedData[uk] || (sanitizedData[uk] !== "years" && sanitizedData[uk] !== "months")) {
+   770→          sanitizedData[uk] = "years";
+   771→        }
+   772→      }
+   773→    }
+   774→
+   775→    // Special handling: Product unit field is a string, not a foreign key
+   776→    if (config.key === "products" && sanitizedData.unit) {
+   777→      const unitOptions = dynamicOptions['unit'] || [];
+   778→      const selectedUnit = unitOptions.find((u: any) => u.id === sanitizedData.unit);
+   779→      if (selectedUnit) {
+   780→        sanitizedData.unit = selectedUnit.name || selectedUnit.symbol || String(sanitizedData.unit);
+   781→      }
+   782→    }
+   783→
+   784→    setSaveError(null);
+   785→    setSaving(true);
+   786→
+   787→    // Phase 6 + 7: Store snapshot before save for rollback
+   788→    const isOperationalModule = ["sr-targets", "payment-options", "card-types", "card-type-setup"].includes(config.key);
+   789→    if (isOperationalModule) {
+   790→      setOperationsSnapshot([...data]);
+   791→    } else {
+   792→      setStructuralSnapshot([...data]);
+   793→    }
+   794→
+   795→    try {
+   796→      if (editingItem) {
+   797→        const res = await apiFetch(`${config.apiPath}/${editingItem.id}`, {
+   798→          method: "PUT",
+   799→          body: JSON.stringify(sanitizedData),
+   800→        });
+   801→        if (res?.error) throw new Error(res.error);
+   802→        toast({ title: "Updated", description: `${config.label} updated successfully` });
+   803→      } else {
+   804→        const res = await apiFetch(config.apiPath, {
+   805→          method: "POST",
+   806→          body: JSON.stringify(sanitizedData),
+   807→        });
+   808→        if (res?.error) throw new Error(res.error);
+   809→        toast({ title: "Created", description: `${config.label} created successfully` });
+   810→      }
+   811→      setDialogOpen(false);
+   812→      // Phase 7: Optimistic update — update client data instantly (edits only; creates rely on loadData)
+   813→      if (editingItem) {
+   814→        setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
+   815→      }
+   816→      loadData();
+   817→    } catch (e: any) {
+   818→      const msg = e.message || "Failed to save";
+   819→      if (msg.includes("already exists") || msg.includes("overlap") || msg.includes("duplicate") || msg.includes("Duplicate")) {
+   820→        setSaveError(msg);
+   821→      }
+   822→      // Phase 7: Rollback on network errors using operationsSnapshot for operational modules
+   823→      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Network request failed")) {
+   824→        const snapshotToRestore = isOperationalModule ? operationsSnapshot : structuralSnapshot;
+   825→        setData(snapshotToRestore || []);
+   826→        toast({
+   827→          title: "Connection Lost — Rollback Executed",
+   828→          description: "Rolled back to pre-save state using operationsSnapshot. Please try again.",
+   829→          variant: "destructive",
+   830→          duration: 8000,
+   831→        });
+   832→      } else {
+   833→        toast({ title: "Error", description: msg, variant: "destructive" });
+   834→      }
+   835→    } finally {
+   836→      setSaving(false);
+   837→    }
+   838→  };
+   839→
+   840→  // Delete
+   841→  const handleDelete = async (id: string) => {
+   842→    try {
+   843→      await apiFetch(`${config.apiPath}/${id}`, { method: "DELETE" });
+   844→      toast({ title: "Deactivated", description: `${config.label} deactivated successfully` });
+   845→      setDeleteConfirm(null);
+   846→      loadData();
+   847→    } catch (e: any) {
+   848→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   849→    }
+   850→  };
+   851→
+   852→  // Export CSV
+   853→  const handleExportCSV = () => {
+   854→    try {
+   855→      const exportData = filteredData.map(item => {
+   856→        const row: Record<string, any> = {};
+   857→        config.columns.forEach(col => {
+   858→          let val = getNestedValue(item, col.key);
+   859→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+   860→          row[col.key] = val;
+   861→        });
+   862→        return row;
+   863→      });
+   864→      exportToCSV({
+   865→        title: config.label,
+   866→        columns: config.columns,
+   867→        data: exportData,
+   868→        isVatAuditor,
+   869→        vatMaskedColumns: maskedColumns,
+   870→      });
+   871→      toast({ title: "CSV Exported", description: `${config.label} data exported` });
+   872→    } catch (e: any) {
+   873→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   874→    }
+   875→  };
+   876→
+   877→  // Export PDF — Phase 6: white-label sync for structural modules
+   878→  const handleExportPDF = () => {
+   879→    try {
+   880→      const exportData = filteredData.map(item => {
+   881→        const row: Record<string, any> = {};
+   882→        config.columns.forEach(col => {
+   883→          let val = getNestedValue(item, col.key);
+   884→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+   885→          row[col.key] = val;
+   886→        });
+   887→        return row;
+   888→      });
+   889→
+   890→      // Phase 6 + 7: Structural and Operational modules get proper financialFooter with auth user info (Triple-Signature Layout)
+   891→      const isStructuralModule = ["departments", "godowns", "segments", "capacities"].includes(config.key);
+   892→      const isOperationalModule = ["sr-targets", "payment-options", "card-types", "card-type-setup"].includes(config.key);
+   893→      const authUser = authState.user;
+   894→
+   895→      exportToPDF({
+   896→        title: config.label,
+   897→        subtitle: `Total Records: ${filteredData.length}`,
+   898→        orientation: "landscape",
+   899→        columns: config.columns,
+   900→        data: exportData,
+   901→        isVatAuditor,
+   902→        vatMaskedColumns: maskedColumns,
+   903→        company: companyProfile ? {
+   904→          name: companyProfile.name,
+   905→          address: companyProfile.address,
+   906→          phone: companyProfile.phone,
+   907→          email: companyProfile.email,
+   908→          logo: companyProfile.logo || companyProfile.brandLogo,
+   909→          vatNumber: companyProfile.vatNumber,
+   910→        } : undefined,
+   911→        financialFooter: {
+   912→          preparedBy: authUser?.displayName || "System",
+   913→          checkedBy: "",
+   914→          authorizedBy: "",
+   915→          printedBy: authUser?.displayName || "System",
+   916→        },
+   917→      });
+   918→      toast({ title: "PDF Exported", description: `${config.label} data exported with compliance footer` });
+   919→    } catch (e: any) {
+   920→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   921→    }
+   922→  };
+   923→
+   924→  // Import CSV
+   925→  const handleImportCSV = () => {
+   926→    importFromCSV({ apiPath: config.apiPath, formFields: config.formFields }).then((result) => {
+   927→      toast({
+   928→        title: "Import Complete",
+   929→        description: `${result.imported} imported, ${result.failed} failed${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`,
+   930→        variant: result.failed > 0 ? "destructive" : "default",
+   931→      });
+   932→      loadData();
+   933→    });
+   934→  };
+   935→
+   936→  // Phase 6 + 7: Get spin-lock text for structural and operational modules
+   937→  const getSpinLockText = () => {
+   938→    if (config.key === "godowns") return "Compiling Spatial Matrix & Initializing Volumetric Warehouses...";
+   939→    if (config.key === "departments") return "Saving Department Structure...";
+   940→    if (config.key === "segments") return "Validating Segment Matrix...";
+   941→    if (config.key === "capacities") return "Validating Capacity Specifications...";
+   942→    if (["categories", "colors", "brands", "units"].includes(config.key)) return "Validating Catalog Collisions...";
+   943→    if (config.key === "banks") return "Validating Catalog Collisions & Mapping Liquid Asset Trees...";
+   944→    // Phase 7: Operational module spin-locks
+   945→    if (config.key === "sr-targets") return "Synchronizing Field Targets & Financial Processing Fees...";
+   946→    if (config.key === "payment-options") return "Authorizing Payment Channel...";
+   947→    if (config.key === "card-types") return "Registering Card Type Classification...";
+   948→    if (config.key === "card-type-setup") return "Synchronizing Field Targets & Financial Processing Fees...";
+   949→    if (config.key === "products") return "Validating Product Catalog & SKU Matrix...";
+   950→    return "Saving...";
+   951→  };
+   952→
+   953→  // Render form field — Phase 6: capacity field red highlight
+   954→  const renderFormField = (field: ExportFieldDef) => {
+   955→    const val = formData[field.key] ?? "";
+   956→
+   957→    // Phase 19: Section header — collapsible warranty section
+   958→    if (field.type === "section") {
+   959→      return (
+   960→        <Collapsible open={warrantyOpen} onOpenChange={setWarrantyOpen} className="border border-slate-200 dark:border-slate-700 rounded-lg">
+   961→          <CollapsibleTrigger className="flex items-center justify-between w-full p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+   962→            <div className="flex items-center gap-2">
+   963→              <Shield className="h-4 w-4 text-blue-500" />
+   964→              <span className="text-sm font-semibold text-slate-900 dark:text-white">{field.label}</span>
+   965→            </div>
+   966→            {warrantyOpen ? (
+   967→              <ChevronDown className="h-4 w-4 text-slate-500" />
+   968→            ) : (
+   969→              <ChevronRight className="h-4 w-4 text-slate-500" />
+   970→            )}
+   971→          </CollapsibleTrigger>
+   972→          <CollapsibleContent className="px-3 pb-3 space-y-3">
+   973→            {config.formFields
+   974→              .filter(f => f.type === "warrantyGroup")
+   975→              .map(wf => (
+   976→                <div key={wf.key} className="space-y-1.5">
+   977→                  <Label className="text-sm font-medium">{wf.label}</Label>
+   978→                  <div className="flex items-center gap-2">
+   979→                    <Input
+   980→                      type="number"
+   981→                      value={formData[wf.key] ?? ""}
+   982→                      onChange={(e) => setFormData(prev => ({ ...prev, [wf.key]: e.target.value ? Number(e.target.value) : "" }))}
+   983→                      placeholder="Duration"
+   984→                      min={0}
+   985→                      className="flex-1"
+   986→                    />
+   987→                    <Select
+   988→                      value={String(formData[wf.unitKey || ""] || "years")}
+   989→                      onValueChange={(v) => {
+   990→                        if (wf.unitKey) setFormData(prev => ({ ...prev, [wf.unitKey as string]: v }));
+   991→                      }}
+   992→                    >
+   993→                      <SelectTrigger className="w-[120px]">
+   994→                        <SelectValue />
+   995→                      </SelectTrigger>
+   996→                      <SelectContent>
+   997→                        <SelectItem value="years">Years</SelectItem>
+   998→                        <SelectItem value="months">Months</SelectItem>
+   999→                      </SelectContent>
+  1000→                    </Select>
+  1001→                  </div>
+  1002→                </div>
+  1003→              ))}
+  1004→          </CollapsibleContent>
+  1005→        </Collapsible>
+  1006→      );
+  1007→    }
+  1008→
+  1009→    // Phase 19: Warranty group fields are rendered inside the section — return null here
+  1010→    if (field.type === "warrantyGroup") {
+  1011→      return null;
+  1012→    }
+  1013→
+  1014→    if (field.type === "image") {
+  1015→      return (
+  1016→        <ImageUploadField
+  1017→          value={val || null}
+  1018→          onChange={(base64) => setFormData(prev => ({ ...prev, [field.key]: base64 || "" }))}
+  1019→          label={field.label}
+  1020→          placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
+  1021→        />
+  1022→      );
+  1023→    }
+  1024→
+  1025→    if (field.type === "select") {
+  1026→      const options = field.options?.length ? field.options :
+  1027→        (dynamicOptions[field.key] || []).map((item: any) => ({
+  1028→          value: item.id, label: field.key === "unit"
+  1029→            ? `${item.name}${item.symbol ? ` (${item.symbol})` : ''}`
+  1030→            : item.name || item.employeeCode || item.code || item.id,
+  1031→        }));
+  1032→      return (
+  1033→        <Select value={String(val)} onValueChange={(v) => {
+  1034→          setFormData(prev => ({ ...prev, [field.key]: v }));
+  1035→          // Clear capacity error when changing unit
+  1036→          if (field.key === "capacityUnit") setCapacityError(false);
+  1037→        }}>
+  1038→          <SelectTrigger><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+  1039→          <SelectContent>
+  1040→            {options.map(opt => (
+  1041→              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+  1042→            ))}
+  1043→          </SelectContent>
+  1044→        </Select>
+  1045→      );
+  1046→    }
+  1047→
+  1048→    if (field.type === "checkbox") {
+  1049→      return (
+  1050→        <div className="flex items-center gap-2">
+  1051→          <input
+  1052→            type="checkbox"
+  1053→            checked={!!val}
+  1054→            onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.checked }))}
+  1055→            className="h-4 w-4 rounded border-slate-300"
+  1056→          />
+  1057→          <Label>{field.label}</Label>
+  1058→        </div>
+  1059→      );
+  1060→    }
+  1061→
+  1062→    if (field.type === "textarea") {
+  1063→      return (
+  1064→        <Textarea
+  1065→          value={String(val)}
+  1066→          onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
+  1067→          placeholder={field.placeholder || field.label}
+  1068→          rows={3}
+  1069→        />
+  1070→      );
+  1071→    }
+  1072→
+  1073→    // Color code field with preview swatch
+  1074→    if (field.key === "colorCode") {
+  1075→      const colorVal = String(val);
+  1076→      const isValidHex = /^#[0-9A-Fa-f]{6}$/.test(colorVal);
+  1077→      return (
+  1078→        <div className="flex items-center gap-2">
+  1079→          <div className="flex-1">
+  1080→            <Input
+  1081→              value={colorVal}
+  1082→              onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
+  1083→              placeholder={field.placeholder || field.label}
+  1084→              className={colorVal && !isValidHex ? "border-amber-500" : ""}
+  1085→            />
+  1086→          </div>
+  1087→          <input
+  1088→            type="color"
+  1089→            value={isValidHex ? colorVal : "#000000"}
+  1090→            onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value.toUpperCase() }))}
+  1091→            className="h-9 w-9 rounded border border-slate-300 cursor-pointer shrink-0"
+  1092→            title="Pick color"
+  1093→          />
+  1094→          {isValidHex && (
+  1095→            <div
+  1096→              className="h-9 w-9 rounded border border-slate-300 shrink-0"
+  1097→              style={{ backgroundColor: colorVal }}
+  1098→              title={colorVal}
+  1099→            />
+  1100→          )}
+  1101→        </div>
+  1102→      );
+  1103→    }
+  1104→
+  1105→    // Phase 6: Red highlight on capacityValue input when validation fails
+  1106→    const isCapacityValueField = field.key === "capacityValue" && capacityError;
+  1107→
+  1108→    // Phase 7: Red highlight on SR target financial fields when validation fails
+  1109→    const isSrTargetErrorField = config.key === "sr-targets" && srTargetError &&
+  1110→      ["targetAmount", "minimumSalesQuota", "commissionPercentage"].includes(field.key);
+  1111→
+  1112→    // Phase 7: Red highlight on card fee fields when validation fails
+  1113→    const isCardFeeErrorField = config.key === "card-type-setup" && cardFeeError &&
+  1114→      ["bankServiceCharge", "customerConvFee"].includes(field.key);
+  1115→
+  1116→    return (
+  1117→      <Input
+  1118→        type={field.type === "number" ? "number" : field.type === "email" ? "email" : "text"}
+  1119→        value={String(val)}
+  1120→        onChange={(e) => {
+  1121→          setFormData(prev => ({ ...prev, [field.key]: field.type === "number" ? Number(e.target.value) : e.target.value }));
+  1122→          // Clear capacity error when user types in capacityValue
+  1123→          if (field.key === "capacityValue") setCapacityError(false);
+  1124→        }}
+  1125→        placeholder={field.placeholder || field.label}
+  1126→        step={field.step}
+  1127→        className={isCapacityValueField || isSrTargetErrorField || isCardFeeErrorField ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""}
+  1128→      />
+  1129→    );
+  1130→  };
+  1131→
+  1132→  // Month names for SR Target display
+  1133→  const MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  1134→
+  1135→  const Icon = config.icon;
+  1136→
+  1137→  // Phase 6: Count suspended godowns for warning banner
+  1138→  const suspendedGodownCount = config.key === "godowns"
+  1139→    ? data.filter(g => g.status === "SUSPENDED").length
+  1140→    : 0;
+  1141→
+  1142→  return (
+  1143→    <div className="space-y-4">
+  1144→      {/* KPI Cards */}
+  1145→      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
+  1146→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1147→          <CardContent className="p-4 flex items-center gap-3">
+  1148→            <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1149→              <Icon className="h-5 w-5 text-[#2563eb]" />
+  1150→            </div>
+  1151→            <div>
+  1152→              <p className="text-xs text-slate-500 dark:text-slate-400">Total {config.label}</p>
+  1153→              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.total}</p>
+  1154→            </div>
+  1155→          </CardContent>
+  1156→        </Card>
+  1157→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1158→          <CardContent className="p-4 flex items-center gap-3">
+  1159→            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1160→              <CheckCircle className="h-5 w-5 text-emerald-500" />
+  1161→            </div>
+  1162→            <div>
+  1163→              <p className="text-xs text-slate-500 dark:text-slate-400">Active</p>
+  1164→              <p className="text-xl font-bold text-emerald-600">{stats.active}</p>
+  1165→            </div>
+  1166→          </CardContent>
+  1167→        </Card>
+  1168→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1169→          <CardContent className="p-4 flex items-center gap-3">
+  1170→            <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+  1171→              <X className="h-5 w-5 text-red-500" />
+  1172→            </div>
+  1173→            <div>
+  1174→              <p className="text-xs text-slate-500 dark:text-slate-400">Inactive</p>
+  1175→              <p className="text-xl font-bold text-red-500">{stats.inactive}</p>
+  1176→            </div>
+  1177→          </CardContent>
+  1178→        </Card>
+  1179→      </div>
+  1180→
+  1181→      {/* Toolbar */}
+  1182→      <div className="flex flex-wrap items-center gap-2">
+  1183→        <div className="relative flex-1 min-w-[200px]">
+  1184→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+  1185→          <Input
+  1186→            value={search}
+  1187→            onChange={(e) => setSearch(e.target.value)}
+  1188→            placeholder={`Search ${config.label.toLowerCase()}...`}
+  1189→            className="pl-8"
+  1190→          />
+  1191→        </div>
+  1192→        {canMutate && (
+  1193→          <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1194→            <Plus className="h-4 w-4 mr-1" /> Add {singularize(config.label)}
+  1195→          </Button>
+  1196→        )}
+  1197→        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+  1198→          <Download className="h-4 w-4 mr-1" /> Export CSV
+  1199→        </Button>
+  1200→        <Button variant="outline" size="sm" onClick={handleExportPDF}>
+  1201→          <FileDown className="h-4 w-4 mr-1" /> Export PDF
+  1202→        </Button>
+  1203→        {canMutate && (
+  1204→          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+  1205→            <Upload className="h-4 w-4 mr-1" /> Import CSV
+  1206→          </Button>
+  1207→        )}
+  1208→        <Button variant="ghost" size="sm" onClick={loadData}>
+  1209→          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+  1210→        </Button>
+  1211→      </div>
+  1212→
+  1213→      {/* VAT Audit Mode Banner */}
+  1214→      {isVatAuditor && maskedColumns.length > 0 && (
+  1215→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+  1216→          <Shield className="h-4 w-4 text-amber-600" />
+  1217→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Financial columns are masked</span>
+  1218→        </div>
+  1219→      )}
+  1220→
+  1221→      {/* Phase 6: Suspended Godown Warning Banner */}
+  1222→      {suspendedGodownCount > 0 && (
+  1223→        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2 mb-4">
+  1224→          <AlertTriangle className="h-4 w-4 text-red-600" />
+  1225→          <span className="text-sm text-red-700 dark:text-red-400 font-medium">
+  1226→            EMERGENCY CLOSURE: {suspendedGodownCount} warehouse(s) suspended — all stock transfers and receipt orders are blocked
+  1227→          </span>
+  1228→        </div>
+  1229→      )}
+  1230→
+  1231→      {/* Phase 7: Deactivated Payment Channel Warning Banner */}
+  1232→      {config.key === "payment-options" && data.filter(p => p.status === "INACTIVE").length > 0 && (
+  1233→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2 mb-4">
+  1234→          <Power className="h-4 w-4 text-amber-600" />
+  1235→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+  1236→            DEACTIVATED CHANNEL: {data.filter(p => p.status === "INACTIVE").length} payment channel(s) inactive — filtered out from all Invoice/Collection dropdowns
+  1237→          </span>
+  1238→        </div>
+  1239→      )}
+  1240→
+  1241→      {/* Data Table */}
+  1242→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden overflow-hidden">
+  1243→        <CardContent className="p-0 overflow-hidden">
+  1244→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1245→            <Table className="min-w-[600px]">
+  1246→              <TableHeader>
+  1247→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1248→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+  1249→                  {config.columns.map(col => (
+  1250→                    <TableHead key={col.key} className="text-white font-semibold whitespace-nowrap">
+  1251→                      {col.label}
+  1252→                    </TableHead>
+  1253→                  ))}
+  1254→                  {canMutate && <TableHead className="text-white font-semibold w-32">Actions</TableHead>}
+  1255→                </TableRow>
+  1256→              </TableHeader>
+  1257→              <TableBody>
+  1258→                {loading ? (
+  1259→                  <TableRow><TableCell colSpan={config.columns.length + 2} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow>
+  1260→                ) : filteredData.length === 0 ? (
+  1261→                  <TableRow><TableCell colSpan={config.columns.length + 2} className="text-center py-8 text-slate-400">No {config.label.toLowerCase()} found</TableCell></TableRow>
+  1262→                ) : (
+  1263→                  filteredData.map((item, idx) => (
+  1264→                    <TableRow key={item.id || idx} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 ${item.status === "SUSPENDED" ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}>
+  1265→                      <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+  1266→                      {config.columns.map(col => {
+  1267→                        let val = getNestedValue(item, col.key);
+  1268→                        if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+  1269→
+  1270→                        // Special rendering for isActive
+  1271→                        if (col.key === "isActive") {
+  1272→                          return (
+  1273→                            <TableCell key={col.key}>
+  1274→                              <Badge variant={val ? "default" : "secondary"} className={val ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}>
+  1275→                                {val ? "Active" : "Inactive"}
+  1276→                              </Badge>
+  1277→                            </TableCell>
+  1278→                          );
+  1279→                        }
+  1280→
+  1281→                        // Phase 6: Special rendering for godown status column
+  1282→                        if (config.key === "godowns" && col.key === "status") {
+  1283→                          if (val === "SUSPENDED") {
+  1284→                            return (
+  1285→                              <TableCell key={col.key}>
+  1286→                                <Badge variant="destructive" className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 flex items-center gap-1">
+  1287→                                  <AlertTriangle className="h-3 w-3" />
+  1288→                                  SUSPENDED
+  1289→                                </Badge>
+  1290→                              </TableCell>
+  1291→                            );
+  1292→                          }
+  1293→                          return (
+  1294→                            <TableCell key={col.key}>
+  1295→                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+  1296→                                ACTIVE
+  1297→                              </Badge>
+  1298→                            </TableCell>
+  1299→                          );
+  1300→                        }
+  1301→
+  1302→                        // Phase 7: Special rendering for payment-option status column (Deactivated Channel Shield)
+  1303→                        if (config.key === "payment-options" && col.key === "status") {
+  1304→                          if (val === "INACTIVE") {
+  1305→                            return (
+  1306→                              <TableCell key={col.key}>
+  1307→                                <Badge variant="destructive" className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 flex items-center gap-1">
+  1308→                                  <Power className="h-3 w-3" />
+  1309→                                  INACTIVE
+  1310→                                </Badge>
+  1311→                              </TableCell>
+  1312→                            );
+  1313→                          }
+  1314→                          return (
+  1315→                            <TableCell key={col.key}>
+  1316→                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+  1317→                                ACTIVE
+  1318→                              </Badge>
+  1319→                            </TableCell>
+  1320→                          );
+  1321→                        }
+  1322→
+  1323→                        // Phase 7: Special rendering for SR Target status column
+  1324→                        if (config.key === "sr-targets" && col.key === "status") {
+  1325→                          if (val === "INACTIVE") {
+  1326→                            return (
+  1327→                              <TableCell key={col.key}>
+  1328→                                <Badge className="bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+  1329→                                  INACTIVE
+  1330→                                </Badge>
+  1331→                              </TableCell>
+  1332→                            );
+  1333→                          }
+  1334→                          return (
+  1335→                            <TableCell key={col.key}>
+  1336→                              <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+  1337→                                ACTIVE
+  1338→                              </Badge>
+  1339→                            </TableCell>
+  1340→                          );
+  1341→                        }
+  1342→
+  1343→                        // Color code with preview swatch
+  1344→                        if (col.key === "colorCode" && val) {
+  1345→                          return (
+  1346→                            <TableCell key={col.key} className="whitespace-nowrap">
+  1347→                              <div className="flex items-center gap-1.5">
+  1348→                                <div className="h-4 w-4 rounded border border-slate-300 shrink-0" style={{ backgroundColor: String(val) }} />
+  1349→                                <span className="text-xs font-mono">{fmt(val, col.type)}</span>
+  1350→                              </div>
+  1351→                            </TableCell>
+  1352→                          );
+  1353→                        }
+  1354→
+  1355→                        // Phase 19: Warranty column — show all warranty info as compact badges
+  1356→                        if (col.key === "_warranty") {
+  1357→                          const warrantyTypes = [
+  1358→                            { key: "compressorWarranty", unitKey: "compressorWarrantyUnit", label: "Comp" },
+  1359→                            { key: "panelWarranty", unitKey: "panelWarrantyUnit", label: "Panel" },
+  1360→                            { key: "serviceWarranty", unitKey: "serviceWarrantyUnit", label: "Svc" },
+  1361→                            { key: "motorWarranty", unitKey: "motorWarrantyUnit", label: "Motor" },
+  1362→                            { key: "sparePartsWarranty", unitKey: "sparePartsWarrantyUnit", label: "Parts" },
+  1363→                          ];
+  1364→                          const warrantyBadges = warrantyTypes
+  1365→                            .filter(w => item[w.key] != null && item[w.key] !== "")
+  1366→                            .map(w => {
+  1367→                              const wVal = item[w.key];
+  1368→                              const unit = item[w.unitKey] || "years";
+  1369→                              const suffix = unit === "years" ? "Y" : "M";
+  1370→                              return `${w.label}: ${wVal}${suffix}`;
+  1371→                            });
+  1372→                          return (
+  1373→                            <TableCell key={col.key} className="whitespace-nowrap">
+  1374→                              {warrantyBadges.length > 0 ? (
+  1375→                                <div className="flex flex-wrap gap-1">
+  1376→                                  {warrantyBadges.map((badge, i) => (
+  1377→                                    <Badge key={i} className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px] px-1.5 py-0">
+  1378→                                      {badge}
+  1379→                                    </Badge>
+  1380→                                  ))}
+  1381→                                </div>
+  1382→                              ) : (
+  1383→                                <span className="text-slate-400 text-xs">—</span>
+  1384→                              )}
+  1385→                            </TableCell>
+  1386→                          );
+  1387→                        }
+  1388→
+  1389→                        // Month number to name for SR targets
+  1390→                        if (col.key === "month" && typeof val === "number" && val >= 1 && val <= 12) {
+  1391→                          return <TableCell key={col.key} className="whitespace-nowrap">{MONTH_NAMES[val]}</TableCell>;
+  1392→                        }
+  1393→
+  1394→                        // Currency formatting
+  1395→                        if (col.type === "currency") {
+  1396→                          return <TableCell key={col.key} className="whitespace-nowrap font-medium">{fmtCurrency(val)}</TableCell>;
+  1397→                        }
+  1398→
+  1399→                        return <TableCell key={col.key} className="whitespace-nowrap">{fmt(val, col.type)}</TableCell>;
+  1400→                      })}
+  1401→                      {canMutate && (
+  1402→                        <TableCell>
+  1403→                          <div className="flex items-center gap-1">
+  1404→                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="h-7 w-7 p-0">
+  1405→                              <Edit className="h-3.5 w-3.5 text-blue-500" />
+  1406→                            </Button>
+  1407→                            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(item.id)} className="h-7 w-7 p-0">
+  1408→                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+  1409→                            </Button>
+  1410→                            {/* Phase 6: Emergency Closure toggle for godowns */}
+  1411→                            {config.key === "godowns" && (
+  1412→                              <Button
+  1413→                                variant="ghost"
+  1414→                                size="sm"
+  1415→                                onClick={() => handleEmergencyClosureToggle(item)}
+  1416→                                className={`h-7 px-1.5 ${item.status === "SUSPENDED" ? "text-emerald-600 hover:text-emerald-700" : "text-amber-600 hover:text-amber-700"}`}
+  1417→                                title={item.status === "SUSPENDED" ? "Reactivate Warehouse" : "Emergency Closure"}
+  1418→                              >
+  1419→                                <Power className="h-3.5 w-3.5" />
+  1420→                              </Button>
+  1421→                            )}
+  1422→                            {/* Phase 7: Deactivated Channel Shield toggle for payment options */}
+  1423→                            {config.key === "payment-options" && (
+  1424→                              <Button
+  1425→                                variant="ghost"
+  1426→                                size="sm"
+  1427→                                onClick={async () => {
+  1428→                                  const newStatus = item.status === "INACTIVE" ? "ACTIVE" : "INACTIVE";
+  1429→                                  setOperationsSnapshot([...data]);
+  1430→                                  try {
+  1431→                                    await apiFetch(`${config.apiPath}/${item.id}`, {
+  1432→                                      method: "PUT",
+  1433→                                      body: JSON.stringify({ ...item, status: newStatus }),
+  1434→                                    });
+  1435→                                    toast({
+  1436→                                      title: newStatus === "INACTIVE" ? "Payment Channel Deactivated" : "Payment Channel Activated",
+  1437→                                      description: newStatus === "INACTIVE"
+  1438→                                        ? `${item.name} has been deactivated. It will be filtered out from all Invoice/Collection dropdowns.`
+  1439→                                        : `${item.name} has been reactivated and is now available in dropdowns.`,
+  1440→                                      variant: newStatus === "INACTIVE" ? "destructive" : "default",
+  1441→                                    });
+  1442→                                    setData(prev => prev.map(d => d.id === item.id ? { ...d, status: newStatus } : d));
+  1443→                                    loadData();
+  1444→                                  } catch {
+  1445→                                    setData(operationsSnapshot || []);
+  1446→                                    toast({
+  1447→                                      title: "Connection Lost — Rollback Executed",
+  1448→                                      description: "Rolled back to pre-save state. Please try again.",
+  1449→                                      variant: "destructive",
+  1450→                                      duration: 8000,
+  1451→                                    });
+  1452→                                  }
+  1453→                                }}
+  1454→                                className={`h-7 px-1.5 ${item.status === "INACTIVE" ? "text-emerald-600 hover:text-emerald-700" : "text-amber-600 hover:text-amber-700"}`}
+  1455→                                title={item.status === "INACTIVE" ? "Reactivate Channel" : "Deactivate Channel"}
+  1456→                              >
+  1457→                                <Power className="h-3.5 w-3.5" />
+  1458→                              </Button>
+  1459→                            )}
+  1460→                          </div>
+  1461→                        </TableCell>
+  1462→                      )}
+  1463→                    </TableRow>
+  1464→                  ))
+  1465→                )}
+  1466→              </TableBody>
+  1467→            </Table>
+  1468→          </div>
+  1469→        </CardContent>
+  1470→      </Card>
+  1471→
+  1472→      {/* Record count */}
+  1473→      <div className="text-xs text-slate-500 dark:text-slate-400">
+  1474→        Showing {filteredData.length} of {data.length} {config.label.toLowerCase()}
+  1475→      </div>
+  1476→
+  1477→      {/* Create/Edit Dialog */}
+  1478→      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+  1479→        <DialogContent className="max-w-[95vw] sm:max-w-lg max-h-[80vh] overflow-y-auto">
+  1480→          <DialogHeader>
+  1481→            <DialogTitle>{editingItem ? `Edit ${singularize(config.label)}` : `New ${singularize(config.label)}`}</DialogTitle>
+  1482→            <DialogDescription>
+  1483→              {editingItem ? `Update ${singularize(config.label).toLowerCase()} details` : `Create a new ${singularize(config.label).toLowerCase()}`}
+  1484→            </DialogDescription>
+  1485→          </DialogHeader>
+  1486→          <div className="space-y-4 py-2">
+  1487→            {config.formFields.map(field => {
+  1488→              // Skip warrantyGroup fields — they're rendered inside the section
+  1489→              if (field.type === "warrantyGroup") return null;
+  1490→              return (
+  1491→                <div key={field.key} className="space-y-1.5">
+  1492→                  {field.type !== "checkbox" && field.type !== "image" && field.type !== "section" && (
+  1493→                    <Label className="text-sm font-medium">
+  1494→                      {field.label} {field.required && <span className="text-red-500">*</span>}
+  1495→                    </Label>
+  1496→                  )}
+  1497→                  {renderFormField(field)}
+  1498→                  {/* Phase 6: Inline capacity error message */}
+  1499→                  {field.key === "capacityValue" && capacityError && (
+  1500→                    <p className="text-xs text-red-600 dark:text-red-400">Capacity value must be greater than zero</p>
+  1501→                  )}
+  1502→                  {/* Phase 7: SR target financial benchmark error */}
+  1503→                  {config.key === "sr-targets" && srTargetError && ["targetAmount", "minimumSalesQuota", "commissionPercentage"].includes(field.key) && (
+  1504→                    <p className="text-xs text-red-600 dark:text-red-400">{srTargetError}</p>
+  1505→                  )}
+  1506→                  {/* Phase 7: Card fee architecture error */}
+  1507→                  {config.key === "card-type-setup" && cardFeeError && ["bankServiceCharge", "customerConvFee"].includes(field.key) && (
+  1508→                    <p className="text-xs text-red-600 dark:text-red-400">{cardFeeError}</p>
+  1509→                  )}
+  1510→                </div>
+  1511→              );
+  1512→            })}
+  1513→          </div>
+  1514→          {saveError && (
+  1515→            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2">
+  1516→              <AlertTriangle className="h-4 w-4 text-red-600" />
+  1517→              <span className="text-sm text-red-700 dark:text-red-400">{saveError}</span>
+  1518→            </div>
+  1519→          )}
+  1520→          <DialogFooter>
+  1521→            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+  1522→            <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1523→              {saving ? (
+  1524→                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{getSpinLockText()}</>
+  1525→              ) : editingItem ? "Update" : "Create"}
+  1526→            </Button>
+  1527→          </DialogFooter>
+  1528→        </DialogContent>
+  1529→      </Dialog>
+  1530→
+  1531→      {/* Delete Confirmation Dialog */}
+  1532→      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+  1533→        <DialogContent className="max-w-[95vw] sm:max-w-sm">
+  1534→          <DialogHeader>
+  1535→            <DialogTitle>Confirm Deactivate</DialogTitle>
+  1536→            <DialogDescription>Are you sure you want to deactivate this {singularize(config.label).toLowerCase()}? It will be marked as inactive but can be restored by an admin.</DialogDescription>
+  1537→          </DialogHeader>
+  1538→          <DialogFooter>
+  1539→            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+  1540→            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
+  1541→          </DialogFooter>
+  1542→        </DialogContent>
+  1543→      </Dialog>
+  1544→    </div>
+  1545→  );
+  1546→}
+  1547→
+  1548→// ============================================================
+  1549→// MAIN COMPONENT
+  1550→// ============================================================
+  1551→
+  1552→function singularize(word: string): string {
+  1553→  if (word.endsWith("ies")) return word.slice(0, -3) + "y";
+  1554→  if (word.endsWith("ses") || word.endsWith("xes") || word.endsWith("zes")) return word.slice(0, -2);
+  1555→  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
+  1556→  return word;
+  1557→}
+  1558→
+  1559→export default function BasicModulesGroupPage({ activeModule }: { activeModule?: string }) {
+  1560→  const auth = useAuth();
+  1561→  const isVatAuditor = auth.user?.role === "vat_auditor";
+  1562→  const userRole = auth.user?.role || "admin";
+  1563→
+  1564→  // Determine active tab — update when activeModule prop changes (sidebar navigation)
+  1565→  const [activeTab, setActiveTab] = useState(activeModule || "companies");
+  1566→  useEffect(() => {
+  1567→    if (activeModule) setActiveTab(activeModule);
+  1568→  }, [activeModule]);
+  1569→
+  1570→  // Group modules by category
+  1571→  const coreModules = MODULE_CONFIGS.filter(m => m.category === "core");
+  1572→  const structuralModules = MODULE_CONFIGS.filter(m => m.category === "structural");
+  1573→  const operationalModules = MODULE_CONFIGS.filter(m => m.category === "operational");
+  1574→
+  1575→  const activeConfig = MODULE_CONFIGS.find(m => m.key === activeTab);
+  1576→
+  1577→  // Category headers
+  1578→  const categoryInfo: Record<string, { label: string; icon: React.ElementType; color: string; desc: string }> = {
+  1579→    core: { label: "Core Configurations", icon: Building2, color: "text-blue-500", desc: "Companies, Categories, Colors, Brands, Banks, Units" },
+  1580→    structural: { label: "Structural Infrastructure", icon: Layers, color: "text-emerald-500", desc: "Departments, Godowns, Segments, Capacities" },
+  1581→    operational: { label: "Operational Framework", icon: Settings, color: "text-purple-500", desc: "SR Target Setup, Payment Options, Card Types, CardType Setup" },
+  1582→  };
+  1583→
+  1584→  return (
+  1585→    <div className="space-y-6">
+  1586→      {/* Page Header */}
+  1587→      <div className="flex items-center justify-between">
+  1588→        <div>
+  1589→          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+  1590→            <Building2 className="h-6 w-6 text-[#2563eb]" />
+  1591→            Basic Foundation Modules
+  1592→          </h1>
+  1593→          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+  1594→            Core configurations, structural infrastructure, and operational framework setup
+  1595→          </p>
+  1596→        </div>
+  1597→        {isVatAuditor && (
+  1598→          <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-3 py-1">
+  1599→            <Shield className="h-3.5 w-3.5 mr-1" /> VAT Audit Mode
+  1600→          </Badge>
+  1601→        )}
+  1602→      </div>
+  1603→
+  1604→      {/* Tab Navigation */}
+  1605→      <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1606→        <div className="space-y-4">
+  1607→          {/* Core Configurations Section */}
+  1608→          <div>
+  1609→            <div className="flex items-center gap-2 mb-3">
+  1610→              <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+  1611→                <Building2 className="h-4 w-4 text-blue-500" />
+  1612→              </div>
+  1613→              <div>
+  1614→                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Core Configurations</h3>
+  1615→                <p className="text-xs text-slate-500 dark:text-slate-400">Companies, Categories, Colors, Brands, Banks, Units</p>
+  1616→              </div>
+  1617→            </div>
+  1618→            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto gap-1 p-1 scrollbar-none w-full">
+  1619→              {coreModules.map(mod => {
+  1620→                const Icon = mod.icon;
+  1621→                return (
+  1622→                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5 whitespace-nowrap flex-shrink-0">
+  1623→                    <Icon className="h-3.5 w-3.5" />
+  1624→                    {mod.label}
+  1625→                  </TabsTrigger>
+  1626→                );
+  1627→              })}
+  1628→            </TabsList>
+  1629→          </div>
+  1630→
+  1631→          {/* Structural Infrastructure Section */}
+  1632→          <div>
+  1633→            <div className="flex items-center gap-2 mb-3">
+  1634→              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1635→                <Layers className="h-4 w-4 text-emerald-500" />
+  1636→              </div>
+  1637→              <div>
+  1638→                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Structural Infrastructure</h3>
+  1639→                <p className="text-xs text-slate-500 dark:text-slate-400">Departments, Godowns, Segments, Capacities</p>
+  1640→              </div>
+  1641→            </div>
+  1642→            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto gap-1 p-1 scrollbar-none w-full">
+  1643→              {structuralModules.map(mod => {
+  1644→                const Icon = mod.icon;
+  1645→                return (
+  1646→                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5 whitespace-nowrap flex-shrink-0">
+  1647→                    <Icon className="h-3.5 w-3.5" />
+  1648→                    {mod.label}
+  1649→                  </TabsTrigger>
+  1650→                );
+  1651→              })}
+  1652→            </TabsList>
+  1653→          </div>
+  1654→
+  1655→          {/* Operational Framework Section */}
+  1656→          <div>
+  1657→            <div className="flex items-center gap-2 mb-3">
+  1658→              <div className="h-8 w-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+  1659→                <Settings className="h-4 w-4 text-purple-500" />
+  1660→              </div>
+  1661→              <div>
+  1662→                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Operational Framework</h3>
+  1663→                <p className="text-xs text-slate-500 dark:text-slate-400">SR Target Setup, Payment Options, Card Types, CardType Setup</p>
+  1664→              </div>
+  1665→            </div>
+  1666→            <TabsList className="bg-slate-100 dark:bg-slate-800 h-auto overflow-x-auto gap-1 p-1 scrollbar-none w-full">
+  1667→              {operationalModules.map(mod => {
+  1668→                const Icon = mod.icon;
+  1669→                return (
+  1670→                  <TabsTrigger key={mod.key} value={mod.key} className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-xs gap-1 px-3 py-1.5 whitespace-nowrap flex-shrink-0">
+  1671→                    <Icon className="h-3.5 w-3.5" />
+  1672→                    {mod.label}
+  1673→                  </TabsTrigger>
+  1674→                );
+  1675→              })}
+  1676→            </TabsList>
+  1677→          </div>
+  1678→
+  1679→          {/* Tab Content */}
+  1680→          {MODULE_CONFIGS.map(mod => (
+  1681→            <TabsContent key={mod.key} value={mod.key}>
+  1682→              <ModuleTab config={mod} isVatAuditor={isVatAuditor} userRole={userRole} />
+  1683→            </TabsContent>
+  1684→          ))}
+  1685→        </div>
+  1686→      </Tabs>
+  1687→    </div>
+  1688→  );
+  1689→}
+  1690→

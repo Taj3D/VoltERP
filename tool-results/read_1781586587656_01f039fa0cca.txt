@@ -1,0 +1,1679 @@
+     1→"use client";
+     2→
+     3→// ============================================================
+     4→// VoltERP — Forensic System Audit Trail Viewer
+     5→// Comprehensive log viewer: timeline, user activities, IP
+     6→// history, before/after transaction state diffs, statistics,
+     7→// and export (PDF Audit Report + CSV)
+     8→// ============================================================
+     9→
+    10→import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+    11→import {
+    12→  Shield, ShieldCheck, Clock, Search, RefreshCw, Download,
+    13→  FileDown, Filter, ChevronDown, ChevronUp, ChevronRight,
+    14→  RotateCcw, Activity, Eye, EyeOff, AlertTriangle, Users,
+    15→  Globe, BarChart3, TrendingUp, MapPin, Hash, Monitor,
+    16→  LogIn, LogOut, Plus, Trash2, ArrowRightLeft, FileUp, Upload,
+    17→  FileDown as ImportIcon,
+    18→} from "lucide-react";
+    19→import { Button } from "@/components/ui/button";
+    20→import { Input } from "@/components/ui/input";
+    21→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { Label } from "@/components/ui/label";
+    24→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    25→import { Separator } from "@/components/ui/separator";
+    26→import { ScrollArea } from "@/components/ui/scroll-area";
+    27→import { Progress } from "@/components/ui/progress";
+    28→import {
+    29→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    30→} from "@/components/ui/select";
+    31→import {
+    32→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    33→} from "@/components/ui/table";
+    34→import { useToast } from "@/hooks/use-toast";
+    35→import { useTheme } from "next-themes";
+    36→import {
+    37→  exportToCSV, exportAuditReportPDF, importFromCSV, getVatMaskedKeys,
+    38→} from "@/lib/export-utils";
+    39→import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-utils";
+    40→import { apiFetch } from "@/lib/api-client";
+    41→import { useAuth } from "@/hooks/useAuth";
+    42→
+    43→// ============================================================
+    44→// UTILITY FUNCTIONS
+    45→// ============================================================
+    46→
+    47→const fmtDate = (d: string | Date) => {
+    48→  if (!d) return "\u2014";
+    49→  const dt = new Date(d);
+    50→  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", {
+    51→      day: "2-digit",
+    52→      month: "short",
+    53→      year: "numeric",
+    54→      hour: "2-digit",
+    55→      minute: "2-digit",
+    56→    });
+    57→};
+    58→
+    59→const fmtDateShort = (d: string | Date) => {
+    60→  if (!d) return "\u2014";
+    61→  const dt = new Date(d);
+    62→  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", {
+    63→      day: "2-digit",
+    64→      month: "short",
+    65→      year: "numeric",
+    66→    });
+    67→};
+    68→
+    69→const fmtTime = (d: string | Date) => {
+    70→  if (!d) return "\u2014";
+    71→  const dt = new Date(d);
+    72→  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleTimeString("en-GB", {
+    73→      hour: "2-digit",
+    74→      minute: "2-digit",
+    75→      second: "2-digit",
+    76→    });
+    77→};
+    78→
+    79→
+    80→// ============================================================
+    81→// AUTH TYPES
+    82→
+    83→// ============================================================
+    84→// ACTION COLOR / BADGE HELPERS
+    85→// ============================================================
+    86→
+    87→const ACTION_DOT_COLOR: Record<string, string> = {
+    88→  CREATE: "bg-green-500",
+    89→  UPDATE: "bg-blue-500",
+    90→  DELETE: "bg-red-500",
+    91→  LOGIN: "bg-yellow-500",
+    92→  LOGOUT: "bg-yellow-500",
+    93→  EXPORT: "bg-purple-500",
+    94→  IMPORT: "bg-purple-500",
+    95→};
+    96→
+    97→const ACTION_DOT_RING: Record<string, string> = {
+    98→  CREATE: "ring-green-500/30",
+    99→  UPDATE: "ring-blue-500/30",
+   100→  DELETE: "ring-red-500/30",
+   101→  LOGIN: "ring-yellow-500/30",
+   102→  LOGOUT: "ring-yellow-500/30",
+   103→  EXPORT: "ring-purple-500/30",
+   104→  IMPORT: "ring-purple-500/30",
+   105→};
+   106→
+   107→const ACTION_BADGE: Record<string, string> = {
+   108→  CREATE: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+   109→  UPDATE: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+   110→  DELETE: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+   111→  LOGIN: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+   112→  LOGOUT: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+   113→  EXPORT: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+   114→  IMPORT: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+   115→};
+   116→
+   117→const ACTION_ICON: Record<string, React.ElementType> = {
+   118→  CREATE: Plus,
+   119→  UPDATE: ArrowRightLeft,
+   120→  DELETE: Trash2,
+   121→  LOGIN: LogIn,
+   122→  LOGOUT: LogOut,
+   123→  EXPORT: FileDown,
+   124→  IMPORT: ImportIcon,
+   125→};
+   126→
+   127→const ACTION_BAR_COLOR: Record<string, string> = {
+   128→  CREATE: "bg-green-500",
+   129→  UPDATE: "bg-blue-500",
+   130→  DELETE: "bg-red-500",
+   131→  LOGIN: "bg-yellow-500",
+   132→  LOGOUT: "bg-yellow-500",
+   133→  EXPORT: "bg-purple-500",
+   134→  IMPORT: "bg-purple-500",
+   135→};
+   136→
+   137→function getDotColor(action: string): string {
+   138→  return ACTION_DOT_COLOR[action?.toUpperCase()] || "bg-slate-500";
+   139→}
+   140→
+   141→function getDotRing(action: string): string {
+   142→  return ACTION_DOT_RING[action?.toUpperCase()] || "ring-slate-500/30";
+   143→}
+   144→
+   145→function getBadgeClass(action: string): string {
+   146→  return ACTION_BADGE[action?.toUpperCase()] || "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+   147→}
+   148→
+   149→// ============================================================
+   150→// DETAILS PARSING — Before/After Diff
+   151→// ============================================================
+   152→
+   153→interface ParsedDetails {
+   154→  before: Record<string, any> | null;
+   155→  after: Record<string, any> | null;
+   156→  rawText: string | null;
+   157→}
+   158→
+   159→function parseDetails(detailsStr: string | null | undefined): ParsedDetails {
+   160→  if (!detailsStr) return { before: null, after: null, rawText: null };
+   161→  try {
+   162→    const parsed = JSON.parse(detailsStr);
+   163→    if (typeof parsed === "object" && parsed !== null) {
+   164→      return {
+   165→        before: parsed.before || null,
+   166→        after: parsed.after || null,
+   167→        rawText: parsed.description || parsed.message || null,
+   168→      };
+   169→    }
+   170→    return { before: null, after: null, rawText: String(parsed) };
+   171→  } catch {
+   172→    return { before: null, after: null, rawText: detailsStr };
+   173→  }
+   174→}
+   175→
+   176→function containsProfitData(data: any): boolean {
+   177→  if (!data) return false;
+   178→  const str = typeof data === "string" ? data : JSON.stringify(data);
+   179→  const lower = str.toLowerCase();
+   180→  return (
+   181→    lower.includes("profit") ||
+   182→    lower.includes("margin") ||
+   183→    lower.includes("costprice") ||
+   184→    lower.includes("wholesaleprice") ||
+   185→    lower.includes("dealerprice") ||
+   186→    lower.includes("writeoff")
+   187→  );
+   188→}
+   189→
+   190→function maskProfitFields(obj: Record<string, any>): Record<string, any> {
+   191→  const masked = { ...obj };
+   192→  const profitKeys = [
+   193→    "profit", "margin", "costPrice", "wholesalePrice", "dealerPrice",
+   194→    "writeoff", "costprice", "wholesaleprice", "dealerprice",
+   195→    "profitMargin", "grossProfit", "netProfit",
+   196→  ];
+   197→  for (const key of Object.keys(masked)) {
+   198→    const kl = key.toLowerCase();
+   199→    if (profitKeys.some((pk) => kl.includes(pk.toLowerCase()))) {
+   200→      masked[key] = "N/A (Audit Mode)";
+   201→    }
+   202→  }
+   203→  return masked;
+   204→}
+   205→
+   206→// ============================================================
+   207→// AUDIT TRAIL VIEWER COMPONENT
+   208→// ============================================================
+   209→
+   210→export default function AuditTrailViewer() {
+   211→  const { toast } = useToast();
+   212→  const { resolvedTheme } = useTheme();
+   213→
+   214→  // ─── Auth State (shared hook) ───
+   215→  const { user: authUser, isVatAuditor, isSR, isDealer, isAdmin, isManager } = useAuth();
+   216→
+   217→  // ─── Company Profile (for PDF export) ───
+   218→  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+   219→
+   220→  useEffect(() => {
+   221→    if (!isSR && !isDealer) {
+   222→      apiFetch("/api/company-branding")
+   223→        .then((res) => {
+   224→          if (res.company) setCompanyProfile(res.company);
+   225→        })
+   226→        .catch((e) => { console.warn("Failed to load company branding for PDF:", e); });
+   227→    }
+   228→  }, [isSR, isDealer]);
+   229→
+   230→  // ─── Data State ───
+   231→  const [entries, setEntries] = useState<any[]>([]);
+   232→  const [totalCount, setTotalCount] = useState(0);
+   233→  const [loading, setLoading] = useState(true);
+   234→  const [loadingMore, setLoadingMore] = useState(false);
+   235→  const [offset, setOffset] = useState(0);
+   236→  const [hasMore, setHasMore] = useState(true);
+   237→
+   238→  // ─── Expanded Details State ───
+   239→  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+   240→
+   241→  // ─── Active Tab ───
+   242→  const [activeTab, setActiveTab] = useState("timeline");
+   243→
+   244→  // ─── Filter State ───
+   245→  const [filterModule, setFilterModule] = useState<string>("all");
+   246→  const [filterAction, setFilterAction] = useState<string>("all");
+   247→  const [filterDateFrom, setFilterDateFrom] = useState("");
+   248→  const [filterDateTo, setFilterDateTo] = useState("");
+   249→  const [filterUserSearch, setFilterUserSearch] = useState("");
+   250→  const [filterRecordSearch, setFilterRecordSearch] = useState("");
+   251→
+   252→  // Applied filters (only update on Apply click)
+   253→  const [appliedFilters, setAppliedFilters] = useState({
+   254→    module: "",
+   255→    action: "",
+   256→    dateFrom: "",
+   257→    dateTo: "",
+   258→    userSearch: "",
+   259→    recordSearch: "",
+   260→  });
+   261→
+   262→  // ─── Available modules & actions from audit-logs API ───
+   263→  const [availableModules, setAvailableModules] = useState<string[]>([]);
+   264→  const [availableActions, setAvailableActions] = useState<string[]>([]);
+   265→
+   266→  // ─── Scroll sentinel ref ───
+   267→  const sentinelRef = useRef<HTMLDivElement>(null);
+   268→
+   269→  // ─── Offset ref to avoid dependency loops ───
+   270→  const offsetRef = useRef(0);
+   271→
+   272→  // ============================================================
+   273→  // DATA LOADING
+   274→  // ============================================================
+   275→
+   276→  const buildUrl = useCallback(
+   277→    (currentOffset: number, limit: number = 100) => {
+   278→      const params = new URLSearchParams();
+   279→      params.set("limit", String(limit));
+   280→      params.set("offset", String(currentOffset));
+   281→
+   282→      if (appliedFilters.module) params.set("module", appliedFilters.module);
+   283→      if (appliedFilters.action) params.set("action", appliedFilters.action);
+   284→      if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+   285→      if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
+   286→
+   287→      // Combine user and record search into a single search parameter
+   288→      const searchParts: string[] = [];
+   289→      if (appliedFilters.userSearch.trim()) searchParts.push(appliedFilters.userSearch.trim());
+   290→      if (appliedFilters.recordSearch.trim()) searchParts.push(appliedFilters.recordSearch.trim());
+   291→      if (searchParts.length > 0) {
+   292→        params.set("search", searchParts.join(" "));
+   293→      }
+   294→
+   295→      return `/api/audit-trail?${params.toString()}`;
+   296→    },
+   297→    [appliedFilters]
+   298→  );
+   299→
+   300→  const loadEntries = useCallback(
+   301→    async (reset: boolean = true) => {
+   302→      if (reset) {
+   303→        setLoading(true);
+   304→        offsetRef.current = 0;
+   305→        setOffset(0);
+   306→      } else {
+   307→        setLoadingMore(true);
+   308→      }
+   309→
+   310→      try {
+   311→        const currentOffset = reset ? 0 : offsetRef.current;
+   312→        const url = buildUrl(currentOffset, 100);
+   313→        const res = await apiFetch(url);
+   314→
+   315→        const newEntries = res.entries || [];
+   316→        const total = res.total || 0;
+   317→
+   318→        if (reset) {
+   319→          setEntries(newEntries);
+   320→        } else {
+   321→          setEntries((prev) => [...prev, ...newEntries]);
+   322→        }
+   323→
+   324→        setTotalCount(total);
+   325→        setHasMore(reset ? newEntries.length < total : currentOffset + newEntries.length < total);
+   326→
+   327→        const newOffset = reset ? newEntries.length : offsetRef.current + newEntries.length;
+   328→        offsetRef.current = newOffset;
+   329→        setOffset(newOffset);
+   330→      } catch (e: any) {
+   331→        toast({ title: "Error", description: e.message, variant: "destructive" });
+   332→      } finally {
+   333→        setLoading(false);
+   334→        setLoadingMore(false);
+   335→      }
+   336→    },
+   337→    [buildUrl, toast]
+   338→  );
+   339→
+   340→  // Load available modules and actions from audit-logs API
+   341→  const loadFilterOptions = useCallback(async () => {
+   342→    try {
+   343→      const res = await apiFetch("/api/audit-logs?limit=1&offset=0");
+   344→      if (res.modules) setAvailableModules(res.modules);
+   345→      if (res.actions) setAvailableActions(res.actions);
+   346→    } catch (e) { console.error("Failed to load audit log filter options:", e); }
+   347→  }, []);
+   348→
+   349→  // reload on filter change
+   350→  useEffect(() => {
+   351→    loadEntries(true);
+   352→  }, [appliedFilters]);
+   353→
+   354→  useEffect(() => {
+   355→    loadFilterOptions();
+   356→  }, [loadFilterOptions]);
+   357→
+   358→  // ─── Infinite scroll via IntersectionObserver ───
+   359→  useEffect(() => {
+   360→    if (!sentinelRef.current) return;
+   361→
+   362→    const observer = new IntersectionObserver(
+   363→      (observerEntries) => {
+   364→        if (observerEntries[0]?.isIntersecting && hasMore && !loading && !loadingMore) {
+   365→          loadEntries(false);
+   366→        }
+   367→      },
+   368→      { rootMargin: "200px" }
+   369→    );
+   370→
+   371→    observer.observe(sentinelRef.current);
+   372→    return () => observer.disconnect();
+   373→  }, [hasMore, loading, loadingMore, loadEntries]);
+   374→
+   375→  // ============================================================
+   376→  // COMPUTED STATISTICS
+   377→  // ============================================================
+   378→
+   379→  const stats = useMemo(() => {
+   380→    const actionCounts: Record<string, number> = {};
+   381→    const userActivity: Record<string, number> = {};
+   382→    const moduleActivity: Record<string, number> = {};
+   383→    const ipMap: Record<string, { firstSeen: Date; lastSeen: Date; users: Set<string> }> = {};
+   384→    const loginHistory: any[] = [];
+   385→
+   386→    for (const entry of entries) {
+   387→      const action = (entry.action || "UNKNOWN").toUpperCase();
+   388→      actionCounts[action] = (actionCounts[action] || 0) + 1;
+   389→
+   390→      const userName = entry.userName || "System";
+   391→      userActivity[userName] = (userActivity[userName] || 0) + 1;
+   392→
+   393→      const mod = entry.module || "Unknown";
+   394→      moduleActivity[mod] = (moduleActivity[mod] || 0) + 1;
+   395→
+   396→      if (entry.ip) {
+   397→        const ip = entry.ip;
+   398→        const entryDate = new Date(entry.createdAt);
+   399→        if (!ipMap[ip]) {
+   400→          ipMap[ip] = { firstSeen: entryDate, lastSeen: entryDate, users: new Set() };
+   401→        } else {
+   402→          if (entryDate < ipMap[ip].firstSeen) ipMap[ip].firstSeen = entryDate;
+   403→          if (entryDate > ipMap[ip].lastSeen) ipMap[ip].lastSeen = entryDate;
+   404→        }
+   405→        ipMap[ip].users.add(userName);
+   406→      }
+   407→
+   408→      if (action === "LOGIN") {
+   409→        loginHistory.push(entry);
+   410→      }
+   411→    }
+   412→
+   413→    const sortedUsers = Object.entries(userActivity)
+   414→      .sort(([, a], [, b]) => b - a)
+   415→      .slice(0, 10);
+   416→
+   417→    const sortedModules = Object.entries(moduleActivity)
+   418→      .sort(([, a], [, b]) => b - a);
+   419→
+   420→    const maxModuleCount = sortedModules.length > 0 ? sortedModules[0][1] : 1;
+   421→
+   422→    const ipHistory = Object.entries(ipMap)
+   423→      .map(([ip, data]) => ({
+   424→        ip,
+   425→        firstSeen: data.firstSeen,
+   426→        lastSeen: data.lastSeen,
+   427→        users: Array.from(data.users),
+   428→        userCount: data.users.size,
+   429→      }))
+   430→      .sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime())
+   431→      .slice(0, 20);
+   432→
+   433→    const maxActionCount = Math.max(...Object.values(actionCounts), 1);
+   434→
+   435→    // Integrity score: ratio of CREATE vs DELETE actions
+   436→    const createCount = actionCounts["CREATE"] || 0;
+   437→    const deleteCount = actionCounts["DELETE"] || 0;
+   438→    const totalActions = Object.values(actionCounts).reduce((a, b) => a + b, 0);
+   439→    let integrityScore = 100;
+   440→    if (totalActions > 0) {
+   441→      const deleteRatio = deleteCount / totalActions;
+   442→      integrityScore = Math.max(0, Math.min(100, Math.round(100 - deleteRatio * 200)));
+   443→    }
+   444→
+   445→    return {
+   446→      totalEntries: entries.length,
+   447→      totalInDB: totalCount,
+   448→      actionCounts,
+   449→      sortedUsers,
+   450→      sortedModules,
+   451→      maxModuleCount,
+   452→      maxActionCount,
+   453→      ipHistory,
+   454→      loginHistory: loginHistory.slice(0, 20),
+   455→      integrityScore,
+   456→      createCount,
+   457→      deleteCount,
+   458→    };
+   459→  }, [entries, totalCount]);
+   460→
+   461→  // ============================================================
+   462→  // FILTER HANDLERS
+   463→  // ============================================================
+   464→
+   465→  const handleApplyFilters = () => {
+   466→    setAppliedFilters({
+   467→      module: filterModule === "all" ? "" : filterModule,
+   468→      action: filterAction === "all" ? "" : filterAction,
+   469→      dateFrom: filterDateFrom,
+   470→      dateTo: filterDateTo,
+   471→      userSearch: filterUserSearch.trim(),
+   472→      recordSearch: filterRecordSearch.trim(),
+   473→    });
+   474→  };
+   475→
+   476→  const handleResetFilters = () => {
+   477→    setFilterModule("all");
+   478→    setFilterAction("all");
+   479→    setFilterDateFrom("");
+   480→    setFilterDateTo("");
+   481→    setFilterUserSearch("");
+   482→    setFilterRecordSearch("");
+   483→    setAppliedFilters({
+   484→      module: "",
+   485→      action: "",
+   486→      dateFrom: "",
+   487→      dateTo: "",
+   488→      userSearch: "",
+   489→      recordSearch: "",
+   490→    });
+   491→  };
+   492→
+   493→  // ============================================================
+   494→  // EXPAND/COLLAPSE DETAILS
+   495→  // ============================================================
+   496→
+   497→  const toggleExpand = (id: string) => {
+   498→    setExpandedIds((prev) => {
+   499→      const next = new Set(prev);
+   500→      if (next.has(id)) {
+   501→        next.delete(id);
+   502→      } else {
+   503→        next.add(id);
+   504→      }
+   505→      return next;
+   506→    });
+   507→  };
+   508→
+   509→  // ============================================================
+   510→  // EXPORT HANDLERS
+   511→  // ============================================================
+   512→
+   513→  const exportColumns: ExportColumnDef[] = [
+   514→    { key: "action", label: "Action", type: "text" },
+   515→    { key: "module", label: "Module", type: "text" },
+   516→    { key: "recordLabel", label: "Record", type: "text" },
+   517→    { key: "userName", label: "User", type: "text" },
+   518→    { key: "ip", label: "IP Address", type: "text" },
+   519→    { key: "details", label: "Details", type: "text" },
+   520→    { key: "createdAt", label: "Timestamp", type: "date" },
+   521→  ];
+   522→
+   523→  const handleExportCSV = () => {
+   524→    try {
+   525→      const maskedKeys = isVatAuditor
+   526→        ? getVatMaskedKeys(exportColumns, ["details"])
+   527→        : [];
+   528→      exportToCSV({
+   529→        title: "Audit Trail",
+   530→        columns: exportColumns,
+   531→        data: entries,
+   532→        isVatAuditor,
+   533→        vatMaskedColumns: maskedKeys,
+   534→        filename: "audit-trail",
+   535→      });
+   536→      toast({ title: "Exported", description: "Audit Trail exported to CSV" });
+   537→    } catch (e: any) {
+   538→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   539→    }
+   540→  };
+   541→
+   542→  const handleExportPDF = () => {
+   543→    try {
+   544→      const maskedKeys = isVatAuditor
+   545→        ? getVatMaskedKeys(exportColumns, ["details"])
+   546→        : [];
+   547→      const userName = authUser?.displayName || authUser?.name || "";
+   548→      exportAuditReportPDF({
+   549→        title: "Forensic Audit Trail Report",
+   550→        subtitle: `${totalCount} entries${isVatAuditor ? " \u2014 VAT Audit Mode" : ""}`,
+   551→        columns: exportColumns,
+   552→        data: entries,
+   553→        isVatAuditor,
+   554→        vatMaskedColumns: maskedKeys,
+   555→        integrityScore: stats.integrityScore,
+   556→        company: companyProfile || undefined,
+   557→        financialFooter: {
+   558→          preparedBy: userName,
+   559→          checkedBy: "",
+   560→          authorizedBy: "",
+   561→          printedBy: userName || "System",
+   562→        },
+   563→        classification: "CONFIDENTIAL",
+   564→      });
+   565→      toast({ title: "Exported", description: "Audit Trail exported to PDF" });
+   566→    } catch (e: any) {
+   567→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   568→    }
+   569→  };
+   570→
+   571→  const handleImportCSV = async () => {
+   572→    try {
+   573→      const result = await importFromCSV({
+   574→        apiPath: "/api/audit-logs?import=true",
+   575→        formFields: [
+   576→          { key: "action", label: "Action", type: "text", required: true },
+   577→          { key: "module", label: "Module", type: "text", required: true },
+   578→          { key: "details", label: "Details", type: "text" },
+   579→        ],
+   580→      });
+   581→      if (result.imported > 0) {
+   582→        toast({ title: "Import Complete", description: `${result.imported} reference entries imported, ${result.failed} failed` });
+   583→        loadEntries(true);
+   584→      } else if (result.errors.length > 0) {
+   585→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   586→      }
+   587→    } catch (e: any) {
+   588→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   589→    }
+   590→  };
+   591→
+   592→  // ============================================================
+   593→  // VAT AUDITOR DETAILS MASKING
+   594→  // ============================================================
+   595→
+   596→  const maskDetailsIfVat = (details: string | null | undefined): string => {
+   597→    if (!details) return "\u2014";
+   598→    return details;
+   599→  };
+   600→
+   601→  // ============================================================
+   602→  // 403 FORBIDDEN PAGE
+   603→  // ============================================================
+   604→
+   605→  if (isSR || isDealer) {
+   606→    return (
+   607→      <div className="flex items-center justify-center min-h-[50vh]">
+   608→        <Card className="max-w-md w-full border-red-300 dark:border-red-800">
+   609→          <CardContent className="p-8 text-center">
+   610→            <Shield className="w-12 h-12 mx-auto mb-4 text-red-500" />
+   611→            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+   612→              403 - Access Denied
+   613→            </h3>
+   614→            <p className="text-muted-foreground">
+   615→              You do not have permission to access Audit Trail Viewer. Contact your
+   616→              administrator.
+   617→            </p>
+   618→          </CardContent>
+   619→        </Card>
+   620→      </div>
+   621→    );
+   622→  }
+   623→
+   624→  // ============================================================
+   625→  // RENDER: DIFF DISPLAY
+   626→  // ============================================================
+   627→
+   628→  const renderDiff = (before: Record<string, any> | null, after: Record<string, any> | null) => {
+   629→    const allKeys = new Set<string>();
+   630→    if (before) Object.keys(before).forEach((k) => allKeys.add(k));
+   631→    if (after) Object.keys(after).forEach((k) => allKeys.add(k));
+   632→
+   633→    if (allKeys.size === 0) return null;
+   634→
+   635→    return (
+   636→      <div className="mt-2 space-y-1">
+   637→        {Array.from(allKeys).sort().map((key) => {
+   638→          const oldVal = before?.[key];
+   639→          const newVal = after?.[key];
+   640→          const isChanged = JSON.stringify(oldVal) !== JSON.stringify(newVal);
+   641→          const isAdded = before && !Object.prototype.hasOwnProperty.call(before, key);
+   642→          const isRemoved = after && !Object.prototype.hasOwnProperty.call(after, key);
+   643→
+   644→          // VAT auditor masking
+   645→          const lowerKey = key.toLowerCase();
+   646→          const isProfitField = [
+   647→            "profit", "margin", "costprice", "wholesaleprice", "dealerprice",
+   648→            "writeoff", "profitmargin", "grossprofit", "netprofit",
+   649→          ].some((pk) => lowerKey.includes(pk));
+   650→
+   651→          const displayOld = isVatAuditor && isProfitField ? "N/A (Audit Mode)" : String(oldVal ?? "\u2014");
+   652→          const displayNew = isVatAuditor && isProfitField ? "N/A (Audit Mode)" : String(newVal ?? "\u2014");
+   653→
+   654→          return (
+   655→            <div
+   656→              key={key}
+   657→              className={`flex items-start gap-2 text-xs py-1 px-2 rounded ${
+   658→                isRemoved
+   659→                  ? "bg-red-50 dark:bg-red-900/10"
+   660→                  : isAdded
+   661→                  ? "bg-green-50 dark:bg-green-900/10"
+   662→                  : isChanged
+   663→                  ? "bg-amber-50 dark:bg-amber-900/10"
+   664→                  : "bg-transparent"
+   665→              }`}
+   666→            >
+   667→              <span className="font-mono font-semibold text-slate-600 dark:text-slate-400 min-w-[120px] shrink-0">
+   668→                {key}:
+   669→              </span>
+   670→              {isChanged && !isAdded && !isRemoved ? (
+   671→                <>
+   672→                  <span className="text-red-600 dark:text-red-400 line-through">
+   673→                    {displayOld}
+   674→                  </span>
+   675→                  <ChevronRight className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+   676→                  <span className="text-green-600 dark:text-green-400 font-medium">
+   677→                    {displayNew}
+   678→                  </span>
+   679→                </>
+   680→              ) : isAdded ? (
+   681→                <span className="text-green-600 dark:text-green-400 font-medium">
+   682→                  + {displayNew}
+   683→                </span>
+   684→              ) : isRemoved ? (
+   685→                <span className="text-red-600 dark:text-red-400 line-through">
+   686→                  - {displayOld}
+   687→                </span>
+   688→              ) : (
+   689→                <span className="text-slate-600 dark:text-slate-400">{displayNew}</span>
+   690→              )}
+   691→            </div>
+   692→          );
+   693→        })}
+   694→      </div>
+   695→    );
+   696→  };
+   697→
+   698→  // ============================================================
+   699→  // RENDER: TIMELINE ENTRY
+   700→  // ============================================================
+   701→
+   702→  const renderTimelineEntry = (entry: any, idx: number) => {
+   703→    const entryId = entry.id || `entry-${idx}`;
+   704→    const isExpanded = expandedIds.has(entryId);
+   705→    const action = (entry.action || "UNKNOWN").toUpperCase();
+   706→    const dotColor = getDotColor(action);
+   707→    const dotRing = getDotRing(action);
+   708→    const badgeClass = getBadgeClass(action);
+   709→    const ActionIcon = ACTION_ICON[action] || Activity;
+   710→
+   711→    // Parse the details JSON to extract before/after
+   712→    const parsed = parseDetails(entry.details);
+   713→    const maskedDetails = maskDetailsIfVat(entry.details);
+   714→    const hasBeforeAfter = parsed.before || parsed.after;
+   715→
+   716→    return (
+   717→      <div key={entryId} className="relative pl-14 pb-6 group">
+   718→        {/* Timeline Dot */}
+   719→        <div
+   720→          className={`absolute left-3.5 top-1.5 w-4 h-4 rounded-full ring-4 ${dotColor} ${dotRing} ring-opacity-30 transition-transform group-hover:scale-125`}
+   721→        />
+   722→
+   723→        {/* Entry Card */}
+   724→        <Card className="hover:shadow-md transition-shadow">
+   725→          <CardContent className="p-4">
+   726→            {/* Entry Header */}
+   727→            <div className="flex items-start justify-between gap-3 flex-wrap">
+   728→              <div className="flex items-center gap-2 flex-wrap">
+   729→                {/* Action Badge */}
+   730→                <Badge className={`${badgeClass} font-semibold flex items-center gap-1`}>
+   731→                  <ActionIcon className="w-3 h-3" />
+   732→                  {action}
+   733→                </Badge>
+   734→
+   735→                {/* Module */}
+   736→                <span className="text-sm font-medium text-slate-900 dark:text-white">
+   737→                  {entry.module || "\u2014"}
+   738→                </span>
+   739→
+   740→                {/* Record Label */}
+   741→                {entry.recordLabel && (
+   742→                  <>
+   743→                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+   744→                    <span className="text-sm text-[#2563eb] dark:text-blue-400 font-medium cursor-pointer hover:underline">
+   745→                      {entry.recordLabel}
+   746→                    </span>
+   747→                  </>
+   748→                )}
+   749→              </div>
+   750→
+   751→              {/* Timestamp */}
+   752→              <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+   753→                <Clock className="w-3.5 h-3.5" />
+   754→                <span title={fmtDate(entry.createdAt)}>
+   755→                  {entry.timeAgo || fmtDate(entry.createdAt)}
+   756→                </span>
+   757→              </div>
+   758→            </div>
+   759→
+   760→            {/* User Row & IP */}
+   761→            <div className="flex items-center gap-2 mt-2 flex-wrap">
+   762→              <div className="w-6 h-6 rounded-full bg-[#132240] dark:bg-[#0a1628] flex items-center justify-center">
+   763→                <span className="text-[10px] font-bold text-white">
+   764→                  {(entry.userName || "?").charAt(0).toUpperCase()}
+   765→                </span>
+   766→              </div>
+   767→              <span className="text-sm text-slate-900 dark:text-white">
+   768→                {entry.userName || "System"}
+   769→              </span>
+   770→              {entry.ip && (
+   771→                <>
+   772→                  <span className="text-slate-300 dark:text-slate-600">|</span>
+   773→                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+   774→                    <Globe className="w-3 h-3" />
+   775→                    {entry.ip}
+   776→                  </span>
+   777→                </>
+   778→              )}
+   779→              <span className="text-xs text-muted-foreground">
+   780→                {fmtDate(entry.createdAt)}
+   781→              </span>
+   782→            </div>
+   783→
+   784→            {/* Details Preview (truncated) */}
+   785→            {parsed.rawText && !hasBeforeAfter && (
+   786→              <div className="mt-2">
+   787→                <p
+   788→                  className={`text-xs text-muted-foreground ${
+   789→                    !isExpanded ? "line-clamp-2" : ""
+   790→                  }`}
+   791→                >
+   792→                  {isExpanded ? parsed.rawText : parsed.rawText.slice(0, 150)}
+   793→                  {!isExpanded && parsed.rawText.length > 150 ? "..." : ""}
+   794→                </p>
+   795→              </div>
+   796→            )}
+   797→
+   798→            {/* Before/After summary for unexpanded state */}
+   799→            {hasBeforeAfter && !isExpanded && (
+   800→              <div className="mt-2 text-xs text-muted-foreground">
+   801→                {parsed.before && parsed.after
+   802→                  ? "Transaction state change detected \u2014 expand to view diff"
+   803→                  : parsed.before
+   804→                  ? "Previous state recorded \u2014 expand to view"
+   805→                  : "New state recorded \u2014 expand to view"}
+   806→              </div>
+   807→            )}
+   808→
+   809→            {/* Expandable Details */}
+   810→            {(hasBeforeAfter || (maskedDetails && maskedDetails.length > 150)) && (
+   811→              <div className="mt-2">
+   812→                <button
+   813→                  onClick={() => toggleExpand(entryId)}
+   814→                  className="flex items-center gap-1 text-xs text-[#2563eb] hover:text-[#1d4ed8] dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+   815→                >
+   816→                  {isExpanded ? (
+   817→                    <>
+   818→                      <ChevronUp className="w-3.5 h-3.5" /> Hide Details
+   819→                    </>
+   820→                  ) : (
+   821→                    <>
+   822→                      <ChevronDown className="w-3.5 h-3.5" /> Show Details
+   823→                    </>
+   824→                  )}
+   825→                </button>
+   826→
+   827→                {isExpanded && (
+   828→                  <div className="mt-3 space-y-3">
+   829→                    {/* Full raw text if available */}
+   830→                    {parsed.rawText && hasBeforeAfter && (
+   831→                      <p className="text-xs text-muted-foreground italic">
+   832→                        {parsed.rawText}
+   833→                      </p>
+   834→                    )}
+   835→
+   836→                    {/* Diff Display */}
+   837→                    {hasBeforeAfter && (
+   838→                      <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+   839→                        <div className="bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 border-b border-slate-200 dark:border-slate-700">
+   840→                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+   841→                            State Diff
+   842→                          </span>
+   843→                        </div>
+   844→                        <div className="p-3 max-h-96 overflow-y-auto">
+   845→                          {renderDiff(
+   846→                            isVatAuditor && parsed.before && containsProfitData(parsed.before)
+   847→                              ? maskProfitFields(parsed.before)
+   848→                              : parsed.before,
+   849→                            isVatAuditor && parsed.after && containsProfitData(parsed.after)
+   850→                              ? maskProfitFields(parsed.after)
+   851→                              : parsed.after
+   852→                          )}
+   853→                        </div>
+   854→                      </div>
+   855→                    )}
+   856→
+   857→                    {/* Raw Before/After blocks if no structured diff */}
+   858→                    {!hasBeforeAfter && maskedDetails && maskedDetails.length > 150 && (
+   859→                      <pre className="text-xs bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-md p-3 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
+   860→                        <code className="text-slate-700 dark:text-slate-300">
+   861→                          {maskedDetails}
+   862→                        </code>
+   863→                      </pre>
+   864→                    )}
+   865→
+   866→                    {/* Full Before/After JSON for expanded structured data */}
+   867→                    {hasBeforeAfter && parsed.before && (
+   868→                      <div>
+   869→                        <p className="text-xs font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-1">
+   870→                          <EyeOff className="w-3 h-3 text-red-500" />
+   871→                          Before State:
+   872→                        </p>
+   873→                        <pre className="text-xs bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/50 rounded-md p-3 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
+   874→                          <code className="text-slate-700 dark:text-slate-300">
+   875→                            {JSON.stringify(
+   876→                              isVatAuditor && containsProfitData(parsed.before)
+   877→                                ? maskProfitFields(parsed.before)
+   878→                                : parsed.before,
+   879→                              null,
+   880→                              2
+   881→                            )}
+   882→                          </code>
+   883→                        </pre>
+   884→                      </div>
+   885→                    )}
+   886→                    {hasBeforeAfter && parsed.after && (
+   887→                      <div>
+   888→                        <p className="text-xs font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-1">
+   889→                          <Eye className="w-3 h-3 text-green-500" />
+   890→                          After State:
+   891→                        </p>
+   892→                        <pre className="text-xs bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800/50 rounded-md p-3 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap">
+   893→                          <code className="text-slate-700 dark:text-slate-300">
+   894→                            {JSON.stringify(
+   895→                              isVatAuditor && containsProfitData(parsed.after)
+   896→                                ? maskProfitFields(parsed.after)
+   897→                                : parsed.after,
+   898→                              null,
+   899→                              2
+   900→                            )}
+   901→                          </code>
+   902→                        </pre>
+   903→                      </div>
+   904→                    )}
+   905→
+   906→                    {/* IP & Record ID */}
+   907→                    <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-slate-100 dark:border-slate-800">
+   908→                      {entry.recordId && (
+   909→                        <span className="flex items-center gap-1">
+   910→                          <Hash className="w-3 h-3" />
+   911→                          Record: {entry.recordId}
+   912→                        </span>
+   913→                      )}
+   914→                      {entry.ip && (
+   915→                        <span className="flex items-center gap-1">
+   916→                          <Monitor className="w-3 h-3" />
+   917→                          IP: {entry.ip}
+   918→                        </span>
+   919→                      )}
+   920→                      {entry.userId && (
+   921→                        <span className="flex items-center gap-1">
+   922→                          <Users className="w-3 h-3" />
+   923→                          UserID: {entry.userId}
+   924→                        </span>
+   925→                      )}
+   926→                    </div>
+   927→                  </div>
+   928→                )}
+   929→              </div>
+   930→            )}
+   931→          </CardContent>
+   932→        </Card>
+   933→      </div>
+   934→    );
+   935→  };
+   936→
+   937→  // ============================================================
+   938→  // RENDER: ACTIVITY STATISTICS PANEL
+   939→  // ============================================================
+   940→
+   941→  const renderStatisticsPanel = () => {
+   942→    if (loading && entries.length === 0) {
+   943→      return (
+   944→        <div className="flex items-center justify-center py-20">
+   945→          <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#2563eb] mb-3" />
+   946→          <p className="text-muted-foreground">Loading statistics...</p>
+   947→        </div>
+   948→      );
+   949→    }
+   950→
+   951→    const actionTypes = ["CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "IMPORT"] as const;
+   952→
+   953→    return (
+   954→      <div className="space-y-4">
+   955→        {/* Summary KPIs */}
+   956→        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   957→          <Card className="hover:shadow-md transition-shadow">
+   958→            <CardContent className="p-4 flex items-center gap-3">
+   959→              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+   960→                <Activity className="w-5 h-5" />
+   961→              </div>
+   962→              <div>
+   963→                <p className="text-xs text-muted-foreground">Total Entries</p>
+   964→                <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.totalInDB}</p>
+   965→              </div>
+   966→            </CardContent>
+   967→          </Card>
+   968→
+   969→          <Card className="hover:shadow-md transition-shadow">
+   970→            <CardContent className="p-4 flex items-center gap-3">
+   971→              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
+   972→                <Plus className="w-5 h-5" />
+   973→              </div>
+   974→              <div>
+   975→                <p className="text-xs text-muted-foreground">Creates</p>
+   976→                <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.createCount}</p>
+   977→              </div>
+   978→            </CardContent>
+   979→          </Card>
+   980→
+   981→          <Card className="hover:shadow-md transition-shadow">
+   982→            <CardContent className="p-4 flex items-center gap-3">
+   983→              <div className="p-2 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+   984→                <Trash2 className="w-5 h-5" />
+   985→              </div>
+   986→              <div>
+   987→                <p className="text-xs text-muted-foreground">Deletes</p>
+   988→                <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.deleteCount}</p>
+   989→              </div>
+   990→            </CardContent>
+   991→          </Card>
+   992→
+   993→          <Card className="hover:shadow-md transition-shadow">
+   994→            <CardContent className="p-4 flex items-center gap-3">
+   995→              <div className={`p-2 rounded-lg ${
+   996→                stats.integrityScore >= 80
+   997→                  ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+   998→                  : stats.integrityScore >= 50
+   999→                  ? "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"
+  1000→                  : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+  1001→              }`}>
+  1002→                <ShieldCheck className="w-5 h-5" />
+  1003→              </div>
+  1004→              <div>
+  1005→                <p className="text-xs text-muted-foreground">Integrity Score</p>
+  1006→                <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.integrityScore}/100</p>
+  1007→              </div>
+  1008→            </CardContent>
+  1009→          </Card>
+  1010→        </div>
+  1011→
+  1012→        {/* Action Type Breakdown */}
+  1013→        <Card>
+  1014→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white rounded-t-lg">
+  1015→            <CardTitle className="text-sm font-medium flex items-center gap-2">
+  1016→              <BarChart3 className="w-4 h-4" />
+  1017→              Entries by Action Type
+  1018→            </CardTitle>
+  1019→          </CardHeader>
+  1020→          <CardContent className="p-4">
+  1021→            <div className="space-y-3">
+  1022→              {actionTypes.map((action) => {
+  1023→                const count = stats.actionCounts[action] || 0;
+  1024→                const pct = stats.maxActionCount > 0 ? (count / stats.maxActionCount) * 100 : 0;
+  1025→                const Icon = ACTION_ICON[action] || Activity;
+  1026→                return (
+  1027→                  <div key={action} className="flex items-center gap-3">
+  1028→                    <div className="w-20 flex items-center gap-1.5 shrink-0">
+  1029→                      <Icon className="w-3.5 h-3.5 text-slate-500" />
+  1030→                      <span className="text-xs font-medium text-slate-900 dark:text-white">
+  1031→                        {action}
+  1032→                      </span>
+  1033→                    </div>
+  1034→                    <div className="flex-1 h-6 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden relative">
+  1035→                      <div
+  1036→                        className={`h-full rounded-full ${ACTION_BAR_COLOR[action] || "bg-slate-500"} transition-all duration-500`}
+  1037→                        style={{ width: `${pct}%` }}
+  1038→                      />
+  1039→                    </div>
+  1040→                    <span className="text-xs font-semibold text-slate-900 dark:text-white min-w-[40px] text-right">
+  1041→                      {count}
+  1042→                    </span>
+  1043→                  </div>
+  1044→                );
+  1045→              })}
+  1046→            </div>
+  1047→          </CardContent>
+  1048→        </Card>
+  1049→
+  1050→        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  1051→          {/* Most Active Users */}
+  1052→          <Card>
+  1053→            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white rounded-t-lg">
+  1054→              <CardTitle className="text-sm font-medium flex items-center gap-2">
+  1055→                <Users className="w-4 h-4" />
+  1056→                Most Active Users
+  1057→              </CardTitle>
+  1058→            </CardHeader>
+  1059→            <CardContent className="p-4">
+  1060→              {stats.sortedUsers.length === 0 ? (
+  1061→                <p className="text-sm text-muted-foreground text-center py-4">No user activity data</p>
+  1062→              ) : (
+  1063→                <div className="space-y-2">
+  1064→                  {stats.sortedUsers.map(([userName, count], idx) => {
+  1065→                    const maxUserCount = stats.sortedUsers[0][1];
+  1066→                    const pct = maxUserCount > 0 ? (count / maxUserCount) * 100 : 0;
+  1067→                    return (
+  1068→                      <div key={userName} className="flex items-center gap-3">
+  1069→                        <div className="w-6 h-6 rounded-full bg-[#132240] dark:bg-[#0a1628] flex items-center justify-center shrink-0">
+  1070→                          <span className="text-[10px] font-bold text-white">
+  1071→                            {idx + 1}
+  1072→                          </span>
+  1073→                        </div>
+  1074→                        <div className="flex-1 min-w-0">
+  1075→                          <div className="flex items-center justify-between mb-0.5">
+  1076→                            <span className="text-sm text-slate-900 dark:text-white truncate">
+  1077→                              {userName}
+  1078→                            </span>
+  1079→                            <span className="text-xs font-semibold text-slate-500 shrink-0 ml-2">
+  1080→                              {count}
+  1081→                            </span>
+  1082→                          </div>
+  1083→                          <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+  1084→                            <div
+  1085→                              className="h-full bg-[#2563eb] rounded-full transition-all duration-500"
+  1086→                              style={{ width: `${pct}%` }}
+  1087→                            />
+  1088→                          </div>
+  1089→                        </div>
+  1090→                      </div>
+  1091→                    );
+  1092→                  })}
+  1093→                </div>
+  1094→              )}
+  1095→            </CardContent>
+  1096→          </Card>
+  1097→
+  1098→          {/* Module Activity Heatmap */}
+  1099→          <Card>
+  1100→            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white rounded-t-lg">
+  1101→              <CardTitle className="text-sm font-medium flex items-center gap-2">
+  1102→                <TrendingUp className="w-4 h-4" />
+  1103→                Module Activity Heatmap
+  1104→              </CardTitle>
+  1105→            </CardHeader>
+  1106→            <CardContent className="p-4">
+  1107→              {stats.sortedModules.length === 0 ? (
+  1108→                <p className="text-sm text-muted-foreground text-center py-4">No module activity data</p>
+  1109→              ) : (
+  1110→                <div className="space-y-2 max-h-96 overflow-y-auto">
+  1111→                  {stats.sortedModules.map(([moduleName, count]) => {
+  1112→                    const pct = stats.maxModuleCount > 0 ? (count / stats.maxModuleCount) * 100 : 0;
+  1113→                    // Heatmap color: green=low, yellow=mid, red=high
+  1114→                    const heatColor =
+  1115→                      pct > 75
+  1116→                        ? "bg-red-500"
+  1117→                        : pct > 50
+  1118→                        ? "bg-amber-500"
+  1119→                        : pct > 25
+  1120→                        ? "bg-yellow-500"
+  1121→                        : "bg-green-500";
+  1122→                    return (
+  1123→                      <div key={moduleName} className="flex items-center gap-3">
+  1124→                        <span className="text-xs font-medium text-slate-900 dark:text-white min-w-[100px] truncate">
+  1125→                          {moduleName}
+  1126→                        </span>
+  1127→                        <div className="flex-1 h-5 bg-slate-100 dark:bg-slate-800 rounded overflow-hidden relative">
+  1128→                          <div
+  1129→                            className={`h-full ${heatColor} rounded transition-all duration-500`}
+  1130→                            style={{ width: `${pct}%` }}
+  1131→                          />
+  1132→                          <span className="absolute inset-0 flex items-center justify-end pr-2 text-[10px] font-bold text-white mix-blend-difference">
+  1133→                            {count}
+  1134→                          </span>
+  1135→                        </div>
+  1136→                      </div>
+  1137→                    );
+  1138→                  })}
+  1139→                </div>
+  1140→              )}
+  1141→            </CardContent>
+  1142→          </Card>
+  1143→        </div>
+  1144→
+  1145→        {/* Recent Login History */}
+  1146→        <Card>
+  1147→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white rounded-t-lg">
+  1148→            <CardTitle className="text-sm font-medium flex items-center gap-2">
+  1149→              <LogIn className="w-4 h-4" />
+  1150→              Recent Login History
+  1151→            </CardTitle>
+  1152→          </CardHeader>
+  1153→          <CardContent className="p-4">
+  1154→            {stats.loginHistory.length === 0 ? (
+  1155→              <p className="text-sm text-muted-foreground text-center py-4">No login events recorded</p>
+  1156→            ) : (
+  1157→              <div className="max-h-64 overflow-x-auto overflow-y-auto -mx-2 sm:mx-0">
+  1158→                <Table className="min-w-[600px]">
+  1159→                  <TableHeader>
+  1160→                    <TableRow>
+  1161→                      <TableHead className="text-xs">User</TableHead>
+  1162→                      <TableHead className="text-xs">IP Address</TableHead>
+  1163→                      <TableHead className="text-xs">Timestamp</TableHead>
+  1164→                      <TableHead className="text-xs">Details</TableHead>
+  1165→                    </TableRow>
+  1166→                  </TableHeader>
+  1167→                  <TableBody>
+  1168→                    {stats.loginHistory.map((entry: any, idx: number) => (
+  1169→                      <TableRow key={entry.id || idx}>
+  1170→                        <TableCell className="text-xs font-medium text-slate-900 dark:text-white">
+  1171→                          {entry.userName || "System"}
+  1172→                        </TableCell>
+  1173→                        <TableCell className="text-xs text-muted-foreground">
+  1174→                          {entry.ip || "\u2014"}
+  1175→                        </TableCell>
+  1176→                        <TableCell className="text-xs text-muted-foreground">
+  1177→                          {fmtDate(entry.createdAt)}
+  1178→                        </TableCell>
+  1179→                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+  1180→                          {maskDetailsIfVat(entry.details)}
+  1181→                        </TableCell>
+  1182→                      </TableRow>
+  1183→                    ))}
+  1184→                  </TableBody>
+  1185→                </Table>
+  1186→              </div>
+  1187→            )}
+  1188→          </CardContent>
+  1189→        </Card>
+  1190→      </div>
+  1191→    );
+  1192→  };
+  1193→
+  1194→  // ============================================================
+  1195→  // RENDER: IP HISTORY PANEL
+  1196→  // ============================================================
+  1197→
+  1198→  const renderIPHistoryPanel = () => {
+  1199→    if (loading && entries.length === 0) {
+  1200→      return (
+  1201→        <div className="flex items-center justify-center py-20">
+  1202→          <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#2563eb] mb-3" />
+  1203→          <p className="text-muted-foreground">Loading IP history...</p>
+  1204→        </div>
+  1205→      );
+  1206→    }
+  1207→
+  1208→    return (
+  1209→      <div className="space-y-4">
+  1210→        {/* IP Summary KPI */}
+  1211→        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+  1212→          <Card className="hover:shadow-md transition-shadow">
+  1213→            <CardContent className="p-4 flex items-center gap-3">
+  1214→              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+  1215→                <Globe className="w-5 h-5" />
+  1216→              </div>
+  1217→              <div>
+  1218→                <p className="text-xs text-muted-foreground">Unique IPs</p>
+  1219→                <p className="text-xl font-bold text-slate-900 dark:text-white">
+  1220→                  {stats.ipHistory.length}
+  1221→                </p>
+  1222→              </div>
+  1223→            </CardContent>
+  1224→          </Card>
+  1225→
+  1226→          <Card className="hover:shadow-md transition-shadow">
+  1227→            <CardContent className="p-4 flex items-center gap-3">
+  1228→              <div className="p-2 rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+  1229→                <MapPin className="w-5 h-5" />
+  1230→              </div>
+  1231→              <div>
+  1232→                <p className="text-xs text-muted-foreground">IPs Active (24h)</p>
+  1233→                <p className="text-xl font-bold text-slate-900 dark:text-white">
+  1234→                  {stats.ipHistory.filter((ip) => {
+  1235→                    const diff = Date.now() - ip.lastSeen.getTime();
+  1236→                    return diff < 24 * 60 * 60 * 1000; // within 24h
+  1237→                  }).length}
+  1238→                </p>
+  1239→              </div>
+  1240→            </CardContent>
+  1241→          </Card>
+  1242→
+  1243→          <Card className="hover:shadow-md transition-shadow">
+  1244→            <CardContent className="p-4 flex items-center gap-3">
+  1245→              <div className="p-2 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400">
+  1246→                <Users className="w-5 h-5" />
+  1247→              </div>
+  1248→              <div>
+  1249→                <p className="text-xs text-muted-foreground">Multi-User IPs</p>
+  1250→                <p className="text-xl font-bold text-slate-900 dark:text-white">
+  1251→                  {stats.ipHistory.filter((ip) => ip.userCount > 1).length}
+  1252→                </p>
+  1253→              </div>
+  1254→            </CardContent>
+  1255→          </Card>
+  1256→        </div>
+  1257→
+  1258→        {/* IP History Table */}
+  1259→        <Card>
+  1260→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white rounded-t-lg">
+  1261→            <CardTitle className="text-sm font-medium flex items-center gap-2">
+  1262→              <Monitor className="w-4 h-4" />
+  1263→              IP Address History
+  1264→            </CardTitle>
+  1265→          </CardHeader>
+  1266→          <CardContent className="p-4">
+  1267→            {stats.ipHistory.length === 0 ? (
+  1268→              <p className="text-sm text-muted-foreground text-center py-8">
+  1269→                No IP address data available in the current entries
+  1270→              </p>
+  1271→            ) : (
+  1272→              <div className="max-h-[500px] overflow-x-auto overflow-y-auto">
+  1273→                <Table className="min-w-[600px]">
+  1274→                  <TableHeader>
+  1275→                    <TableRow>
+  1276→                      <TableHead className="text-xs">IP Address</TableHead>
+  1277→                      <TableHead className="text-xs">First Seen</TableHead>
+  1278→                      <TableHead className="text-xs">Last Seen</TableHead>
+  1279→                      <TableHead className="text-xs">Associated Users</TableHead>
+  1280→                      <TableHead className="text-xs text-right">User Count</TableHead>
+  1281→                    </TableRow>
+  1282→                  </TableHeader>
+  1283→                  <TableBody>
+  1284→                    {stats.ipHistory.map((ipData) => (
+  1285→                      <TableRow key={ipData.ip}>
+  1286→                        <TableCell className="text-xs font-mono font-medium text-slate-900 dark:text-white">
+  1287→                          <div className="flex items-center gap-1.5">
+  1288→                            <Globe className="w-3 h-3 text-muted-foreground" />
+  1289→                            {ipData.ip}
+  1290→                          </div>
+  1291→                        </TableCell>
+  1292→                        <TableCell className="text-xs text-muted-foreground">
+  1293→                          {fmtDateShort(ipData.firstSeen)}
+  1294→                          <br />
+  1295→                          <span className="text-[10px]">{fmtTime(ipData.firstSeen)}</span>
+  1296→                        </TableCell>
+  1297→                        <TableCell className="text-xs text-muted-foreground">
+  1298→                          {fmtDateShort(ipData.lastSeen)}
+  1299→                          <br />
+  1300→                          <span className="text-[10px]">{fmtTime(ipData.lastSeen)}</span>
+  1301→                        </TableCell>
+  1302→                        <TableCell className="text-xs">
+  1303→                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+  1304→                            {ipData.users.slice(0, 3).map((user) => (
+  1305→                              <Badge key={user} variant="secondary" className="text-[10px] px-1 py-0">
+  1306→                                {user}
+  1307→                              </Badge>
+  1308→                            ))}
+  1309→                            {ipData.users.length > 3 && (
+  1310→                              <Badge variant="secondary" className="text-[10px] px-1 py-0">
+  1311→                                +{ipData.users.length - 3}
+  1312→                              </Badge>
+  1313→                            )}
+  1314→                          </div>
+  1315→                        </TableCell>
+  1316→                        <TableCell className="text-xs text-right font-semibold text-slate-900 dark:text-white">
+  1317→                          {ipData.userCount}
+  1318→                        </TableCell>
+  1319→                      </TableRow>
+  1320→                    ))}
+  1321→                  </TableBody>
+  1322→                </Table>
+  1323→              </div>
+  1324→            )}
+  1325→          </CardContent>
+  1326→        </Card>
+  1327→      </div>
+  1328→    );
+  1329→  };
+  1330→
+  1331→  // ============================================================
+  1332→  // MAIN RENDER
+  1333→  // ============================================================
+  1334→
+  1335→  return (
+  1336→    <div className="page-enter space-y-4">
+  1337→      {/* VAT Auditor Mode Badge */}
+  1338→      {isVatAuditor && (
+  1339→        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg mb-4">
+  1340→          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+  1341→          <span className="text-sm text-amber-700 dark:text-amber-400">
+  1342→            Profit/margin/cost details masked for audit compliance.
+  1343→          </span>
+  1344→        </div>
+  1345→      )}
+  1346→
+  1347→      {/* Page Header */}
+  1348→      <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+  1349→        <div>
+  1350→          <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+  1351→            <Activity className="w-6 h-6 text-[#2563eb]" />
+  1352→            Forensic Audit Trail Viewer
+  1353→          </h2>
+  1354→          <p className="text-sm text-muted-foreground mt-1">
+  1355→            Chronological timeline of all system activities and changes
+  1356→          </p>
+  1357→        </div>
+  1358→        <div className="flex gap-2 flex-wrap">
+  1359→          <Button variant="outline" size="sm" onClick={() => loadEntries(true)}>
+  1360→            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+  1361→            Refresh
+  1362→          </Button>
+  1363→          <Button variant="outline" size="sm" onClick={handleExportCSV}>
+  1364→            <Download className="w-4 h-4 mr-1" />
+  1365→            Export CSV
+  1366→          </Button>
+  1367→          <Button variant="outline" size="sm" onClick={handleExportPDF}>
+  1368→            <FileDown className="w-4 h-4 mr-1" />
+  1369→            Export PDF
+  1370→          </Button>
+  1371→          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+  1372→            <Upload className="w-4 h-4 mr-1" />
+  1373→            Import CSV
+  1374→          </Button>
+  1375→        </div>
+  1376→      </div>
+  1377→
+  1378→      {/* Filter Bar */}
+  1379→      <Card className="mb-4">
+  1380→        <CardHeader className="bg-[#132240] dark:bg-[#0a1628] text-white rounded-t-lg">
+  1381→          <CardTitle className="text-sm font-medium flex items-center gap-2">
+  1382→            <Filter className="w-4 h-4" />
+  1383→            Filters
+  1384→          </CardTitle>
+  1385→        </CardHeader>
+  1386→        <CardContent className="p-4">
+  1387→          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+  1388→            {/* Module Select */}
+  1389→            <div className="space-y-1.5">
+  1390→              <Label className="text-slate-900 dark:text-white text-xs">Module</Label>
+  1391→              <Select value={filterModule} onValueChange={setFilterModule}>
+  1392→                <SelectTrigger className="w-full">
+  1393→                  <SelectValue placeholder="All Modules" />
+  1394→                </SelectTrigger>
+  1395→                <SelectContent>
+  1396→                  <SelectItem value="all">All Modules</SelectItem>
+  1397→                  {availableModules.map((mod) => (
+  1398→                    <SelectItem key={mod} value={mod}>
+  1399→                      {mod}
+  1400→                    </SelectItem>
+  1401→                  ))}
+  1402→                </SelectContent>
+  1403→              </Select>
+  1404→            </div>
+  1405→
+  1406→            {/* Action Select */}
+  1407→            <div className="space-y-1.5">
+  1408→              <Label className="text-slate-900 dark:text-white text-xs">Action</Label>
+  1409→              <Select value={filterAction} onValueChange={setFilterAction}>
+  1410→                <SelectTrigger className="w-full">
+  1411→                  <SelectValue placeholder="All Actions" />
+  1412→                </SelectTrigger>
+  1413→                <SelectContent>
+  1414→                  <SelectItem value="all">All Actions</SelectItem>
+  1415→                  {availableActions.length > 0
+  1416→                    ? availableActions.map((act) => (
+  1417→                        <SelectItem key={act} value={act}>
+  1418→                          {act}
+  1419→                        </SelectItem>
+  1420→                      ))
+  1421→                    : ["CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT", "EXPORT", "IMPORT"].map(
+  1422→                        (act) => (
+  1423→                          <SelectItem key={act} value={act}>
+  1424→                            {act}
+  1425→                          </SelectItem>
+  1426→                        )
+  1427→                      )}
+  1428→                </SelectContent>
+  1429→              </Select>
+  1430→            </div>
+  1431→
+  1432→            {/* Date From */}
+  1433→            <div className="space-y-1.5">
+  1434→              <Label className="text-slate-900 dark:text-white text-xs">Date From</Label>
+  1435→              <Input
+  1436→                type="date"
+  1437→                value={filterDateFrom}
+  1438→                onChange={(e) => setFilterDateFrom(e.target.value)}
+  1439→                className="w-full"
+  1440→              />
+  1441→            </div>
+  1442→
+  1443→            {/* Date To */}
+  1444→            <div className="space-y-1.5">
+  1445→              <Label className="text-slate-900 dark:text-white text-xs">Date To</Label>
+  1446→              <Input
+  1447→                type="date"
+  1448→                value={filterDateTo}
+  1449→                onChange={(e) => setFilterDateTo(e.target.value)}
+  1450→                className="w-full"
+  1451→              />
+  1452→            </div>
+  1453→
+  1454→            {/* User Search */}
+  1455→            <div className="space-y-1.5">
+  1456→              <Label className="text-slate-900 dark:text-white text-xs">User Search</Label>
+  1457→              <div className="relative">
+  1458→                <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+  1459→                <Input
+  1460→                  placeholder="Search users..."
+  1461→                  value={filterUserSearch}
+  1462→                  onChange={(e) => setFilterUserSearch(e.target.value)}
+  1463→                  className="pl-10 w-full"
+  1464→                />
+  1465→              </div>
+  1466→            </div>
+  1467→
+  1468→            {/* Record Search */}
+  1469→            <div className="space-y-1.5">
+  1470→              <Label className="text-slate-900 dark:text-white text-xs">Record Search</Label>
+  1471→              <div className="relative">
+  1472→                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+  1473→                <Input
+  1474→                  placeholder="Search records..."
+  1475→                  value={filterRecordSearch}
+  1476→                  onChange={(e) => setFilterRecordSearch(e.target.value)}
+  1477→                  className="pl-10 w-full"
+  1478→                />
+  1479→              </div>
+  1480→            </div>
+  1481→
+  1482→            {/* Buttons */}
+  1483→            <div className="space-y-1.5">
+  1484→              <Label className="text-transparent text-xs select-none">Actions</Label>
+  1485→              <div className="flex gap-2">
+  1486→                <Button
+  1487→                  className="bg-[#2563eb] hover:bg-[#1d4ed8] flex-1"
+  1488→                  size="sm"
+  1489→                  onClick={handleApplyFilters}
+  1490→                >
+  1491→                  Apply
+  1492→                </Button>
+  1493→                <Button variant="outline" size="sm" onClick={handleResetFilters}>
+  1494→                  <RotateCcw className="w-4 h-4" />
+  1495→                </Button>
+  1496→              </div>
+  1497→            </div>
+  1498→          </div>
+  1499→
+  1500→          {/* Active Filters Summary */}
+  1501→          {(appliedFilters.module ||
+  1502→            appliedFilters.action ||
+  1503→            appliedFilters.dateFrom ||
+  1504→            appliedFilters.dateTo ||
+  1505→            appliedFilters.userSearch ||
+  1506→            appliedFilters.recordSearch) && (
+  1507→            <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t">
+  1508→              <span className="text-xs text-muted-foreground">Active:</span>
+  1509→              {appliedFilters.module && (
+  1510→                <Badge variant="secondary" className="text-xs">
+  1511→                  Module: {appliedFilters.module}
+  1512→                </Badge>
+  1513→              )}
+  1514→              {appliedFilters.action && (
+  1515→                <Badge variant="secondary" className="text-xs">
+  1516→                  Action: {appliedFilters.action}
+  1517→                </Badge>
+  1518→              )}
+  1519→              {appliedFilters.dateFrom && (
+  1520→                <Badge variant="secondary" className="text-xs">
+  1521→                  From: {appliedFilters.dateFrom}
+  1522→                </Badge>
+  1523→              )}
+  1524→              {appliedFilters.dateTo && (
+  1525→                <Badge variant="secondary" className="text-xs">
+  1526→                  To: {appliedFilters.dateTo}
+  1527→                </Badge>
+  1528→              )}
+  1529→              {appliedFilters.userSearch && (
+  1530→                <Badge variant="secondary" className="text-xs">
+  1531→                  User: &quot;{appliedFilters.userSearch}&quot;
+  1532→                </Badge>
+  1533→              )}
+  1534→              {appliedFilters.recordSearch && (
+  1535→                <Badge variant="secondary" className="text-xs">
+  1536→                  Record: &quot;{appliedFilters.recordSearch}&quot;
+  1537→                </Badge>
+  1538→              )}
+  1539→            </div>
+  1540→          )}
+  1541→        </CardContent>
+  1542→      </Card>
+  1543→
+  1544→      {/* Results Summary */}
+  1545→      <div className="flex items-center justify-between mb-3">
+  1546→        <p className="text-sm text-muted-foreground">
+  1547→          Showing{" "}
+  1548→          <span className="font-semibold text-slate-900 dark:text-white">
+  1549→            {entries.length}
+  1550→          </span>{" "}
+  1551→          of{" "}
+  1552→          <span className="font-semibold text-slate-900 dark:text-white">
+  1553→            {totalCount}
+  1554→          </span>{" "}
+  1555→          entries
+  1556→        </p>
+  1557→        {isVatAuditor && (
+  1558→          <Badge className="bg-amber-500 text-white flex items-center gap-1">
+  1559→            <ShieldCheck className="w-3.5 h-3.5" />
+  1560→            VAT AUDIT MODE
+  1561→          </Badge>
+  1562→        )}
+  1563→      </div>
+  1564→
+  1565→      {/* Tabbed Content */}
+  1566→      <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1567→        <TabsList className="mb-4">
+  1568→          <TabsTrigger value="timeline" className="flex items-center gap-1.5">
+  1569→            <Clock className="w-3.5 h-3.5" />
+  1570→            Timeline
+  1571→          </TabsTrigger>
+  1572→          <TabsTrigger value="statistics" className="flex items-center gap-1.5">
+  1573→            <BarChart3 className="w-3.5 h-3.5" />
+  1574→            Statistics
+  1575→          </TabsTrigger>
+  1576→          <TabsTrigger value="ip-history" className="flex items-center gap-1.5">
+  1577→            <Globe className="w-3.5 h-3.5" />
+  1578→            IP History
+  1579→          </TabsTrigger>
+  1580→        </TabsList>
+  1581→
+  1582→        {/* ─── Timeline Tab ─── */}
+  1583→        <TabsContent value="timeline">
+  1584→          {loading && entries.length === 0 ? (
+  1585→            <div className="flex items-center justify-center py-20">
+  1586→              <div className="text-center">
+  1587→                <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#2563eb] mb-3" />
+  1588→                <p className="text-muted-foreground">Loading audit trail...</p>
+  1589→              </div>
+  1590→            </div>
+  1591→          ) : entries.length === 0 ? (
+  1592→            <Card>
+  1593→              <CardContent className="p-12 text-center">
+  1594→                <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+  1595→                <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+  1596→                  No Audit Entries Found
+  1597→                </h3>
+  1598→                <p className="text-muted-foreground text-sm">
+  1599→                  {appliedFilters.module ||
+  1600→                  appliedFilters.action ||
+  1601→                  appliedFilters.dateFrom ||
+  1602→                  appliedFilters.dateTo ||
+  1603→                  appliedFilters.userSearch ||
+  1604→                  appliedFilters.recordSearch
+  1605→                    ? "Try adjusting your filters to see more results."
+  1606→                    : "No audit trail entries exist in the system yet."}
+  1607→                </p>
+  1608→              </CardContent>
+  1609→            </Card>
+  1610→          ) : (
+  1611→            <div className="relative">
+  1612→              {/* Vertical Timeline Line */}
+  1613→              <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-slate-200 dark:bg-slate-700" />
+  1614→
+  1615→              <div className="space-y-0">
+  1616→                {entries.map((entry: any, idx: number) => renderTimelineEntry(entry, idx))}
+  1617→              </div>
+  1618→
+  1619→              {/* Load More / Infinite Scroll Sentinel */}
+  1620→              <div ref={sentinelRef} className="py-4" />
+  1621→
+  1622→              {/* Load More Button (fallback) */}
+  1623→              {hasMore && !loading && (
+  1624→                <div className="flex justify-center py-4">
+  1625→                  <Button
+  1626→                    variant="outline"
+  1627→                    onClick={() => loadEntries(false)}
+  1628→                    disabled={loadingMore}
+  1629→                    className="min-w-[200px]"
+  1630→                  >
+  1631→                    {loadingMore ? (
+  1632→                      <>
+  1633→                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+  1634→                        Loading More...
+  1635→                      </>
+  1636→                    ) : (
+  1637→                      <>
+  1638→                        <ChevronDown className="w-4 h-4 mr-2" />
+  1639→                        Load More ({totalCount - entries.length} remaining)
+  1640→                      </>
+  1641→                    )}
+  1642→                  </Button>
+  1643→                </div>
+  1644→              )}
+  1645→
+  1646→              {/* End of Results */}
+  1647→              {!hasMore && entries.length > 0 && (
+  1648→                <div className="text-center py-4 text-sm text-muted-foreground">
+  1649→                  \u2014 End of audit trail \u2014
+  1650→                </div>
+  1651→              )}
+  1652→
+  1653→              {/* Loading more indicator */}
+  1654→              {loadingMore && (
+  1655→                <div className="flex items-center justify-center py-4">
+  1656→                  <RefreshCw className="w-5 h-5 animate-spin text-[#2563eb] mr-2" />
+  1657→                  <span className="text-sm text-muted-foreground">
+  1658→                    Loading more entries...
+  1659→                  </span>
+  1660→                </div>
+  1661→              )}
+  1662→            </div>
+  1663→          )}
+  1664→        </TabsContent>
+  1665→
+  1666→        {/* ─── Statistics Tab ─── */}
+  1667→        <TabsContent value="statistics">
+  1668→          {renderStatisticsPanel()}
+  1669→        </TabsContent>
+  1670→
+  1671→        {/* ─── IP History Tab ─── */}
+  1672→        <TabsContent value="ip-history">
+  1673→          {renderIPHistoryPanel()}
+  1674→        </TabsContent>
+  1675→      </Tabs>
+  1676→    </div>
+  1677→  );
+  1678→}
+  1679→

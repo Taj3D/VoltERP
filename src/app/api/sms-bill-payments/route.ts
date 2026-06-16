@@ -184,6 +184,19 @@ export async function POST(request: NextRequest) {
       notes: masked(result.notes),
     };
 
+    // Re-fetch the smsBill with updated data for the response
+    let updatedSmsBill = result.smsBill;
+    try {
+      const freshBill = await db.smsBill.findUnique({
+        where: { id: smsBillId },
+      });
+      if (freshBill) {
+        updatedSmsBill = freshBill;
+      }
+    } catch { /* non-blocking: use stale bill data if re-fetch fails */ }
+
+    response.smsBill = updatedSmsBill;
+
     // Apply SMS masking via maskSmsArray (wraps in array, masks, then extracts)
     const maskedArr = maskSmsArray([response], security.user.role);
 

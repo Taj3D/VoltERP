@@ -488,7 +488,7 @@ export default function StockModulePage({ currentPage, isVatAuditor: propVat, us
     try {
       await apiFetch(`/api/transfers/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ shippingStatus: newStatus }),
+        body: JSON.stringify({ status: newStatus, shippingStatus: newStatus }),
       });
       toast({ title: "Status Updated", description: `Transfer status changed to ${newStatus}` });
       loadTransfers();

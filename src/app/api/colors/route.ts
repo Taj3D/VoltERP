@@ -19,6 +19,12 @@ function sanitizeText(value: unknown): string {
   return cleaned;
 }
 
+// ── Hex Color Code Validator ──
+const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
+function isValidHexColor(code: string): boolean {
+  return HEX_COLOR_REGEX.test(code);
+}
+
 // GET /api/colors — List all active colors filtered by companyId
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Colors', 'GET');
@@ -70,6 +76,10 @@ export async function POST(request: NextRequest) {
 
           if (!sanitizedColorCode) {
             throw new Error('VALIDATION_ERROR: Color code cannot be empty after sanitization.');
+          }
+
+          if (!isValidHexColor(sanitizedColorCode)) {
+            throw new Error('VALIDATION_ERROR: Color code must be a valid 6-digit hex code (e.g., #FF5500).');
           }
 
           // Case-insensitive unique check for name scoped by company (SQLite-compatible)
@@ -143,6 +153,13 @@ export async function POST(request: NextRequest) {
     if (!sanitizedColorCode) {
       return NextResponse.json(
         { error: 'Color code cannot be empty after sanitization.' },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidHexColor(sanitizedColorCode)) {
+      return NextResponse.json(
+        { error: 'Color code must be a valid 6-digit hex code (e.g., #FF5500).' },
         { status: 400 }
       );
     }

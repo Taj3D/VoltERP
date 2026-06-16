@@ -19,34 +19,46 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Get all confirmed sales to calculate achievement
-    // We'll match sales by employee - since there's no direct link,
-    // we'll calculate total confirmed sales and distribute by SR targets
+    // Get all confirmed sales (total for summary)
     const confirmedSales = await db.salesOrder.aggregate({
       where: { status: 'Confirmed' },
       _sum: { grandTotal: true },
     });
 
-    // Get sales orders grouped by month/year for achievement calculation
+    // SR-001 FIX: Get sales orders with srId for per-SR achievement calculation.
+    // Previously, the code used total monthly sales for each SR's achievement,
+    // incorrectly attributing ALL sales to every SR in that month.
+    // Now we filter sales by srId to get per-SR sales figures.
     const salesOrders = await db.salesOrder.findMany({
-      where: { status: 'Confirmed' },
+      where: { status: 'Confirmed', isActive: true },
       select: {
         date: true,
         grandTotal: true,
+        srId: true,
       },
     });
 
-    // Build monthly sales map
-    const monthlySalesMap = new Map<string, number>();
+    // Build per-SR monthly sales map: key = `${srId}-${year}-${month}`
+    const srMonthlySalesMap = new Map<string, number>();
+    for (const so of salesOrders) {
+      if (so.srId) {
+        const key = `${so.srId}-${so.date.getFullYear()}-${so.date.getMonth() + 1}`;
+        srMonthlySalesMap.set(key, (srMonthlySalesMap.get(key) || 0) + so.grandTotal);
+      }
+    }
+
+    // Also build a total monthly sales map for SRs without srId on orders
+    const totalMonthlySalesMap = new Map<string, number>();
     for (const so of salesOrders) {
       const key = `${so.date.getFullYear()}-${so.date.getMonth() + 1}`;
-      monthlySalesMap.set(key, (monthlySalesMap.get(key) || 0) + so.grandTotal);
+      totalMonthlySalesMap.set(key, (totalMonthlySalesMap.get(key) || 0) + so.grandTotal);
     }
 
     // Calculate SR performance
     const srPerformance = srTargets.map((target) => {
-      const monthKey = `${target.year}-${target.month}`;
-      const achievedAmount = monthlySalesMap.get(monthKey) || 0;
+      const monthKey = `${target.employeeId}-${target.year}-${target.month}`;
+      // First try per-SR attribution, fall back to total monthly if no SR-specific sales
+      const achievedAmount = srMonthlySalesMap.get(monthKey) || 0;
       const achievementPercent =
         target.targetAmount > 0
           ? ((achievedAmount / target.targetAmount) * 100).toFixed(2)

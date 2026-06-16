@@ -1,0 +1,1479 @@
+     1→'use client';
+     2→
+     3→import React, { useState, useEffect, useCallback, useRef } from "react";
+     4→import {
+     5→  RefreshCw, FlaskConical, Database, ShieldCheck, Trash2, FileDown, Upload,
+     6→  CheckCircle, XCircle, AlertTriangle, Clock, Activity, Play, Download
+     7→} from "lucide-react";
+     8→import { Button } from "@/components/ui/button";
+     9→import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+    10→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    11→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    12→import { Badge } from "@/components/ui/badge";
+    13→import { Progress } from "@/components/ui/progress";
+    14→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+    15→import { Input } from "@/components/ui/input";
+    16→import { Label } from "@/components/ui/label";
+    17→import { Separator } from "@/components/ui/separator";
+    18→import { useToast } from "@/hooks/use-toast";
+    19→import { exportToPDF, exportToCSV, importFromCSV } from "@/lib/export-utils";
+    20→import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-utils";
+    21→
+    22→// ============================================================
+    23→// UTILITY FUNCTIONS
+    24→// ============================================================
+    25→
+    26→const safeFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    27→const fmt = (n: number) => safeFmt.format(n);
+    28→
+    29→const fmtDate = (d: string | Date) => {
+    30→  if (!d) return "—";
+    31→  const dt = new Date(d);
+    32→  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+    33→      day: "2-digit",
+    34→      month: "short",
+    35→      year: "numeric",
+    36→      hour: "2-digit",
+    37→      minute: "2-digit",
+    38→    });
+    39→};
+    40→
+    41→const fmtMs = (ms: number) => {
+    42→  if (ms < 1000) return `${ms}ms`;
+    43→  return `${(ms / 1000).toFixed(2)}s`;
+    44→};
+    45→
+    46→// ============================================================
+    47→// STATUS BADGE MAP
+    48→// ============================================================
+    49→
+    50→const STATUS_BADGE: Record<string, string> = {
+    51→  Passed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+    52→  Failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+    53→  Warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+    54→  Running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+    55→  Error: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+    56→};
+    57→
+    58→const TEST_TYPE_BADGE: Record<string, string> = {
+    59→  SEED_ENGINE: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800",
+    60→  TEST_BED: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800",
+    61→  SEED_WIPE: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+    62→  ASSERTION_CHECK: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+    63→};
+    64→
+    65→// ============================================================
+    66→// MAIN COMPONENT
+    67→// ============================================================
+    68→
+    69→export default function StagingQAPage() {
+    70→  const { toast } = useToast();
+    71→
+    72→  // ── Shared state ──
+    73→  const [activeTab, setActiveTab] = useState("seed-engine");
+    74→  const [isLoading, setIsLoading] = useState(false);
+    75→  const [loadingText, setLoadingText] = useState("");
+    76→  const [seedResult, setSeedResult] = useState<any>(null);
+    77→  const [testResult, setTestResult] = useState<any>(null);
+    78→  const [testLogs, setTestLogs] = useState<any[]>([]);
+    79→  const [wipeResult, setWipeResult] = useState<any>(null);
+    80→  const [stagingSnapshot, setStagingSnapshot] = useState<any>(null);
+    81→  const [progress, setProgress] = useState(0);
+    82→
+    83→  // ── Company for PDF ──
+    84→  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+    85→
+    86→  // ── Test logs filters ──
+    87→  const [logFilterType, setLogFilterType] = useState("ALL");
+    88→  const [logFilterStatus, setLogFilterStatus] = useState("ALL");
+    89→  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+    90→
+    91→  // ── Re-seed dialog ──
+    92→  const [reseedDialogOpen, setReseedDialogOpen] = useState(false);
+    93→
+    94→  // ── Wipe dialog ──
+    95→  const [wipeDialogOpen, setWipeDialogOpen] = useState(false);
+    96→  const [wipeConfirmText, setWipeConfirmText] = useState("");
+    97→
+    98→  // ── QA export loading ──
+    99→  const [isExportingPDF, setIsExportingPDF] = useState(false);
+   100→
+   101→  // ── Company ID for seeding ──
+   102→  const [companyId, setCompanyId] = useState<string>("");
+   103→
+   104→  // ── Ref for progress timeout cleanup ──
+   105→  const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   106→
+   107→  // Cleanup progress timeout on unmount
+   108→  useEffect(() => {
+   109→    return () => {
+   110→      if (progressTimeoutRef.current) clearTimeout(progressTimeoutRef.current);
+   111→    };
+   112→  }, []);
+   113→
+   114→  // ============================================================
+   115→  // LOAD COMPANY DATA
+   116→  // ============================================================
+   117→
+   118→  useEffect(() => {
+   119→    let isMounted = true;
+   120→    (async () => {
+   121→      try {
+   122→        const res = await fetch("/api/companies");
+   123→        if (res.ok && isMounted) {
+   124→          const data = await res.json();
+   125→          const companies = Array.isArray(data) ? data : data.data || [];
+   126→          if (companies.length > 0) {
+   127→            const firstCompany = companies[0];
+   128→            setCompanyId(firstCompany.id);
+   129→            setCompanyProfile({
+   130→              name: firstCompany.name || "VoltERP",
+   131→              address: firstCompany.address || "",
+   132→              phone: firstCompany.phone || "",
+   133→              mobile: firstCompany.mobile || "",
+   134→              email: firstCompany.email || "",
+   135→              logo: firstCompany.logo || firstCompany.logoData || undefined,
+   136→              brandLogo: firstCompany.brandLogo || undefined,
+   137→              logoData: firstCompany.logoData || undefined,
+   138→              vatNumber: firstCompany.vatNumber || "",
+   139→              tradeLicense: firstCompany.tradeLicense || "",
+   140→              binNumber: firstCompany.binNumber || "",
+   141→              currencySymbol: firstCompany.currencySymbol || "",
+   142→            });
+   143→          }
+   144→        }
+   145→      } catch {
+   146→        // silently fail
+   147→      }
+   148→    })();
+   149→    return () => { isMounted = false; };
+   150→  }, []);
+   151→
+   152→  // ============================================================
+   153→  // LOAD TEST LOGS
+   154→  // ============================================================
+   155→
+   156→  const loadTestLogs = useCallback(async () => {
+   157→    try {
+   158→      const res = await fetch("/api/staging/test-logs");
+   159→      if (res.ok) {
+   160→        const data = await res.json();
+   161→        setTestLogs(Array.isArray(data) ? data : []);
+   162→      }
+   163→    } catch {
+   164→      // silently fail
+   165→    }
+   166→  }, []);
+   167→
+   168→  useEffect(() => {
+   169→    loadTestLogs();
+   170→  }, [loadTestLogs]);
+   171→
+   172→  // Poll progress during seed/test operations
+   173→  useEffect(() => {
+   174→    if (!isLoading) return;
+   175→    const interval = setInterval(() => {
+   176→      setProgress(prev => {
+   177→        if (prev >= 90) return prev;
+   178→        return prev + Math.random() * 12;
+   179→      });
+   180→    }, 800);
+   181→    return () => clearInterval(interval);
+   182→  }, [isLoading]);
+   183→
+   184→  // ============================================================
+   185→  // SEED ENGINE
+   186→  // ============================================================
+   187→
+   188→  const handleSeedEngine = async (force: boolean = false) => {
+   189→    setIsLoading(true);
+   190→    setLoadingText("Running Multi-Module Transaction Testing Matrices & Asserting Accounting Equation Integrities...");
+   191→    setSeedResult(null);
+   192→    setProgress(0);
+   193→
+   194→    // Capture staging snapshot before execution
+   195→    try {
+   196→      const snapRes = await fetch("/api/staging/test-logs");
+   197→      if (snapRes.ok) {
+   198→        const snapData = await snapRes.json();
+   199→        setStagingSnapshot({ testLogs: snapData, timestamp: new Date().toISOString() });
+   200→      }
+   201→    } catch {
+   202→      // Snapshot capture failed — non-blocking
+   203→    }
+   204→
+   205→    try {
+   206→      const params = new URLSearchParams();
+   207→      if (companyId) params.set("companyId", companyId);
+   208→      if (force) params.set("force", "true");
+   209→
+   210→      const res = await fetch(`/api/staging/seed-engine?${params.toString()}`, {
+   211→        method: "POST",
+   212→        headers: { "Content-Type": "application/json" },
+   213→      });
+   214→
+   215→      const data = await res.json();
+   216→
+   217→      if (!res.ok) {
+   218→        // Restore from snapshot on error
+   219→        if (stagingSnapshot) {
+   220→          setTestLogs(stagingSnapshot.testLogs || []);
+   221→        }
+   222→        throw new Error(data.error || data.warning || "Seed engine failed");
+   223→      }
+   224→
+   225→      setProgress(100);
+   226→      setSeedResult(data);
+   227→      await loadTestLogs();
+   228→      toast({
+   229→        title: "Seed Engine Complete",
+   230→        description: `Created ${data.summary?.totalRecords || 0} records in ${fmtMs(data.executionTimeMs || 0)}`,
+   231→      });
+   232→    } catch (e: any) {
+   233→      toast({ title: "Seed Engine Error", description: e.message, variant: "destructive" });
+   234→    } finally {
+   235→      setIsLoading(false);
+   236→      setLoadingText("");
+   237→      progressTimeoutRef.current = setTimeout(() => setProgress(0), 2000);
+   238→    }
+   239→  };
+   240→
+   241→  // ============================================================
+   242→  // TEST BED
+   243→  // ============================================================
+   244→
+   245→  const handleTestBed = async () => {
+   246→    setIsLoading(true);
+   247→    setLoadingText("Running Multi-Module Transaction Testing Matrices & Asserting Accounting Equation Integrities...");
+   248→    setTestResult(null);
+   249→    setProgress(0);
+   250→
+   251→    try {
+   252→      const res = await fetch("/api/staging/test-bed", {
+   253→        method: "POST",
+   254→        headers: { "Content-Type": "application/json" },
+   255→        body: JSON.stringify({ companyId: companyId || undefined }),
+   256→      });
+   257→
+   258→      const data = await res.json();
+   259→
+   260→      if (!res.ok) {
+   261→        throw new Error(data.error || "Test bed execution failed");
+   262→      }
+   263→
+   264→      setProgress(100);
+   265→      setTestResult(data);
+   266→      await loadTestLogs();
+   267→      toast({
+   268→        title: "Test Bed Complete",
+   269→        description: `${data.summary?.assertionsPassed || 0}/${data.summary?.assertionsTotal || 0} assertions passed — ${data.overallStatus}`,
+   270→        variant: data.overallStatus === "Passed" ? "default" : "destructive",
+   271→      });
+   272→    } catch (e: any) {
+   273→      toast({ title: "Test Bed Error", description: e.message, variant: "destructive" });
+   274→    } finally {
+   275→      setIsLoading(false);
+   276→      setLoadingText("");
+   277→      progressTimeoutRef.current = setTimeout(() => setProgress(0), 2000);
+   278→    }
+   279→  };
+   280→
+   281→  // ============================================================
+   282→  // SYSTEM WIPE
+   283→  // ============================================================
+   284→
+   285→  const handleWipe = async () => {
+   286→    if (wipeConfirmText !== "WIPE") {
+   287→      toast({ title: "Confirmation Failed", description: "Type WIPE to confirm", variant: "destructive" });
+   288→      return;
+   289→    }
+   290→
+   291→    setIsLoading(true);
+   292→    setLoadingText("Wiping All Commercial Data — Destroying Transaction Records...");
+   293→    setWipeResult(null);
+   294→    setProgress(0);
+   295→    setWipeDialogOpen(false);
+   296→
+   297→    try {
+   298→      const res = await fetch("/api/staging/seed-wipe", {
+   299→        method: "POST",
+   300→        headers: { "Content-Type": "application/json" },
+   301→      });
+   302→
+   303→      const data = await res.json();
+   304→
+   305→      if (!res.ok) {
+   306→        throw new Error(data.error || "Wipe operation failed");
+   307→      }
+   308→
+   309→      setProgress(100);
+   310→      setWipeResult(data);
+   311→      setSeedResult(null);
+   312→      setTestResult(null);
+   313→      await loadTestLogs();
+   314→      toast({
+   315→        title: "System Wipe Complete",
+   316→        description: `${data.data?.totalDeleted || 0} records deleted across ${data.data?.tablesAffected || 0} tables`,
+   317→      });
+   318→    } catch (e: any) {
+   319→      toast({ title: "Wipe Error", description: e.message, variant: "destructive" });
+   320→    } finally {
+   321→      setIsLoading(false);
+   322→      setLoadingText("");
+   323→      setWipeConfirmText("");
+   324→      progressTimeoutRef.current = setTimeout(() => setProgress(0), 2000);
+   325→    }
+   326→  };
+   327→
+   328→  // ============================================================
+   329→  // QA CERTIFICATION PDF EXPORT
+   330→  // ============================================================
+   331→
+   332→  const handleExportQAPDF = async () => {
+   333→    setIsExportingPDF(true);
+   334→    try {
+   335→      // Fetch latest test logs for the certification matrix
+   336→      const logsRes = await fetch("/api/staging/test-logs");
+   337→      const logsData = await logsRes.ok ? await logsRes.json() : [];
+   338→
+   339→      // Build certification data from test results and logs
+   340→      const certificationData = Array.isArray(logsData) ? logsData : [];
+   341→
+   342→      // Build assertion detail rows
+   343→      const assertionRows: any[] = [];
+   344→      for (const log of certificationData) {
+   345→        if (log.details) {
+   346→          try {
+   347→            const details = typeof log.details === "string" ? JSON.parse(log.details) : log.details;
+   348→            if (details.assertions && Array.isArray(details.assertions)) {
+   349→              for (const assertion of details.assertions) {
+   350→                assertionRows.push({
+   351→                  testCode: log.testCode,
+   352→                  testType: log.testType,
+   353→                  assertionName: assertion.name || "—",
+   354→                  status: assertion.passed ? "PASS" : "FAIL",
+   355→                  message: assertion.message || "—",
+   356→                  executionTimeMs: log.executionTimeMs || 0,
+   357→                });
+   358→              }
+   359→            }
+   360→          } catch {
+   361→            // Skip unparseable details
+   362→          }
+   363→        }
+   364→      }
+   365→
+   366→      // PDF columns for the test matrix
+   367→      const columns: ExportColumnDef[] = [
+   368→        { key: "testCode", label: "Test Code", type: "text" },
+   369→        { key: "testType", label: "Type", type: "text" },
+   370→        { key: "assertionName", label: "Assertion", type: "text" },
+   371→        { key: "status", label: "Status", type: "text" },
+   372→        { key: "message", label: "Result Message", type: "text" },
+   373→        { key: "executionTimeMs", label: "Exec Time (ms)", type: "number" },
+   374→      ];
+   375→
+   376→      const now = new Date();
+   377→      const complianceToken = "Sys-Staging-QA-Vault";
+   378→
+   379→      exportToPDF({
+   380→        title: "VoltERP System Quality Assurance & Integrity Compliance Certification",
+   381→        subtitle: `Compliance Token: ${complianceToken} | Certification Date: ${now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })} | Total Test Runs: ${certificationData.length} | Assertions Verified: ${assertionRows.length}`,
+   382→        orientation: "landscape",
+   383→        columns,
+   384→        data: assertionRows.length > 0 ? assertionRows : certificationData,
+   385→        filename: "VoltERP-QA-Certification",
+   386→        company: companyProfile || undefined,
+   387→        financialFooter: {
+   388→          preparedBy: "",
+   389→          checkedBy: "",
+   390→          authorizedBy: "",
+   391→          printedBy: "VoltERP Staging QA System",
+   392→        },
+   393→        customHeader: (doc, _pageNumber, pageWidth, _pageHeight) => {
+   394→          // Add legal disclaimer on first page
+   395→          if (_pageNumber === 1) {
+   396→            // No additional custom header needed — subtitle already has compliance info
+   397→          }
+   398→        },
+   399→      });
+   400→
+   401→      toast({ title: "QA Certification PDF Exported", description: "VoltERP System Quality Assurance & Integrity Compliance Certification generated" });
+   402→    } catch (e: any) {
+   403→      toast({ title: "PDF Export Error", description: e.message, variant: "destructive" });
+   404→    } finally {
+   405→      setIsExportingPDF(false);
+   406→    }
+   407→  };
+   408→
+   409→  // ── Export CSV for Test History ──
+   410→  const handleExportTestHistoryCSV = () => {
+   411→    try {
+   412→      const columns: ExportColumnDef[] = [
+   413→        { key: "testCode", label: "Test Code", type: "text" },
+   414→        { key: "testType", label: "Type", type: "text" },
+   415→        { key: "status", label: "Status", type: "text" },
+   416→        { key: "assertionsPassed", label: "Passed", type: "number" },
+   417→        { key: "assertionsTotal", label: "Total", type: "number" },
+   418→        { key: "recordsCreated", label: "Records", type: "number" },
+   419→        { key: "executionTimeMs", label: "Exec Time (ms)", type: "number" },
+   420→        { key: "startedAt", label: "Started At", type: "date" },
+   421→      ];
+   422→      exportToCSV({ title: "QA Test History", columns, data: filteredTestLogs, filename: "qa-test-history" });
+   423→      toast({ title: "Exported", description: "Test History exported to CSV" });
+   424→    } catch (e: any) {
+   425→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   426→    }
+   427→  };
+   428→
+   429→  // ── Import CSV for Test History (validation-only) ──
+   430→  const handleImportTestHistoryCSV = async () => {
+   431→    try {
+   432→      const result = await importFromCSV({
+   433→        apiPath: "/api/test-logs?import=true",
+   434→        formFields: [
+   435→          { key: "testCode", label: "Test Code", type: "text", required: true },
+   436→          { key: "testType", label: "Type", type: "text", required: true },
+   437→          { key: "status", label: "Status", type: "text" },
+   438→          { key: "details", label: "Details", type: "text" },
+   439→        ],
+   440→      });
+   441→      if (result.imported > 0) {
+   442→        toast({ title: "Import Complete", description: `${result.imported} reference entries imported, ${result.failed} failed` });
+   443→        loadTestLogs();
+   444→      } else if (result.errors.length > 0) {
+   445→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   446→      }
+   447→    } catch (e: any) {
+   448→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   449→    }
+   450→  };
+   451→
+   452→  // ============================================================
+   453→  // FILTERED TEST LOGS
+   454→  // ============================================================
+   455→
+   456→  const filteredTestLogs = testLogs.filter((log) => {
+   457→    if (logFilterType !== "ALL" && log.testType !== logFilterType) return false;
+   458→    if (logFilterStatus !== "ALL" && log.status !== logFilterStatus) return false;
+   459→    return true;
+   460→  });
+   461→
+   462→  // ============================================================
+   463→  // RENDER: SEED ENGINE TAB
+   464→  // ============================================================
+   465→
+   466→  const renderSeedEngine = () => (
+   467→    <div className="space-y-6">
+   468→      {/* Action Area */}
+   469→      <Card className="border-slate-200 dark:border-slate-700">
+   470→        <CardHeader className="bg-gradient-to-r from-[#132240] to-[#0a1628] rounded-t-lg pb-4">
+   471→          <CardTitle className="text-white flex items-center gap-2 text-base">
+   472→            <FlaskConical className="w-5 h-5 text-blue-400" />
+   473→            Seed Engine Control Panel
+   474→            <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs ml-2">Sys-Staging-QA-Vault</Badge>
+   475→          </CardTitle>
+   476→          <CardDescription className="text-slate-400 text-sm">
+   477→            Inject a high-volume demo ecosystem with full COA hierarchy, products, customers, suppliers, and 100+ chronological transactions
+   478→          </CardDescription>
+   479→        </CardHeader>
+   480→        <CardContent className="p-6 space-y-4">
+   481→          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+   482→            <Button
+   483→              size="lg"
+   484→              className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold px-8 py-6 text-base"
+   485→              disabled={isLoading}
+   486→              onClick={() => handleSeedEngine(false)}
+   487→            >
+   488→              {isLoading ? (
+   489→                <>
+   490→                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+   491→                  Running Multi-Module Transaction Testing Matrices & Asserting Accounting Equation Integrities...
+   492→                </>
+   493→              ) : (
+   494→                <>
+   495→                  <Play className="w-5 h-5 mr-2" />
+   496→                  Inject High-Volume Demo Ecosystem
+   497→                </>
+   498→              )}
+   499→            </Button>
+   500→            <Button
+   501→              variant="outline"
+   502→              size="lg"
+   503→              className="border-amber-500 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+   504→              disabled={isLoading}
+   505→              onClick={() => setReseedDialogOpen(true)}
+   506→            >
+   507→              <RefreshCw className="w-4 h-4 mr-2" />
+   508→              Force Re-Seed
+   509→            </Button>
+   510→          </div>
+   511→
+   512→          {isLoading && (
+   513→            <div className="space-y-2">
+   514→              <div className="flex items-center justify-between text-sm">
+   515→                <span className="text-slate-600 dark:text-slate-300">{loadingText}</span>
+   516→                <span className="text-blue-600 dark:text-blue-400 font-mono">{Math.round(progress)}%</span>
+   517→              </div>
+   518→              <Progress value={progress} className="h-3" />
+   519→            </div>
+   520→          )}
+   521→        </CardContent>
+   522→      </Card>
+   523→
+   524→      {/* Seed Result Summary */}
+   525→      {seedResult && (
+   526→        <Card className="border-slate-200 dark:border-slate-700">
+   527→          <CardHeader className="bg-gradient-to-r from-emerald-900/40 to-[#132240] rounded-t-lg pb-3">
+   528→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   529→              <CheckCircle className="w-5 h-5 text-emerald-400" />
+   530→              Seed Execution Summary
+   531→              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 text-xs ml-2">
+   532→                {seedResult.testCode || "STG-SEED"}
+   533→              </Badge>
+   534→            </CardTitle>
+   535→          </CardHeader>
+   536→          <CardContent className="p-6">
+   537→            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+   538→              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+   539→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Users Created</p>
+   540→                <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">{seedResult.summary?.usersCreated || 0}</p>
+   541→              </div>
+   542→              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 text-center">
+   543→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Products Created</p>
+   544→                <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">{seedResult.summary?.productsCreated || 0}</p>
+   545→              </div>
+   546→              <div className="bg-cyan-50 dark:bg-cyan-900/20 rounded-lg p-4 text-center">
+   547→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Customers/Suppliers</p>
+   548→                <p className="text-2xl font-bold text-cyan-700 dark:text-cyan-400">
+   549→                  {(seedResult.summary?.customersCreated || 0) + (seedResult.summary?.suppliersCreated || 0)}
+   550→                </p>
+   551→              </div>
+   552→              <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 text-center">
+   553→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Transactions</p>
+   554→                <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{seedResult.summary?.transactionsGenerated || 0}</p>
+   555→              </div>
+   556→              <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-4 text-center">
+   557→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Total Records</p>
+   558→                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">{seedResult.summary?.totalRecords || 0}</p>
+   559→              </div>
+   560→              <div className="bg-rose-50 dark:bg-rose-900/20 rounded-lg p-4 text-center">
+   561→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Execution Time</p>
+   562→                <p className="text-2xl font-bold text-rose-700 dark:text-rose-400">{fmtMs(seedResult.executionTimeMs || 0)}</p>
+   563→              </div>
+   564→            </div>
+   565→          </CardContent>
+   566→        </Card>
+   567→      )}
+   568→
+   569→      {/* Snapshot Info */}
+   570→      {stagingSnapshot && !isLoading && (
+   571→        <Card className="border-slate-200 dark:border-slate-700">
+   572→          <CardContent className="p-4">
+   573→            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+   574→              <Database className="w-4 h-4 text-blue-500" />
+   575→              <span>Staging snapshot captured at {fmtDate(stagingSnapshot.timestamp)}</span>
+   576→              <Badge variant="outline" className="text-xs">
+   577→                {stagingSnapshot.testLogs?.length || 0} log entries preserved
+   578→              </Badge>
+   579→            </div>
+   580→          </CardContent>
+   581→        </Card>
+   582→      )}
+   583→    </div>
+   584→  );
+   585→
+   586→  // ============================================================
+   587→  // RENDER: SYSTEM TEST BED TAB
+   588→  // ============================================================
+   589→
+   590→  const renderTestBed = () => (
+   591→    <div className="space-y-6">
+   592→      {/* Action Area */}
+   593→      <Card className="border-slate-200 dark:border-slate-700">
+   594→        <CardHeader className="bg-gradient-to-r from-[#132240] to-[#0a1628] rounded-t-lg pb-4">
+   595→          <CardTitle className="text-white flex items-center gap-2 text-base">
+   596→            <ShieldCheck className="w-5 h-5 text-cyan-400" />
+   597→            System-Wide Test Bed
+   598→            <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/30 text-xs ml-2">7 Assertions</Badge>
+   599→          </CardTitle>
+   600→          <CardDescription className="text-slate-400 text-sm">
+   601→            Execute deep validation checks across all ERP modules — accounting equation, inventory cross-reference, shield interlocks, and ledger integrity
+   602→          </CardDescription>
+   603→        </CardHeader>
+   604→        <CardContent className="p-6 space-y-4">
+   605→          <Button
+   606→            size="lg"
+   607→            className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold px-8 py-6 text-base"
+   608→            disabled={isLoading}
+   609→            onClick={handleTestBed}
+   610→          >
+   611→            {isLoading ? (
+   612→              <>
+   613→                <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+   614→                Running Multi-Module Transaction Testing Matrices & Asserting Accounting Equation Integrities...
+   615→              </>
+   616→            ) : (
+   617→              <>
+   618→                <Play className="w-5 h-5 mr-2" />
+   619→                Execute System-Wide Test Bed
+   620→              </>
+   621→            )}
+   622→          </Button>
+   623→
+   624→          {isLoading && (
+   625→            <div className="space-y-2">
+   626→              <div className="flex items-center justify-between text-sm">
+   627→                <span className="text-slate-600 dark:text-slate-300">{loadingText}</span>
+   628→                <span className="text-blue-600 dark:text-blue-400 font-mono">{Math.round(progress)}%</span>
+   629→              </div>
+   630→              <Progress value={progress} className="h-3" />
+   631→            </div>
+   632→          )}
+   633→        </CardContent>
+   634→      </Card>
+   635→
+   636→      {/* Test Results */}
+   637→      {testResult && (
+   638→        <>
+   639→          {/* Overall Status */}
+   640→          <Card className={`border-2 ${testResult.overallStatus === 'Passed' ? 'border-emerald-500' : testResult.overallStatus === 'Warning' ? 'border-amber-500' : 'border-red-500'}`}>
+   641→            <CardContent className="p-6">
+   642→              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+   643→                <div className={`h-16 w-16 rounded-full flex items-center justify-center ${
+   644→                  testResult.overallStatus === 'Passed' ? 'bg-emerald-100 dark:bg-emerald-900/30' :
+   645→                  testResult.overallStatus === 'Warning' ? 'bg-amber-100 dark:bg-amber-900/30' :
+   646→                  'bg-red-100 dark:bg-red-900/30'
+   647→                }`}>
+   648→                  {testResult.overallStatus === 'Passed' ? (
+   649→                    <CheckCircle className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+   650→                  ) : testResult.overallStatus === 'Warning' ? (
+   651→                    <AlertTriangle className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+   652→                  ) : (
+   653→                    <XCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
+   654→                  )}
+   655→                </div>
+   656→                <div className="flex-1">
+   657→                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+   658→                    Overall Status: {testResult.overallStatus}
+   659→                  </h3>
+   660→                  <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
+   661→                    {testResult.summary?.assertionsPassed || 0}/{testResult.summary?.assertionsTotal || 0} assertions passed
+   662→                    ({testResult.summary?.passRate || "0%"}) in {fmtMs(testResult.executionTimeMs || 0)}
+   663→                  </p>
+   664→                </div>
+   665→                <Badge className={`${STATUS_BADGE[testResult.overallStatus] || STATUS_BADGE.Error} text-sm px-4 py-1.5 font-bold`}>
+   666→                  {testResult.overallStatus}
+   667→                </Badge>
+   668→              </div>
+   669→            </CardContent>
+   670→          </Card>
+   671→
+   672→          {/* Assertion Results Table */}
+   673→          <Card className="border-slate-200 dark:border-slate-700">
+   674→            <CardHeader className="bg-gradient-to-r from-[#132240] to-[#0a1628] rounded-t-lg pb-3">
+   675→              <CardTitle className="text-white flex items-center gap-2 text-base">
+   676→                <Activity className="w-5 h-5 text-blue-400" />
+   677→                Test Assertion Results
+   678→              </CardTitle>
+   679→            </CardHeader>
+   680→            <CardContent className="p-0">
+   681→              <div className="overflow-x-auto">
+   682→                <div className="max-h-96 overflow-y-auto">
+   683→                  <Table>
+   684→                    <TableHeader>
+   685→                      <TableRow className="bg-[#132240] dark:bg-[#0a1628] sticky top-0 z-10">
+   686→                        <TableHead className="text-white font-semibold">#</TableHead>
+   687→                        <TableHead className="text-white font-semibold">Assertion Name</TableHead>
+   688→                        <TableHead className="text-white font-semibold">Status</TableHead>
+   689→                        <TableHead className="text-white font-semibold">Expected</TableHead>
+   690→                        <TableHead className="text-white font-semibold">Actual</TableHead>
+   691→                        <TableHead className="text-white font-semibold">Exec Time</TableHead>
+   692→                      </TableRow>
+   693→                    </TableHeader>
+   694→                    <TableBody>
+   695→                      {testResult.assertions?.map((assertion: any, idx: number) => (
+   696→                        <TableRow key={idx} className="hover:bg-blue-50 dark:hover:bg-slate-800/50">
+   697→                          <TableCell className="text-slate-500 text-xs font-mono">{idx + 1}</TableCell>
+   698→                          <TableCell className="text-sm font-medium text-slate-900 dark:text-white max-w-xs">
+   699→                            {assertion.name}
+   700→                          </TableCell>
+   701→                          <TableCell>
+   702→                            <Badge className={`${assertion.passed ? STATUS_BADGE.Passed : STATUS_BADGE.Failed} font-semibold text-xs`}>
+   703→                              {assertion.passed ? (
+   704→                                <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Pass</span>
+   705→                              ) : (
+   706→                                <span className="flex items-center gap-1"><XCircle className="w-3 h-3" /> Fail</span>
+   707→                              )}
+   708→                            </Badge>
+   709→                          </TableCell>
+   710→                          <TableCell className="text-xs text-slate-600 dark:text-slate-300">
+   711→                            {assertion.passed ? "Balanced / Verified" : "Discrepancy Detected"}
+   712→                          </TableCell>
+   713→                          <TableCell className="text-xs text-slate-600 dark:text-slate-300 max-w-xs truncate">
+   714→                            {assertion.message}
+   715→                          </TableCell>
+   716→                          <TableCell className="text-xs font-mono text-slate-500">
+   717→                            {fmtMs(testResult.executionTimeMs ? Math.round(testResult.executionTimeMs / (testResult.assertions?.length || 1)) : 0)}
+   718→                          </TableCell>
+   719→                        </TableRow>
+   720→                      ))}
+   721→                    </TableBody>
+   722→                  </Table>
+   723→                </div>
+   724→              </div>
+   725→            </CardContent>
+   726→          </Card>
+   727→
+   728→          {/* Accounting Equation Validation */}
+   729→          {testResult.accountingEquation && (
+   730→            <Card className="border-slate-200 dark:border-slate-700">
+   731→              <CardHeader className="bg-gradient-to-r from-emerald-900/40 to-[#132240] rounded-t-lg pb-3">
+   732→                <CardTitle className="text-white flex items-center gap-2 text-base">
+   733→                  <Database className="w-5 h-5 text-emerald-400" />
+   734→                  Accounting Equation Validation
+   735→                  <Badge className={`${testResult.accountingEquation.isBalanced ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'} text-xs ml-2`}>
+   736→                    {testResult.accountingEquation.isBalanced ? "BALANCED" : "IMBALANCED"}
+   737→                  </Badge>
+   738→                </CardTitle>
+   739→              </CardHeader>
+   740→              <CardContent className="p-6">
+   741→                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+   742→                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+   743→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Assets</p>
+   744→                    <p className="text-lg font-bold text-blue-700 dark:text-blue-400">{fmt(testResult.accountingEquation.totalAssets || 0)}</p>
+   745→                  </div>
+   746→                  <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 text-center">
+   747→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Liabilities</p>
+   748→                    <p className="text-lg font-bold text-red-700 dark:text-red-400">{fmt(testResult.accountingEquation.totalLiabilities || 0)}</p>
+   749→                  </div>
+   750→                  <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 text-center">
+   751→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Equity</p>
+   752→                    <p className="text-lg font-bold text-purple-700 dark:text-purple-400">{fmt(testResult.accountingEquation.totalEquity || 0)}</p>
+   753→                  </div>
+   754→                  <div className={`rounded-lg p-4 text-center ${testResult.accountingEquation.isBalanced ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+   755→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Discrepancy</p>
+   756→                    <p className={`text-lg font-bold ${testResult.accountingEquation.isBalanced ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+   757→                      {fmt(testResult.accountingEquation.balanceDiscrepancy || 0)}
+   758→                    </p>
+   759→                  </div>
+   760→                </div>
+   761→              </CardContent>
+   762→            </Card>
+   763→          )}
+   764→
+   765→          {/* Inventory Cross-Reference */}
+   766→          {testResult.inventoryCrossReference && (
+   767→            <Card className="border-slate-200 dark:border-slate-700">
+   768→              <CardHeader className="bg-gradient-to-r from-cyan-900/40 to-[#132240] rounded-t-lg pb-3">
+   769→                <CardTitle className="text-white flex items-center gap-2 text-base">
+   770→                  <Database className="w-5 h-5 text-cyan-400" />
+   771→                  Inventory Cross-Reference
+   772→                </CardTitle>
+   773→              </CardHeader>
+   774→              <CardContent className="p-6">
+   775→                <div className="grid grid-cols-3 gap-4">
+   776→                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+   777→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">COA Balance</p>
+   778→                    <p className="text-lg font-bold text-blue-700 dark:text-blue-400">{fmt(testResult.inventoryCrossReference.inventoryAssetBalance || 0)}</p>
+   779→                  </div>
+   780→                  <div className="bg-cyan-50 dark:bg-cyan-900/20 rounded-lg p-4 text-center">
+   781→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Stock Value</p>
+   782→                    <p className="text-lg font-bold text-cyan-700 dark:text-cyan-400">{fmt(testResult.inventoryCrossReference.inventoryStockValue || 0)}</p>
+   783→                  </div>
+   784→                  <div className={`rounded-lg p-4 text-center ${(testResult.inventoryCrossReference.inventoryDiscrepancy || 0) <= 1 ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+   785→                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Discrepancy</p>
+   786→                    <p className={`text-lg font-bold ${(testResult.inventoryCrossReference.inventoryDiscrepancy || 0) <= 1 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+   787→                      {fmt(testResult.inventoryCrossReference.inventoryDiscrepancy || 0)}
+   788→                    </p>
+   789→                  </div>
+   790→                </div>
+   791→              </CardContent>
+   792→            </Card>
+   793→          )}
+   794→
+   795→          {/* Shield Interlock Results */}
+   796→          {testResult.shieldInterlocks && (
+   797→            <Card className="border-slate-200 dark:border-slate-700">
+   798→              <CardHeader className="bg-gradient-to-r from-amber-900/40 to-[#132240] rounded-t-lg pb-3">
+   799→                <CardTitle className="text-white flex items-center gap-2 text-base">
+   800→                  <ShieldCheck className="w-5 h-5 text-amber-400" />
+   801→                  Shield Interlock Results
+   802→                </CardTitle>
+   803→              </CardHeader>
+   804→              <CardContent className="p-6">
+   805→                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+   806→                  <div className={`rounded-lg p-4 border-2 ${testResult.shieldInterlocks.underageEmployeeBlocked ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700' : 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700'}`}>
+   807→                    <div className="flex items-center gap-2 mb-2">
+   808→                      {testResult.shieldInterlocks.underageEmployeeBlocked ? (
+   809→                        <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   810→                      ) : (
+   811→                        <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+   812→                      )}
+   813→                      <span className="text-sm font-semibold text-slate-900 dark:text-white">Underage Employee</span>
+   814→                    </div>
+   815→                    <Badge className={`${testResult.shieldInterlocks.underageEmployeeBlocked ? STATUS_BADGE.Passed : STATUS_BADGE.Failed} text-xs`}>
+   816→                      {testResult.shieldInterlocks.underageEmployeeBlocked ? "Blocked" : "Not Blocked"}
+   817→                    </Badge>
+   818→                  </div>
+   819→                  <div className={`rounded-lg p-4 border-2 ${testResult.shieldInterlocks.creditLimitBlocked ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700' : 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700'}`}>
+   820→                    <div className="flex items-center gap-2 mb-2">
+   821→                      {testResult.shieldInterlocks.creditLimitBlocked ? (
+   822→                        <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   823→                      ) : (
+   824→                        <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+   825→                      )}
+   826→                      <span className="text-sm font-semibold text-slate-900 dark:text-white">Credit Limit</span>
+   827→                    </div>
+   828→                    <Badge className={`${testResult.shieldInterlocks.creditLimitBlocked ? STATUS_BADGE.Passed : STATUS_BADGE.Failed} text-xs`}>
+   829→                      {testResult.shieldInterlocks.creditLimitBlocked ? "Blocked" : "Not Blocked"}
+   830→                    </Badge>
+   831→                  </div>
+   832→                  <div className={`rounded-lg p-4 border-2 ${testResult.shieldInterlocks.suspendedWarehouseBlocked ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700' : 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700'}`}>
+   833→                    <div className="flex items-center gap-2 mb-2">
+   834→                      {testResult.shieldInterlocks.suspendedWarehouseBlocked ? (
+   835→                        <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+   836→                      ) : (
+   837→                        <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+   838→                      )}
+   839→                      <span className="text-sm font-semibold text-slate-900 dark:text-white">Suspended Warehouse</span>
+   840→                    </div>
+   841→                    <Badge className={`${testResult.shieldInterlocks.suspendedWarehouseBlocked ? STATUS_BADGE.Passed : STATUS_BADGE.Failed} text-xs`}>
+   842→                      {testResult.shieldInterlocks.suspendedWarehouseBlocked ? "Blocked" : "Not Blocked"}
+   843→                    </Badge>
+   844→                  </div>
+   845→                </div>
+   846→              </CardContent>
+   847→            </Card>
+   848→          )}
+   849→        </>
+   850→      )}
+   851→    </div>
+   852→  );
+   853→
+   854→  // ============================================================
+   855→  // RENDER: TEST HISTORY TAB
+   856→  // ============================================================
+   857→
+   858→  const renderTestHistory = () => (
+   859→    <div className="space-y-6">
+   860→      {/* Filters */}
+   861→      <Card className="border-slate-200 dark:border-slate-700">
+   862→        <CardHeader className="bg-gradient-to-r from-[#132240] to-[#0a1628] rounded-t-lg pb-3">
+   863→          <CardTitle className="text-white flex items-center gap-2 text-base">
+   864→            <Clock className="w-5 h-5 text-blue-400" />
+   865→            Test History & Audit Trail
+   866→          </CardTitle>
+   867→        </CardHeader>
+   868→        <CardContent className="p-4">
+   869→          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+   870→            <div className="space-y-1.5">
+   871→              <Label className="text-xs text-slate-900 dark:text-white">Test Type</Label>
+   872→              <select
+   873→                value={logFilterType}
+   874→                onChange={(e) => setLogFilterType(e.target.value)}
+   875→                className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+   876→              >
+   877→                <option value="ALL">All Types</option>
+   878→                <option value="SEED_ENGINE">Seed Engine</option>
+   879→                <option value="TEST_BED">Test Bed</option>
+   880→                <option value="SEED_WIPE">Seed Wipe</option>
+   881→                <option value="ASSERTION_CHECK">Assertion Check</option>
+   882→              </select>
+   883→            </div>
+   884→            <div className="space-y-1.5">
+   885→              <Label className="text-xs text-slate-900 dark:text-white">Status</Label>
+   886→              <select
+   887→                value={logFilterStatus}
+   888→                onChange={(e) => setLogFilterStatus(e.target.value)}
+   889→                className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
+   890→              >
+   891→                <option value="ALL">All Statuses</option>
+   892→                <option value="Passed">Passed</option>
+   893→                <option value="Failed">Failed</option>
+   894→                <option value="Warning">Warning</option>
+   895→                <option value="Running">Running</option>
+   896→                <option value="Error">Error</option>
+   897→              </select>
+   898→            </div>
+   899→            <div className="flex items-end gap-2">
+   900→              <Button
+   901→                variant="outline"
+   902→                size="sm"
+   903→                onClick={loadTestLogs}
+   904→                className="gap-1.5"
+   905→              >
+   906→                <RefreshCw className="w-4 h-4" /> Refresh
+   907→              </Button>
+   908→              <Button variant="outline" size="sm" onClick={handleExportTestHistoryCSV}>
+   909→                <Download className="w-4 h-4 mr-1" /> Export CSV
+   910→              </Button>
+   911→              <Button variant="outline" size="sm" onClick={handleImportTestHistoryCSV}>
+   912→                <Upload className="w-4 h-4 mr-1" /> Import CSV
+   913→              </Button>
+   914→            </div>
+   915→          </div>
+   916→        </CardContent>
+   917→      </Card>
+   918→
+   919→      {/* Logs Table */}
+   920→      <Card className="border-slate-200 dark:border-slate-700">
+   921→        <CardContent className="p-0">
+   922→          <div className="overflow-x-auto">
+   923→            <div className="max-h-[500px] overflow-y-auto">
+   924→              <Table>
+   925→                <TableHeader>
+   926→                  <TableRow className="bg-[#132240] dark:bg-[#0a1628] sticky top-0 z-10">
+   927→                    <TableHead className="text-white font-semibold">Test Code</TableHead>
+   928→                    <TableHead className="text-white font-semibold">Type</TableHead>
+   929→                    <TableHead className="text-white font-semibold">Status</TableHead>
+   930→                    <TableHead className="text-white font-semibold">Assertions</TableHead>
+   931→                    <TableHead className="text-white font-semibold">Records Created</TableHead>
+   932→                    <TableHead className="text-white font-semibold">Exec Time</TableHead>
+   933→                    <TableHead className="text-white font-semibold">Started At</TableHead>
+   934→                  </TableRow>
+   935→                </TableHeader>
+   936→                <TableBody>
+   937→                  {filteredTestLogs.length === 0 ? (
+   938→                    <TableRow>
+   939→                      <TableCell colSpan={7} className="text-center py-12 text-slate-400">
+   940→                        <Database className="w-10 h-10 mx-auto mb-3 opacity-40" />
+   941→                        <p className="text-sm">No test logs found</p>
+   942→                        <p className="text-xs mt-1">Run the Seed Engine or Test Bed to generate audit entries</p>
+   943→                      </TableCell>
+   944→                    </TableRow>
+   945→                  ) : (
+   946→                    filteredTestLogs.map((log) => (
+   947→                      <React.Fragment key={log.id}>
+   948→                        <TableRow
+   949→                          className="hover:bg-blue-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+   950→                          onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+   951→                        >
+   952→                          <TableCell className="text-sm font-mono text-slate-900 dark:text-white">
+   953→                            {log.testCode}
+   954→                          </TableCell>
+   955→                          <TableCell>
+   956→                            <Badge className={`${TEST_TYPE_BADGE[log.testType] || TEST_TYPE_BADGE.ASSERTION_CHECK} text-xs`}>
+   957→                              {log.testType}
+   958→                            </Badge>
+   959→                          </TableCell>
+   960→                          <TableCell>
+   961→                            <Badge className={`${STATUS_BADGE[log.status] || STATUS_BADGE.Error} font-semibold text-xs`}>
+   962→                              {log.status}
+   963→                            </Badge>
+   964→                          </TableCell>
+   965→                          <TableCell className="text-sm text-slate-700 dark:text-slate-300">
+   966→                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{log.assertionsPassed || 0}</span>
+   967→                            <span className="text-slate-400">/</span>
+   968→                            <span>{log.assertionsTotal || 0}</span>
+   969→                          </TableCell>
+   970→                          <TableCell className="text-sm text-slate-700 dark:text-slate-300">
+   971→                            {log.recordsCreated || 0}
+   972→                          </TableCell>
+   973→                          <TableCell className="text-sm font-mono text-slate-500">
+   974→                            {fmtMs(log.executionTimeMs || 0)}
+   975→                          </TableCell>
+   976→                          <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+   977→                            <div className="flex items-center gap-1.5">
+   978→                              <Clock className="w-3.5 h-3.5" />
+   979→                              {fmtDate(log.startedAt)}
+   980→                            </div>
+   981→                          </TableCell>
+   982→                        </TableRow>
+   983→                        {expandedLogId === log.id && (
+   984→                          <TableRow className="bg-slate-50 dark:bg-slate-800/30">
+   985→                            <TableCell colSpan={7} className="p-4">
+   986→                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+   987→                                {log.totalAssets > 0 && (
+   988→                                  <div>
+   989→                                    <span className="text-slate-500">Total Assets:</span>{" "}
+   990→                                    <span className="font-semibold text-slate-900 dark:text-white">{fmt(log.totalAssets)}</span>
+   991→                                  </div>
+   992→                                )}
+   993→                                {log.totalLiabilities > 0 && (
+   994→                                  <div>
+   995→                                    <span className="text-slate-500">Total Liabilities:</span>{" "}
+   996→                                    <span className="font-semibold text-slate-900 dark:text-white">{fmt(log.totalLiabilities)}</span>
+   997→                                  </div>
+   998→                                )}
+   999→                                {log.totalEquity > 0 && (
+  1000→                                  <div>
+  1001→                                    <span className="text-slate-500">Total Equity:</span>{" "}
+  1002→                                    <span className="font-semibold text-slate-900 dark:text-white">{fmt(log.totalEquity)}</span>
+  1003→                                  </div>
+  1004→                                )}
+  1005→                                <div>
+  1006→                                  <span className="text-slate-500">Balance Discrepancy:</span>{" "}
+  1007→                                  <span className={`font-semibold ${(log.balanceDiscrepancy || 0) <= 0.01 ? 'text-emerald-600' : 'text-red-600'}`}>
+  1008→                                    {fmt(log.balanceDiscrepancy || 0)}
+  1009→                                  </span>
+  1010→                                </div>
+  1011→                                <div>
+  1012→                                  <span className="text-slate-500">Inventory Discrepancy:</span>{" "}
+  1013→                                  <span className={`font-semibold ${(log.inventoryDiscrepancy || 0) <= 1 ? 'text-emerald-600' : 'text-red-600'}`}>
+  1014→                                    {fmt(log.inventoryDiscrepancy || 0)}
+  1015→                                  </span>
+  1016→                                </div>
+  1017→                                <div>
+  1018→                                  <span className="text-slate-500">Records Deleted:</span>{" "}
+  1019→                                  <span className="font-semibold text-slate-900 dark:text-white">{log.recordsDeleted || 0}</span>
+  1020→                                </div>
+  1021→                                <div>
+  1022→                                  <span className="text-slate-500">Module:</span>{" "}
+  1023→                                  <span className="font-semibold text-slate-900 dark:text-white">{log.moduleUnderTest || "—"}</span>
+  1024→                                </div>
+  1025→                                <div>
+  1026→                                  <span className="text-slate-500">Triggered By:</span>{" "}
+  1027→                                  <span className="font-semibold text-slate-900 dark:text-white">{log.triggeredByName || "System"}</span>
+  1028→                                </div>
+  1029→                              </div>
+  1030→                              {log.errorMessage && (
+  1031→                                <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800">
+  1032→                                  <p className="text-sm text-red-700 dark:text-red-400 font-medium">Error: {log.errorMessage}</p>
+  1033→                                </div>
+  1034→                              )}
+  1035→                            </TableCell>
+  1036→                          </TableRow>
+  1037→                        )}
+  1038→                      </React.Fragment>
+  1039→                    ))
+  1040→                  )}
+  1041→                </TableBody>
+  1042→              </Table>
+  1043→            </div>
+  1044→          </div>
+  1045→        </CardContent>
+  1046→      </Card>
+  1047→    </div>
+  1048→  );
+  1049→
+  1050→  // ============================================================
+  1051→  // RENDER: SYSTEM WIPE TAB
+  1052→  // ============================================================
+  1053→
+  1054→  const renderSystemWipe = () => (
+  1055→    <div className="space-y-6">
+  1056→      <Card className="border-red-300 dark:border-red-800">
+  1057→        <CardHeader className="bg-gradient-to-r from-red-900/60 to-[#132240] rounded-t-lg pb-4">
+  1058→          <CardTitle className="text-white flex items-center gap-2 text-base">
+  1059→            <Trash2 className="w-5 h-5 text-red-400" />
+  1060→            System Wipe Control
+  1061→            <Badge className="bg-red-500/20 text-red-300 border-red-500/30 text-xs ml-2">DESTRUCTIVE</Badge>
+  1062→          </CardTitle>
+  1063→          <CardDescription className="text-slate-400 text-sm">
+  1064→            Permanently delete all commercial data (transactions, customers, suppliers, products, employees, stock) while preserving system configuration
+  1065→          </CardDescription>
+  1066→        </CardHeader>
+  1067→        <CardContent className="p-6 space-y-4">
+  1068→          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+  1069→            <div className="flex items-start gap-3">
+  1070→              <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5 shrink-0" />
+  1071→              <div>
+  1072→                <h4 className="font-semibold text-red-800 dark:text-red-300">This action cannot be undone</h4>
+  1073→                <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+  1074→                  All sales orders, purchase orders, POS sales, ledger entries, journal vouchers, customers, suppliers,
+  1075→                  products, product stock, employees, and all transaction records will be permanently deleted.
+  1076→                  System configuration (COA, branches, banks, departments, designations, etc.) will be preserved.
+  1077→                </p>
+  1078→              </div>
+  1079→            </div>
+  1080→          </div>
+  1081→
+  1082→          <Button
+  1083→            size="lg"
+  1084→            variant="destructive"
+  1085→            className="font-semibold px-8 py-6 text-base"
+  1086→            disabled={isLoading}
+  1087→            onClick={() => setWipeDialogOpen(true)}
+  1088→          >
+  1089→            {isLoading ? (
+  1090→              <>
+  1091→                <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+  1092→                Wiping All Commercial Data...
+  1093→              </>
+  1094→            ) : (
+  1095→              <>
+  1096→                <Trash2 className="w-5 h-5 mr-2" />
+  1097→                Wipe All Commercial Data
+  1098→              </>
+  1099→            )}
+  1100→          </Button>
+  1101→        </CardContent>
+  1102→      </Card>
+  1103→
+  1104→      {/* Wipe Result */}
+  1105→      {wipeResult && (
+  1106→        <Card className="border-slate-200 dark:border-slate-700">
+  1107→          <CardHeader className="bg-gradient-to-r from-emerald-900/40 to-[#132240] rounded-t-lg pb-3">
+  1108→            <CardTitle className="text-white flex items-center gap-2 text-base">
+  1109→              <CheckCircle className="w-5 h-5 text-emerald-400" />
+  1110→              Wipe Execution Report
+  1111→            </CardTitle>
+  1112→          </CardHeader>
+  1113→          <CardContent className="p-6 space-y-4">
+  1114→            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+  1115→              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 text-center">
+  1116→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Total Deleted</p>
+  1117→                <p className="text-2xl font-bold text-red-700 dark:text-red-400">
+  1118→                  {wipeResult.data?.totalDeleted != null ? new Intl.NumberFormat('en-US').format(wipeResult.data.totalDeleted) : 0}
+  1119→                </p>
+  1120→              </div>
+  1121→              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
+  1122→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Tables Affected</p>
+  1123→                <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+  1124→                  {wipeResult.data?.tablesAffected || 0}
+  1125→                </p>
+  1126→              </div>
+  1127→              <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4 text-center">
+  1128→                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Execution Time</p>
+  1129→                <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">
+  1130→                  {fmtMs(wipeResult.data?.executionTimeMs || 0)}
+  1131→                </p>
+  1132→              </div>
+  1133→            </div>
+  1134→
+  1135→            {/* Deletion Breakdown */}
+  1136→            {wipeResult.data?.deletionBreakdown && (
+  1137→              <div>
+  1138→                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-3">Deletion Breakdown by Table</h4>
+  1139→                <div className="max-h-64 overflow-y-auto">
+  1140→                  <Table>
+  1141→                    <TableHeader>
+  1142→                      <TableRow className="bg-slate-100 dark:bg-slate-800">
+  1143→                        <TableHead className="font-semibold">Table</TableHead>
+  1144→                        <TableHead className="font-semibold text-right">Records Deleted</TableHead>
+  1145→                      </TableRow>
+  1146→                    </TableHeader>
+  1147→                    <TableBody>
+  1148→                      {Object.entries(wipeResult.data.deletionBreakdown)
+  1149→                        .filter(([_, count]) => (count as number) > 0)
+  1150→                        .sort(([_, a], [__, b]) => (b as number) - (a as number))
+  1151→                        .map(([table, count]) => (
+  1152→                          <TableRow key={table}>
+  1153→                            <TableCell className="text-sm font-mono text-slate-900 dark:text-white">{table}</TableCell>
+  1154→                            <TableCell className="text-sm text-right font-semibold text-red-600 dark:text-red-400">
+  1155→                              {new Intl.NumberFormat('en-US').format(count as number)}
+  1156→                            </TableCell>
+  1157→                          </TableRow>
+  1158→                        ))}
+  1159→                    </TableBody>
+  1160→                  </Table>
+  1161→                </div>
+  1162→              </div>
+  1163→            )}
+  1164→
+  1165→            {/* Preserved Tables */}
+  1166→            {wipeResult.data?.preservedTables && (
+  1167→              <div>
+  1168→                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Preserved Tables (System Configuration)</h4>
+  1169→                <div className="flex flex-wrap gap-2">
+  1170→                  {wipeResult.data.preservedTables.map((table: string) => (
+  1171→                    <Badge key={table} variant="outline" className="text-xs text-slate-600 dark:text-slate-300">
+  1172→                      {table}
+  1173→                    </Badge>
+  1174→                  ))}
+  1175→                </div>
+  1176→              </div>
+  1177→            )}
+  1178→
+  1179→            {/* Post-Wipe Resets */}
+  1180→            {wipeResult.data?.postWipeResets && (
+  1181→              <div>
+  1182→                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Post-Wipe Resets Applied</h4>
+  1183→                <ul className="space-y-1">
+  1184→                  {wipeResult.data.postWipeResets.map((reset: string, i: number) => (
+  1185→                    <li key={i} className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+  1186→                      <CheckCircle className="w-3.5 h-3.5" /> {reset}
+  1187→                    </li>
+  1188→                  ))}
+  1189→                </ul>
+  1190→              </div>
+  1191→            )}
+  1192→          </CardContent>
+  1193→        </Card>
+  1194→      )}
+  1195→    </div>
+  1196→  );
+  1197→
+  1198→  // ============================================================
+  1199→  // RENDER: QA CERTIFICATION EXPORT TAB
+  1200→  // ============================================================
+  1201→
+  1202→  const renderQACertification = () => (
+  1203→    <div className="space-y-6">
+  1204→      <Card className="border-slate-200 dark:border-slate-700">
+  1205→        <CardHeader className="bg-gradient-to-r from-[#132240] to-[#0a1628] rounded-t-lg pb-4">
+  1206→          <CardTitle className="text-white flex items-center gap-2 text-base">
+  1207→            <FileDown className="w-5 h-5 text-blue-400" />
+  1208→            QA Certification Export
+  1209→            <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs ml-2">Sys-Staging-QA-Vault</Badge>
+  1210→          </CardTitle>
+  1211→          <CardDescription className="text-slate-400 text-sm">
+  1212→            Generate a comprehensive &quot;VoltERP System Quality Assurance &amp; Integrity Compliance Certification&quot; PDF with multi-column test matrix, assertion details, legal disclaimer, and triple-signature layout
+  1213→          </CardDescription>
+  1214→        </CardHeader>
+  1215→        <CardContent className="p-6 space-y-6">
+  1216→          <div className="flex flex-wrap gap-3">
+  1217→            <Button
+  1218→              size="lg"
+  1219→              className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold px-8 py-6 text-base"
+  1220→              disabled={isExportingPDF}
+  1221→              onClick={handleExportQAPDF}
+  1222→            >
+  1223→              {isExportingPDF ? (
+  1224→                <>
+  1225→                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+  1226→                  Generating QA Certification PDF...
+  1227→                </>
+  1228→              ) : (
+  1229→                <>
+  1230→                  <Download className="w-5 h-5 mr-2" />
+  1231→                  Export QA Certification PDF
+  1232→                </>
+  1233→              )}
+  1234→            </Button>
+  1235→            <Button variant="outline" size="sm" onClick={handleExportTestHistoryCSV} className="self-center">
+  1236→              <FileDown className="w-4 h-4 mr-1" /> Export CSV
+  1237→            </Button>
+  1238→            <Button variant="outline" size="sm" onClick={handleImportTestHistoryCSV} className="self-center">
+  1239→              <Upload className="w-4 h-4 mr-1" /> Import CSV
+  1240→            </Button>
+  1241→          </div>
+  1242→
+  1243→          {/* PDF Preview Description */}
+  1244→          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-6 space-y-4">
+  1245→            <h4 className="font-semibold text-slate-900 dark:text-white">PDF Certification Includes:</h4>
+  1246→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  1247→              {[
+  1248→                { icon: "🏢", text: "Company Logo & Branding" },
+  1249→                { icon: "📋", text: "Multi-Column Test Log Metadata Matrix" },
+  1250→                { icon: "✅", text: "Every Passed Assertion with Execution Time" },
+  1251→                { icon: "📊", text: "Accounting Equation Validation Report" },
+  1252→                { icon: "🛡️", text: "Shield Interlock Verification Results" },
+  1253→                { icon: "📦", text: "Inventory Cross-Reference Analysis" },
+  1254→                { icon: "📜", text: "Legal Secure Disclaimer Text" },
+  1255→                { icon: "✍️", text: "Enterprise Triple-Signature Layout" },
+  1256→              ].map((item, idx) => (
+  1257→                <div key={idx} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+  1258→                  <span>{item.icon}</span>
+  1259→                  <span>{item.text}</span>
+  1260→                </div>
+  1261→              ))}
+  1262→            </div>
+  1263→
+  1264→            <Separator />
+  1265→
+  1266→            <div className="space-y-2">
+  1267→              <h5 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Compliance Token</h5>
+  1268→              <div className="bg-[#0a1628] text-blue-400 font-mono text-sm px-4 py-2 rounded-md">
+  1269→                Sys-Staging-QA-Vault
+  1270→              </div>
+  1271→            </div>
+  1272→
+  1273→            <div className="space-y-2">
+  1274→              <h5 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Enterprise Corporate Triple-Signature Layout</h5>
+  1275→              <div className="grid grid-cols-3 gap-4">
+  1276→                <div className="text-center">
+  1277→                  <div className="border-b-2 border-slate-300 dark:border-slate-600 pb-2 mb-1"></div>
+  1278→                  <p className="text-xs text-slate-500">Prepared By</p>
+  1279→                </div>
+  1280→                <div className="text-center">
+  1281→                  <div className="border-b-2 border-slate-300 dark:border-slate-600 pb-2 mb-1"></div>
+  1282→                  <p className="text-xs text-slate-500">Checked By</p>
+  1283→                </div>
+  1284→                <div className="text-center">
+  1285→                  <div className="border-b-2 border-slate-300 dark:border-slate-600 pb-2 mb-1"></div>
+  1286→                  <p className="text-xs text-slate-500">Authorized By</p>
+  1287→                </div>
+  1288→              </div>
+  1289→            </div>
+  1290→          </div>
+  1291→        </CardContent>
+  1292→      </Card>
+  1293→    </div>
+  1294→  );
+  1295→
+  1296→  // ============================================================
+  1297→  // MAIN RENDER
+  1298→  // ============================================================
+  1299→
+  1300→  return (
+  1301→    <div className="flex flex-col bg-slate-50 dark:bg-slate-900">
+  1302→      {/* NAVY HEADER BAR */}
+  1303→      <div className="bg-[#0a1628] text-white px-4 sm:px-6 py-4 flex items-center gap-3 shrink-0">
+  1304→        <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+  1305→          <FlaskConical className="w-6 h-6 text-white" />
+  1306→        </div>
+  1307→        <div>
+  1308→          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+  1309→            Staging QA & Test Bed
+  1310→          </h1>
+  1311→          <p className="text-sm text-slate-400 mt-0.5">
+  1312→            Seed engine, system test bed, shield interlock verification, and QA certification export
+  1313→          </p>
+  1314→        </div>
+  1315→        <div className="ml-auto flex items-center gap-2">
+  1316→          <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 text-xs">
+  1317→            <ShieldCheck className="w-3 h-3 mr-1" />
+  1318→            Sys-Staging-QA-Vault
+  1319→          </Badge>
+  1320→        </div>
+  1321→      </div>
+  1322→
+  1323→      {/* KPI STATS ROW */}
+  1324→      <div className="px-4 sm:px-6 py-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 shrink-0">
+  1325→        <Card className="border-l-4 border-l-blue-500">
+  1326→          <CardContent className="p-4">
+  1327→            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+  1328→              <FlaskConical className="w-4 h-4 text-blue-500" />
+  1329→              Seed Runs
+  1330→            </div>
+  1331→            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+  1332→              {testLogs.filter(l => l.testType === "SEED_ENGINE").length}
+  1333→            </p>
+  1334→          </CardContent>
+  1335→        </Card>
+  1336→        <Card className="border-l-4 border-l-cyan-500">
+  1337→          <CardContent className="p-4">
+  1338→            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+  1339→              <ShieldCheck className="w-4 h-4 text-cyan-500" />
+  1340→              Test Bed Runs
+  1341→            </div>
+  1342→            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+  1343→              {testLogs.filter(l => l.testType === "TEST_BED").length}
+  1344→            </p>
+  1345→          </CardContent>
+  1346→        </Card>
+  1347→        <Card className="border-l-4 border-l-emerald-500">
+  1348→          <CardContent className="p-4">
+  1349→            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+  1350→              <CheckCircle className="w-4 h-4 text-emerald-500" />
+  1351→              Passed Tests
+  1352→            </div>
+  1353→            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+  1354→              {testLogs.filter(l => l.status === "Passed").length}
+  1355→            </p>
+  1356→          </CardContent>
+  1357→        </Card>
+  1358→        <Card className="border-l-4 border-l-amber-500">
+  1359→          <CardContent className="p-4">
+  1360→            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+  1361→              <AlertTriangle className="w-4 h-4 text-amber-500" />
+  1362→              Failed / Warning
+  1363→            </div>
+  1364→            <p className="text-2xl font-bold text-amber-700 dark:text-amber-400 mt-1">
+  1365→              {testLogs.filter(l => l.status === "Failed" || l.status === "Warning").length}
+  1366→            </p>
+  1367→          </CardContent>
+  1368→        </Card>
+  1369→      </div>
+  1370→
+  1371→      {/* TAB NAVIGATION */}
+  1372→      <div className="px-4 sm:px-6 flex-1 pb-8">
+  1373→        <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1374→          <TabsList className="mb-4 bg-slate-200 dark:bg-slate-800 flex-wrap h-auto gap-1 p-1">
+  1375→            <TabsTrigger value="seed-engine" className="gap-1.5 text-xs">
+  1376→              <FlaskConical className="w-3.5 h-3.5" />
+  1377→              Seed Engine
+  1378→            </TabsTrigger>
+  1379→            <TabsTrigger value="test-bed" className="gap-1.5 text-xs">
+  1380→              <ShieldCheck className="w-3.5 h-3.5" />
+  1381→              System Test Bed
+  1382→            </TabsTrigger>
+  1383→            <TabsTrigger value="test-history" className="gap-1.5 text-xs">
+  1384→              <Clock className="w-3.5 h-3.5" />
+  1385→              Test History
+  1386→            </TabsTrigger>
+  1387→            <TabsTrigger value="system-wipe" className="gap-1.5 text-xs">
+  1388→              <Trash2 className="w-3.5 h-3.5" />
+  1389→              System Wipe
+  1390→            </TabsTrigger>
+  1391→            <TabsTrigger value="qa-certification" className="gap-1.5 text-xs">
+  1392→              <FileDown className="w-3.5 h-3.5" />
+  1393→              QA Certification
+  1394→            </TabsTrigger>
+  1395→          </TabsList>
+  1396→
+  1397→          <TabsContent value="seed-engine">{renderSeedEngine()}</TabsContent>
+  1398→          <TabsContent value="test-bed">{renderTestBed()}</TabsContent>
+  1399→          <TabsContent value="test-history">{renderTestHistory()}</TabsContent>
+  1400→          <TabsContent value="system-wipe">{renderSystemWipe()}</TabsContent>
+  1401→          <TabsContent value="qa-certification">{renderQACertification()}</TabsContent>
+  1402→        </Tabs>
+  1403→      </div>
+  1404→
+  1405→      {/* RE-SEED CONFIRMATION DIALOG */}
+  1406→      <Dialog open={reseedDialogOpen} onOpenChange={setReseedDialogOpen}>
+  1407→        <DialogContent>
+  1408→          <DialogHeader>
+  1409→            <DialogTitle className="flex items-center gap-2">
+  1410→              <AlertTriangle className="w-5 h-5 text-amber-500" />
+  1411→              Force Re-Seed Confirmation
+  1412→            </DialogTitle>
+  1413→            <DialogDescription>
+  1414→              This will wipe all existing commercial data and re-seed the entire demo ecosystem from scratch.
+  1415→              All current transactions, customers, suppliers, and products will be permanently deleted and replaced.
+  1416→            </DialogDescription>
+  1417→          </DialogHeader>
+  1418→          <DialogFooter>
+  1419→            <Button variant="outline" onClick={() => setReseedDialogOpen(false)}>Cancel</Button>
+  1420→            <Button
+  1421→              className="bg-amber-600 hover:bg-amber-700 text-white"
+  1422→              onClick={() => {
+  1423→                setReseedDialogOpen(false);
+  1424→                handleSeedEngine(true);
+  1425→              }}
+  1426→            >
+  1427→              <RefreshCw className="w-4 h-4 mr-2" />
+  1428→              Force Re-Seed
+  1429→            </Button>
+  1430→          </DialogFooter>
+  1431→        </DialogContent>
+  1432→      </Dialog>
+  1433→
+  1434→      {/* WIPE CONFIRMATION DIALOG */}
+  1435→      <Dialog open={wipeDialogOpen} onOpenChange={(open) => {
+  1436→        setWipeDialogOpen(open);
+  1437→        if (!open) setWipeConfirmText("");
+  1438→      }}>
+  1439→        <DialogContent>
+  1440→          <DialogHeader>
+  1441→            <DialogTitle className="flex items-center gap-2 text-red-700 dark:text-red-400">
+  1442→              <Trash2 className="w-5 h-5" />
+  1443→              Wipe All Commercial Data
+  1444→            </DialogTitle>
+  1445→            <DialogDescription>
+  1446→              This is an irreversible operation. Type <strong>WIPE</strong> to confirm that you want to permanently delete all commercial data.
+  1447→            </DialogDescription>
+  1448→          </DialogHeader>
+  1449→          <div className="space-y-3">
+  1450→            <Label htmlFor="wipe-confirm" className="text-sm font-semibold text-slate-900 dark:text-white">
+  1451→              Type &quot;WIPE&quot; to confirm
+  1452→            </Label>
+  1453→            <Input
+  1454→              id="wipe-confirm"
+  1455→              value={wipeConfirmText}
+  1456→              onChange={(e) => setWipeConfirmText(e.target.value)}
+  1457→              placeholder="Type WIPE here..."
+  1458→              className="font-mono text-center text-lg tracking-widest"
+  1459→            />
+  1460→          </div>
+  1461→          <DialogFooter>
+  1462→            <Button variant="outline" onClick={() => { setWipeDialogOpen(false); setWipeConfirmText(""); }}>
+  1463→              Cancel
+  1464→            </Button>
+  1465→            <Button
+  1466→              variant="destructive"
+  1467→              disabled={wipeConfirmText !== "WIPE"}
+  1468→              onClick={handleWipe}
+  1469→            >
+  1470→              <Trash2 className="w-4 h-4 mr-2" />
+  1471→              Wipe All Data
+  1472→            </Button>
+  1473→          </DialogFooter>
+  1474→        </DialogContent>
+  1475→      </Dialog>
+  1476→    </div>
+  1477→  );
+  1478→}
+  1479→

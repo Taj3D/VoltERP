@@ -321,6 +321,28 @@ async function handleCreate(
     );
   }
 
+  // Validate each line has a rate (required for financial calculations)
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].rate === undefined || lines[i].rate === null || isNaN(lines[i].rate)) {
+      return NextResponse.json(
+        { error: `Line item at index ${i} is missing a valid "rate" (unit price). All line items must have a rate.` },
+        { status: 400 }
+      );
+    }
+    if (lines[i].productId === undefined || lines[i].productId === null) {
+      return NextResponse.json(
+        { error: `Line item at index ${i} is missing a "productId".` },
+        { status: 400 }
+      );
+    }
+    if (!lines[i].quantity || lines[i].quantity <= 0) {
+      return NextResponse.json(
+        { error: `Line item at index ${i} has invalid quantity (must be > 0).` },
+        { status: 400 }
+      );
+    }
+  }
+
   // Period close guard
   const periodLock = await checkPeriodClose(new Date(date));
   if (periodLock) return periodLock;

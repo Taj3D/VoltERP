@@ -9,6 +9,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const transactionType = searchParams.get('type'); // 'asset' | 'liability' | null (all)
     const investmentHeadId = searchParams.get('investmentHeadId');
+    const headType = searchParams.get('headType'); // 'Investment' | 'Asset' | 'Liability' | null
+    const includeDetails = searchParams.get('includeDetails') === 'true';
     const assetCategory = searchParams.get('assetCategory');
     const liabilityType = searchParams.get('liabilityType');
     const liabilityFlowType = searchParams.get('flowType'); // 'received' | 'pay'
@@ -17,11 +19,104 @@ export async function GET(request: NextRequest) {
     const companyFilter: any = {};
     if (security.user.companyId) companyFilter.companyId = security.user.companyId;
 
+    const isVatAuditor = security.user.role === 'vat_auditor';
+
+    // ────────────────────────────────────────────────────────────
+    // Mode: includeDetails=true → Return grouped InvestmentHeads
+    // with nested assets/liabilities and computed summaries
+    // ────────────────────────────────────────────────────────────
+    if (includeDetails) {
+      const headWhere: any = { isActive: true, ...companyFilter };
+      if (headType) headWhere.type = headType;
+      if (investmentHeadId) headWhere.id = investmentHeadId;
+
+      const heads = await db.investmentHead.findMany({
+        where: headWhere,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          assets: {
+            where: { isActive: true, ...companyFilter },
+            orderBy: { date: 'desc' },
+          },
+          liabilities: {
+            where: { isActive: true, ...companyFilter },
+            orderBy: { date: 'desc' },
+          },
+        },
+      });
+
+      const investmentHeads = heads.map((head) => {
+        const totalAssets = head.assets.reduce((s, a) => s + (typeof a.amount === 'number' ? a.amount : 0), 0);
+        const totalLiabilities = head.liabilities.reduce((s, l) => s + (typeof l.amount === 'number' ? l.amount : 0), 0);
+        const netValue = (head.openingBalance || 0) + totalAssets - totalLiabilities;
+
+        return {
+          id: head.id,
+          code: head.code,
+          name: head.name,
+          type: head.type,
+          openingBalance: head.openingBalance || 0,
+          totalAssets,
+          totalLiabilities,
+          netValue,
+          assets: head.assets.map((a) => ({
+            id: a.id,
+            date: a.date,
+            amount: isVatAuditor ? 'N/A (Audit Mode)' : a.amount,
+            assetCategory: a.assetCategory,
+            description: a.description,
+            purchaseValue: a.purchaseValue,
+            salvageValue: a.salvageValue,
+            usefulLifeMonths: a.usefulLifeMonths,
+            accumulatedDepreciation: a.accumulatedDepreciation,
+            netBookValue: a.netBookValue,
+          })),
+          liabilities: head.liabilities.map((l) => ({
+            id: l.id,
+            date: l.date,
+            amount: isVatAuditor ? 'N/A (Audit Mode)' : l.amount,
+            type: l.type,
+            liabilityType: l.liabilityType,
+            paymentMethod: l.paymentMethod,
+            description: l.description,
+          })),
+        };
+      });
+
+      const grandOpeningBalances = heads.reduce((s, h) => s + (h.openingBalance || 0), 0);
+      const grandTotalAssets = investmentHeads.reduce((s, h) => s + h.totalAssets, 0);
+      const grandTotalLiabilities = investmentHeads.reduce((s, h) => s + h.totalLiabilities, 0);
+      const grandNetValue = grandOpeningBalances + grandTotalAssets - grandTotalLiabilities;
+
+      return NextResponse.json({
+        investmentHeads,
+        summary: {
+          totalHeads: investmentHeads.length,
+          grandOpeningBalances: isVatAuditor ? 'N/A (Audit Mode)' : grandOpeningBalances,
+          grandTotalAssets: isVatAuditor ? 'N/A (Audit Mode)' : grandTotalAssets,
+          grandTotalLiabilities: isVatAuditor ? 'N/A (Audit Mode)' : grandTotalLiabilities,
+          grandNetValue: isVatAuditor ? 'N/A (Audit Mode)' : grandNetValue,
+        },
+      });
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Mode: default → Return flat transactions list (original behavior)
+    // ────────────────────────────────────────────────────────────
+
     // Specific investment head filter
     const headFilter: any = {};
     if (investmentHeadId) headFilter.investmentHeadId = investmentHeadId;
 
-    const isVatAuditor = security.user.role === 'vat_auditor';
+    // If headType specified, find matching head IDs first
+    if (headType) {
+      const matchingHeads = await db.investmentHead.findMany({
+        where: { type: headType, isActive: true, ...companyFilter },
+        select: { id: true },
+      });
+      const matchingIds = matchingHeads.map((h) => h.id);
+      headFilter.investmentHeadId = matchingIds.length > 0 ? { in: matchingIds } : 'none';
+    }
 
     const transactions: any[] = [];
 

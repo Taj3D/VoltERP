@@ -54,17 +54,32 @@ export async function POST(request: NextRequest) {
   const security = await withApiSecurity(request, 'Branches', 'POST');
   if (!security.authorized) return security.response;
 
-  const companyId = security.user.companyId;
-
-  if (!companyId) {
-    return NextResponse.json(
-      { error: 'Company ID is required. User must be associated with a company.' },
-      { status: 400 }
-    );
-  }
+  let companyId = security.user.companyId || null;
 
   try {
     const body = await request.json();
+
+    // Allow explicit companyId in request body (e.g., for admin users)
+    if (body.companyId) {
+      companyId = body.companyId;
+    }
+
+    // Admin users may have companyId: null — auto-assign the first company
+    if (!companyId) {
+      const firstCompany = await db.company.findFirst({
+        where: { isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      if (firstCompany) {
+        companyId = firstCompany.id;
+      } else {
+        return NextResponse.json(
+          { error: 'No company found in the system. Please create a company first.' },
+          { status: 400 }
+        );
+      }
+    }
 
     // Validate required fields
     if (!body.name) {

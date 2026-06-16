@@ -1,0 +1,581 @@
+     1→// ============================================================
+     2→// Bank Transactions API — Double-Entry CoA Alignment, LedgerAutoPost, Balance Validation
+     3→// Module Token: Fin-Bank-Settlement
+     4→// ============================================================
+     5→
+     6→import { NextRequest, NextResponse } from 'next/server';
+     7→import { db } from '@/lib/db';
+     8→import {
+     9→  withApiSecurity,
+    10→  checkPeriodClose,
+    11→  maskFinancialArray,
+    12→  safeFinancialRound,
+    13→  safeFinancialAdd,
+    14→  safeFinancialSubtract,
+    15→  stripHtml,
+    16→} from '@/lib/api-security';
+    17→import { logUserActivity } from '@/lib/activity-logger';
+    18→
+    19→// Helper: normalize empty strings to null
+    20→function nullIfEmpty(value: string | undefined | null): string | null {
+    21→  if (value === undefined || value === null) return null;
+    22→  return String(value).trim() === '' ? null : String(value).trim();
+    23→}
+    24→
+    25→// Helper: generate BTX code — collision-safe
+    26→async function generateTransactionCode(tx: any): Promise<string> {
+    27→  const all = await tx.bankTransaction.findMany({
+    28→    select: { transactionCode: true },
+    29→  });
+    30→  let maxNum = 0;
+    31→  for (const r of all) {
+    32→    if (r.transactionCode) {
+    33→      const match = r.transactionCode.match(/BTX-(\d+)/);
+    34→      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    35→    }
+    36→  }
+    37→  return `BTX-${String(maxNum + 1).padStart(5, '0')}`;
+    38→}
+    39→
+    40→// Helper: generate LED entry code — collision-safe (numeric max)
+    41→async function generateLedgerEntryCode(tx: any): Promise<string> {
+    42→  const all = await tx.ledgerEntry.findMany({
+    43→    select: { entryCode: true },
+    44→  });
+    45→  let maxNum = 0;
+    46→  for (const r of all) {
+    47→    if (r.entryCode) {
+    48→      const match = r.entryCode.match(/LED-(\d+)/);
+    49→      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    50→    }
+    51→  }
+    52→  return `LED-${String(maxNum + 1).padStart(5, '0')}`;
+    53→}
+    54→
+    55→// Helper: generate LAP code — collision-safe (numeric max)
+    56→async function generateAutoPostCode(tx: any): Promise<string> {
+    57→  const all = await tx.ledgerAutoPost.findMany({
+    58→    select: { code: true },
+    59→  });
+    60→  let maxNum = 0;
+    61→  for (const r of all) {
+    62→    if (r.code) {
+    63→      const match = r.code.match(/LAP-(\d+)/);
+    64→      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    65→    }
+    66→  }
+    67→  return `LAP-${String(maxNum + 1).padStart(5, '0')}`;
+    68→}
+    69→
+    70→// GET /api/bank-transactions — List with query params, running balance, summary, VAT masking
+    71→export async function GET(request: NextRequest) {
+    72→  const security = await withApiSecurity(request, 'BankTransactions', 'GET');
+    73→  if (!security.authorized) return security.response;
+    74→
+    75→  const { role, companyId } = security.user;
+    76→
+    77→  try {
+    78→    const { searchParams } = new URL(request.url);
+    79→    const bankId = searchParams.get('bankId');
+    80→    const dateFrom = searchParams.get('dateFrom');
+    81→    const dateTo = searchParams.get('dateTo');
+    82→    const bankType = searchParams.get('bankType');
+    83→    const action = searchParams.get('action');
+    84→    const ledgerPosted = searchParams.get('ledgerPosted');
+    85→
+    86→    const whereClause: Record<string, unknown> = { isActive: true };
+    87→    if (companyId) whereClause.companyId = companyId;
+    88→    if (bankId) whereClause.bankId = bankId;
+    89→    if (ledgerPosted !== null && ledgerPosted !== undefined) {
+    90→      whereClause.ledgerPosted = ledgerPosted === 'true';
+    91→    }
+    92→
+    93→    if (dateFrom || dateTo) {
+    94→      const dateFilter: Record<string, Date> = {};
+    95→      if (dateFrom) dateFilter.gte = new Date(dateFrom);
+    96→      if (dateTo) dateFilter.lte = new Date(dateTo);
+    97→      whereClause.date = dateFilter;
+    98→    }
+    99→
+   100→    if (bankType && ['Bank', 'MFS', 'CashDrawer'].includes(bankType)) {
+   101→      whereClause.bank = {
+   102→        bankType,
+   103→        isActive: true,
+   104→        ...(companyId ? { companyId } : {}),
+   105→      };
+   106→    }
+   107→
+   108→    // ── Summary action ──
+   109→    if (action === 'summary') {
+   110→      const items = await db.bankTransaction.findMany({
+   111→        where: whereClause,
+   112→        include: {
+   113→          bank: { include: { chartOfAccount: true } },
+   114→          toBank: { include: { chartOfAccount: true } },
+   115→        },
+   116→        orderBy: { date: 'asc' },
+   117→      });
+   118→
+   119→      let totalDeposits = 0;
+   120→      let totalWithdrawals = 0;
+   121→      let totalTransfers = 0;
+   122→
+   123→      const bankSummaryMap: Record<string, {
+   124→        bankId: string; bankName: string; bankType: string;
+   125→        deposits: number; withdrawals: number; transfers: number; currentBalance: number;
+   126→      }> = {};
+   127→
+   128→      items.forEach((txn: Record<string, unknown>) => {
+   129→        const bId = txn.bankId as string;
+   130→        const bName = (txn.bank as Record<string, unknown>)?.bankName as string || 'Unknown';
+   131→        const bType = (txn.bank as Record<string, unknown>)?.bankType as string || 'Bank';
+   132→        const bBalance = (txn.bank as Record<string, unknown>)?.currentBalance as number || 0;
+   133→
+   134→        if (!bankSummaryMap[bId]) {
+   135→          bankSummaryMap[bId] = { bankId: bId, bankName: bName, bankType: bType, deposits: 0, withdrawals: 0, transfers: 0, currentBalance: bBalance };
+   136→        }
+   137→
+   138→        if (txn.type === 'Deposit') {
+   139→          totalDeposits = safeFinancialAdd(totalDeposits, txn.amount as number);
+   140→          bankSummaryMap[bId].deposits = safeFinancialAdd(bankSummaryMap[bId].deposits, txn.amount as number);
+   141→        } else if (txn.type === 'Withdraw') {
+   142→          totalWithdrawals = safeFinancialAdd(totalWithdrawals, txn.amount as number);
+   143→          bankSummaryMap[bId].withdrawals = safeFinancialAdd(bankSummaryMap[bId].withdrawals, txn.amount as number);
+   144→        } else if (txn.type === 'Transfer') {
+   145→          totalTransfers = safeFinancialAdd(totalTransfers, txn.amount as number);
+   146→          bankSummaryMap[bId].transfers = safeFinancialAdd(bankSummaryMap[bId].transfers, txn.amount as number);
+   147→        }
+   148→      });
+   149→
+   150→      const bankWiseSummary = Object.values(bankSummaryMap).map((b) => ({
+   151→        ...b,
+   152→        netChange: safeFinancialSubtract(safeFinancialSubtract(b.deposits, b.withdrawals), b.transfers),
+   153→      }));
+   154→
+   155→      const netCashPosition = safeFinancialSubtract(safeFinancialSubtract(totalDeposits, totalWithdrawals), totalTransfers);
+   156→
+   157→      const summaryResult = { totalDeposits, totalWithdrawals, totalTransfers, netCashPosition, bankWiseSummary };
+   158→
+   159→      // VAT Auditor masking for summary
+   160→      if (role === 'vat_auditor') {
+   161→        const maskedSummary = { ...summaryResult } as Record<string, unknown>;
+   162→        maskedSummary.totalDeposits = 'N/A (Audit Mode)';
+   163→        maskedSummary.totalWithdrawals = 'N/A (Audit Mode)';
+   164→        maskedSummary.totalTransfers = 'N/A (Audit Mode)';
+   165→        maskedSummary.netCashPosition = 'N/A (Audit Mode)';
+   166→        maskedSummary.bankWiseSummary = bankWiseSummary.map((b) => ({
+   167→          ...b, deposits: 'N/A (Audit Mode)', withdrawals: 'N/A (Audit Mode)', transfers: 'N/A (Audit Mode)', netChange: 'N/A (Audit Mode)', currentBalance: 'N/A (Audit Mode)',
+   168→        }));
+   169→        return NextResponse.json(maskedSummary);
+   170→      }
+   171→
+   172→      return NextResponse.json(summaryResult);
+   173→    }
+   174→
+   175→    // ── Standard list action ──
+   176→    const items = await db.bankTransaction.findMany({
+   177→      where: whereClause,
+   178→      include: {
+   179→        bank: { include: { chartOfAccount: true } },
+   180→        toBank: { include: { chartOfAccount: true } },
+   181→      },
+   182→      orderBy: { date: 'asc' },
+   183→    });
+   184→
+   185→    // Compute running balances per bank
+   186→    const bankBalanceMap: Record<string, number> = {};
+   187→    const computed = items.map((txn: Record<string, unknown>) => {
+   188→      const bId = txn.bankId as string;
+   189→      const bankData = txn.bank as Record<string, unknown> | null;
+   190→      if (!(bId in bankBalanceMap)) {
+   191→        bankBalanceMap[bId] = (bankData?.openingBalance as number) || 0;
+   192→      }
+   193→      if (txn.type === 'Deposit') {
+   194→        bankBalanceMap[bId] = safeFinancialAdd(bankBalanceMap[bId], txn.amount as number);
+   195→      } else if (txn.type === 'Withdraw' || txn.type === 'Transfer') {
+   196→        bankBalanceMap[bId] = safeFinancialSubtract(bankBalanceMap[bId], txn.amount as number);
+   197→      }
+   198→      const runningBalance = safeFinancialRound(bankBalanceMap[bId]);
+   199→      // Fire-and-forget stale update
+   200→      if (Math.abs((txn.runningBalance as number) - runningBalance) > 0.005) {
+   201→        db.bankTransaction.update({ where: { id: txn.id as string }, data: { runningBalance } }).catch(() => {});
+   202→      }
+   203→      return { ...txn, runningBalance };
+   204→    });
+   205→
+   206→    computed.reverse();
+   207→    const masked = maskFinancialArray(computed as Record<string, unknown>[], role, ['ledgerPosted', 'debitEntryCode', 'creditEntryCode']);
+   208→    return NextResponse.json(masked);
+   209→  } catch (error) {
+   210→    console.error('Error fetching bank transactions:', error);
+   211→    return NextResponse.json({ error: 'Failed to fetch bank transactions' }, { status: 500 });
+   212→  }
+   213→}
+   214→
+   215→// POST /api/bank-transactions — Create with double-entry ledger, LedgerAutoPost, balance validation
+   216→export async function POST(request: NextRequest) {
+   217→  const security = await withApiSecurity(request, 'BankTransactions', 'POST');
+   218→  if (!security.authorized) return security.response;
+   219→
+   220→  const { id: userId, name: userName, companyId } = security.user;
+   221→
+   222→  try {
+   223→    const body = await request.json();
+   224→    const { bankId, date, type, amount, toBankId, chequeNo, depositorName, referenceNo, description, status, referenceKey } = body;
+   225→
+   226→    if (!bankId || !type || !date || amount === undefined || amount === null) {
+   227→      return NextResponse.json({ error: 'bankId, type, date, and amount are required' }, { status: 400 });
+   228→    }
+   229→
+   230→    const transactionAmount = safeFinancialRound(Number(amount));
+   231→    if (isNaN(transactionAmount) || transactionAmount <= 0) {
+   232→      return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 });
+   233→    }
+   234→
+   235→    if (!['Deposit', 'Withdraw', 'Transfer'].includes(type)) {
+   236→      return NextResponse.json({ error: 'Invalid transaction type. Must be Deposit, Withdraw, or Transfer.' }, { status: 400 });
+   237→    }
+   238→
+   239→    if (type === 'Transfer' && !toBankId) {
+   240→      return NextResponse.json({ error: 'toBankId is required for Transfer transactions' }, { status: 400 });
+   241→    }
+   242→
+   243→    // Period-close lock check
+   244→    const transactionDate = new Date(date);
+   245→    const periodLock = await checkPeriodClose(transactionDate);
+   246→    if (periodLock) return periodLock;
+   247→
+   248→    // Idempotency check
+   249→    if (referenceKey) {
+   250→      const existing = await db.bankTransaction.findFirst({
+   251→        where: { referenceKey: String(referenceKey) },
+   252→      });
+   253→      if (existing) {
+   254→        return NextResponse.json(
+   255→          { error: `Idempotency conflict: BankTransaction with referenceKey "${String(referenceKey)}" already exists` },
+   256→          { status: 409 }
+   257→        );
+   258→      }
+   259→    }
+   260→
+   261→    const cleanChequeNo = nullIfEmpty(chequeNo as string | undefined);
+   262→    const cleanDepositorName = nullIfEmpty(depositorName as string | undefined);
+   263→    const cleanReferenceNo = nullIfEmpty(referenceNo as string | undefined);
+   264→    const cleanDescription = nullIfEmpty(description as string | undefined);
+   265→    // Sanitize text inputs for XSS
+   266→    if (cleanChequeNo) (body as any).chequeNo = stripHtml(cleanChequeNo);
+   267→    if (cleanDepositorName) (body as any).depositorName = stripHtml(cleanDepositorName);
+   268→    if (cleanReferenceNo) (body as any).referenceNo = stripHtml(cleanReferenceNo);
+   269→    if (cleanDescription) (body as any).description = stripHtml(cleanDescription);
+   270→    const effectiveStatus = status || 'Approved';
+   271→
+   272→    const bankCompanyFilter: Record<string, unknown> = {};
+   273→    if (companyId) bankCompanyFilter.companyId = companyId;
+   274→
+   275→    const result = await db.$transaction(async (tx: any) => {
+   276→      const transactionCode = await generateTransactionCode(tx);
+   277→
+   278→      // ── Deposit ──
+   279→      if (type === 'Deposit') {
+   280→        const bank = await tx.bank.findFirst({ where: { id: bankId, ...bankCompanyFilter, isActive: true } });
+   281→        if (!bank) throw new Error(`Bank with id ${bankId} not found or does not belong to your company`);
+   282→
+   283→        const updatedBalance = safeFinancialAdd(bank.currentBalance, transactionAmount);
+   284→        await tx.bank.update({ where: { id: bankId }, data: { currentBalance: updatedBalance } });
+   285→
+   286→        const bankTransaction = await tx.bankTransaction.create({
+   287→          data: {
+   288→            transactionCode, bankId, date: transactionDate, type: 'Deposit',
+   289→            amount: transactionAmount, runningBalance: updatedBalance,
+   290→            companyId: companyId || null, chequeNo: cleanChequeNo, depositorName: cleanDepositorName,
+   291→            referenceNo: cleanReferenceNo, description: cleanDescription,
+   292→            status: effectiveStatus, referenceKey: referenceKey ? String(referenceKey) : null,
+   293→            ledgerPosted: false,
+   294→          },
+   295→          include: { bank: true, toBank: true },
+   296→        });
+   297→
+   298→        // Double-Entry Ledger
+   299→        let debitEntryCode: string | null = null;
+   300→        let creditEntryCode: string | null = null;
+   301→
+   302→        if (effectiveStatus === 'Approved') {
+   303→          const drCode = await generateLedgerEntryCode(tx);
+   304→          const crCode = `LED-${String(parseInt(drCode.match(/LED-(\d+)/)?.[1] || '0', 10) + 1).padStart(5, '0')}`;
+   305→
+   306→          await tx.ledgerEntry.create({
+   307→            data: {
+   308→              entryCode: drCode, date: transactionDate, accountId: bank.chartOfAccountId,
+   309→              account: bank.bankName, debit: transactionAmount, credit: 0,
+   310→              reference: transactionCode, referenceType: 'BankDeposit', companyId: companyId || null,
+   311→            },
+   312→          });
+   313→          await tx.ledgerEntry.create({
+   314→            data: {
+   315→              entryCode: crCode, date: transactionDate,
+   316→              account: 'Cash in Hand', debit: 0, credit: transactionAmount,
+   317→              reference: transactionCode, referenceType: 'BankDeposit', companyId: companyId || null,
+   318→            },
+   319→          });
+   320→
+   321→          debitEntryCode = drCode;
+   322→          creditEntryCode = crCode;
+   323→
+   324→          // LedgerAutoPost
+   325→          const lapCode = await generateAutoPostCode(tx);
+   326→          await tx.ledgerAutoPost.create({
+   327→            data: {
+   328→              code: lapCode, sourceType: 'BankTransaction', sourceId: bankTransaction.id,
+   329→              sourceCode: transactionCode, debitEntryId: drCode, creditEntryId: crCode,
+   330→              debitAccount: bank.bankName, creditAccount: 'Cash in Hand',
+   331→              amount: transactionAmount, postingDate: transactionDate, status: 'Posted',
+   332→              companyId: companyId || null, postedBy: userId,
+   333→            },
+   334→          });
+   335→
+   336→          await tx.bankTransaction.update({
+   337→            where: { id: bankTransaction.id },
+   338→            data: { ledgerPosted: true, debitEntryCode, creditEntryCode },
+   339→          });
+   340→        }
+   341→
+   342→        await tx.auditLog.create({
+   343→          data: {
+   344→            action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id,
+   345→            recordLabel: transactionCode, userId, userName,
+   346→            details: JSON.stringify({ type: 'Deposit', bankId, bankName: bank.bankName, amount: transactionAmount, runningBalance: updatedBalance, companyId: companyId || null, ledgerPosted: effectiveStatus === 'Approved' }),
+   347→          },
+   348→        });
+   349→
+   350→        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Deposit ${transactionCode}: Tk. ${transactionAmount}` });
+   351→
+   352→        return bankTransaction;
+   353→      }
+   354→
+   355→      // ── Withdraw ──
+   356→      if (type === 'Withdraw') {
+   357→        const bank = await tx.bank.findFirst({ where: { id: bankId, ...bankCompanyFilter, isActive: true } });
+   358→        if (!bank) throw new Error(`Bank with id ${bankId} not found or does not belong to your company`);
+   359→
+   360→        if (bank.currentBalance < transactionAmount) {
+   361→          throw new Error(`Insufficient bank balance. Available: ${bank.currentBalance}, Requested: ${transactionAmount}`);
+   362→        }
+   363→
+   364→        const updatedBalance = safeFinancialSubtract(bank.currentBalance, transactionAmount);
+   365→        await tx.bank.update({ where: { id: bankId }, data: { currentBalance: updatedBalance } });
+   366→
+   367→        const bankTransaction = await tx.bankTransaction.create({
+   368→          data: {
+   369→            transactionCode, bankId, date: transactionDate, type: 'Withdraw',
+   370→            amount: transactionAmount, runningBalance: updatedBalance,
+   371→            companyId: companyId || null, chequeNo: cleanChequeNo, depositorName: cleanDepositorName,
+   372→            referenceNo: cleanReferenceNo, description: cleanDescription,
+   373→            status: effectiveStatus, referenceKey: referenceKey ? String(referenceKey) : null,
+   374→            ledgerPosted: false,
+   375→          },
+   376→          include: { bank: true, toBank: true },
+   377→        });
+   378→
+   379→        let debitEntryCode: string | null = null;
+   380→        let creditEntryCode: string | null = null;
+   381→
+   382→        if (effectiveStatus === 'Approved') {
+   383→          const drCode = await generateLedgerEntryCode(tx);
+   384→          const crCode = `LED-${String(parseInt(drCode.match(/LED-(\d+)/)?.[1] || '0', 10) + 1).padStart(5, '0')}`;
+   385→
+   386→          await tx.ledgerEntry.create({
+   387→            data: {
+   388→              entryCode: drCode, date: transactionDate,
+   389→              account: 'Cash in Hand', debit: transactionAmount, credit: 0,
+   390→              reference: transactionCode, referenceType: 'BankWithdraw', companyId: companyId || null,
+   391→            },
+   392→          });
+   393→          await tx.ledgerEntry.create({
+   394→            data: {
+   395→              entryCode: crCode, date: transactionDate, accountId: bank.chartOfAccountId,
+   396→              account: bank.bankName, debit: 0, credit: transactionAmount,
+   397→              reference: transactionCode, referenceType: 'BankWithdraw', companyId: companyId || null,
+   398→            },
+   399→          });
+   400→
+   401→          debitEntryCode = drCode;
+   402→          creditEntryCode = crCode;
+   403→
+   404→          const lapCode = await generateAutoPostCode(tx);
+   405→          await tx.ledgerAutoPost.create({
+   406→            data: {
+   407→              code: lapCode, sourceType: 'BankTransaction', sourceId: bankTransaction.id,
+   408→              sourceCode: transactionCode, debitEntryId: drCode, creditEntryId: crCode,
+   409→              debitAccount: 'Cash in Hand', creditAccount: bank.bankName,
+   410→              amount: transactionAmount, postingDate: transactionDate, status: 'Posted',
+   411→              companyId: companyId || null, postedBy: userId,
+   412→            },
+   413→          });
+   414→
+   415→          await tx.bankTransaction.update({
+   416→            where: { id: bankTransaction.id },
+   417→            data: { ledgerPosted: true, debitEntryCode, creditEntryCode },
+   418→          });
+   419→        }
+   420→
+   421→        await tx.auditLog.create({
+   422→          data: {
+   423→            action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id,
+   424→            recordLabel: transactionCode, userId, userName,
+   425→            details: JSON.stringify({ type: 'Withdraw', bankId, bankName: bank.bankName, amount: transactionAmount, runningBalance: updatedBalance, companyId: companyId || null, ledgerPosted: effectiveStatus === 'Approved' }),
+   426→          },
+   427→        });
+   428→
+   429→        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: bankTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Withdraw ${transactionCode}: Tk. ${transactionAmount}` });
+   430→
+   431→        return bankTransaction;
+   432→      }
+   433→
+   434→      // ── Transfer ──
+   435→      if (type === 'Transfer') {
+   436→        const sourceBank = await tx.bank.findFirst({ where: { id: bankId, ...bankCompanyFilter, isActive: true } });
+   437→        if (!sourceBank) throw new Error(`Source bank with id ${bankId} not found`);
+   438→
+   439→        const targetBank = await tx.bank.findFirst({ where: { id: toBankId, ...bankCompanyFilter, isActive: true } });
+   440→        if (!targetBank) throw new Error(`Target bank with id ${toBankId} not found`);
+   441→
+   442→        if (sourceBank.currentBalance < transactionAmount) {
+   443→          throw new Error(`Insufficient bank balance. Available: ${sourceBank.currentBalance}, Requested: ${transactionAmount}`);
+   444→        }
+   445→
+   446→        const sourceUpdatedBalance = safeFinancialSubtract(sourceBank.currentBalance, transactionAmount);
+   447→        const targetUpdatedBalance = safeFinancialAdd(targetBank.currentBalance, transactionAmount);
+   448→
+   449→        await tx.bank.update({ where: { id: bankId }, data: { currentBalance: sourceUpdatedBalance } });
+   450→        await tx.bank.update({ where: { id: toBankId }, data: { currentBalance: targetUpdatedBalance } });
+   451→
+   452→        // Generate target transaction code — collision-safe
+   453→        const allBTForTarget = await tx.bankTransaction.findMany({ select: { transactionCode: true } });
+   454→        let targetMaxNum = 0;
+   455→        for (const r of allBTForTarget) {
+   456→          if (r.transactionCode) {
+   457→            const match = r.transactionCode.match(/BTX-(\d+)/);
+   458→            if (match) targetMaxNum = Math.max(targetMaxNum, parseInt(match[1], 10));
+   459→          }
+   460→        }
+   461→        const sourceNum = parseInt(transactionCode.match(/BTX-(\d+)/)?.[1] || '0', 10);
+   462→        const effectiveTargetNum = Math.max(targetMaxNum, sourceNum) + 1;
+   463→        const targetTransactionCode = `BTX-${String(effectiveTargetNum).padStart(5, '0')}`;
+   464→
+   465→        const sourceTransaction = await tx.bankTransaction.create({
+   466→          data: {
+   467→            transactionCode, bankId, date: transactionDate, type: 'Transfer',
+   468→            amount: transactionAmount, runningBalance: sourceUpdatedBalance, toBankId,
+   469→            companyId: companyId || null, chequeNo: cleanChequeNo, depositorName: cleanDepositorName,
+   470→            referenceNo: cleanReferenceNo, description: cleanDescription,
+   471→            status: effectiveStatus, referenceKey: referenceKey ? String(referenceKey) : null,
+   472→            ledgerPosted: false,
+   473→          },
+   474→          include: { bank: true, toBank: true },
+   475→        });
+   476→
+   477→        await tx.bankTransaction.create({
+   478→          data: {
+   479→            transactionCode: targetTransactionCode, bankId: toBankId, date: transactionDate, type: 'Deposit',
+   480→            amount: transactionAmount, runningBalance: targetUpdatedBalance, toBankId: bankId,
+   481→            companyId: companyId || null, chequeNo: cleanChequeNo, depositorName: cleanDepositorName,
+   482→            referenceNo: cleanReferenceNo, description: cleanDescription || `Transfer from ${sourceBank.bankName}`,
+   483→            status: effectiveStatus, ledgerPosted: false,
+   484→          },
+   485→          include: { bank: true, toBank: true },
+   486→        });
+   487→
+   488→        // Double-Entry Ledger for transfer
+   489→        let debitEntryCode: string | null = null;
+   490→        let creditEntryCode: string | null = null;
+   491→
+   492→        if (effectiveStatus === 'Approved') {
+   493→          const drCode = await generateLedgerEntryCode(tx);
+   494→          const crCode = `LED-${String(parseInt(drCode.match(/LED-(\d+)/)?.[1] || '0', 10) + 1).padStart(5, '0')}`;
+   495→
+   496→          await tx.ledgerEntry.create({
+   497→            data: {
+   498→              entryCode: drCode, date: transactionDate, accountId: targetBank.chartOfAccountId,
+   499→              account: targetBank.bankName, debit: transactionAmount, credit: 0,
+   500→              reference: transactionCode, referenceType: 'BankTransfer', companyId: companyId || null,
+   501→            },
+   502→          });
+   503→          await tx.ledgerEntry.create({
+   504→            data: {
+   505→              entryCode: crCode, date: transactionDate, accountId: sourceBank.chartOfAccountId,
+   506→              account: sourceBank.bankName, debit: 0, credit: transactionAmount,
+   507→              reference: transactionCode, referenceType: 'BankTransfer', companyId: companyId || null,
+   508→            },
+   509→          });
+   510→
+   511→          debitEntryCode = drCode;
+   512→          creditEntryCode = crCode;
+   513→
+   514→          const lapCode = await generateAutoPostCode(tx);
+   515→          await tx.ledgerAutoPost.create({
+   516→            data: {
+   517→              code: lapCode, sourceType: 'BankTransaction', sourceId: sourceTransaction.id,
+   518→              sourceCode: transactionCode, debitEntryId: drCode, creditEntryId: crCode,
+   519→              debitAccount: targetBank.bankName, creditAccount: sourceBank.bankName,
+   520→              amount: transactionAmount, postingDate: transactionDate, status: 'Posted',
+   521→              companyId: companyId || null, postedBy: userId,
+   522→            },
+   523→          });
+   524→
+   525→          await tx.bankTransaction.update({
+   526→            where: { id: sourceTransaction.id },
+   527→            data: { ledgerPosted: true, debitEntryCode, creditEntryCode },
+   528→          });
+   529→        }
+   530→
+   531→        await tx.auditLog.create({
+   532→          data: {
+   533→            action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: sourceTransaction.id,
+   534→            recordLabel: transactionCode, userId, userName,
+   535→            details: JSON.stringify({
+   536→              type: 'Transfer', sourceBankId: bankId, sourceBankName: sourceBank.bankName,
+   537→              targetBankId: toBankId, targetBankName: targetBank.bankName,
+   538→              amount: transactionAmount, sourceRunningBalance: sourceUpdatedBalance,
+   539→              targetRunningBalance: targetUpdatedBalance, targetTransactionCode,
+   540→              companyId: companyId || null, ledgerPosted: effectiveStatus === 'Approved',
+   541→            }),
+   542→          },
+   543→        });
+   544→
+   545→        await logUserActivity({ tx: tx, action: 'CREATE', module: 'Fin-Bank-Settlement', recordId: sourceTransaction.id, recordLabel: transactionCode, userId, userName, details: `Bank Transfer ${transactionCode}: Tk. ${transactionAmount}` });
+   546→
+   547→        return sourceTransaction;
+   548→      }
+   549→
+   550→      throw new Error('Unhandled transaction type');
+   551→    });
+   552→
+   553→    // Automated SMS: Financial Collection Event (Bank Deposit = payment received)
+   554→    // Only trigger for Deposit type — represents incoming payment (cash/bank/bKash/Nagad)
+   555→    if (result && type === 'Deposit') {
+   556→      try {
+   557→        const { triggerFinancialCollectionSms } = await import('@/lib/sms-event-hooks');
+   558→        // Bank deposits may not have a direct customer/supplier link,
+   559→        // so we pass depositorName as context. The SMS trigger will skip
+   560→        // silently if no matching customer/supplier is found.
+   561→        await triggerFinancialCollectionSms({
+   562→          id: (result as any).id,
+   563→          amount: (result as any).amount,
+   564→          paymentMethod: (result as any).bank?.bankType === 'MFS' ? 'Mobile Financial Service' : 'Bank Transfer',
+   565→          date: (result as any).date,
+   566→          companyId: companyId || undefined,
+   567→        });
+   568→      } catch (smsError) {
+   569→        console.error('[BankTransactions] SMS trigger failed (non-blocking):', smsError);
+   570→      }
+   571→    }
+   572→
+   573→    return NextResponse.json(result, { status: 201 });
+   574→  } catch (error: unknown) {
+   575→    console.error('Error creating bank transaction:', error);
+   576→    const message = error instanceof Error ? error.message : 'Failed to create bank transaction';
+   577→    const statusCode = message.includes('Insufficient') || message.includes('not found') || message.includes('required') || message.includes('Invalid') || message.includes('positive') ? 400 : 500;
+   578→    return NextResponse.json({ error: message }, { status: statusCode });
+   579→  }
+   580→}
+   581→

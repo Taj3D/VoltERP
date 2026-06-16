@@ -1,0 +1,2002 @@
+     1→import { db } from '@/lib/db';
+     2→import { NextRequest, NextResponse } from 'next/server';
+     3→import { withApiSecurity, validateVatMode, stripHtml } from '@/lib/api-security';
+     4→import { safeFinancialAdd, safeFinancialSubtract, safeFinancialRound } from '@/lib/api-security';
+     5→import type { UserRole } from '@/lib/api-security';
+     6→
+     7→// ============================================================
+     8→// TYPES
+     9→// ============================================================
+    10→
+    11→interface ColumnDef {
+    12→  key: string;
+    13→  label: string;
+    14→}
+    15→
+    16→interface ReportResult {
+    17→  title: string;
+    18→  columns: ColumnDef[];
+    19→  rows: Record<string, unknown>[];
+    20→  summary: Record<string, unknown>;
+    21→  chartData: Record<string, unknown>[];
+    22→}
+    23→
+    24→interface QueryParams {
+    25→  type: string;
+    26→  subtype: string;
+    27→  from: string | null;
+    28→  to: string | null;
+    29→  sortField: string | null;
+    30→  sortOrder: 'asc' | 'desc';
+    31→  groupBy: string | null;
+    32→  supplierId: string | null;
+    33→  customerId: string | null;
+    34→  employeeId: string | null;
+    35→  bankId: string | null;
+    36→  categoryId: string | null;
+    37→  companyId: string | null;
+    38→  productId: string | null;
+    39→  godownId: string | null;
+    40→  vatMode: boolean;
+    41→  keyword: string | null;
+    42→}
+    43→
+    44→// ============================================================
+    45→// HELPERS
+    46→// ============================================================
+    47→
+    48→function buildDateFilter(from: string | null, to: string | null): Record<string, Date> | undefined {
+    49→  const filter: Record<string, Date> = {};
+    50→  if (from) filter.gte = new Date(from + 'T00:00:00.000Z');
+    51→  // MIS-003 FIX: Use start of next day as exclusive upper bound for inclusive end-of-day filtering
+    52→  // This avoids T23:59:59.999Z precision issues with SQLite date comparisons
+    53→  if (to) {
+    54→    const endOfDay = new Date(to + 'T23:59:59.999Z');
+    55→    filter.lte = endOfDay;
+    56→  }
+    57→  if (Object.keys(filter).length === 0) return undefined;
+    58→  return filter;
+    59→}
+    60→
+    61→function sortRows(rows: Record<string, unknown>[], sortField: string | null, sortOrder: 'asc' | 'desc'): Record<string, unknown>[] {
+    62→  if (!sortField) return rows;
+    63→  return [...rows].sort((a, b) => {
+    64→    const aVal = a[sortField];
+    65→    const bVal = b[sortField];
+    66→    if (aVal == null && bVal == null) return 0;
+    67→    if (aVal == null) return sortOrder === 'asc' ? -1 : 1;
+    68→    if (bVal == null) return sortOrder === 'asc' ? 1 : -1;
+    69→    if (typeof aVal === 'number' && typeof bVal === 'number') {
+    70→      return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+    71→    }
+    72→    const aStr = String(aVal);
+    73→    const bStr = String(bVal);
+    74→    return sortOrder === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
+    75→  });
+    76→}
+    77→
+    78→function groupRows(rows: Record<string, unknown>[], groupBy: string | null): Record<string, unknown>[] {
+    79→  if (!groupBy) return rows;
+    80→  const groups = new Map<string, Record<string, unknown>[]>();
+    81→  for (const row of rows) {
+    82→    const key = String(row[groupBy] ?? 'N/A');
+    83→    if (!groups.has(key)) groups.set(key, []);
+    84→    groups.get(key)!.push(row);
+    85→  }
+    86→  const result: Record<string, unknown>[] = [];
+    87→  for (const [key, items] of groups) {
+    88→    result.push({
+    89→      group: key,
+    90→      count: items.length,
+    91→      items,
+    92→    });
+    93→  }
+    94→  return result;
+    95→}
+    96→
+    97→function maskVat(val: unknown, vatMode: boolean): unknown {
+    98→  if (vatMode) return 'N/A (Audit Mode)';
+    99→  return val;
+   100→}
+   101→
+   102→const misApiCurrencyFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+   103→
+   104→function fmt(num: number): string {
+   105→  return misApiCurrencyFmt.format(num);
+   106→}
+   107→
+   108→// MIS-004 FIX: Safe date formatter — prevents Bengali digit output from toLocaleDateString()
+   109→// Uses explicit 'en-GB' locale with day/month/year format (e.g., "05 Mar 2026")
+   110→const misApiDateFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+   111→
+   112→function fmtDate(d: Date | string): string {
+   113→  try {
+   114→    const date = typeof d === 'string' ? new Date(d) : d;
+   115→    if (isNaN(date.getTime())) return '—';
+   116→    return misApiDateFmt.format(date);
+   117→  } catch {
+   118→    return '—';
+   119→  }
+   120→}
+   121→
+   122→function emptyReport(title: string, columns: ColumnDef[]): ReportResult {
+   123→  return { title, columns, rows: [], summary: {}, chartData: [] };
+   124→}
+   125→
+   126→// ============================================================
+   127→// BASIC REPORTS
+   128→// ============================================================
+   129→
+   130→async function employeeInformation(params: QueryParams): Promise<ReportResult> {
+   131→  const where: Record<string, unknown> = { isActive: true };
+   132→  if (params.employeeId) where.id = params.employeeId;
+   133→
+   134→  const employees = await db.employee.findMany({
+   135→    where,
+   136→    include: { designation: true, department: true },
+   137→  });
+   138→
+   139→  const columns: ColumnDef[] = [
+   140→    { key: 'employeeCode', label: 'Code' },
+   141→    { key: 'name', label: 'Name' },
+   142→    { key: 'designation', label: 'Designation' },
+   143→    { key: 'department', label: 'Department' },
+   144→    { key: 'joiningDate', label: 'Joining Date' },
+   145→    { key: 'phone', label: 'Phone' },
+   146→    { key: 'status', label: 'Status' },
+   147→  ];
+   148→
+   149→  let rows = employees.map((e) => ({
+   150→    employeeCode: e.employeeCode,
+   151→    name: e.name,
+   152→    designation: e.designation?.name || '',
+   153→    department: e.department?.name || '',
+   154→    joiningDate: e.joiningDate ? fmtDate(e.joiningDate) : '',
+   155→    phone: e.phone || '',
+   156→    status: e.isActive ? 'Active' : 'Inactive',
+   157→  }));
+   158→
+   159→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   160→  rows = groupRows(rows, params.groupBy);
+   161→
+   162→  const deptCounts: Record<string, number> = {};
+   163→  for (const e of employees) {
+   164→    const dept = e.department?.name || 'Unknown';
+   165→    deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+   166→  }
+   167→
+   168→  return {
+   169→    title: 'Employee Information Report',
+   170→    columns,
+   171→    rows,
+   172→    summary: {
+   173→      totalEmployees: employees.length,
+   174→      activeCount: employees.filter((e) => e.isActive).length,
+   175→      departments: Object.keys(deptCounts).length,
+   176→    },
+   177→    chartData: Object.entries(deptCounts).map(([name, count]) => ({ name, count })),
+   178→  };
+   179→}
+   180→
+   181→async function productInformation(params: QueryParams): Promise<ReportResult> {
+   182→  const where: Record<string, unknown> = { isActive: true };
+   183→  if (params.categoryId) where.categoryId = params.categoryId;
+   184→  if (params.companyId) where.companyId = params.companyId;
+   185→  if (params.productId) where.id = params.productId;
+   186→
+   187→  const products = await db.product.findMany({
+   188→    where,
+   189→    include: { category: true, company: true, godown: true },
+   190→  });
+   191→
+   192→  const columns: ColumnDef[] = [
+   193→    { key: 'productCode', label: 'Code' },
+   194→    { key: 'name', label: 'Name' },
+   195→    { key: 'category', label: 'Category' },
+   196→    { key: 'company', label: 'Company' },
+   197→    { key: 'costPrice', label: 'Cost Price' },
+   198→    { key: 'salePrice', label: 'Sale Price' },
+   199→    { key: 'wholesalePrice', label: 'Wholesale Price' },
+   200→    { key: 'dealerPrice', label: 'Dealer Price' },
+   201→    { key: 'openingStock', label: 'Stock' },
+   202→    { key: 'reorderLevel', label: 'Reorder Level' },
+   203→  ];
+   204→
+   205→  let rows = products.map((p) => ({
+   206→    productCode: p.productCode,
+   207→    name: p.name,
+   208→    category: p.category?.name || '',
+   209→    company: p.company?.name || '',
+   210→    costPrice: maskVat(p.costPrice, params.vatMode),
+   211→    salePrice: maskVat(p.salePrice, params.vatMode),
+   212→    wholesalePrice: maskVat(p.wholesalePrice, params.vatMode),
+   213→    dealerPrice: maskVat(p.dealerPrice, params.vatMode),
+   214→    openingStock: p.openingStock,
+   215→    reorderLevel: p.reorderLevel,
+   216→  }));
+   217→
+   218→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   219→  rows = groupRows(rows, params.groupBy);
+   220→
+   221→  const catCounts: Record<string, number> = {};
+   222→  for (const p of products) {
+   223→    const cat = p.category?.name || 'Unknown';
+   224→    catCounts[cat] = (catCounts[cat] || 0) + 1;
+   225→  }
+   226→
+   227→  return {
+   228→    title: 'Product Information Report',
+   229→    columns,
+   230→    rows,
+   231→    summary: {
+   232→      totalProducts: products.length,
+   233→      totalStockValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(products.reduce((s, p) => s + p.costPrice * p.openingStock, 0)),
+   234→      categories: Object.keys(catCounts).length,
+   235→      belowReorder: products.filter((p) => p.openingStock <= p.reorderLevel).length,
+   236→    },
+   237→    chartData: Object.entries(catCounts).map(([name, count]) => ({ name, count })),
+   238→  };
+   239→}
+   240→
+   241→async function stockDetails(params: QueryParams): Promise<ReportResult> {
+   242→  const where: Record<string, unknown> = { isActive: true };
+   243→  if (params.productId) where.id = params.productId;
+   244→  if (params.godownId) where.godownId = params.godownId;
+   245→  // MIS-002 FIX: Add missing categoryId filter
+   246→  if (params.categoryId) where.categoryId = params.categoryId;
+   247→  if (params.companyId) where.companyId = params.companyId;
+   248→
+   249→  const products = await db.product.findMany({
+   250→    where,
+   251→    include: { category: true, godown: true, stockEntries: {} },
+   252→  });
+   253→
+   254→  const columns: ColumnDef[] = [
+   255→    { key: 'productCode', label: 'Code' },
+   256→    { key: 'name', label: 'Product' },
+   257→    { key: 'category', label: 'Category' },
+   258→    { key: 'godown', label: 'Godown' },
+   259→    { key: 'stockIn', label: 'IN' },
+   260→    { key: 'stockOut', label: 'OUT' },
+   261→    { key: 'balance', label: 'Balance' },
+   262→  ];
+   263→
+   264→  let rows = products.map((p) => {
+   265→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   266→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   267→    return {
+   268→      productCode: p.productCode,
+   269→      name: p.name,
+   270→      category: p.category?.name || '',
+   271→      godown: p.godown?.name || '',
+   272→      stockIn,
+   273→      stockOut,
+   274→      balance: p.openingStock + stockIn - stockOut,
+   275→    };
+   276→  });
+   277→
+   278→  // H11 FIX: Calculate summary BEFORE groupRows() to avoid broken totals when groupBy is active
+   279→  const totalIn = rows.reduce((s, r) => s + (Number(r.stockIn) || 0), 0);
+   280→  const totalOut = rows.reduce((s, r) => s + (Number(r.stockOut) || 0), 0);
+   281→  const totalBal = rows.reduce((s, r) => s + (Number(r.balance) || 0), 0);
+   282→
+   283→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   284→  rows = groupRows(rows, params.groupBy);
+   285→
+   286→  return {
+   287→    title: 'Stock Details Report',
+   288→    columns,
+   289→    rows,
+   290→    summary: { totalProducts: products.length, totalIn, totalOut, totalBalance: totalBal },
+   291→    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.name), in: r.stockIn, out: r.stockOut, balance: r.balance })),
+   292→  };
+   293→}
+   294→
+   295→async function stockSummary(params: QueryParams): Promise<ReportResult> {
+   296→  const where: Record<string, unknown> = { isActive: true };
+   297→  if (params.categoryId) where.categoryId = params.categoryId;
+   298→  // MIS-002 FIX: Add missing companyId filter
+   299→  if (params.companyId) where.companyId = params.companyId;
+   300→  if (params.godownId) where.godownId = params.godownId;
+   301→
+   302→  const products = await db.product.findMany({
+   303→    where,
+   304→    include: { category: true, stockEntries: {} },
+   305→  });
+   306→
+   307→  const catMap = new Map<string, { category: string; totalQty: number; totalValue: number; count: number }>();
+   308→  for (const p of products) {
+   309→    const cat = p.category?.name || 'Unknown';
+   310→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   311→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   312→    const qty = p.openingStock + stockIn - stockOut;
+   313→    // MIS-001 FIX: Stock value calculations should show "N/A (Audit Mode)" not 0
+   314→    const val = params.vatMode ? 0 : qty * p.costPrice;
+   315→    const existing = catMap.get(cat);
+   316→    if (existing) {
+   317→      existing.totalQty += qty;
+   318→      existing.totalValue += val;
+   319→      existing.count += 1;
+   320→    } else {
+   321→      catMap.set(cat, { category: cat, totalQty: qty, totalValue: val, count: 1 });
+   322→    }
+   323→  }
+   324→
+   325→  const columns: ColumnDef[] = [
+   326→    { key: 'category', label: 'Category' },
+   327→    { key: 'productCount', label: 'Products' },
+   328→    { key: 'totalQty', label: 'Total Qty' },
+   329→    { key: 'totalValue', label: 'Total Value' },
+   330→  ];
+   331→
+   332→  let rows = Array.from(catMap.values()).map((v) => ({
+   333→    category: v.category,
+   334→    productCount: v.count,
+   335→    totalQty: v.totalQty,
+   336→    totalValue: params.vatMode ? 'N/A (Audit Mode)' : v.totalValue,
+   337→  }));
+   338→
+   339→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   340→  rows = groupRows(rows, params.groupBy);
+   341→
+   342→  const totalQty = Array.from(catMap.values()).reduce((s, v) => s + v.totalQty, 0);
+   343→  const totalVal = Array.from(catMap.values()).reduce((s, v) => s + v.totalValue, 0);
+   344→
+   345→  return {
+   346→    title: 'Stock Summary Report',
+   347→    columns,
+   348→    rows,
+   349→    summary: {
+   350→      totalCategories: catMap.size,
+   351→      totalProducts: products.length,
+   352→      totalQty,
+   353→      totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalVal),
+   354→    },
+   355→    chartData: Array.from(catMap.values()).map((v) => ({
+   356→      name: v.category,
+   357→      qty: v.totalQty,
+   358→      value: params.vatMode ? 0 : v.totalValue,
+   359→    })),
+   360→  };
+   361→}
+   362→
+   363→async function stockLedger(params: QueryParams): Promise<ReportResult> {
+   364→  const where: Record<string, unknown> = {};
+   365→  if (params.productId) where.productId = params.productId;
+   366→  if (params.godownId) where.godownId = params.godownId;
+   367→  const dateFilter = buildDateFilter(params.from, params.to);
+   368→  if (dateFilter) where.date = dateFilter;
+   369→
+   370→  const entries = await db.stockEntry.findMany({
+   371→    where,
+   372→    include: { product: true },
+   373→    orderBy: { date: 'asc' },
+   374→  });
+   375→
+   376→  const columns: ColumnDef[] = [
+   377→    { key: 'date', label: 'Date' },
+   378→    { key: 'product', label: 'Product' },
+   379→    { key: 'type', label: 'Type' },
+   380→    { key: 'quantity', label: 'Quantity' },
+   381→    { key: 'reference', label: 'Reference' },
+   382→    { key: 'referenceType', label: 'Ref Type' },
+   383→    { key: 'notes', label: 'Notes' },
+   384→  ];
+   385→
+   386→  let rows = entries.map((e) => ({
+   387→    date: fmtDate(e.date),
+   388→    product: e.product?.name || '',
+   389→    type: e.type,
+   390→    quantity: e.quantity,
+   391→    reference: e.reference || '',
+   392→    referenceType: e.referenceType || '',
+   393→    notes: e.notes || '',
+   394→  }));
+   395→
+   396→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   397→  rows = groupRows(rows, params.groupBy);
+   398→
+   399→  const totalIn = entries.filter((e) => e.type === 'IN').reduce((s, e) => s + e.quantity, 0);
+   400→  const totalOut = entries.filter((e) => e.type === 'OUT').reduce((s, e) => s + e.quantity, 0);
+   401→
+   402→  return {
+   403→    title: 'Stock Ledger Report',
+   404→    columns,
+   405→    rows,
+   406→    summary: { totalEntries: entries.length, totalIn, totalOut, net: totalIn - totalOut },
+   407→    chartData: entries.slice(0, 50).map((e) => ({
+   408→      date: fmtDate(e.date),
+   409→      in: e.type === 'IN' ? e.quantity : 0,
+   410→      out: e.type === 'OUT' ? e.quantity : 0,
+   411→    })),
+   412→  };
+   413→}
+   414→
+   415→async function stockQty(params: QueryParams): Promise<ReportResult> {
+   416→  const where: Record<string, unknown> = { isActive: true };
+   417→  if (params.categoryId) where.categoryId = params.categoryId;
+   418→  if (params.godownId) where.godownId = params.godownId;
+   419→
+   420→  const products = await db.product.findMany({
+   421→    where,
+   422→    include: { category: true, stockEntries: {} },
+   423→  });
+   424→
+   425→  const columns: ColumnDef[] = [
+   426→    { key: 'productCode', label: 'Code' },
+   427→    { key: 'name', label: 'Product' },
+   428→    { key: 'category', label: 'Category' },
+   429→    { key: 'currentQty', label: 'Current Qty' },
+   430→    { key: 'reorderLevel', label: 'Reorder Level' },
+   431→    { key: 'alert', label: 'Alert' },
+   432→  ];
+   433→
+   434→  let rows = products.map((p) => {
+   435→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   436→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   437→    const currentQty = p.openingStock + stockIn - stockOut;
+   438→    return {
+   439→      productCode: p.productCode,
+   440→      name: p.name,
+   441→      category: p.category?.name || '',
+   442→      currentQty,
+   443→      reorderLevel: p.reorderLevel,
+   444→      alert: currentQty <= p.reorderLevel ? 'LOW STOCK' : 'OK',
+   445→    };
+   446→  });
+   447→
+   448→  // H11 FIX: Calculate summary BEFORE groupRows() to avoid broken totals when groupBy is active
+   449→  const lowStock = rows.filter((r) => r.alert === 'LOW STOCK').length;
+   450→
+   451→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   452→  rows = groupRows(rows, params.groupBy);
+   453→
+   454→  return {
+   455→    title: 'Stock Quantity Report',
+   456→    columns,
+   457→    rows,
+   458→    summary: { totalProducts: products.length, lowStock, okStock: products.length - lowStock },
+   459→    chartData: [
+   460→      { name: 'OK', count: products.length - lowStock },
+   461→      { name: 'Low Stock', count: lowStock },
+   462→    ],
+   463→  };
+   464→}
+   465→
+   466→async function stockForecastProduct(params: QueryParams): Promise<ReportResult> {
+   467→  // MIS-002 FIX: Add missing filters
+   468→  const where: Record<string, unknown> = { isActive: true };
+   469→  if (params.categoryId) where.categoryId = params.categoryId;
+   470→  if (params.companyId) where.companyId = params.companyId;
+   471→  if (params.productId) where.id = params.productId;
+   472→  if (params.godownId) where.godownId = params.godownId;
+   473→
+   474→  const products = await db.product.findMany({
+   475→    where,
+   476→    include: { category: true, stockEntries: {} },
+   477→  });
+   478→
+   479→  const columns: ColumnDef[] = [
+   480→    { key: 'productCode', label: 'Code' },
+   481→    { key: 'name', label: 'Product' },
+   482→    { key: 'category', label: 'Category' },
+   483→    { key: 'currentQty', label: 'Current Qty' },
+   484→    { key: 'reorderLevel', label: 'Reorder Level' },
+   485→    { key: 'shortfall', label: 'Shortfall' },
+   486→    { key: 'forecastNeed', label: 'Forecast Need' },
+   487→  ];
+   488→
+   489→  const belowReorder = products.filter((p) => {
+   490→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   491→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   492→    return p.openingStock + stockIn - stockOut <= p.reorderLevel;
+   493→  });
+   494→
+   495→  let rows = belowReorder.map((p) => {
+   496→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   497→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   498→    const currentQty = p.openingStock + stockIn - stockOut;
+   499→    const shortfall = p.reorderLevel - currentQty;
+   500→    return {
+   501→      productCode: p.productCode,
+   502→      name: p.name,
+   503→      category: p.category?.name || '',
+   504→      currentQty,
+   505→      reorderLevel: p.reorderLevel,
+   506→      shortfall: Math.max(shortfall, 0),
+   507→      forecastNeed: Math.max(shortfall, 0) * 1.5,
+   508→    };
+   509→  });
+   510→
+   511→  // H11 FIX: Calculate summary BEFORE groupRows
+   512→  const totalShortfall = rows.reduce((s, r) => s + (Number(r.shortfall) || 0), 0);
+   513→
+   514→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   515→  rows = groupRows(rows, params.groupBy);
+   516→
+   517→  return {
+   518→    title: 'Stock Forecast - Product',
+   519→    columns,
+   520→    rows,
+   521→    summary: { productsBelowReorder: belowReorder.length, totalShortfall, totalForecast: totalShortfall * 1.5 },
+   522→    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.name), shortfall: r.shortfall, forecast: r.forecastNeed })),
+   523→  };
+   524→}
+   525→
+   526→async function stockForecastConcern(params: QueryParams): Promise<ReportResult> {
+   527→  // MIS-002 FIX: Add missing categoryId filter
+   528→  const where: Record<string, unknown> = { isActive: true };
+   529→  if (params.companyId) where.companyId = params.companyId;
+   530→  if (params.categoryId) where.categoryId = params.categoryId;
+   531→
+   532→  const products = await db.product.findMany({
+   533→    where,
+   534→    include: { company: true, category: true, stockEntries: {} },
+   535→  });
+   536→
+   537→  const columns: ColumnDef[] = [
+   538→    { key: 'company', label: 'Company' },
+   539→    { key: 'totalProducts', label: 'Products' },
+   540→    { key: 'belowReorder', label: 'Below Reorder' },
+   541→    { key: 'totalStock', label: 'Total Stock' },
+   542→    { key: 'reorderIndicator', label: 'Reorder Indicator' },
+   543→  ];
+   544→
+   545→  const companyMap = new Map<string, { company: string; totalProducts: number; belowReorder: number; totalStock: number }>();
+   546→  for (const p of products) {
+   547→    const comp = p.company?.name || 'Unknown';
+   548→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   549→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   550→    const qty = p.openingStock + stockIn - stockOut;
+   551→    const isBelow = qty <= p.reorderLevel;
+   552→    const existing = companyMap.get(comp);
+   553→    if (existing) {
+   554→      existing.totalProducts += 1;
+   555→      existing.totalStock += qty;
+   556→      if (isBelow) existing.belowReorder += 1;
+   557→    } else {
+   558→      companyMap.set(comp, { company: comp, totalProducts: 1, belowReorder: isBelow ? 1 : 0, totalStock: qty });
+   559→    }
+   560→  }
+   561→
+   562→  let rows = Array.from(companyMap.values()).map((v) => ({
+   563→    company: v.company,
+   564→    totalProducts: v.totalProducts,
+   565→    belowReorder: v.belowReorder,
+   566→    totalStock: v.totalStock,
+   567→    reorderIndicator: v.belowReorder > 0 ? `${v.belowReorder} items need reorder` : 'All OK',
+   568→  }));
+   569→
+   570→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   571→  rows = groupRows(rows, params.groupBy);
+   572→
+   573→  return {
+   574→    title: 'Stock Forecast - Company',
+   575→    columns,
+   576→    rows,
+   577→    summary: {
+   578→      totalCompanies: companyMap.size,
+   579→      totalBelowReorder: Array.from(companyMap.values()).reduce((s, v) => s + v.belowReorder, 0),
+   580→    },
+   581→    chartData: Array.from(companyMap.values()).map((v) => ({ name: v.company, products: v.totalProducts, belowReorder: v.belowReorder })),
+   582→  };
+   583→}
+   584→
+   585→// ============================================================
+   586→// BASIC REPORTS — EXTENDED SUB-REPORTS
+   587→// ============================================================
+   588→
+   589→async function stockTrends(params: QueryParams): Promise<ReportResult> {
+   590→  const where: Record<string, unknown> = { isActive: true };
+   591→  if (params.categoryId) where.categoryId = params.categoryId;
+   592→  if (params.companyId) where.companyId = params.companyId;
+   593→  if (params.productId) where.id = params.productId;
+   594→  if (params.godownId) where.godownId = params.godownId;
+   595→
+   596→  const products = await db.product.findMany({
+   597→    where,
+   598→    include: { category: true, stockEntries: {} },
+   599→  });
+   600→
+   601→  const columns: ColumnDef[] = [
+   602→    { key: 'product', label: 'Product' },
+   603→    { key: 'category', label: 'Category' },
+   604→    { key: 'currentQty', label: 'Current Qty' },
+   605→    { key: 'avgDailyOut', label: 'Avg Daily Out' },
+   606→    { key: 'daysUntilStockout', label: 'Days Until Stockout' },
+   607→    { key: 'trendDirection', label: 'Trend Direction' },
+   608→  ];
+   609→
+   610→  const thirtyDaysAgo = new Date();
+   611→  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+   612→
+   613→  let rows = products.map((p) => {
+   614→    const stockIn = p.stockEntries.filter((se) => se.type === 'IN').reduce((s, se) => s + se.quantity, 0);
+   615→    const stockOut = p.stockEntries.filter((se) => se.type === 'OUT').reduce((s, se) => s + se.quantity, 0);
+   616→    const currentQty = p.openingStock + stockIn - stockOut;
+   617→
+   618→    // Calculate 30-day out rate
+   619→    const recentOut = p.stockEntries
+   620→      .filter((se) => se.type === 'OUT' && new Date(se.date) >= thirtyDaysAgo)
+   621→      .reduce((s, se) => s + se.quantity, 0);
+   622→    const recentIn = p.stockEntries
+   623→      .filter((se) => se.type === 'IN' && new Date(se.date) >= thirtyDaysAgo)
+   624→      .reduce((s, se) => s + se.quantity, 0);
+   625→    const avgDailyOut = safeFinancialRound(recentOut / 30);
+   626→    const daysUntilStockout = avgDailyOut > 0 ? Math.floor(currentQty / avgDailyOut) : Infinity;
+   627→
+   628→    // Trend direction: compare recent IN vs OUT
+   629→    let trendDirection = '→';
+   630→    if (recentOut > recentIn * 1.2) trendDirection = '↓';
+   631→    else if (recentIn > recentOut * 1.2) trendDirection = '↑';
+   632→
+   633→    return {
+   634→      product: p.name,
+   635→      category: p.category?.name || '',
+   636→      currentQty,
+   637→      avgDailyOut: safeFinancialRound(avgDailyOut),
+   638→      daysUntilStockout: daysUntilStockout === Infinity ? '∞' : daysUntilStockout,
+   639→      trendDirection,
+   640→    };
+   641→  });
+   642→
+   643→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   644→  rows = groupRows(rows, params.groupBy);
+   645→
+   646→  const trendingUp = rows.filter((r) => r.trendDirection === '↑').length;
+   647→  const trendingDown = rows.filter((r) => r.trendDirection === '↓').length;
+   648→  const criticalStockout = rows.filter(
+   649→    (r) => typeof r.daysUntilStockout === 'number' && (r.daysUntilStockout as number) <= 7
+   650→  ).length;
+   651→
+   652→  return {
+   653→    title: 'Stock Trend Analysis Report',
+   654→    columns,
+   655→    rows,
+   656→    summary: {
+   657→      totalProducts: products.length,
+   658→      trendingUp,
+   659→      trendingDown,
+   660→      criticalStockout,
+   661→    },
+   662→    chartData: rows.slice(0, 20).map((r) => ({
+   663→      name: String(r.product),
+   664→      currentQty: r.currentQty,
+   665→      avgDailyOut: r.avgDailyOut,
+   666→    })),
+   667→  };
+   668→}
+   669→
+   670→async function supplierStatus(params: QueryParams): Promise<ReportResult> {
+   671→  const supplierWhere: Record<string, unknown> = { isActive: true };
+   672→  if (params.supplierId) supplierWhere.id = params.supplierId;
+   673→
+   674→  const suppliers = await db.supplier.findMany({
+   675→    where: supplierWhere,
+   676→    include: {
+   677→      purchaseOrders: { where: { isActive: true } },
+   678→      purchaseReturns: { where: { isActive: true } },
+   679→      cashDeliveries: { where: { isActive: true } },
+   680→    },
+   681→  });
+   682→
+   683→  const columns: ColumnDef[] = [
+   684→    { key: 'supplierCode', label: 'Supplier Code' },
+   685→    { key: 'supplierName', label: 'Supplier Name' },
+   686→    { key: 'totalPurchase', label: 'Total Purchase' },
+   687→    { key: 'totalPaid', label: 'Total Paid' },
+   688→    { key: 'outstandingBalance', label: 'Outstanding Balance' },
+   689→    { key: 'paymentStatus', label: 'Payment Status' },
+   690→    { key: 'lastTransactionDate', label: 'Last Transaction Date' },
+   691→  ];
+   692→
+   693→  let rows = suppliers.map((s) => {
+   694→    const totalPurchase = safeFinancialRound(s.purchaseOrders.reduce((sum, po) => safeFinancialAdd(sum, po.grandTotal), 0));
+   695→    const totalReturns = safeFinancialRound(s.purchaseReturns.reduce((sum, r) => safeFinancialAdd(sum, r.grandTotal), 0));
+   696→    const totalPaid = safeFinancialRound(s.cashDeliveries.reduce((sum, d) => safeFinancialAdd(sum, d.amount), 0));
+   697→    const outstandingBalance = safeFinancialRound(
+   698→      Math.max(safeFinancialAdd(s.openingBalance, safeFinancialSubtract(totalPurchase, safeFinancialAdd(totalPaid, totalReturns))), 0)
+   699→    );
+   700→
+   701→    // Payment status
+   702→    let paymentStatus = 'Clear';
+   703→    if (outstandingBalance > 0) {
+   704→      // Check if overdue — if supplier has outstanding and last PO is older than 30 days
+   705→      const lastPODate = s.purchaseOrders.length > 0
+   706→        ? new Date(Math.max(...s.purchaseOrders.map((po) => new Date(po.date).getTime())))
+   707→        : null;
+   708→      const thirtyDaysAgo = new Date();
+   709→      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+   710→      if (lastPODate && lastPODate < thirtyDaysAgo) {
+   711→        paymentStatus = 'Overdue';
+   712→      } else {
+   713→        paymentStatus = 'Current';
+   714→      }
+   715→    }
+   716→
+   717→    // Last transaction date — latest of PO, return, or delivery
+   718→    const allDates = [
+   719→      ...s.purchaseOrders.map((po) => new Date(po.date).getTime()),
+   720→      ...s.purchaseReturns.map((r) => new Date(r.date).getTime()),
+   721→      ...s.cashDeliveries.map((d) => new Date(d.date).getTime()),
+   722→    ];
+   723→    const lastTransactionDate = allDates.length > 0
+   724→      ? fmtDate(new Date(Math.max(...allDates)))
+   725→      : '—';
+   726→
+   727→    return {
+   728→      supplierCode: s.supplierCode,
+   729→      supplierName: s.name,
+   730→      totalPurchase: maskVat(totalPurchase, params.vatMode),
+   731→      totalPaid: maskVat(totalPaid, params.vatMode),
+   732→      outstandingBalance: maskVat(outstandingBalance, params.vatMode),
+   733→      paymentStatus,
+   734→      lastTransactionDate,
+   735→    };
+   736→  });
+   737→
+   738→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   739→  rows = groupRows(rows, params.groupBy);
+   740→
+   741→  const totalOutstanding = suppliers.reduce((sum, s) => {
+   742→    const totalPurchase = s.purchaseOrders.reduce((a, po) => safeFinancialAdd(a, po.grandTotal), 0);
+   743→    const totalReturns = s.purchaseReturns.reduce((a, r) => safeFinancialAdd(a, r.grandTotal), 0);
+   744→    const totalPaid = s.cashDeliveries.reduce((a, d) => safeFinancialAdd(a, d.amount), 0);
+   745→    return safeFinancialAdd(sum, Math.max(safeFinancialAdd(s.openingBalance, safeFinancialSubtract(totalPurchase, safeFinancialAdd(totalPaid, totalReturns))), 0));
+   746→  }, 0);
+   747→
+   748→  const overdueCount = rows.filter((r) => r.paymentStatus === 'Overdue').length;
+   749→  const clearCount = rows.filter((r) => r.paymentStatus === 'Clear').length;
+   750→
+   751→  return {
+   752→    title: 'Supplier Status Grid',
+   753→    columns,
+   754→    rows,
+   755→    summary: {
+   756→      totalSuppliers: suppliers.length,
+   757→      totalOutstanding: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalOutstanding)),
+   758→      overdueCount,
+   759→      clearCount,
+   760→    },
+   761→    chartData: [
+   762→      { name: 'Clear', count: clearCount },
+   763→      { name: 'Current', count: rows.filter((r) => r.paymentStatus === 'Current').length },
+   764→      { name: 'Overdue', count: overdueCount },
+   765→    ],
+   766→  };
+   767→}
+   768→
+   769→async function salesPerformance(params: QueryParams): Promise<ReportResult> {
+   770→  const where: Record<string, unknown> = { isActive: true, status: { notIn: ['Draft', 'Cancelled'] } };
+   771→  if (params.customerId) where.customerId = params.customerId;
+   772→  if (params.employeeId) where.srId = params.employeeId;
+   773→  const dateFilter = buildDateFilter(params.from, params.to);
+   774→  if (dateFilter) where.date = dateFilter;
+   775→
+   776→  const salesOrders = await db.salesOrder.findMany({
+   777→    where,
+   778→    include: {
+   779→      sr: { include: { designation: true } },
+   780→      lines: { include: { product: true } },
+   781→    },
+   782→  });
+   783→
+   784→  // Fetch SR targets for commission lookup
+   785→  const srTargets = await db.sRTargetSetup.findMany({
+   786→    where: { isActive: true, status: 'ACTIVE' },
+   787→  });
+   788→
+   789→  const columns: ColumnDef[] = [
+   790→    { key: 'srName', label: 'SR Name' },
+   791→    { key: 'month', label: 'Month' },
+   792→    { key: 'totalOrders', label: 'Total Orders' },
+   793→    { key: 'totalRevenue', label: 'Total Revenue' },
+   794→    { key: 'avgOrderValue', label: 'Avg Order Value' },
+   795→    { key: 'topProduct', label: 'Top Product' },
+   796→    { key: 'commission', label: 'Commission' },
+   797→  ];
+   798→
+   799→  // Group by SR and month
+   800→  const srMonthMap = new Map<string, {
+   801→    srName: string;
+   802→    month: string;
+   803→    totalOrders: number;
+   804→    totalRevenue: number;
+   805→    productCounts: Record<string, number>;
+   806→    srId: string;
+   807→  }>();
+   808→
+   809→  for (const so of salesOrders) {
+   810→    if (!so.sr) continue;
+   811→    const monthKey = fmtDate(so.date).replace(/\d{2} (\w{3}) (\d{4})/, '$1 $2');
+   812→    const mapKey = `${so.srId}:${monthKey}`;
+   813→    const existing = srMonthMap.get(mapKey);
+   814→    const revenue = so.grandTotal;
+   815→
+   816→    if (existing) {
+   817→      existing.totalOrders += 1;
+   818→      existing.totalRevenue = safeFinancialAdd(existing.totalRevenue, revenue);
+   819→      for (const line of so.lines) {
+   820→        const pName = line.product?.name || 'Unknown';
+   821→        existing.productCounts[pName] = (existing.productCounts[pName] || 0) + line.quantity;
+   822→      }
+   823→    } else {
+   824→      const productCounts: Record<string, number> = {};
+   825→      for (const line of so.lines) {
+   826→        const pName = line.product?.name || 'Unknown';
+   827→        productCounts[pName] = (productCounts[pName] || 0) + line.quantity;
+   828→      }
+   829→      srMonthMap.set(mapKey, {
+   830→        srName: so.sr.name,
+   831→        month: monthKey,
+   832→        totalOrders: 1,
+   833→        totalRevenue: revenue,
+   834→        productCounts,
+   835→        srId: so.srId || '',
+   836→      });
+   837→    }
+   838→  }
+   839→
+   840→  let rows = Array.from(srMonthMap.values()).map((v) => {
+   841→    const avgOrderValue = v.totalOrders > 0 ? safeFinancialRound(v.totalRevenue / v.totalOrders) : 0;
+   842→    const topProduct = Object.entries(v.productCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+   843→
+   844→    // Lookup commission from srTargets
+   845→    const target = srTargets.find((t) => t.employeeId === v.srId);
+   846→    const commission = target ? safeFinancialRound(v.totalRevenue * target.commissionPercentage / 100) : 0;
+   847→
+   848→    return {
+   849→      srName: v.srName,
+   850→      month: v.month,
+   851→      totalOrders: v.totalOrders,
+   852→      totalRevenue: maskVat(v.totalRevenue, params.vatMode),
+   853→      avgOrderValue: maskVat(avgOrderValue, params.vatMode),
+   854→      topProduct,
+   855→      commission: maskVat(commission, params.vatMode),
+   856→    };
+   857→  });
+   858→
+   859→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   860→  rows = groupRows(rows, params.groupBy);
+   861→
+   862→  // Summary
+   863→  const totalRevenue = salesOrders.reduce((s, so) => safeFinancialAdd(s, so.grandTotal), 0);
+   864→  const totalOrders = salesOrders.length;
+   865→  const avgOrderValue = totalOrders > 0 ? safeFinancialRound(totalRevenue / totalOrders) : 0;
+   866→
+   867→  // Top SR by revenue
+   868→  const srRevenueMap = new Map<string, number>();
+   869→  for (const so of salesOrders) {
+   870→    if (!so.sr) continue;
+   871→    const current = srRevenueMap.get(so.sr.name) || 0;
+   872→    srRevenueMap.set(so.sr.name, safeFinancialAdd(current, so.grandTotal));
+   873→  }
+   874→  const topSR = Array.from(srRevenueMap.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+   875→
+   876→  return {
+   877→    title: 'Sales Performance Indicators',
+   878→    columns,
+   879→    rows,
+   880→    summary: {
+   881→      totalRevenue: params.vatMode ? 'N/A (Audit Mode)' : fmt(safeFinancialRound(totalRevenue)),
+   882→      avgOrderValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(avgOrderValue),
+   883→      topSR,
+   884→      totalOrders,
+   885→    },
+   886→    chartData: Array.from(srRevenueMap.entries()).slice(0, 10).map(([name, revenue]) => ({
+   887→      name,
+   888→      revenue: params.vatMode ? 0 : revenue,
+   889→    })),
+   890→  };
+   891→}
+   892→
+   893→async function employeeRecords(params: QueryParams): Promise<ReportResult> {
+   894→  const where: Record<string, unknown> = { isActive: true };
+   895→  if (params.employeeId) where.id = params.employeeId;
+   896→  if (params.companyId) where.companyId = params.companyId;
+   897→
+   898→  const employees = await db.employee.findMany({
+   899→    where,
+   900→    include: {
+   901→      designation: true,
+   902→      department: true,
+   903→      leaveAllocations: { where: { isActive: true } },
+   904→    },
+   905→  });
+   906→
+   907→  const columns: ColumnDef[] = [
+   908→    { key: 'employeeCode', label: 'Code' },
+   909→    { key: 'name', label: 'Name' },
+   910→    { key: 'designation', label: 'Designation' },
+   911→    { key: 'department', label: 'Department' },
+   912→    { key: 'joiningDate', label: 'Joining Date' },
+   913→    { key: 'baseSalary', label: 'Base Salary' },
+   914→    { key: 'casualLeave', label: 'Casual Leave' },
+   915→    { key: 'sickLeave', label: 'Sick Leave' },
+   916→    { key: 'annualLeave', label: 'Annual Leave' },
+   917→    { key: 'status', label: 'Status' },
+   918→    { key: 'serviceYears', label: 'Service Years' },
+   919→  ];
+   920→
+   921→  const currentYear = new Date().getFullYear();
+   922→
+   923→  let rows = employees.map((e) => {
+   924→    // Compute leave balances from LeaveAllocation
+   925→    const casualAlloc = e.leaveAllocations.find((la) => la.leaveType === 'Casual' && la.year === currentYear);
+   926→    const sickAlloc = e.leaveAllocations.find((la) => la.leaveType === 'Sick' && la.year === currentYear);
+   927→    const annualAlloc = e.leaveAllocations.find((la) => la.leaveType === 'Annual' && la.year === currentYear);
+   928→
+   929→    const casualLeave = casualAlloc ? `${casualAlloc.remainingDays}/${casualAlloc.allocatedDays}` : '0/0';
+   930→    const sickLeave = sickAlloc ? `${sickAlloc.remainingDays}/${sickAlloc.allocatedDays}` : '0/0';
+   931→    const annualLeave = annualAlloc ? `${annualAlloc.remainingDays}/${annualAlloc.allocatedDays}` : '0/0';
+   932→
+   933→    // Service years
+   934→    const joinDate = e.joiningDate ? new Date(e.joiningDate) : null;
+   935→    const serviceYears = joinDate
+   936→      ? safeFinancialRound((Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+   937→      : 0;
+   938→
+   939→    return {
+   940→      employeeCode: e.employeeCode,
+   941→      name: e.name,
+   942→      designation: e.designation?.name || '',
+   943→      department: e.department?.name || '',
+   944→      joiningDate: e.joiningDate ? fmtDate(e.joiningDate) : '',
+   945→      baseSalary: maskVat(e.baseSalary, params.vatMode),
+   946→      casualLeave,
+   947→      sickLeave,
+   948→      annualLeave,
+   949→      status: e.isActive ? 'Active' : 'Inactive',
+   950→      serviceYears,
+   951→    };
+   952→  });
+   953→
+   954→  rows = sortRows(rows, params.sortField, params.sortOrder);
+   955→  rows = groupRows(rows, params.groupBy);
+   956→
+   957→  // Summary
+   958→  const totalEmployees = employees.length;
+   959→  const avgSalary = totalEmployees > 0
+   960→    ? safeFinancialRound(employees.reduce((s, e) => safeFinancialAdd(s, e.baseSalary), 0) / totalEmployees)
+   961→    : 0;
+   962→  const avgServiceYears = totalEmployees > 0
+   963→    ? safeFinancialRound(employees.reduce((s, e) => {
+   964→        const joinDate = e.joiningDate ? new Date(e.joiningDate) : null;
+   965→        const years = joinDate ? (Date.now() - joinDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000) : 0;
+   966→        return s + years;
+   967→      }, 0) / totalEmployees)
+   968→    : 0;
+   969→
+   970→  // Department breakdown
+   971→  const deptBreakdown: Record<string, number> = {};
+   972→  for (const e of employees) {
+   973→    const dept = e.department?.name || 'Unknown';
+   974→    deptBreakdown[dept] = (deptBreakdown[dept] || 0) + 1;
+   975→  }
+   976→
+   977→  return {
+   978→    title: 'Enhanced Employee Records',
+   979→    columns,
+   980→    rows,
+   981→    summary: {
+   982→      totalEmployees,
+   983→      avgSalary: params.vatMode ? 'N/A (Audit Mode)' : fmt(avgSalary),
+   984→      avgServiceYears: safeFinancialRound(avgServiceYears),
+   985→      departmentBreakdown: deptBreakdown,
+   986→    },
+   987→    chartData: Object.entries(deptBreakdown).map(([name, count]) => ({ name, count })),
+   988→  };
+   989→}
+   990→
+   991→// ============================================================
+   992→// PURCHASE REPORTS
+   993→// ============================================================
+   994→
+   995→async function supplierLedger(params: QueryParams): Promise<ReportResult> {
+   996→  const supplierWhere: Record<string, unknown> = { isActive: true };
+   997→  if (params.supplierId) supplierWhere.id = params.supplierId;
+   998→
+   999→  const suppliers = await db.supplier.findMany({
+  1000→    where: supplierWhere,
+  1001→    include: {
+  1002→      purchaseOrders: { where: { isActive: true }, orderBy: { date: 'asc' } },
+  1003→      purchaseReturns: { where: { isActive: true }, orderBy: { date: 'asc' } },
+  1004→      cashDeliveries: { where: { isActive: true }, orderBy: { date: 'asc' } },
+  1005→    },
+  1006→  });
+  1007→
+  1008→  const columns: ColumnDef[] = [
+  1009→    { key: 'date', label: 'Date' },
+  1010→    { key: 'supplier', label: 'Supplier' },
+  1011→    { key: 'type', label: 'Type' },
+  1012→    { key: 'reference', label: 'Reference' },
+  1013→    { key: 'debit', label: 'Debit (Purchase)' },
+  1014→    { key: 'credit', label: 'Credit (Payment/Return)' },
+  1015→    { key: 'balance', label: 'Running Balance' },
+  1016→  ];
+  1017→
+  1018→  const allRows: Record<string, unknown>[] = [];
+  1019→  // misc1 FIX: buildDateFilter called once before the loop, not 3× per supplier
+  1020→  const dateFilter = buildDateFilter(params.from, params.to);
+  1021→
+  1022→  for (const supplier of suppliers) {
+  1023→    const entries: { date: Date; type: string; ref: string; debit: number; credit: number }[] = [];
+  1024→
+  1025→    // misc1 FIX: buildDateFilter called once before the loop, not 3× per supplier
+  1026→    for (const po of supplier.purchaseOrders) {
+  1027→      if (dateFilter && po.date < dateFilter.gte!) continue;
+  1028→      if (dateFilter && po.date > dateFilter.lte!) continue;
+  1029→      entries.push({ date: po.date, type: 'Purchase', ref: po.poNumber, debit: po.grandTotal, credit: 0 });
+  1030→    }
+  1031→    for (const pr of supplier.purchaseReturns) {
+  1032→      if (dateFilter && pr.date < dateFilter.gte!) continue;
+  1033→      if (dateFilter && pr.date > dateFilter.lte!) continue;
+  1034→      entries.push({ date: pr.date, type: 'Return', ref: pr.returnNo, debit: 0, credit: pr.grandTotal });
+  1035→    }
+  1036→    for (const cd of supplier.cashDeliveries) {
+  1037→      if (dateFilter && cd.date < dateFilter.gte!) continue;
+  1038→      if (dateFilter && cd.date > dateFilter.lte!) continue;
+  1039→      entries.push({ date: cd.date, type: 'Cash Delivery', ref: cd.deliveryCode, debit: 0, credit: cd.amount });
+  1040→    }
+  1041→
+  1042→    entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  1043→    // LEDGER-001 FIX: Respect openingBalanceType for supplier ledger sign convention
+  1044→    // For suppliers: positive balance = we owe them, negative = they owe us
+  1045→    let running = supplier.openingBalanceType === 'Dr' ? -supplier.openingBalance : supplier.openingBalance;
+  1046→    for (const e of entries) {
+  1047→      // C6 FIX: In supplier ledger, purchases (debit) increase what we owe (positive balance),
+  1048→      // and payments/returns (credit) decrease what we owe
+  1049→      running += e.debit - e.credit;
+  1050→      allRows.push({
+  1051→        date: fmtDate(e.date),
+  1052→        supplier: supplier.name,
+  1053→        type: e.type,
+  1054→        reference: e.ref,
+  1055→        debit: maskVat(e.debit, params.vatMode),
+  1056→        credit: maskVat(e.credit, params.vatMode),
+  1057→        balance: maskVat(running, params.vatMode),
+  1058→      });
+  1059→    }
+  1060→  }
+  1061→
+  1062→  const sortedRows = sortRows(allRows, params.sortField, params.sortOrder);
+  1063→  const totalDebit = allRows.reduce((s, r) => s + (Number(r.debit) || 0), 0);
+  1064→  const totalCredit = allRows.reduce((s, r) => s + (Number(r.credit) || 0), 0);
+  1065→
+  1066→  return {
+  1067→    title: 'Supplier Ledger Report',
+  1068→    columns,
+  1069→    rows: sortedRows,
+  1070→    summary: { totalEntries: allRows.length, totalDebit: maskVat(totalDebit, params.vatMode), totalCredit: maskVat(totalCredit, params.vatMode), netBalance: maskVat(safeFinancialRound(totalDebit - totalCredit), params.vatMode) },
+  1071→    chartData: allRows.slice(0, 30).map((r) => ({ date: r.date, debit: r.debit, credit: r.credit })),
+  1072→  };
+  1073→}
+  1074→
+  1075→async function dailyPurchase(params: QueryParams): Promise<ReportResult> {
+  1076→  const where: Record<string, unknown> = { isActive: true };
+  1077→  if (params.supplierId) where.supplierId = params.supplierId;
+  1078→  // MIS-002 FIX: Add missing filters for purchase reports
+  1079→  if (params.productId) where.lines = { some: { productId: params.productId } };
+  1080→  const dateFilter = buildDateFilter(params.from, params.to);
+  1081→  if (dateFilter) where.date = dateFilter;
+  1082→
+  1083→  const purchaseOrders = await db.purchaseOrder.findMany({
+  1084→    where,
+  1085→    include: { supplier: true },
+  1086→    orderBy: { date: 'desc' },
+  1087→  });
+  1088→
+  1089→  const dayMap = new Map<string, { date: string; totalPOs: number; totalValue: number; suppliers: string[] }>();
+  1090→  for (const po of purchaseOrders) {
+  1091→    const day = fmtDate(po.date);
+  1092→    const existing = dayMap.get(day);
+  1093→    if (existing) {
+  1094→      existing.totalPOs += 1;
+  1095→      existing.totalValue += po.grandTotal;
+  1096→      if (po.supplier && !existing.suppliers.includes(po.supplier.name)) existing.suppliers.push(po.supplier.name);
+  1097→    } else {
+  1098→      dayMap.set(day, { date: day, totalPOs: 1, totalValue: po.grandTotal, suppliers: po.supplier ? [po.supplier.name] : [] });
+  1099→    }
+  1100→  }
+  1101→
+  1102→  const columns: ColumnDef[] = [
+  1103→    { key: 'date', label: 'Date' },
+  1104→    { key: 'totalPOs', label: 'Total POs' },
+  1105→    { key: 'totalValue', label: 'Total Value' },
+  1106→    { key: 'supplierBreakdown', label: 'Supplier Breakdown' },
+  1107→  ];
+  1108→
+  1109→  let rows = Array.from(dayMap.values()).map((v) => ({
+  1110→    date: v.date,
+  1111→    totalPOs: v.totalPOs,
+  1112→    totalValue: maskVat(v.totalValue, params.vatMode),
+  1113→    supplierBreakdown: v.suppliers.join(', '),
+  1114→  }));
+  1115→
+  1116→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1117→  rows = groupRows(rows, params.groupBy);
+  1118→
+  1119→  const totalPOs = purchaseOrders.length;
+  1120→  const totalValue = purchaseOrders.reduce((s, po) => s + po.grandTotal, 0);
+  1121→
+  1122→  return {
+  1123→    title: 'Daily Purchase Report',
+  1124→    columns,
+  1125→    rows,
+  1126→    summary: { totalDays: dayMap.size, totalPOs, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalValue), avgDaily: params.vatMode ? 'N/A (Audit Mode)' : (dayMap.size > 0 ? fmt(totalValue / dayMap.size) : '0.00') },
+  1127→    chartData: Array.from(dayMap.values()).map((v) => ({ date: v.date, value: params.vatMode ? 0 : v.totalValue, pos: v.totalPOs })),
+  1128→  };
+  1129→}
+  1130→
+  1131→async function supplierWisePurchase(params: QueryParams): Promise<ReportResult> {
+  1132→  const where: Record<string, unknown> = { isActive: true };
+  1133→  if (params.supplierId) where.supplierId = params.supplierId;
+  1134→  const dateFilter = buildDateFilter(params.from, params.to);
+  1135→  if (dateFilter) where.date = dateFilter;
+  1136→
+  1137→  const purchaseOrders = await db.purchaseOrder.findMany({
+  1138→    where,
+  1139→    include: { supplier: true },
+  1140→  });
+  1141→
+  1142→  const supplierMap = new Map<string, { supplier: string; totalPOs: number; totalValue: number }>();
+  1143→  for (const po of purchaseOrders) {
+  1144→    const name = po.supplier?.name || 'Unknown';
+  1145→    const existing = supplierMap.get(name);
+  1146→    if (existing) {
+  1147→      existing.totalPOs += 1;
+  1148→      existing.totalValue += po.grandTotal;
+  1149→    } else {
+  1150→      supplierMap.set(name, { supplier: name, totalPOs: 1, totalValue: po.grandTotal });
+  1151→    }
+  1152→  }
+  1153→
+  1154→  const columns: ColumnDef[] = [
+  1155→    { key: 'supplier', label: 'Supplier' },
+  1156→    { key: 'totalPOs', label: 'Total POs' },
+  1157→    { key: 'totalValue', label: 'Total Value' },
+  1158→  ];
+  1159→
+  1160→  let rows = Array.from(supplierMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
+  1161→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1162→  rows = groupRows(rows, params.groupBy);
+  1163→
+  1164→  const totalValue = Array.from(supplierMap.values()).reduce((s, v) => s + v.totalValue, 0);
+  1165→
+  1166→  return {
+  1167→    title: 'Supplier-wise Purchase Report',
+  1168→    columns,
+  1169→    rows,
+  1170→    summary: { totalSuppliers: supplierMap.size, totalPOs: purchaseOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalValue) },
+  1171→    chartData: Array.from(supplierMap.values()).map((v) => ({ name: v.supplier, value: params.vatMode ? 0 : v.totalValue })),
+  1172→  };
+  1173→}
+  1174→
+  1175→async function supplierCashDelivery(params: QueryParams): Promise<ReportResult> {
+  1176→  const where: Record<string, unknown> = { isActive: true };
+  1177→  if (params.supplierId) where.supplierId = params.supplierId;
+  1178→  if (params.bankId) where.bankId = params.bankId;
+  1179→  const dateFilter = buildDateFilter(params.from, params.to);
+  1180→  if (dateFilter) where.date = dateFilter;
+  1181→
+  1182→  const deliveries = await db.cashDelivery.findMany({
+  1183→    where,
+  1184→    include: { supplier: true, paymentOption: true, bank: true },
+  1185→    orderBy: { date: 'desc' },
+  1186→  });
+  1187→
+  1188→  const columns: ColumnDef[] = [
+  1189→    { key: 'date', label: 'Date' },
+  1190→    { key: 'deliveryCode', label: 'Code' },
+  1191→    { key: 'supplier', label: 'Supplier' },
+  1192→    { key: 'amount', label: 'Amount' },
+  1193→    { key: 'paymentOption', label: 'Payment Option' },
+  1194→    { key: 'bank', label: 'Bank' },
+  1195→  ];
+  1196→
+  1197→  let rows = deliveries.map((d) => ({
+  1198→    date: fmtDate(d.date),
+  1199→    deliveryCode: d.deliveryCode,
+  1200→    supplier: d.supplier?.name || '',
+  1201→    amount: maskVat(d.amount, params.vatMode),
+  1202→    paymentOption: d.paymentOption?.name || '',
+  1203→    bank: d.bank?.bankName || '',
+  1204→  }));
+  1205→
+  1206→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1207→  rows = groupRows(rows, params.groupBy);
+  1208→
+  1209→  const totalAmount = deliveries.reduce((s, d) => s + d.amount, 0);
+  1210→
+  1211→  return {
+  1212→    title: 'Supplier Cash Delivery Report',
+  1213→    columns,
+  1214→    rows,
+  1215→    summary: { totalDeliveries: deliveries.length, totalAmount: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalAmount) },
+  1216→    chartData: deliveries.slice(0, 30).map((d) => ({ date: fmtDate(d.date), amount: params.vatMode ? 0 : d.amount })),
+  1217→  };
+  1218→}
+  1219→
+  1220→async function supplierDue(params: QueryParams): Promise<ReportResult> {
+  1221→  const suppliers = await db.supplier.findMany({
+  1222→    where: { isActive: true },
+  1223→    include: {
+  1224→      purchaseOrders: { where: { isActive: true } },
+  1225→      purchaseReturns: { where: { isActive: true } },
+  1226→      cashDeliveries: { where: { isActive: true } },
+  1227→    },
+  1228→  });
+  1229→
+  1230→  const columns: ColumnDef[] = [
+  1231→    { key: 'supplierCode', label: 'Code' },
+  1232→    { key: 'supplier', label: 'Supplier' },
+  1233→    { key: 'openingBalance', label: 'Opening Balance' },
+  1234→    { key: 'totalPurchase', label: 'Total Purchase' },
+  1235→    { key: 'totalDeliveries', label: 'Total Payments' },
+  1236→    { key: 'totalReturns', label: 'Total Returns' },
+  1237→    { key: 'outstanding', label: 'Outstanding' },
+  1238→  ];
+  1239→
+  1240→  let rows = suppliers.map((s) => {
+  1241→    const totalPurchase = s.purchaseOrders.reduce((sum, po) => sum + po.grandTotal, 0);
+  1242→    const totalDeliveries = s.cashDeliveries.reduce((sum, d) => sum + d.amount, 0);
+  1243→    const totalReturns = s.purchaseReturns.reduce((sum, r) => sum + r.grandTotal, 0);
+  1244→    const outstanding = s.openingBalance + totalPurchase - totalDeliveries - totalReturns;
+  1245→    return {
+  1246→      _supplierId: s.id, // H1 FIX: Keep supplier UUID for filtering
+  1247→      supplierCode: s.supplierCode,
+  1248→      supplier: s.name,
+  1249→      openingBalance: maskVat(s.openingBalance, params.vatMode),
+  1250→      totalPurchase: maskVat(totalPurchase, params.vatMode),
+  1251→      totalDeliveries: maskVat(totalDeliveries, params.vatMode),
+  1252→      totalReturns: maskVat(totalReturns, params.vatMode),
+  1253→      outstanding: maskVat(Math.max(outstanding, 0), params.vatMode),
+  1254→    };
+  1255→  });
+  1256→
+  1257→  // H1 FIX: Filter by supplier UUID instead of code
+  1258→  if (params.supplierId) rows = rows.filter((r) => r._supplierId === params.supplierId);
+  1259→
+  1260→  // H11 FIX: Calculate summary BEFORE groupRows
+  1261→  const totalOutstanding = rows.reduce((s, r) => s + (Number(r.outstanding) || 0), 0);
+  1262→
+  1263→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1264→  rows = groupRows(rows, params.groupBy);
+  1265→
+  1266→  return {
+  1267→    title: 'Supplier Due Report',
+  1268→    columns,
+  1269→    rows,
+  1270→    summary: { totalSuppliers: rows.length, totalOutstanding: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalOutstanding) },
+  1271→    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.supplier), outstanding: params.vatMode ? 0 : r.outstanding })),
+  1272→  };
+  1273→}
+  1274→
+  1275→async function modelWisePurchase(params: QueryParams): Promise<ReportResult> {
+  1276→  const where: Record<string, unknown> = { isActive: true };
+  1277→  if (params.supplierId) where.supplierId = params.supplierId;
+  1278→  // MIS-002 FIX: Add missing categoryId filter
+  1279→  if (params.categoryId) where.lines = { some: { product: { categoryId: params.categoryId } } };
+  1280→  const dateFilter = buildDateFilter(params.from, params.to);
+  1281→  if (dateFilter) where.date = dateFilter;
+  1282→
+  1283→  const purchaseOrders = await db.purchaseOrder.findMany({
+  1284→    where,
+  1285→    include: { lines: { include: { product: { include: { category: true } } } } },
+  1286→  });
+  1287→
+  1288→  const productMap = new Map<string, { product: string; category: string; quantity: number; totalValue: number }>();
+  1289→  for (const po of purchaseOrders) {
+  1290→    for (const line of po.lines) {
+  1291→      const name = line.product?.name || 'Unknown';
+  1292→      const cat = line.product?.category?.name || 'Unknown';
+  1293→      const existing = productMap.get(name);
+  1294→      if (existing) {
+  1295→        existing.quantity += line.quantity;
+  1296→        existing.totalValue += line.total;
+  1297→      } else {
+  1298→        productMap.set(name, { product: name, category: cat, quantity: line.quantity, totalValue: line.total });
+  1299→      }
+  1300→    }
+  1301→  }
+  1302→
+  1303→  const columns: ColumnDef[] = [
+  1304→    { key: 'product', label: 'Product/Model' },
+  1305→    { key: 'category', label: 'Category' },
+  1306→    { key: 'quantity', label: 'Quantity' },
+  1307→    { key: 'totalValue', label: 'Total Value' },
+  1308→  ];
+  1309→
+  1310→  let rows = Array.from(productMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
+  1311→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1312→  rows = groupRows(rows, params.groupBy);
+  1313→
+  1314→  return {
+  1315→    title: 'Model-wise Purchase Report',
+  1316→    columns,
+  1317→    rows,
+  1318→    summary: {
+  1319→      totalModels: productMap.size,
+  1320→      totalQuantity: Array.from(productMap.values()).reduce((s, v) => s + v.quantity, 0),
+  1321→      totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(productMap.values()).reduce((s, v) => s + v.totalValue, 0)),
+  1322→    },
+  1323→    chartData: Array.from(productMap.values()).slice(0, 20).map((v) => ({ name: v.product, quantity: v.quantity, value: params.vatMode ? 0 : v.totalValue })),
+  1324→  };
+  1325→}
+  1326→
+  1327→async function vatReport(params: QueryParams): Promise<ReportResult> {
+  1328→  const where: Record<string, unknown> = { isActive: true };
+  1329→  const dateFilter = buildDateFilter(params.from, params.to);
+  1330→  if (dateFilter) where.date = dateFilter;
+  1331→  // MIS-002 FIX: Add missing supplierId/customerId filters
+  1332→  if (params.supplierId) where.supplierId = params.supplierId;
+  1333→
+  1334→  const poWhere = { ...where };
+  1335→  const soWhere: Record<string, unknown> = { isActive: true };
+  1336→  if (dateFilter) soWhere.date = dateFilter;
+  1337→  if (params.customerId) soWhere.customerId = params.customerId;
+  1338→
+  1339→  const [purchaseOrders, salesOrders] = await Promise.all([
+  1340→    db.purchaseOrder.findMany({
+  1341→      where: poWhere,
+  1342→      include: { supplier: true, lines: { include: { product: true } } },
+  1343→    }),
+  1344→    db.salesOrder.findMany({
+  1345→      where: soWhere,
+  1346→      include: { customer: true, lines: { include: { product: true } } },
+  1347→    }),
+  1348→  ]);
+  1349→
+  1350→  const columns: ColumnDef[] = [
+  1351→    { key: 'type', label: 'Type' },
+  1352→    { key: 'reference', label: 'Reference' },
+  1353→    { key: 'date', label: 'Date' },
+  1354→    { key: 'vatPercentage', label: 'VAT %' },
+  1355→    { key: 'vatAmount', label: 'VAT Amount' },
+  1356→    { key: 'grandTotal', label: 'Grand Total' },
+  1357→  ];
+  1358→
+  1359→  const rows: Record<string, unknown>[] = [];
+  1360→
+  1361→  for (const po of purchaseOrders) {
+  1362→    rows.push({
+  1363→      type: 'Purchase',
+  1364→      reference: po.poNumber,
+  1365→      date: fmtDate(po.date),
+  1366→      vatPercentage: po.vatPercentage,
+  1367→      vatAmount: maskVat(po.vatAmount, params.vatMode),
+  1368→      grandTotal: maskVat(po.grandTotal, params.vatMode),
+  1369→    });
+  1370→  }
+  1371→  for (const so of salesOrders) {
+  1372→    rows.push({
+  1373→      type: 'Sales',
+  1374→      reference: so.invoiceNo,
+  1375→      date: fmtDate(so.date),
+  1376→      vatPercentage: so.vatPercentage,
+  1377→      vatAmount: maskVat(so.vatAmount, params.vatMode),
+  1378→      grandTotal: maskVat(so.grandTotal, params.vatMode),
+  1379→    });
+  1380→  }
+  1381→
+  1382→  const sortedRows = sortRows(rows, params.sortField, params.sortOrder);
+  1383→
+  1384→  const purchaseVAT = purchaseOrders.reduce((s, po) => s + po.vatAmount, 0);
+  1385→  const salesVAT = salesOrders.reduce((s, so) => s + so.vatAmount, 0);
+  1386→
+  1387→  return {
+  1388→    title: 'VAT Report',
+  1389→    columns,
+  1390→    rows: sortedRows,
+  1391→    summary: {
+  1392→      purchaseVAT: params.vatMode ? 'N/A (Audit Mode)' : fmt(purchaseVAT),
+  1393→      salesVAT: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesVAT),
+  1394→      netVAT: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesVAT - purchaseVAT),
+  1395→      totalPurchaseOrders: purchaseOrders.length,
+  1396→      totalSalesOrders: salesOrders.length,
+  1397→    },
+  1398→    chartData: [
+  1399→      { name: 'Purchase VAT', amount: params.vatMode ? 0 : purchaseVAT },
+  1400→      { name: 'Sales VAT', amount: params.vatMode ? 0 : salesVAT },
+  1401→      { name: 'Net VAT Payable', amount: params.vatMode ? 0 : (salesVAT - purchaseVAT) },
+  1402→    ],
+  1403→  };
+  1404→}
+  1405→
+  1406→// ============================================================
+  1407→// SALES REPORTS
+  1408→// ============================================================
+  1409→
+  1410→async function dailySales(params: QueryParams): Promise<ReportResult> {
+  1411→  const where: Record<string, unknown> = { isActive: true };
+  1412→  if (params.customerId) where.customerId = params.customerId;
+  1413→  // MIS-002 FIX: Add missing filters for sales reports
+  1414→  if (params.employeeId) where.srId = params.employeeId;
+  1415→  if (params.productId) where.lines = { some: { productId: params.productId } };
+  1416→  const dateFilter = buildDateFilter(params.from, params.to);
+  1417→  if (dateFilter) where.date = dateFilter;
+  1418→
+  1419→  const salesOrders = await db.salesOrder.findMany({
+  1420→    where,
+  1421→    include: { customer: true, sr: true },
+  1422→    orderBy: { date: 'desc' },
+  1423→  });
+  1424→
+  1425→  const dayMap = new Map<string, { date: string; totalOrders: number; totalValue: number; customers: string[] }>();
+  1426→  for (const so of salesOrders) {
+  1427→    const day = fmtDate(so.date);
+  1428→    const existing = dayMap.get(day);
+  1429→    if (existing) {
+  1430→      existing.totalOrders += 1;
+  1431→      existing.totalValue += so.grandTotal;
+  1432→      if (so.customer && !existing.customers.includes(so.customer.name)) existing.customers.push(so.customer.name);
+  1433→    } else {
+  1434→      dayMap.set(day, { date: day, totalOrders: 1, totalValue: so.grandTotal, customers: so.customer ? [so.customer.name] : [] });
+  1435→    }
+  1436→  }
+  1437→
+  1438→  const columns: ColumnDef[] = [
+  1439→    { key: 'date', label: 'Date' },
+  1440→    { key: 'totalOrders', label: 'Total Orders' },
+  1441→    { key: 'totalValue', label: 'Total Value' },
+  1442→    { key: 'customerBreakdown', label: 'Customer Breakdown' },
+  1443→  ];
+  1444→
+  1445→  let rows = Array.from(dayMap.values()).map((v) => ({
+  1446→    date: v.date,
+  1447→    totalOrders: v.totalOrders,
+  1448→    totalValue: maskVat(v.totalValue, params.vatMode),
+  1449→    customerBreakdown: v.customers.join(', '),
+  1450→  }));
+  1451→
+  1452→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1453→  rows = groupRows(rows, params.groupBy);
+  1454→
+  1455→  const totalValue = salesOrders.reduce((s, so) => s + so.grandTotal, 0);
+  1456→
+  1457→  return {
+  1458→    title: 'Daily Sales Report',
+  1459→    columns,
+  1460→    rows,
+  1461→    summary: { totalDays: dayMap.size, totalOrders: salesOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalValue), avgDaily: params.vatMode ? 'N/A (Audit Mode)' : (dayMap.size > 0 ? fmt(totalValue / dayMap.size) : '0.00') },
+  1462→    chartData: Array.from(dayMap.values()).map((v) => ({ date: v.date, value: params.vatMode ? 0 : v.totalValue, orders: v.totalOrders })),
+  1463→  };
+  1464→}
+  1465→
+  1466→async function replacementReport(params: QueryParams): Promise<ReportResult> {
+  1467→  const where: Record<string, unknown> = { isActive: true };
+  1468→  if (params.customerId) where.customerId = params.customerId;
+  1469→  if (params.employeeId) where.salesOrder = { srId: params.employeeId };
+  1470→  const dateFilter = buildDateFilter(params.from, params.to);
+  1471→  if (dateFilter) where.date = dateFilter;
+  1472→
+  1473→  const replacements = await db.replacementOrder.findMany({
+  1474→    where,
+  1475→    include: { salesOrder: { include: { customer: true } }, lines: { include: { product: true } } },
+  1476→    orderBy: { date: 'desc' },
+  1477→  });
+  1478→
+  1479→  const columns: ColumnDef[] = [
+  1480→    { key: 'replacementNo', label: 'Replacement No' },
+  1481→    { key: 'date', label: 'Date' },
+  1482→    { key: 'customer', label: 'Customer' },
+  1483→    { key: 'product', label: 'Product' },
+  1484→    { key: 'quantity', label: 'Quantity' },
+  1485→    { key: 'reason', label: 'Reason' },
+  1486→    { key: 'status', label: 'Status' },
+  1487→  ];
+  1488→
+  1489→  let rows: Record<string, unknown>[] = [];
+  1490→  for (const r of replacements) {
+  1491→    for (const line of r.lines) {
+  1492→      rows.push({
+  1493→        replacementNo: r.replacementNo,
+  1494→        date: fmtDate(r.date),
+  1495→        customer: r.salesOrder?.customer?.name || '',
+  1496→        product: line.product?.name || '',
+  1497→        quantity: line.quantity,
+  1498→        reason: r.reason || '',
+  1499→        status: r.status,
+  1500→      });
+  1501→    }
+  1502→  }
+  1503→
+  1504→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1505→  rows = groupRows(rows, params.groupBy);
+  1506→
+  1507→  return {
+  1508→    title: 'Replacement Report',
+  1509→    columns,
+  1510→    rows,
+  1511→    summary: { totalReplacements: replacements.length, pending: replacements.filter((r) => r.status === 'Pending').length, completed: replacements.filter((r) => r.status === 'Completed').length },
+  1512→    chartData: [
+  1513→      { name: 'Pending', count: replacements.filter((r) => r.status === 'Pending').length },
+  1514→      { name: 'Completed', count: replacements.filter((r) => r.status === 'Completed').length },
+  1515→    ],
+  1516→  };
+  1517→}
+  1518→
+  1519→async function modelWiseSales(params: QueryParams): Promise<ReportResult> {
+  1520→  const where: Record<string, unknown> = { isActive: true };
+  1521→  if (params.customerId) where.customerId = params.customerId;
+  1522→  if (params.employeeId) where.srId = params.employeeId;
+  1523→  // MIS-002 FIX: Add missing categoryId filter
+  1524→  if (params.categoryId) where.lines = { some: { product: { categoryId: params.categoryId } } };
+  1525→  const dateFilter = buildDateFilter(params.from, params.to);
+  1526→  if (dateFilter) where.date = dateFilter;
+  1527→
+  1528→  const salesOrders = await db.salesOrder.findMany({
+  1529→    where,
+  1530→    include: { lines: { include: { product: { include: { category: true } } } } },
+  1531→  });
+  1532→
+  1533→  const productMap = new Map<string, { product: string; category: string; quantity: number; totalValue: number }>();
+  1534→  for (const so of salesOrders) {
+  1535→    for (const line of so.lines) {
+  1536→      const name = line.product?.name || 'Unknown';
+  1537→      const cat = line.product?.category?.name || 'Unknown';
+  1538→      const existing = productMap.get(name);
+  1539→      if (existing) {
+  1540→        existing.quantity += line.quantity;
+  1541→        existing.totalValue += line.total;
+  1542→      } else {
+  1543→        productMap.set(name, { product: name, category: cat, quantity: line.quantity, totalValue: line.total });
+  1544→      }
+  1545→    }
+  1546→  }
+  1547→
+  1548→  const columns: ColumnDef[] = [
+  1549→    { key: 'product', label: 'Product/Model' },
+  1550→    { key: 'category', label: 'Category' },
+  1551→    { key: 'quantity', label: 'Quantity' },
+  1552→    { key: 'totalValue', label: 'Total Value' },
+  1553→  ];
+  1554→
+  1555→  let rows = Array.from(productMap.values()).map((v) => ({ ...v, totalValue: maskVat(v.totalValue, params.vatMode) }));
+  1556→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1557→  rows = groupRows(rows, params.groupBy);
+  1558→
+  1559→  return {
+  1560→    title: 'Model-wise Sales Report',
+  1561→    columns,
+  1562→    rows,
+  1563→    summary: {
+  1564→      totalModels: productMap.size,
+  1565→      totalQuantity: Array.from(productMap.values()).reduce((s, v) => s + v.quantity, 0),
+  1566→      totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(productMap.values()).reduce((s, v) => s + v.totalValue, 0)),
+  1567→    },
+  1568→    chartData: Array.from(productMap.values()).slice(0, 20).map((v) => ({ name: v.product, quantity: v.quantity, value: params.vatMode ? 0 : v.totalValue })),
+  1569→  };
+  1570→}
+  1571→
+  1572→// ============================================================
+  1573→// HIRE SALES REPORTS
+  1574→// ============================================================
+  1575→
+  1576→async function installmentCollection(params: QueryParams): Promise<ReportResult> {
+  1577→  const dateFilter = buildDateFilter(params.from, params.to);
+  1578→  const where: Record<string, unknown> = { status: 'Paid' };
+  1579→  if (dateFilter) where.paidDate = dateFilter;
+  1580→  if (params.customerId) where.hireSales = { customerId: params.customerId };
+  1581→
+  1582→  const installments = await db.hireInstallment.findMany({
+  1583→    where,
+  1584→    include: { hireSales: { include: { customer: true, lines: { include: { product: true } } } } },
+  1585→    orderBy: { paidDate: 'desc' },
+  1586→  });
+  1587→
+  1588→  const columns: ColumnDef[] = [
+  1589→    { key: 'installmentNo', label: 'Installment #' },
+  1590→    { key: 'invoiceNo', label: 'Invoice No' },
+  1591→    { key: 'customer', label: 'Customer' },
+  1592→    { key: 'product', label: 'Product' },
+  1593→    { key: 'dueDate', label: 'Due Date' },
+  1594→    { key: 'paidDate', label: 'Paid Date' },
+  1595→    { key: 'amount', label: 'Amount' },
+  1596→    { key: 'paidAmount', label: 'Paid Amount' },
+  1597→  ];
+  1598→
+  1599→  let rows = installments.map((i) => ({
+  1600→    installmentNo: i.installmentNo,
+  1601→    invoiceNo: i.hireSales?.invoiceNo || '',
+  1602→    customer: i.hireSales?.customer?.name || '',
+  1603→    product: i.hireSales?.lines?.[0]?.product?.name || '',
+  1604→    dueDate: fmtDate(i.dueDate),
+  1605→    paidDate: i.paidDate ? fmtDate(i.paidDate) : '',
+  1606→    amount: maskVat(i.amount, params.vatMode),
+  1607→    paidAmount: maskVat(i.paidAmount, params.vatMode),
+  1608→  }));
+  1609→
+  1610→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1611→  rows = groupRows(rows, params.groupBy);
+  1612→
+  1613→  const totalCollected = installments.reduce((s, i) => s + i.paidAmount, 0);
+  1614→
+  1615→  return {
+  1616→    title: 'Installment Collection Report',
+  1617→    columns,
+  1618→    rows,
+  1619→    summary: { totalInstallments: installments.length, totalCollected: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalCollected) },
+  1620→    chartData: installments.slice(0, 30).map((i) => ({ date: i.paidDate ? fmtDate(i.paidDate) : '', amount: params.vatMode ? 0 : i.paidAmount })),
+  1621→  };
+  1622→}
+  1623→
+  1624→async function upcomingInstallment(params: QueryParams): Promise<ReportResult> {
+  1625→  const where: Record<string, unknown> = { status: 'Pending' };
+  1626→  if (params.customerId) where.hireSales = { customerId: params.customerId };
+  1627→  const dateFilter = buildDateFilter(params.from, params.to);
+  1628→  if (dateFilter) where.dueDate = dateFilter;
+  1629→
+  1630→  const installments = await db.hireInstallment.findMany({
+  1631→    where,
+  1632→    include: { hireSales: { include: { customer: true, lines: { include: { product: true } } } } },
+  1633→    orderBy: { dueDate: 'asc' },
+  1634→  });
+  1635→
+  1636→  const columns: ColumnDef[] = [
+  1637→    { key: 'installmentNo', label: 'Installment #' },
+  1638→    { key: 'invoiceNo', label: 'Invoice No' },
+  1639→    { key: 'customer', label: 'Customer' },
+  1640→    { key: 'product', label: 'Product' },
+  1641→    { key: 'dueDate', label: 'Due Date' },
+  1642→    { key: 'amount', label: 'Amount' },
+  1643→    { key: 'status', label: 'Status' },
+  1644→  ];
+  1645→
+  1646→  let rows = installments.map((i) => ({
+  1647→    installmentNo: i.installmentNo,
+  1648→    invoiceNo: i.hireSales?.invoiceNo || '',
+  1649→    customer: i.hireSales?.customer?.name || '',
+  1650→    product: i.hireSales?.lines?.[0]?.product?.name || '',
+  1651→    dueDate: fmtDate(i.dueDate),
+  1652→    amount: maskVat(i.amount, params.vatMode),
+  1653→    status: i.status,
+  1654→  }));
+  1655→
+  1656→  // H11 FIX: Calculate summary BEFORE groupRows
+  1657→  const totalDue = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  1658→
+  1659→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1660→  rows = groupRows(rows, params.groupBy);
+  1661→
+  1662→  return {
+  1663→    title: 'Upcoming Installment Report',
+  1664→    columns,
+  1665→    rows,
+  1666→    summary: { totalUpcoming: rows.length, totalDue: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalDue) },
+  1667→    chartData: rows.slice(0, 30).map((r) => ({ date: r.dueDate, amount: params.vatMode ? 0 : r.amount })),
+  1668→  };
+  1669→}
+  1670→
+  1671→async function defaultingCustomer(params: QueryParams): Promise<ReportResult> {
+  1672→  const now = new Date();
+  1673→  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  1674→
+  1675→  // BUG 12 FIX: Remove hireWhere from include to avoid null hireSales
+  1676→  const overdue = await db.hireInstallment.findMany({
+  1677→    where: {
+  1678→      status: { in: ['Pending', 'Overdue'] },
+  1679→      dueDate: { lt: thirtyDaysAgo },
+  1680→    },
+  1681→    include: { hireSales: { include: { customer: true, lines: { include: { product: true } } } } },
+  1682→  });
+  1683→
+  1684→  const dateFilter = buildDateFilter(params.from, params.to);
+  1685→
+  1686→  const columns: ColumnDef[] = [
+  1687→    { key: 'customer', label: 'Customer' },
+  1688→    { key: 'invoiceNo', label: 'Invoice No' },
+  1689→    { key: 'product', label: 'Product' },
+  1690→    { key: 'dueDate', label: 'Due Date' },
+  1691→    { key: 'amount', label: 'Amount Due' },
+  1692→    { key: 'daysOverdue', label: 'Days Overdue' },
+  1693→    { key: 'phone', label: 'Phone' },
+  1694→  ];
+  1695→
+  1696→  let rows = overdue.map((i) => {
+  1697→    const daysOverdue = Math.floor((now.getTime() - new Date(i.dueDate).getTime()) / (1000 * 60 * 60 * 24));
+  1698→    return {
+  1699→      customer: i.hireSales?.customer?.name || '',
+  1700→      invoiceNo: i.hireSales?.invoiceNo || '',
+  1701→      product: i.hireSales?.lines?.[0]?.product?.name || '',
+  1702→      dueDate: fmtDate(i.dueDate),
+  1703→      amount: maskVat(i.amount, params.vatMode),
+  1704→      daysOverdue,
+  1705→      phone: i.hireSales?.customer?.phone || '',
+  1706→      _hireSalesDate: i.hireSales?.date,
+  1707→    };
+  1708→  });
+  1709→
+  1710→  // BUG 12 FIX: Apply date filter on hireSales date after fetching if needed
+  1711→  if (dateFilter) {
+  1712→    const fromTime = dateFilter.gte ? dateFilter.gte.getTime() : 0;
+  1713→    const toTime = dateFilter.lte ? dateFilter.lte.getTime() : Infinity;
+  1714→    rows = rows.filter((r) => {
+  1715→      if (!r._hireSalesDate) return false;
+  1716→      const d = new Date(r._hireSalesDate as Date).getTime();
+  1717→      return d >= fromTime && d <= toTime;
+  1718→    });
+  1719→  }
+  1720→
+  1721→  // Remove internal field before returning
+  1722→  rows = rows.map(({ _hireSalesDate, ...rest }) => rest);
+  1723→
+  1724→  if (params.customerId) {
+  1725→    rows = rows.filter((r) => {
+  1726→      const cust = overdue.find((i) => i.hireSales?.invoiceNo === r.invoiceNo);
+  1727→      return cust?.hireSales?.customerId === params.customerId;
+  1728→    });
+  1729→  }
+  1730→
+  1731→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1732→  rows = groupRows(rows, params.groupBy);
+  1733→
+  1734→  return {
+  1735→    title: 'Defaulting Customer Report',
+  1736→    columns,
+  1737→    rows,
+  1738→    summary: { totalDefaulters: new Set(rows.map((r) => r.customer)).size, totalOverdue: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0)), avgDaysOverdue: rows.length > 0 ? Math.round(rows.reduce((s, r) => s + (Number(r.daysOverdue) || 0), 0) / rows.length) : 0 },
+  1739→    chartData: rows.slice(0, 20).map((r) => ({ name: String(r.customer), amount: params.vatMode ? 0 : r.amount, days: r.daysOverdue })),
+  1740→  };
+  1741→}
+  1742→
+  1743→async function defaultCustomerSummary(params: QueryParams): Promise<ReportResult> {
+  1744→  const now = new Date();
+  1745→  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  1746→
+  1747→  // BUG 13 FIX: Remove hireWhere from include to avoid null hireSales
+  1748→  const dateFilter = buildDateFilter(params.from, params.to);
+  1749→
+  1750→  const overdue = await db.hireInstallment.findMany({
+  1751→    where: { status: { in: ['Pending', 'Overdue'] }, dueDate: { lt: thirtyDaysAgo } },
+  1752→    include: { hireSales: { include: { customer: true } } },
+  1753→  });
+  1754→
+  1755→  // BUG 13 FIX: Filter by hireSales date after fetching if needed
+  1756→  const filteredOverdue = dateFilter
+  1757→    ? overdue.filter((i) => {
+  1758→        if (!i.hireSales) return false;
+  1759→        const d = new Date(i.hireSales.date).getTime();
+  1760→        const fromTime = dateFilter.gte ? dateFilter.gte.getTime() : 0;
+  1761→        const toTime = dateFilter.lte ? dateFilter.lte.getTime() : Infinity;
+  1762→        return d >= fromTime && d <= toTime;
+  1763→      })
+  1764→    : overdue;
+  1765→
+  1766→  const customerMap = new Map<string, { customer: string; phone: string; totalOverdue: number; installmentCount: number }>();
+  1767→  for (const i of filteredOverdue) {
+  1768→    const name = i.hireSales?.customer?.name || 'Unknown';
+  1769→    const phone = i.hireSales?.customer?.phone || '';
+  1770→    const existing = customerMap.get(name);
+  1771→    if (existing) {
+  1772→      existing.totalOverdue += i.amount;
+  1773→      existing.installmentCount += 1;
+  1774→    } else {
+  1775→      customerMap.set(name, { customer: name, phone, totalOverdue: i.amount, installmentCount: 1 });
+  1776→    }
+  1777→  }
+  1778→
+  1779→  const columns: ColumnDef[] = [
+  1780→    { key: 'customer', label: 'Customer' },
+  1781→    { key: 'phone', label: 'Phone' },
+  1782→    { key: 'installmentCount', label: 'Overdue Installments' },
+  1783→    { key: 'totalOverdue', label: 'Total Overdue' },
+  1784→  ];
+  1785→
+  1786→  let rows = Array.from(customerMap.values()).map((v) => ({ ...v, totalOverdue: maskVat(v.totalOverdue, params.vatMode) }));
+  1787→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1788→  rows = groupRows(rows, params.groupBy);
+  1789→
+  1790→  return {
+  1791→    title: 'Default Customer Summary',
+  1792→    columns,
+  1793→    rows,
+  1794→    summary: { totalDefaulters: customerMap.size, totalOverdue: params.vatMode ? 'N/A (Audit Mode)' : fmt(Array.from(customerMap.values()).reduce((s, r) => s + r.totalOverdue, 0)) },
+  1795→    chartData: Array.from(customerMap.values()).slice(0, 20).map((v) => ({ name: v.customer, amount: params.vatMode ? 0 : v.totalOverdue })),
+  1796→  };
+  1797→}
+  1798→
+  1799→async function hireAccountDetails(params: QueryParams): Promise<ReportResult> {
+  1800→  const where: Record<string, unknown> = { isActive: true };
+  1801→  if (params.customerId) where.customerId = params.customerId;
+  1802→  const dateFilter = buildDateFilter(params.from, params.to);
+  1803→  if (dateFilter) where.date = dateFilter;
+  1804→
+  1805→  const hireSales = await db.hireSales.findMany({
+  1806→    where,
+  1807→    include: { customer: true, lines: { include: { product: true } }, installments: true },
+  1808→  });
+  1809→
+  1810→  const columns: ColumnDef[] = [
+  1811→    { key: 'invoiceNo', label: 'Invoice No' },
+  1812→    { key: 'date', label: 'Date' },
+  1813→    { key: 'customer', label: 'Customer' },
+  1814→    { key: 'grandTotal', label: 'Grand Total' },
+  1815→    { key: 'totalPaid', label: 'Total Paid' },
+  1816→    { key: 'balanceAmount', label: 'Balance' },
+  1817→    { key: 'duration', label: 'Duration' },
+  1818→    { key: 'status', label: 'Status' },
+  1819→  ];
+  1820→
+  1821→  let rows = hireSales.map((hs) => ({
+  1822→    invoiceNo: hs.invoiceNo,
+  1823→    date: fmtDate(hs.date),
+  1824→    customer: hs.customer?.name || '',
+  1825→    grandTotal: maskVat(hs.grandTotal, params.vatMode),
+  1826→    totalPaid: maskVat(hs.totalPaid, params.vatMode),
+  1827→    balanceAmount: maskVat(hs.balanceAmount, params.vatMode),
+  1828→    duration: hs.duration,
+  1829→    status: hs.currentStatus || hs.status,
+  1830→  }));
+  1831→
+  1832→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1833→  rows = groupRows(rows, params.groupBy);
+  1834→
+  1835→  const totalGrand = hireSales.reduce((s, h) => s + h.grandTotal, 0);
+  1836→  const totalPaid = hireSales.reduce((s, h) => s + h.totalPaid, 0);
+  1837→
+  1838→  return {
+  1839→    title: 'Hire Account Details',
+  1840→    columns,
+  1841→    rows,
+  1842→    summary: { totalAccounts: hireSales.length, totalGrand: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalGrand), totalPaid: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalPaid), totalBalance: params.vatMode ? 'N/A (Audit Mode)' : fmt(totalGrand - totalPaid) },
+  1843→    chartData: [
+  1844→      { name: 'Total', amount: params.vatMode ? 0 : totalGrand },
+  1845→      { name: 'Paid', amount: params.vatMode ? 0 : totalPaid },
+  1846→      { name: 'Balance', amount: params.vatMode ? 0 : (totalGrand - totalPaid) },
+  1847→    ],
+  1848→  };
+  1849→}
+  1850→
+  1851→// ============================================================
+  1852→// SR REPORTS
+  1853→// ============================================================
+  1854→
+  1855→async function srWiseSales(params: QueryParams): Promise<ReportResult> {
+  1856→  // BUG 15 FIX: Use SRTargetSetup to find SR employees instead of fragile designation name contains
+  1857→  const srTargets = await db.sRTargetSetup.findMany({
+  1858→    where: { isActive: true, status: 'ACTIVE' },
+  1859→    select: { employeeId: true },
+  1860→    distinct: ['employeeId'],
+  1861→  });
+  1862→  const srEmployeeIds = srTargets.map((t) => t.employeeId);
+  1863→  const where: Record<string, unknown> = { isActive: true };
+  1864→  if (params.employeeId) {
+  1865→    where.id = params.employeeId;
+  1866→  } else if (srEmployeeIds.length > 0) {
+  1867→    where.id = { in: srEmployeeIds };
+  1868→  } else {
+  1869→    // Fallback to exact designation match if no SRTargetSetup records exist
+  1870→    where.designation = { name: { in: ['SR', 'Sales Representative', 'Sales Rep'] } };
+  1871→  }
+  1872→
+  1873→  const srs = await db.employee.findMany({
+  1874→    where,
+  1875→    include: { designation: true, department: true },
+  1876→  });
+  1877→
+  1878→  const salesWhere: Record<string, unknown> = { isActive: true };
+  1879→  const dateFilter = buildDateFilter(params.from, params.to);
+  1880→  if (dateFilter) salesWhere.date = dateFilter;
+  1881→
+  1882→  const salesOrders = await db.salesOrder.findMany({
+  1883→    where: salesWhere,
+  1884→    include: { sr: true },
+  1885→  });
+  1886→
+  1887→  const srMap = new Map<string, { srName: string; srCode: string; totalOrders: number; totalValue: number }>();
+  1888→  for (const sr of srs) {
+  1889→    srMap.set(sr.id, { srName: sr.name, srCode: sr.employeeCode, totalOrders: 0, totalValue: 0 });
+  1890→  }
+  1891→
+  1892→  // C2 FIX: Attribute each SO to its actual SR via so.srId instead of even distribution
+  1893→  for (const so of salesOrders) {
+  1894→    if (so.srId && srMap.has(so.srId)) {
+  1895→      const srData = srMap.get(so.srId)!;
+  1896→      srData.totalOrders += 1;
+  1897→      srData.totalValue = safeFinancialAdd(srData.totalValue, so.grandTotal);
+  1898→    }
+  1899→  }
+  1900→
+  1901→  const columns: ColumnDef[] = [
+  1902→    { key: 'srCode', label: 'SR Code' },
+  1903→    { key: 'srName', label: 'SR Name' },
+  1904→    { key: 'totalOrders', label: 'Total Orders' },
+  1905→    { key: 'totalValue', label: 'Total Value' },
+  1906→  ];
+  1907→
+  1908→  let rows = Array.from(srMap.values()).map((v) => ({
+  1909→    srCode: v.srCode,
+  1910→    srName: v.srName,
+  1911→    totalOrders: v.totalOrders,
+  1912→    totalValue: maskVat(safeFinancialRound(v.totalValue), params.vatMode),
+  1913→  }));
+  1914→
+  1915→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1916→  rows = groupRows(rows, params.groupBy);
+  1917→
+  1918→  return {
+  1919→    title: 'SR-wise Sales Report',
+  1920→    columns,
+  1921→    rows,
+  1922→    summary: { totalSRs: srs.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(rows.reduce((s, r) => s + (Number(r.totalValue) || 0), 0)) },
+  1923→    chartData: Array.from(srMap.values()).map((v) => ({ name: String(v.srName), value: params.vatMode ? 0 : safeFinancialRound(v.totalValue) })),
+  1924→  };
+  1925→}
+  1926→
+  1927→async function srWiseSalesDetails(params: QueryParams): Promise<ReportResult> {
+  1928→  const dateFilter = buildDateFilter(params.from, params.to);
+  1929→  const salesWhere: Record<string, unknown> = { isActive: true };
+  1930→  if (params.employeeId) salesWhere.srId = params.employeeId;
+  1931→  if (dateFilter) salesWhere.date = dateFilter;
+  1932→
+  1933→  const salesOrders = await db.salesOrder.findMany({
+  1934→    where: salesWhere,
+  1935→    include: { customer: true, sr: true, lines: { include: { product: true } } },
+  1936→    orderBy: { date: 'desc' },
+  1937→  });
+  1938→
+  1939→  const columns: ColumnDef[] = [
+  1940→    { key: 'invoiceNo', label: 'Invoice No' },
+  1941→    { key: 'date', label: 'Date' },
+  1942→    { key: 'srName', label: 'SR Name' },
+  1943→    { key: 'customer', label: 'Customer' },
+  1944→    { key: 'product', label: 'Product' },
+  1945→    { key: 'quantity', label: 'Quantity' },
+  1946→    { key: 'rate', label: 'Rate' },
+  1947→    { key: 'total', label: 'Total' },
+  1948→  ];
+  1949→
+  1950→  let rows: Record<string, unknown>[] = [];
+  1951→  for (const so of salesOrders) {
+  1952→    for (const line of so.lines) {
+  1953→      rows.push({
+  1954→        invoiceNo: so.invoiceNo,
+  1955→        date: fmtDate(so.date),
+  1956→        srName: so.sr?.name || 'N/A',
+  1957→        customer: so.customer?.name || '',
+  1958→        product: line.product?.name || '',
+  1959→        quantity: line.quantity,
+  1960→        rate: maskVat(line.rate, params.vatMode),
+  1961→        total: maskVat(line.total, params.vatMode),
+  1962→      });
+  1963→    }
+  1964→  }
+  1965→
+  1966→  rows = sortRows(rows, params.sortField, params.sortOrder);
+  1967→  rows = groupRows(rows, params.groupBy);
+  1968→
+  1969→  return {
+  1970→    title: 'SR-wise Sales Details',
+  1971→    columns,
+  1972→    rows,
+  1973→    summary: { totalOrders: salesOrders.length, totalValue: params.vatMode ? 'N/A (Audit Mode)' : fmt(salesOrders.reduce((s, so) => s + so.grandTotal, 0)) },
+  1974→    chartData: salesOrders.slice(0, 20).map((so) => ({ name: so.invoiceNo, value: params.vatMode ? 0 : so.grandTotal })),
+  1975→  };
+  1976→}
+  1977→
+  1978→async function srWiseCustomerDue(params: QueryParams): Promise<ReportResult> {
+  1979→  const customers = await db.customer.findMany({
+  1980→    where: { isActive: true },
+  1981→    include: {
+  1982→      salesOrders: { where: { isActive: true } },
+  1983→      salesReturns: { where: { isActive: true } },
+  1984→      // H4 FIX: Include cashCollections with srId for SR filtering
+  1985→      cashCollections: { where: { isActive: true }, include: { sr: true } },
+  1986→    },
+  1987→  });
+  1988→
+  1989→  const columns: ColumnDef[] = [
+  1990→    { key: 'customer', label: 'Customer' },
+  1991→    { key: 'customerCode', label: 'Code' },
+  1992→    { key: 'totalSales', label: 'Total Sales' },
+  1993→    { key: 'totalPaid', label: 'Total Paid' },
+  1994→    { key: 'totalReturns', label: 'Returns' },
+  1995→    { key: 'outstanding', label: 'Outstanding' },
+  1996→  ];
+  1997→
+  1998→  // BUG 14 FIX: Calculate raw outstanding before masking, filter on raw value
+  1999→  let rows = customers.map((c) => {
+  2000→    const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
+
+[showing lines 1-2000 of 3917; use offset=2001 with limit to continue reading]

@@ -1993,9 +1993,11 @@ function ChangePasswordPage() {
     }
     setSaving(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (auth.accessToken) headers["Authorization"] = `Bearer ${auth.accessToken}`;
       const res = await fetch("/api/auth/password", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Email": auth.user?.email || "" },
+        headers,
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       const data = await res.json();
@@ -2080,8 +2082,10 @@ function ProfilePage() {
     if (!user?.email) return;
     setLoading(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); if (a.accessToken) headers["Authorization"] = `Bearer ${a.accessToken}`; } catch {}
       const res = await fetch("/api/users/profile", {
-        headers: { "Content-Type": "application/json", "X-User-Email": user.email },
+        headers,
       });
       if (res.ok) {
         const data = await res.json();
@@ -2120,9 +2124,11 @@ function ProfilePage() {
     if (!user?.email) return;
     setSaving(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); if (a.accessToken) headers["Authorization"] = `Bearer ${a.accessToken}`; } catch {}
       const res = await fetch("/api/users/profile", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "X-User-Email": user.email },
+        headers,
         body: JSON.stringify({
           name: profileData.name,
           phone: profileData.phone,

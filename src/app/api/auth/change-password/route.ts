@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { withApiSecurity, invalidateUserCache } from "@/lib/api-security";
-import { logUserActivity } from "@/lib/activity-logger";
+import { logUserActivity, logSystemAudit } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
 import { verifyPassword, hashPassword } from "@/lib/password-utils";
@@ -154,6 +154,17 @@ export async function POST(request: NextRequest) {
         changedAt: new Date().toISOString(),
       }),
     });
+
+    // Log to SystemAuditLog for security tracking
+    await logSystemAudit({
+      actionType: 'PASSWORD_CHANGE',
+      targetModel: 'User',
+      targetRecordId: user.id,
+      actorUserId: security.user.id,
+      actorUserName: security.user.name,
+      metadata: JSON.stringify({ action: 'SELF_PASSWORD_CHANGE', email: user.email }),
+      companyId: user.companyId || undefined,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

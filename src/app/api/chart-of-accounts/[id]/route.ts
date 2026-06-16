@@ -245,20 +245,33 @@ export async function DELETE(
       );
     }
 
-    // Check if account has active ledger entries
-    const ledgerCount = await db.ledgerEntry.count({
-      where: { accountId: id, isActive: true },
+    // Check if account has active ledger entries (excluding auto-generated opening balance entries)
+    const nonOpeningLedgerCount = await db.ledgerEntry.count({
+      where: { accountId: id, isActive: true, reference: { not: `COA-OPENING-${existing.code}` } },
     });
-    if (ledgerCount > 0) {
+    if (nonOpeningLedgerCount > 0) {
       return NextResponse.json(
-        { error: `Cannot deactivate: account has ${ledgerCount} active ledger entries. This account is in active use.` },
+        { error: `Cannot deactivate: account has ${nonOpeningLedgerCount} active ledger entries. This account is in active use.` },
         { status: 400 }
       );
     }
 
     await db.$transaction(async (tx) => {
-      // Soft delete
+      // Soft delete the account
       await tx.chartOfAccount.update({ where: { id }, data: { isActive: false } });
+
+      // COA-004: Also soft-delete all opening balance ledger entries for this account:
+      // 1. The contra "Opening Balance Equity" entries (reference = COA-OPENING-{code})
+      // 2. The account's own opening balance entries (reference = COA-OPENING-{code})
+      if (existing.openingBalance > 0) {
+        await tx.ledgerEntry.updateMany({
+          where: {
+            reference: `COA-OPENING-${existing.code}`,
+            isActive: true,
+          },
+          data: { isActive: false },
+        });
+      }
     });
 
     // Activity logging — module token "Acc-Chart-Of-Accounts"

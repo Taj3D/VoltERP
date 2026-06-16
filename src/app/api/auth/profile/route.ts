@@ -13,8 +13,9 @@ import { db } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   try {
-    // Use "AuditLogs" module (not "Auth" which is exempt and returns system user)
-    const security = await withApiSecurity(request, "AuditLogs", "GET");
+    // Use "UserProfile" module — accessible by ALL authenticated roles (maps to 'user-profile' group)
+    // Previously used "AuditLogs" which blocked SR and Dealer roles
+    const security = await withApiSecurity(request, "UserProfile", "GET");
     if (!security.authorized) return security.response;
 
     // Look up full user profile by email
@@ -60,8 +61,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    // Use "AuditLogs" module (not "Auth" which is exempt and returns system user)
-    const security = await withApiSecurity(request, "AuditLogs", "PUT");
+    // Use "UserProfile" module — accessible by ALL authenticated roles (maps to 'user-profile' group)
+    // Previously used "AuditLogs" which blocked SR and Dealer roles
+    const security = await withApiSecurity(request, "UserProfile", "PUT");
     if (!security.authorized) return security.response;
 
     const body = await request.json();

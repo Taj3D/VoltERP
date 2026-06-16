@@ -4,6 +4,7 @@ import { verifyPassword, hashPassword, needsRehash } from "@/lib/password-utils"
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from "@/lib/rate-limiter";
 import { signAccessToken, signRefreshToken } from "@/lib/jwt-utils";
 import { generateCsrfToken } from "@/lib/csrf";
+import { logSystemAudit } from "@/lib/activity-logger";
 
 // Default credentials for all 5 RBAC roles
 const DEFAULT_USERS = [
@@ -111,6 +112,19 @@ export async function POST(req: NextRequest) {
         },
       });
     } catch (e) { console.warn("Failed to log user activity:", e); }
+
+    // Log to SystemAuditLog for security tracking
+    await logSystemAudit({
+      actionType: 'LOGIN',
+      targetModel: 'User',
+      targetRecordId: user.id,
+      actorUserId: user.id,
+      actorUserName: user.name,
+      ipAddress: clientIp,
+      userAgent: req.headers.get('user-agent') || undefined,
+      companyId: user.companyId || undefined,
+      metadata: JSON.stringify({ email: user.email, role: user.role }),
+    }).catch(() => {});
 
     // ── Issue JWT tokens ──
     const accessToken = signAccessToken({

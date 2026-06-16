@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo } from "react";
+     4→import {
+     5→  Send, DollarSign, Coins, CheckCircle, Clock, XCircle,
+     6→  AlertTriangle, Banknote, Search, RefreshCw, Download,
+     7→  Upload, FileDown, Plus, MessageSquare, Settings,
+     8→  Phone, FileText, CreditCard, Activity, BarChart3,
+     9→  Pencil, Trash2, Shield, Lock, Mail, Eye, Flag, Archive,
+    10→  Zap, ShoppingCart, Package, Users, Megaphone, RotateCcw
+    11→} from "lucide-react";
+    12→import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+    13→import { Button } from "@/components/ui/button";
+    14→import { Input } from "@/components/ui/input";
+    15→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    16→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    17→import { Badge } from "@/components/ui/badge";
+    18→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    19→import { Textarea } from "@/components/ui/textarea";
+    20→import { Label } from "@/components/ui/label";
+    21→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    22→import { Separator } from "@/components/ui/separator";
+    23→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+    24→import { Switch } from "@/components/ui/switch";
+    25→import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+    26→import { useToast } from "@/hooks/use-toast";
+    27→import { useTheme } from "next-themes";
+    28→import {
+    29→  exportToPDF,
+    30→  exportToCSV,
+    31→  importFromCSV,
+    32→} from "@/lib/export-utils";
+    33→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+    34→import { apiFetch } from "@/lib/api-client";
+    35→import { useAuth } from "@/hooks/useAuth";
+    36→
+    37→// ============================================================
+    38→// UTILITY FUNCTIONS
+    39→// ============================================================
+    40→
+    41→import { fmtBDT as _fmtBDT, fmtNumber as _fmtNumberVal } from "@/lib/number-format";
+    42→
+    43→const fmtCurrency = (v: any) => {
+    44→  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
+    45→  const num = Number(v);
+    46→  if (isNaN(num) || v === null || v === undefined) return "—";
+    47→  return _fmtBDT(num);
+    48→};
+    49→
+    50→const fmt = (v: any, type?: string) => {
+    51→  if (v === null || v === undefined) return "—";
+    52→  if (type === "currency") return fmtCurrency(v);
+    53→  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+    54→  if (type === "boolean") return v ? "Active" : "Inactive";
+    55→  if (type === "number") {
+    56→    const num = Number(v);
+    57→    if (isNaN(num)) return "—";
+    58→    return _fmtNumberVal(num);
+    59→  }
+    60→  return String(v);
+    61→};
+    62→
+    63→const fmtEmpty = (v: any) => {
+    64→  if (v === null || v === undefined || v === '') return '—';
+    65→  return String(v);
+    66→};
+    67→
+    68→const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+    69→
+    70→// SMS Character Bounds Computation (Client-side mirror)
+    71→const computeClientSmsSegments = (message: string) => {
+    72→  const charCount = message.length;
+    73→  const isUnicode = /[^\x00-\x7F]/.test(message);
+    74→  const charsPerSegment = isUnicode ? 70 : 160;
+    75→  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
+    76→  return { charCount, isUnicode, segmentCount, charsPerSegment };
+    77→};
+    78→
+    79→
+    80→// ============================================================
+    81→// AUTH TYPES
+    82→
+    83→// ============================================================
+    84→// SMS ANALYTICS PAGE COMPONENT
+    85→// ============================================================
+    86→
+    87→export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string } = {}) {
+    88→  const { toast } = useToast();
+    89→  const { resolvedTheme } = useTheme();
+    90→  const isDark = resolvedTheme === "dark";
+    91→
+    92→  // Auth state (shared hook)
+    93→  const { user: authUser, isVatAuditor, isAdmin, isSR, isDealer } = useAuth();
+    94→
+    95→  // Tab state
+    96→  const [activeTab, setActiveTab] = useState(initialTab || "dashboard");
+    97→
+    98→  // Data state
+    99→  const [smsLogs, setSmsLogs] = useState<any[]>([]);
+   100→  const [smsBills, setSmsBills] = useState<any[]>([]);
+   101→  const [smsSettings, setSmsSettings] = useState<any[]>([]);
+   102→  const [smsBillPayments, setSmsBillPayments] = useState<any[]>([]);
+   103→  const [smsReport, setSmsReport] = useState<any[]>([]);
+   104→  const [loading, setLoading] = useState(true);
+   105→
+   106→  // Inbox state
+   107→  const [smsInbox, setSmsInbox] = useState<any[]>([]);
+   108→  const [inboxSearch, setInboxSearch] = useState("");
+   109→  const [inboxStatusFilter, setInboxStatusFilter] = useState("all");
+   110→  const [inboxPriorityFilter, setInboxPriorityFilter] = useState("all");
+   111→  const [inboxDialog, setInboxDialog] = useState(false);
+   112→  const [inboxForm, setInboxForm] = useState({ sender: "", message: "", category: "", priority: "Normal", relatedModule: "", relatedCode: "" });
+   113→  const [inboxSaving, setInboxSaving] = useState(false);
+   114→  const [inboxDetailDialog, setInboxDetailDialog] = useState(false);
+   115→  const [inboxDetail, setInboxDetail] = useState<any>(null);
+   116→
+   117→  // Campaign state
+   118→  const [smsCampaigns, setSmsCampaigns] = useState<any[]>([]);
+   119→  const [campaignDialog, setCampaignDialog] = useState(false);
+   120→  const [campaignForm, setCampaignForm] = useState({ name: "", description: "", message: "", targetGroup: "All", scheduledAt: "" });
+   121→  const [campaignSaving, setCampaignSaving] = useState(false);
+   122→  const [campaignDetailDialog, setCampaignDetailDialog] = useState(false);
+   123→  const [campaignDetail, setCampaignDetail] = useState<any>(null);
+   124→  const [campaignStatusFilter, setCampaignStatusFilter] = useState("all");
+   125→
+   126→  // Notification Triggers state
+   127→  const [smsTriggers, setSmsTriggers] = useState<any[]>([]);
+   128→  const [triggerDialog, setTriggerDialog] = useState(false);
+   129→  const [triggerEdit, setTriggerEdit] = useState<any>(null);
+   130→  const [triggerForm, setTriggerForm] = useState({ eventType: "SalesConfirmation", label: "", description: "", isEnabled: true, recipientType: "Customer", templateBody: "" });
+   131→  const [triggerSaving, setTriggerSaving] = useState(false);
+   132→
+   133→  // Automation Config state
+   134→  const [automationConfig, setAutomationConfig] = useState<any>(null);
+   135→  const [automationSaving, setAutomationSaving] = useState(false);
+   136→
+   137→  // Log trigger type filter
+   138→  const [logTriggerTypeFilter, setLogTriggerTypeFilter] = useState("all");
+   139→
+   140→  // Search & filter state
+   141→  const [logSearch, setLogSearch] = useState("");
+   142→  const [logStatusFilter, setLogStatusFilter] = useState("all");
+   143→  const [billStatusFilter, setBillStatusFilter] = useState("all");
+   144→
+   145→  // Date range for report
+   146→  const [reportFrom, setReportFrom] = useState(() => {
+   147→    const d = new Date();
+   148→    d.setDate(1);
+   149→    return d.toISOString().split("T")[0];
+   150→  });
+   151→  const [reportTo, setReportTo] = useState(() => new Date().toISOString().split("T")[0]);
+   152→
+   153→  // Send SMS form state
+   154→  const [sendMode, setSendMode] = useState<"single" | "bulk">("single");
+   155→  const [smsRecipient, setSmsRecipient] = useState("");
+   156→  const [smsBulkRecipients, setSmsBulkRecipients] = useState("");
+   157→  const [smsMessage, setSmsMessage] = useState("");
+   158→  const [campaignName, setCampaignName] = useState("");
+   159→  const [smsSending, setSmsSending] = useState(false);
+   160→
+   161→  // SMS Settings form state
+   162→  const [settingsDialog, setSettingsDialog] = useState(false);
+   163→  const [settingsEdit, setSettingsEdit] = useState<any>(null);
+   164→  const [settingsForm, setSettingsForm] = useState({
+   165→    apiUrl: "", apiKey: "", senderId: "", maskingName: "", maskingRegId: "",
+   166→    gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true
+   167→  });
+   168→  const [settingsSaving, setSettingsSaving] = useState(false);
+   169→
+   170→  // Bill Payment dialog state
+   171→  const [paymentDialog, setPaymentDialog] = useState(false);
+   172→  const [paymentBillId, setPaymentBillId] = useState("");
+   173→  const [paymentForm, setPaymentForm] = useState({ amount: 0, date: new Date().toISOString().split("T")[0], method: "Cash", reference: "", notes: "" });
+   174→  const [paymentSaving, setPaymentSaving] = useState(false);
+   175→
+   176→  // Bill Create dialog state
+   177→  const [billDialog, setBillDialog] = useState(false);
+   178→  const [billEdit, setBillEdit] = useState<any>(null);
+   179→  const [billForm, setBillForm] = useState({ period: "", totalSms: 0, totalSegments: 0, totalCost: 0, paidAmount: 0, status: "Unpaid" });
+   180→  const [billSaving, setBillSaving] = useState(false);
+   181→
+   182→  // Delete confirmation dialog
+   183→  const [deleteDialog, setDeleteDialog] = useState(false);
+   184→  const [deleteTarget, setDeleteTarget] = useState<{ type: string; id: string } | null>(null);
+   185→
+   186→  // Get cost per segment from active settings
+   187→  const activeSetting = smsSettings.find((s: any) => s.isActive);
+   188→  const costPerSegment = activeSetting?.ratePerSms || 0.5;
+   189→  const unicodeCostPerSegment = activeSetting?.unicodeRate || 0.8;
+   190→
+   191→  // ============================================================
+   192→  // DATA LOADING
+   193→  // ============================================================
+   194→
+   195→  const loadData = useCallback(async () => {
+   196→    setLoading(true);
+   197→    try {
+   198→      const [logsRes, billsRes, settingsRes, paymentsRes, inboxRes, campaignsRes, triggersRes] = await Promise.all([
+   199→        apiFetch("/api/sms-logs").catch(() => []),
+   200→        apiFetch("/api/sms-bills").catch(() => []),
+   201→        apiFetch("/api/sms-settings").catch(() => []),
+   202→        apiFetch("/api/sms-bill-payments").catch(() => []),
+   203→        apiFetch("/api/sms-inbox").catch(() => []),
+   204→        apiFetch("/api/sms-campaigns").catch(() => []),
+   205→        apiFetch("/api/sms-notification-triggers").catch(() => []),
+   206→      ]);
+   207→      setSmsLogs(Array.isArray(logsRes) ? logsRes : logsRes?.data || []);
+   208→      setSmsBills(Array.isArray(billsRes) ? billsRes : billsRes?.data || []);
+   209→      setSmsSettings(Array.isArray(settingsRes) ? settingsRes : settingsRes?.data || []);
+   210→      setSmsBillPayments(Array.isArray(paymentsRes) ? paymentsRes : paymentsRes?.data || []);
+   211→      setSmsInbox(Array.isArray(inboxRes) ? inboxRes : inboxRes?.items || inboxRes?.data || []);
+   212→      setSmsCampaigns(Array.isArray(campaignsRes) ? campaignsRes : campaignsRes?.items || campaignsRes?.data || []);
+   213→      setSmsTriggers(Array.isArray(triggersRes) ? triggersRes : triggersRes?.data || []);
+   214→
+   215→      // Load automation config
+   216→      try {
+   217→        const autoConfig = await apiFetch("/api/sms-automation");
+   218→        setAutomationConfig(autoConfig);
+   219→      } catch (err) {
+   220→        console.warn('Error loading SMS automation config, using defaults:', err);
+   221→      }
+   222→    } catch (e: any) {
+   223→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   224→    } finally {
+   225→      setLoading(false);
+   226→    }
+   227→  }, [toast]);
+   228→
+   229→  const loadReport = useCallback(async () => {
+   230→    try {
+   231→      const res = await apiFetch(`/api/reports?type=sms&from=${reportFrom}&to=${reportTo}`).catch(() => []);
+   232→      setSmsReport(Array.isArray(res) ? res : res?.data || []);
+   233→    } catch (err) {
+   234→      console.error('Error loading SMS report:', err);
+   235→      setSmsReport([]);
+   236→    }
+   237→  }, [reportFrom, reportTo]);
+   238→
+   239→  useEffect(() => { loadData(); }, [loadData]);
+   240→  useEffect(() => { loadReport(); }, [loadReport]);
+   241→
+   242→  // SMS Settings: open create dialog
+   243→  const openSettingsCreate = () => {
+   244→    setSettingsEdit(null);
+   245→    setSettingsForm({
+   246→      apiUrl: "", apiKey: "", senderId: "", maskingName: "", maskingRegId: "",
+   247→      gatewayName: "", ratePerSms: 0.5, unicodeRate: 0.8, setupCost: 0, isActive: true
+   248→    });
+   249→    setSettingsDialog(true);
+   250→  };
+   251→
+   252→  // SMS Settings: open edit dialog
+   253→  const openSettingsEdit = (s: any) => {
+   254→    setSettingsEdit(s);
+   255→    setSettingsForm({
+   256→      apiUrl: s.apiUrl || "",
+   257→      apiKey: s.apiKey || "",
+   258→      senderId: s.senderId || "",
+   259→      maskingName: s.maskingName || "",
+   260→      maskingRegId: s.maskingRegId || "",
+   261→      gatewayName: s.gatewayName || "",
+   262→      ratePerSms: s.ratePerSms ?? 0.5,
+   263→      unicodeRate: s.unicodeRate ?? 0.8,
+   264→      setupCost: s.setupCost ?? 0,
+   265→      isActive: s.isActive ?? true,
+   266→    });
+   267→    setSettingsDialog(true);
+   268→  };
+   269→
+   270→  // SMS Settings: save handler
+   271→  const saveSettings = async () => {
+   272→    if (!settingsForm.apiUrl || !settingsForm.apiKey || !settingsForm.senderId) {
+   273→      toast({ title: "Validation Error", description: "API URL, API Key, and Sender ID are required", variant: "destructive" });
+   274→      return;
+   275→    }
+   276→    if (!isAdmin) {
+   277→      toast({ title: "Access Denied", description: "Only administrators can modify SMS gateway settings", variant: "destructive" });
+   278→      return;
+   279→    }
+   280→    setSettingsSaving(true);
+   281→    try {
+   282→      if (settingsEdit) {
+   283→        await apiFetch(`/api/sms-settings/${settingsEdit.id}`, {
+   284→          method: "PUT",
+   285→          body: JSON.stringify(settingsForm),
+   286→        });
+   287→        toast({ title: "Settings Updated", description: "SMS configuration updated successfully" });
+   288→      } else {
+   289→        await apiFetch("/api/sms-settings", {
+   290→          method: "POST",
+   291→          body: JSON.stringify(settingsForm),
+   292→        });
+   293→        toast({ title: "Settings Created", description: "SMS configuration created successfully" });
+   294→      }
+   295→      setSettingsDialog(false);
+   296→      loadData();
+   297→    } catch (e: any) {
+   298→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   299→    } finally {
+   300→      setSettingsSaving(false);
+   301→    }
+   302→  };
+   303→
+   304→  // SMS Settings: delete handler
+   305→  const deleteSettings = async (id: string) => {
+   306→    if (!isAdmin) {
+   307→      toast({ title: "Access Denied", description: "Only administrators can delete SMS gateway settings", variant: "destructive" });
+   308→      return;
+   309→    }
+   310→    try {
+   311→      await apiFetch(`/api/sms-settings/${id}`, { method: "DELETE" });
+   312→      toast({ title: "Settings Deleted", description: "SMS configuration deleted" });
+   313→      loadData();
+   314→    } catch (e: any) {
+   315→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   316→    }
+   317→  };
+   318→
+   319→  // Bill: open create dialog
+   320→  const openBillCreate = () => {
+   321→    setBillEdit(null);
+   322→    setBillForm({ period: "", totalSms: 0, totalSegments: 0, totalCost: 0, paidAmount: 0, status: "Unpaid" });
+   323→    setBillDialog(true);
+   324→  };
+   325→
+   326→  // Bill: open edit dialog
+   327→  const openBillEdit = (b: any) => {
+   328→    setBillEdit(b);
+   329→    setBillForm({
+   330→      period: b.period || "",
+   331→      totalSms: b.totalSms ?? 0,
+   332→      totalSegments: b.totalSegments ?? 0,
+   333→      totalCost: b.totalCost ?? 0,
+   334→      paidAmount: b.paidAmount ?? 0,
+   335→      status: b.status || "Unpaid",
+   336→    });
+   337→    setBillDialog(true);
+   338→  };
+   339→
+   340→  // Bill: save handler
+   341→  const saveBill = async () => {
+   342→    if (!billForm.period) {
+   343→      toast({ title: "Validation Error", description: "Period is required", variant: "destructive" });
+   344→      return;
+   345→    }
+   346→    setBillSaving(true);
+   347→    try {
+   348→      const outstanding = Number(billForm.totalCost) - Number(billForm.paidAmount);
+   349→      const autoStatus = outstanding <= 0 ? "Paid" : Number(billForm.paidAmount) > 0 ? "Partial" : "Unpaid";
+   350→      const payload = { ...billForm, outstanding, status: autoStatus };
+   351→      if (billEdit) {
+   352→        await apiFetch(`/api/sms-bills/${billEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   353→        toast({ title: "Bill Updated", description: "SMS bill updated successfully" });
+   354→      } else {
+   355→        await apiFetch("/api/sms-bills", { method: "POST", body: JSON.stringify(payload) });
+   356→        toast({ title: "Bill Created", description: "SMS bill created successfully" });
+   357→      }
+   358→      setBillDialog(false);
+   359→      loadData();
+   360→    } catch (e: any) {
+   361→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   362→    } finally {
+   363→      setBillSaving(false);
+   364→    }
+   365→  };
+   366→
+   367→  // Bill: delete handler
+   368→  const deleteBill = async (id: string) => {
+   369→    if (!isAdmin) {
+   370→      toast({ title: "Access Denied", description: "Only administrators can delete SMS bills", variant: "destructive" });
+   371→      return;
+   372→    }
+   373→    try {
+   374→      await apiFetch(`/api/sms-bills/${id}`, { method: "DELETE" });
+   375→      toast({ title: "Bill Deleted", description: "SMS bill deleted" });
+   376→      loadData();
+   377→    } catch (e: any) {
+   378→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   379→    }
+   380→  };
+   381→
+   382→  // Payment: open dialog
+   383→  const openPaymentDialog = (billId: string) => {
+   384→    setPaymentBillId(billId);
+   385→    setPaymentForm({ amount: 0, date: new Date().toISOString().split("T")[0], method: "Cash", reference: "", notes: "" });
+   386→    setPaymentDialog(true);
+   387→  };
+   388→
+   389→  // Payment: save handler
+   390→  const savePayment = async () => {
+   391→    if (!paymentForm.amount || paymentForm.amount <= 0) {
+   392→      toast({ title: "Validation Error", description: "Payment amount must be greater than 0", variant: "destructive" });
+   393→      return;
+   394→    }
+   395→    setPaymentSaving(true);
+   396→    try {
+   397→      await apiFetch("/api/sms-bill-payments", {
+   398→        method: "POST",
+   399→        body: JSON.stringify({
+   400→          smsBillId: paymentBillId,
+   401→          amount: paymentForm.amount,
+   402→          date: paymentForm.date,
+   403→          method: paymentForm.method || null,
+   404→          reference: paymentForm.reference || null,
+   405→          notes: paymentForm.notes || null,
+   406→        }),
+   407→      });
+   408→      toast({ title: "Payment Recorded", description: "SMS bill payment recorded successfully" });
+   409→      setPaymentDialog(false);
+   410→      loadData();
+   411→    } catch (e: any) {
+   412→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   413→    } finally {
+   414→      setPaymentSaving(false);
+   415→    }
+   416→  };
+   417→
+   418→  // Delete confirmation handler
+   419→  const confirmDelete = async () => {
+   420→    if (!deleteTarget) return;
+   421→    try {
+   422→      if (deleteTarget.type === "settings") {
+   423→        await deleteSettings(deleteTarget.id);
+   424→      } else if (deleteTarget.type === "bill") {
+   425→        await deleteBill(deleteTarget.id);
+   426→      }
+   427→    } catch (e: any) {
+   428→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   429→    } finally {
+   430→      setDeleteDialog(false);
+   431→      setDeleteTarget(null);
+   432→    }
+   433→  };
+   434→
+   435→  // ============================================================
+   436→  // COMPUTED KPIs
+   437→  // ============================================================
+   438→
+   439→  const totalSent = smsLogs.filter((l: any) => l.status !== "Sending").length;
+   440→  const totalCost = smsLogs.filter((l: any) => l.status !== "Sending").reduce((sum: number, log: any) => sum + (Number(log.cost) || 0), 0);
+   441→  const avgCostPerSms = totalSent > 0 ? totalCost / totalSent : 0;
+   442→  const deliveredCount = smsLogs.filter((l: any) => l.status === "Delivered" || l.status === "delivered" || l.status === "Sent" || l.status === "sent").length;
+   443→  const pendingCount = smsLogs.filter((l: any) => l.status === "Pending" || l.status === "pending" || l.status === "Queued").length;
+   444→  const failedCount = smsLogs.filter((l: any) => l.status === "Failed" || l.status === "failed").length;
+   445→  const sendingCount = smsLogs.filter((l: any) => l.status === "Sending").length;
+   446→  const deliveryRate = totalSent > 0 ? ((deliveredCount / totalSent) * 100) : 0;
+   447→
+   448→  const unpaidBills = smsBills.filter((b: any) => b.status === "Unpaid").length;
+   449→  const outstandingAmount = smsBills
+   450→    .filter((b: any) => b.status !== "Paid")
+   451→    .reduce((sum: number, b: any) => sum + (Number(b.outstanding) || (Number(b.totalCost) || 0) - (Number(b.paidAmount) || 0)), 0);
+   452→
+   453→  // ============================================================
+   454→  // FILTERED DATA
+   455→  // ============================================================
+   456→
+   457→  const filteredLogs = useMemo(() => {
+   458→    let result = smsLogs;
+   459→    if (logSearch) {
+   460→      const s = logSearch.toLowerCase();
+   461→      result = result.filter((log: any) =>
+   462→        log.recipient?.toLowerCase().includes(s) ||
+   463→        log.message?.toLowerCase().includes(s) ||
+   464→        log.status?.toLowerCase().includes(s) ||
+   465→        log.campaignName?.toLowerCase().includes(s)
+   466→      );
+   467→    }
+   468→    if (logStatusFilter !== "all") {
+   469→      result = result.filter((log: any) => log.status?.toLowerCase() === logStatusFilter.toLowerCase());
+   470→    }
+   471→    if (logTriggerTypeFilter !== "all") {
+   472→      result = result.filter((log: any) => (log.triggerType || "Manual")?.toLowerCase() === logTriggerTypeFilter.toLowerCase());
+   473→    }
+   474→    return result;
+   475→  }, [smsLogs, logSearch, logStatusFilter, logTriggerTypeFilter]);
+   476→
+   477→  const filteredBills = useMemo(() => {
+   478→    if (billStatusFilter === "all") return smsBills;
+   479→    return smsBills.filter((b: any) => b.status?.toLowerCase() === billStatusFilter.toLowerCase());
+   480→  }, [smsBills, billStatusFilter]);
+   481→
+   482→  // ============================================================
+   483→  // CHART DATA
+   484→  // ============================================================
+   485→
+   486→  const dailySmsTrend = useMemo(() => {
+   487→    const dayMap = new Map<string, { date: string; sent: number; delivered: number; failed: number }>();
+   488→    smsLogs.forEach((log: any) => {
+   489→      const dateStr = (() => { if (!log.sentAt) return "Unknown"; const dt = new Date(log.sentAt); return isNaN(dt.getTime()) ? "Unknown" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); })();
+   490→      const existing = dayMap.get(dateStr) || { date: dateStr, sent: 0, delivered: 0, failed: 0 };
+   491→      existing.sent++;
+   492→      if (log.status === "Delivered" || log.status === "delivered") existing.delivered++;
+   493→      if (log.status === "Failed" || log.status === "failed") existing.failed++;
+   494→      dayMap.set(dateStr, existing);
+   495→    });
+   496→    return Array.from(dayMap.values()).slice(-14);
+   497→  }, [smsLogs]);
+   498→
+   499→  const statusBreakdown = useMemo(() => {
+   500→    const statusMap = new Map<string, number>();
+   501→    smsLogs.forEach((log: any) => {
+   502→      const status = log.status || "Unknown";
+   503→      statusMap.set(status, (statusMap.get(status) || 0) + 1);
+   504→    });
+   505→    return Array.from(statusMap.entries()).map(([name, value]) => ({ name, value }));
+   506→  }, [smsLogs]);
+   507→
+   508→  const PIE_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#6366f1", "#8b5cf6", "#ec4899"];
+   509→
+   510→  // ============================================================
+   511→  // SEND SMS HANDLER
+   512→  // ============================================================
+   513→
+   514→  const handleSendSms = async () => {
+   515→    if (sendMode === "single") {
+   516→      if (!smsRecipient.trim()) {
+   517→        toast({ title: "Error", description: "Recipient phone number is required", variant: "destructive" });
+   518→        return;
+   519→      }
+   520→    } else {
+   521→      if (!smsBulkRecipients.trim()) {
+   522→        toast({ title: "Error", description: "At least one recipient is required", variant: "destructive" });
+   523→        return;
+   524→      }
+   525→    }
+   526→    if (!smsMessage.trim()) {
+   527→      toast({ title: "Error", description: "Message cannot be empty", variant: "destructive" });
+   528→      return;
+   529→    }
+   530→
+   531→    setSmsSending(true);
+   532→
+   533→    if (sendMode === "single") {
+   534→      // ─── WhatsApp-like Optimistic UI: Single SMS ───
+   535→      // 1. Immediately add a "Sending..." entry to local smsLogs state
+   536→      const optimisticId = `temp-${Date.now()}`;
+   537→      const { charCount: optCharCount, isUnicode: optIsUnicode, segmentCount: optSegCount } = computeClientSmsSegments(smsMessage.trim());
+   538→      const optRate = optIsUnicode ? unicodeCostPerSegment : costPerSegment;
+   539→      const estimatedCost = optSegCount * optRate;
+   540→
+   541→      const optimisticLog = {
+   542→        id: optimisticId,
+   543→        recipient: smsRecipient.trim(),
+   544→        message: smsMessage.trim(),
+   545→        charCount: optCharCount,
+   546→        smsSegmentCount: optSegCount,
+   547→        isUnicode: optIsUnicode,
+   548→        status: "Sending",
+   549→        sentAt: new Date().toISOString(),
+   550→        cost: estimatedCost,
+   551→        campaignName: null,
+   552→        isOptimistic: true,
+   553→      };
+   554→
+   555→      // 2. Clear the form immediately (like WhatsApp clears the input)
+   556→      const savedRecipient = smsRecipient.trim();
+   557→      const savedMessage = smsMessage.trim();
+   558→      setSmsRecipient("");
+   559→      setSmsMessage("");
+   560→
+   561→      // 3. Add optimistic entry to the top of the logs
+   562→      setSmsLogs((prev) => [optimisticLog, ...prev]);
+   563→
+   564→      // 4. Make the API call (gateway dispatch happens server-side now)
+   565→      try {
+   566→        const result = await apiFetch("/api/sms-logs", {
+   567→          method: "POST",
+   568→          body: JSON.stringify({
+   569→            recipient: savedRecipient,
+   570→            message: savedMessage,
+   571→          }),
+   572→        });
+   573→
+   574→        // 5. Replace the optimistic entry with the real one
+   575→        setSmsLogs((prev) =>
+   576→          prev.map((log) =>
+   577→            log.id === optimisticId
+   578→              ? { ...(result as any), isOptimistic: false }
+   579→              : log
+   580→          )
+   581→        );
+   582→
+   583→        const finalStatus = (result as any)?.status || "Sent";
+   584→        if (finalStatus === "Sent") {
+   585→          toast({ title: "✓ SMS Sent", description: `Message delivered to ${savedRecipient}` });
+   586→        } else if (finalStatus === "Failed") {
+   587→          toast({ title: "SMS Failed", description: `Gateway error for ${savedRecipient}: ${(result as any)?.gatewayResponse || "Unknown error"}`, variant: "destructive" });
+   588→        } else {
+   589→          toast({ title: "SMS Queued", description: `Message queued for ${savedRecipient} (Pending delivery)` });
+   590→        }
+   591→      } catch (e: any) {
+   592→        // 6. Mark the optimistic entry as Failed
+   593→        setSmsLogs((prev) =>
+   594→          prev.map((log) =>
+   595→            log.id === optimisticId
+   596→              ? { ...log, status: "Failed", isOptimistic: false }
+   597→              : log
+   598→          )
+   599→        );
+   600→        toast({ title: "Failed", description: e.message || "Failed to send SMS", variant: "destructive" });
+   601→      } finally {
+   602→        setSmsSending(false);
+   603→        // Refresh data from server to ensure consistency
+   604→        loadData();
+   605→      }
+   606→    } else {
+   607→      // ─── WhatsApp-like Optimistic UI: Bulk SMS ───
+   608→      const rawRecipients = smsBulkRecipients.split(",").map(r => r.trim()).filter(Boolean);
+   609→      const uniqueRecipients = [...new Set(rawRecipients)];
+   610→      const duplicatesRemoved = rawRecipients.length - uniqueRecipients.length;
+   611→
+   612→      if (duplicatesRemoved > 0) {
+   613→        toast({ title: "Duplicates Removed", description: `${duplicatesRemoved} duplicate number(s) removed from recipient list`, variant: "destructive" });
+   614→      }
+   615→      if (uniqueRecipients.length === 0) {
+   616→        toast({ title: "Error", description: "No valid unique recipients found", variant: "destructive" });
+   617→        setSmsSending(false);
+   618→        return;
+   619→      }
+   620→
+   621→      // 1. Create optimistic entries for each recipient
+   622→      const { charCount: optCharCount, isUnicode: optIsUnicode, segmentCount: optSegCount } = computeClientSmsSegments(smsMessage.trim());
+   623→      const optRate = optIsUnicode ? unicodeCostPerSegment : costPerSegment;
+   624→      const estimatedCost = optSegCount * optRate;
+   625→
+   626→      const bulkMessage = smsMessage.trim();
+   627→      const bulkCampaignName = campaignName || null;
+   628→
+   629→      const optimisticEntries = uniqueRecipients.map((recipient, i) => ({
+   630→        id: `temp-bulk-${Date.now()}-${i}`,
+   631→        recipient,
+   632→        message: bulkMessage,
+   633→        charCount: optCharCount,
+   634→        smsSegmentCount: optSegCount,
+   635→        isUnicode: optIsUnicode,
+   636→        status: "Sending",
+   637→        sentAt: new Date().toISOString(),
+   638→        cost: estimatedCost,
+   639→        campaignName: bulkCampaignName,
+   640→        isOptimistic: true,
+   641→      }));
+   642→
+   643→      // 2. Clear form immediately
+   644→      setSmsBulkRecipients("");
+   645→      setSmsMessage("");
+   646→      setCampaignName("");
+   647→
+   648→      // 3. Add optimistic entries to the top of the logs
+   649→      setSmsLogs((prev) => [...optimisticEntries, ...prev]);
+   650→
+   651→      // 4. Make the API call
+   652→      try {
+   653→        const result = await apiFetch("/api/sms-logs", {
+   654→          method: "POST",
+   655→          body: JSON.stringify({
+   656→            batchMode: true,
+   657→            recipients: uniqueRecipients,
+   658→            message: bulkMessage,
+   659→            campaignName: bulkCampaignName || undefined,
+   660→          }),
+   661→        }) as any[];
+   662→
+   663→        // 5. Replace optimistic entries with real ones
+   664→        if (Array.isArray(result)) {
+   665→          const resultMap = new Map(result.map((r: any) => [r.recipient, r]));
+   666→          setSmsLogs((prev) => {
+   667→            // Remove all optimistic entries for this batch
+   668→            const withoutOptimistic = prev.filter(
+   669→              (log) => !optimisticEntries.some((oe) => oe.id === log.id)
+   670→            );
+   671→            // Prepend real results
+   672→            return [...result.map((r: any) => ({ ...r, isOptimistic: false })), ...withoutOptimistic];
+   673→          });
+   674→
+   675→          const sentCount = result.filter((r: any) => r.status === "Sent").length;
+   676→          const failedCount = result.filter((r: any) => r.status === "Failed").length;
+   677→          const pendingCount = result.filter((r: any) => r.status === "Pending").length;
+   678→
+   679→          toast({
+   680→            title: "Bulk SMS Complete",
+   681→            description: `Sent: ${sentCount}, Failed: ${failedCount}, Pending: ${pendingCount}${duplicatesRemoved > 0 ? ` (${duplicatesRemoved} duplicates removed)` : ''}`,
+   682→          });
+   683→        }
+   684→      } catch (e: any) {
+   685→        // 6. Mark all optimistic entries as Failed
+   686→        setSmsLogs((prev) =>
+   687→          prev.map((log) =>
+   688→            optimisticEntries.some((oe) => oe.id === log.id)
+   689→              ? { ...log, status: "Failed", isOptimistic: false }
+   690→              : log
+   691→          )
+   692→        );
+   693→        toast({ title: "Failed", description: e.message || "Failed to send bulk SMS", variant: "destructive" });
+   694→      } finally {
+   695→        setSmsSending(false);
+   696→        // Refresh data from server to ensure consistency
+   697→        loadData();
+   698→      }
+   699→    }
+   700→  };
+   701→
+   702→  // ============================================================
+   703→  // EXPORT HANDLERS
+   704→  // ============================================================
+   705→
+   706→  const smsLogColumns: ExportColumnDef[] = [
+   707→    { key: "recipient", label: "Recipient", type: "text" },
+   708→    { key: "message", label: "Message", type: "text" },
+   709→    { key: "charCount", label: "Chars", type: "number" },
+   710→    { key: "smsSegmentCount", label: "Segments", type: "number" },
+   711→    { key: "isUnicode", label: "Unicode", type: "boolean" },
+   712→    { key: "status", label: "Status", type: "text" },
+   713→    { key: "sentAt", label: "Sent At", type: "date" },
+   714→    { key: "cost", label: "Cost", type: "currency" },
+   715→    { key: "campaignName", label: "Campaign", type: "text" },
+   716→  ];
+   717→
+   718→  const smsBillColumns: ExportColumnDef[] = [
+   719→    { key: "period", label: "Period", type: "text" },
+   720→    { key: "totalSms", label: "Total SMS", type: "number" },
+   721→    { key: "totalSegments", label: "Total Segments", type: "number" },
+   722→    { key: "totalCost", label: "Total Cost", type: "currency" },
+   723→    { key: "paidAmount", label: "Paid", type: "currency" },
+   724→    { key: "outstanding", label: "Outstanding", type: "currency" },
+   725→    { key: "status", label: "Status", type: "text" },
+   726→  ];
+   727→
+   728→  const handleExportLogCSV = () => {
+   729→    try {
+   730→      exportToCSV({
+   731→        title: "SMS Logs",
+   732→        columns: smsLogColumns,
+   733→        data: filteredLogs,
+   734→        isVatAuditor,
+   735→        vatMaskedColumns: ["cost"],
+   736→        filename: "sms-logs",
+   737→      });
+   738→      toast({ title: "Exported", description: "SMS Logs exported to CSV" });
+   739→    } catch (e: any) {
+   740→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   741→    }
+   742→  };
+   743→
+   744→  const handleExportLogPDF = () => {
+   745→    try {
+   746→      exportToPDF({
+   747→        title: "SMS Logs Report",
+   748→        subtitle: `Generated from Electronics Mart IMS`,
+   749→        orientation: "landscape",
+   750→        columns: smsLogColumns,
+   751→        data: filteredLogs,
+   752→        isVatAuditor,
+   753→        vatMaskedColumns: ["cost"],
+   754→        filename: "sms-logs",
+   755→        financialFooter: {
+   756→          preparedBy: authUser?.displayName || "",
+   757→          checkedBy: "",
+   758→          authorizedBy: "",
+   759→          printedBy: authUser?.displayName || "System",
+   760→        },
+   761→      });
+   762→      toast({ title: "Exported", description: "SMS Logs exported to PDF" });
+   763→    } catch (e: any) {
+   764→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   765→    }
+   766→  };
+   767→
+   768→  const handleExportBillCSV = () => {
+   769→    try {
+   770→      exportToCSV({
+   771→        title: "SMS Bills",
+   772→        columns: smsBillColumns,
+   773→        data: filteredBills,
+   774→        isVatAuditor,
+   775→        vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
+   776→        filename: "sms-bills",
+   777→      });
+   778→      toast({ title: "Exported", description: "SMS Bills exported to CSV" });
+   779→    } catch (e: any) {
+   780→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   781→    }
+   782→  };
+   783→
+   784→  const handleExportBillPDF = () => {
+   785→    try {
+   786→      exportToPDF({
+   787→        title: "SMS Bills Report",
+   788→        subtitle: "Billing Summary",
+   789→        orientation: "landscape",
+   790→        columns: smsBillColumns,
+   791→        data: filteredBills,
+   792→        isVatAuditor,
+   793→        vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
+   794→        filename: "sms-bills",
+   795→        financialFooter: {
+   796→          preparedBy: authUser?.displayName || "",
+   797→          checkedBy: "",
+   798→          authorizedBy: "",
+   799→          printedBy: authUser?.displayName || "System",
+   800→        },
+   801→      });
+   802→      toast({ title: "Exported", description: "SMS Bills exported to PDF" });
+   803→    } catch (e: any) {
+   804→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   805→    }
+   806→  };
+   807→
+   808→  // SMS Report PDF export
+   809→  const handleExportReportPDF = () => {
+   810→    try {
+   811→      const reportColumns: ExportColumnDef[] = [
+   812→        { key: "date", label: "Date", type: "date" },
+   813→        { key: "totalSent", label: "Total Sent", type: "number" },
+   814→        { key: "delivered", label: "Delivered", type: "number" },
+   815→        { key: "failed", label: "Failed", type: "number" },
+   816→        { key: "cost", label: "Cost", type: "currency" },
+   817→      ];
+   818→      exportToPDF({
+   819→        title: "SMS Report",
+   820→        subtitle: `Period: ${reportFrom} to ${reportTo}`,
+   821→        orientation: "landscape",
+   822→        columns: reportColumns,
+   823→        data: smsReport,
+   824→        isVatAuditor,
+   825→        vatMaskedColumns: ["cost"],
+   826→        filename: "sms-report",
+   827→        financialFooter: {
+   828→          preparedBy: authUser?.displayName || "",
+   829→          checkedBy: "",
+   830→          authorizedBy: "",
+   831→          printedBy: authUser?.displayName || "System",
+   832→        },
+   833→      });
+   834→      toast({ title: "Exported", description: "SMS Report exported to PDF" });
+   835→    } catch (e: any) {
+   836→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   837→    }
+   838→  };
+   839→
+   840→  // SMS Settings PDF export
+   841→  const handleExportSettingsPDF = () => {
+   842→    try {
+   843→      const settingsColumns: ExportColumnDef[] = [
+   844→        { key: "apiUrl", label: "API URL", type: "text" },
+   845→        { key: "senderId", label: "Sender ID", type: "text" },
+   846→        { key: "gatewayName", label: "Gateway", type: "text" },
+   847→        { key: "ratePerSms", label: "Rate/SMS", type: "currency" },
+   848→        { key: "unicodeRate", label: "Unicode Rate", type: "currency" },
+   849→        { key: "setupCost", label: "Setup Cost", type: "currency" },
+   850→        { key: "isActive", label: "Status", type: "boolean" },
+   851→      ];
+   852→      exportToPDF({
+   853→        title: "SMS Settings Report",
+   854→        subtitle: "Gateway Configuration Summary",
+   855→        orientation: "landscape",
+   856→        columns: settingsColumns,
+   857→        data: smsSettings,
+   858→        isVatAuditor,
+   859→        vatMaskedColumns: ["ratePerSms", "unicodeRate", "setupCost"],
+   860→        filename: "sms-settings",
+   861→        financialFooter: {
+   862→          preparedBy: authUser?.displayName || "",
+   863→          checkedBy: "",
+   864→          authorizedBy: "",
+   865→          printedBy: authUser?.displayName || "System",
+   866→        },
+   867→      });
+   868→      toast({ title: "Exported", description: "SMS Settings exported to PDF" });
+   869→    } catch (e: any) {
+   870→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   871→    }
+   872→  };
+   873→
+   874→  const handleImportLogCSV = () => {
+   875→    const formFields: ExportFieldDef[] = [
+   876→      { key: "recipient", label: "Recipient", type: "text", required: true },
+   877→      { key: "message", label: "Message", type: "textarea", required: true },
+   878→      { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Delivered", label: "Delivered" }, { value: "Failed", label: "Failed" }] },
+   879→      { key: "cost", label: "Cost", type: "number" },
+   880→      { key: "campaignName", label: "Campaign", type: "text" },
+   881→    ];
+   882→    importFromCSV({
+   883→      apiPath: "/api/sms-logs",
+   884→      formFields,
+   885→    }).then(result => {
+   886→      toast({
+   887→        title: "Import Complete",
+   888→        description: `Imported: ${result.imported}, Failed: ${result.failed}`,
+   889→        variant: result.failed > 0 ? "destructive" : "default",
+   890→      });
+   891→      loadData();
+   892→    });
+   893→  };
+   894→
+   895→  const handleImportBillCSV = () => {
+   896→    importFromCSV({
+   897→      apiPath: "/api/sms-bills",
+   898→      formFields: [
+   899→        { key: "period", label: "Period", type: "text" },
+   900→        { key: "totalSms", label: "Total SMS", type: "number" },
+   901→        { key: "totalSegments", label: "Total Segments", type: "number" },
+   902→        { key: "totalCost", label: "Total Cost", type: "number" },
+   903→        { key: "paidAmount", label: "Paid Amount", type: "number" },
+   904→        { key: "status", label: "Status", type: "text" },
+   905→      ],
+   906→    }).then(result => {
+   907→      toast({
+   908→        title: "Import Complete",
+   909→        description: `Imported: ${result.imported}, Failed: ${result.failed}`,
+   910→        variant: result.failed > 0 ? "destructive" : "default",
+   911→      });
+   912→      loadData();
+   913→    });
+   914→  };
+   915→
+   916→  // ============================================================
+   917→  // STATUS HELPERS
+   918→  // ============================================================
+   919→
+   920→  const statusColor = (status: string) => {
+   921→    switch (status?.toLowerCase()) {
+   922→      case "delivered": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+   923→      case "sending": return "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400";
+   924→      case "pending": case "queued": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+   925→      case "failed": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+   926→      case "sent": return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400";
+   927→      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+   928→    }
+   929→  };
+   930→
+   931→  const billStatusColor = (status: string) => {
+   932→    switch (status?.toLowerCase()) {
+   933→      case "paid": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+   934→      case "partial": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+   935→      case "unpaid": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+   936→      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+   937→    }
+   938→  };
+   939→
+   940→  // ============================================================
+   941→  // KPI CARDS CONFIG
+   942→  // ============================================================
+   943→
+   944→  const kpiCards = [
+   945→    {
+   946→      label: "Total SMS Sent",
+   947→      value: totalSent,
+   948→      icon: Send,
+   949→      color: "text-cyan-600",
+   950→      bg: "bg-cyan-50 dark:bg-cyan-900/30",
+   951→    },
+   952→    {
+   953→      label: "Total SMS Cost",
+   954→      value: isVatAuditor ? "N/A (Audit Mode)" : fmt(totalCost, "currency"),
+   955→      icon: DollarSign,
+   956→      color: "text-green-600",
+   957→      bg: "bg-green-50 dark:bg-green-900/30",
+   958→    },
+   959→    {
+   960→      label: "Avg Cost/SMS",
+   961→      value: isVatAuditor ? "N/A (Audit Mode)" : fmt(avgCostPerSms, "currency"),
+   962→      icon: Coins,
+   963→      color: "text-amber-600",
+   964→      bg: "bg-amber-50 dark:bg-amber-900/30",
+   965→    },
+   966→    {
+   967→      label: "Delivery Rate",
+   968→      value: `${deliveryRate.toFixed(1)}%`,
+   969→      icon: CheckCircle,
+   970→      color: "text-emerald-600",
+   971→      bg: "bg-emerald-50 dark:bg-emerald-900/30",
+   972→    },
+   973→    {
+   974→      label: "Pending SMS",
+   975→      value: pendingCount,
+   976→      icon: Clock,
+   977→      color: "text-orange-600",
+   978→      bg: "bg-orange-50 dark:bg-orange-900/30",
+   979→    },
+   980→    {
+   981→      label: "Sending",
+   982→      value: sendingCount,
+   983→      icon: Activity,
+   984→      color: "text-cyan-600",
+   985→      bg: "bg-cyan-50 dark:bg-cyan-900/30",
+   986→    },
+   987→    {
+   988→      label: "Failed SMS",
+   989→      value: failedCount,
+   990→      icon: XCircle,
+   991→      color: "text-red-600",
+   992→      bg: "bg-red-50 dark:bg-red-900/30",
+   993→    },
+   994→    {
+   995→      label: "Unpaid Bills",
+   996→      value: unpaidBills,
+   997→      icon: AlertTriangle,
+   998→      color: "text-yellow-600",
+   999→      bg: "bg-yellow-50 dark:bg-yellow-900/30",
+  1000→    },
+  1001→    {
+  1002→      label: "Outstanding Amount",
+  1003→      value: isVatAuditor ? "N/A (Audit Mode)" : fmt(outstandingAmount, "currency"),
+  1004→      icon: Banknote,
+  1005→      color: "text-purple-600",
+  1006→      bg: "bg-purple-50 dark:bg-purple-900/30",
+  1007→    },
+  1008→  ];
+  1009→
+  1010→  // ============================================================
+  1011→  // CHARACTER COUNTER (SMS Segments Computation)
+  1012→  // ============================================================
+  1013→
+  1014→  const { charCount, isUnicode, segmentCount, charsPerSegment } = computeClientSmsSegments(smsMessage);
+  1015→  const estimatedCostPerSegment = isUnicode ? unicodeCostPerSegment : costPerSegment;
+  1016→
+  1017→  // ============================================================
+  1018→  // RENDER
+  1019→  // ============================================================
+  1020→
+  1021→  // ─── DEALER: Access Restricted (after all hooks) ───
+  1022→  if (isDealer) {
+  1023→    return (
+  1024→      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+  1025→        <Card className="w-full max-w-md">
+  1026→          <CardHeader className="text-center">
+  1027→            <div className="mx-auto mb-3 w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+  1028→              <Lock className="w-8 h-8 text-red-600 dark:text-red-400" />
+  1029→            </div>
+  1030→            <CardTitle className="text-xl text-red-600 dark:text-red-400">Access Restricted</CardTitle>
+  1031→          </CardHeader>
+  1032→          <CardContent className="text-center">
+  1033→            <p className="text-muted-foreground">
+  1034→              The SMS Analytics module is not available for Dealer accounts.
+  1035→              Please contact your administrator for access.
+  1036→            </p>
+  1037→          </CardContent>
+  1038→        </Card>
+  1039→      </div>
+  1040→    );
+  1041→  }
+  1042→
+  1043→  return (
+  1044→    <div className="page-enter space-y-4">
+  1045→      {/* VAT Auditor Mode Badge */}
+  1046→      {isVatAuditor && (
+  1047→        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+  1048→          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+  1049→          <span className="text-sm text-amber-700 dark:text-amber-400">
+  1050→            Carrier costs, balance rates, API tokens, and billing statements masked for audit compliance.
+  1051→          </span>
+  1052→        </div>
+  1053→      )}
+  1054→
+  1055→      {/* Page Header */}
+  1056→      <div className="flex items-center justify-between flex-wrap gap-2">
+  1057→        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+  1058→          <MessageSquare className="w-6 h-6 text-[#2563eb]" />
+  1059→          SMS Analytics & Service
+  1060→        </h2>
+  1061→        <div className="flex gap-2 flex-wrap">
+  1062→          <Button variant="outline" size="sm" onClick={loadData}>
+  1063→            <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+  1064→            Refresh
+  1065→          </Button>
+  1066→        </div>
+  1067→      </div>
+  1068→
+  1069→      {/* Main Tabs */}
+  1070→      <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1071→        <TabsList className="flex overflow-x-auto h-auto gap-1 pb-1 scrollbar-none w-full">
+  1072→          <TabsTrigger value="dashboard" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1073→            <Activity className="w-4 h-4" />
+  1074→            Dashboard
+  1075→          </TabsTrigger>
+  1076→          <TabsTrigger value="inbox" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1077→            <Mail className="w-4 h-4" />
+  1078→            Inbox
+  1079→            {smsInbox.filter((m: any) => m.status === "Unread").length > 0 && (
+  1080→              <Badge className="bg-red-500 text-white text-xs ml-1 px-1.5 py-0 min-w-[18px] text-center">{smsInbox.filter((m: any) => m.status === "Unread").length}</Badge>
+  1081→            )}
+  1082→          </TabsTrigger>
+  1083→          <TabsTrigger value="logs" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1084→            <MessageSquare className="w-4 h-4" />
+  1085→            SMS Log
+  1086→          </TabsTrigger>
+  1087→          {/* Hide Billing tab for SR */}
+  1088→          {!isSR && (
+  1089→            <TabsTrigger value="billing" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1090→              <CreditCard className="w-4 h-4" />
+  1091→              SMS Billing
+  1092→            </TabsTrigger>
+  1093→          )}
+  1094→          <TabsTrigger value="send" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1095→            <Send className="w-4 h-4" />
+  1096→            Send SMS
+  1097→          </TabsTrigger>
+  1098→          {!isSR && (
+  1099→            <TabsTrigger value="campaigns" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1100→              <Megaphone className="w-4 h-4" />
+  1101→              Campaigns
+  1102→            </TabsTrigger>
+  1103→          )}
+  1104→          {/* Hide Settings tab for SR */}
+  1105→          {!isSR && (
+  1106→            <TabsTrigger value="settings" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+  1107→              <Settings className="w-4 h-4" />
+  1108→              Settings
+  1109→            </TabsTrigger>
+  1110→          )}
+  1111→        </TabsList>
+  1112→
+  1113→        {/* ============================================================
+  1114→            DASHBOARD TAB
+  1115→            ============================================================ */}
+  1116→        <TabsContent value="dashboard" className="space-y-4">
+  1117→          {/* KPI Cards */}
+  1118→          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+  1119→            {kpiCards.map((kpi, i) => (
+  1120→              <Card key={i} className="stat-mini-card">
+  1121→                <CardContent className="p-4 flex items-center gap-3">
+  1122→                  <div className={`p-2 rounded-lg ${kpi.bg} ${kpi.color}`}>
+  1123→                    <kpi.icon className="w-5 h-5" />
+  1124→                  </div>
+  1125→                  <div>
+  1126→                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
+  1127→                    <p className="text-lg font-bold text-slate-900 dark:text-white">
+  1128→                      {typeof kpi.value === "number" ? fmt(kpi.value, "number") : kpi.value}
+  1129→                    </p>
+  1130→                  </div>
+  1131→                </CardContent>
+  1132→              </Card>
+  1133→            ))}
+  1134→          </div>
+  1135→
+  1136→          {/* Charts Row */}
+  1137→          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  1138→            {/* Daily SMS Trend Bar Chart */}
+  1139→            <Card className="lg:col-span-2">
+  1140→              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+  1141→                <CardTitle className="text-white text-sm">Daily SMS Trend</CardTitle>
+  1142→              </CardHeader>
+  1143→              <CardContent className="p-4">
+  1144→                {dailySmsTrend.length === 0 ? (
+  1145→                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+  1146→                    No SMS data available for chart
+  1147→                  </div>
+  1148→                ) : (
+  1149→                  <ResponsiveContainer width="100%" height={280}>
+  1150→                    <BarChart data={dailySmsTrend} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+  1151→                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#e2e8f0"} />
+  1152→                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }} />
+  1153→                      <YAxis tick={{ fontSize: 11, fill: isDark ? "#94a3b8" : "#64748b" }} />
+  1154→                      <RechartsTooltip
+  1155→                        contentStyle={{
+  1156→                          backgroundColor: isDark ? "#1e293b" : "#fff",
+  1157→                          borderColor: isDark ? "#334155" : "#e2e8f0",
+  1158→                          borderRadius: 8,
+  1159→                          color: isDark ? "#f1f5f9" : "#1e293b",
+  1160→                        }}
+  1161→                      />
+  1162→                      <Legend />
+  1163→                      <Bar dataKey="sent" fill="#2563eb" name="Sent" radius={[4, 4, 0, 0]} />
+  1164→                      <Bar dataKey="delivered" fill="#10b981" name="Delivered" radius={[4, 4, 0, 0]} />
+  1165→                      <Bar dataKey="failed" fill="#ef4444" name="Failed" radius={[4, 4, 0, 0]} />
+  1166→                    </BarChart>
+  1167→                  </ResponsiveContainer>
+  1168→                )}
+  1169→              </CardContent>
+  1170→            </Card>
+  1171→
+  1172→            {/* Status Breakdown Pie Chart */}
+  1173→            <Card>
+  1174→              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+  1175→                <CardTitle className="text-white text-sm">Status Breakdown</CardTitle>
+  1176→              </CardHeader>
+  1177→              <CardContent className="p-4">
+  1178→                {statusBreakdown.length === 0 ? (
+  1179→                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+  1180→                    No data for breakdown
+  1181→                  </div>
+  1182→                ) : (
+  1183→                  <ResponsiveContainer width="100%" height={280}>
+  1184→                    <PieChart>
+  1185→                      <Pie
+  1186→                        data={statusBreakdown}
+  1187→                        cx="50%"
+  1188→                        cy="50%"
+  1189→                        innerRadius={60}
+  1190→                        outerRadius={100}
+  1191→                        paddingAngle={4}
+  1192→                        dataKey="value"
+  1193→                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+  1194→                      >
+  1195→                        {statusBreakdown.map((_entry: any, index: number) => (
+  1196→                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+  1197→                        ))}
+  1198→                      </Pie>
+  1199→                      <RechartsTooltip
+  1200→                        contentStyle={{
+  1201→                          backgroundColor: isDark ? "#1e293b" : "#fff",
+  1202→                          borderColor: isDark ? "#334155" : "#e2e8f0",
+  1203→                          borderRadius: 8,
+  1204→                          color: isDark ? "#f1f5f9" : "#1e293b",
+  1205→                        }}
+  1206→                      />
+  1207→                    </PieChart>
+  1208→                  </ResponsiveContainer>
+  1209→                )}
+  1210→              </CardContent>
+  1211→            </Card>
+  1212→          </div>
+  1213→
+  1214→          {/* Report Date Range */}
+  1215→          <Card>
+  1216→            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+  1217→              <CardTitle className="text-white text-sm flex items-center gap-2">
+  1218→                <BarChart3 className="w-4 h-4" />
+  1219→                SMS Report
+  1220→              </CardTitle>
+  1221→            </CardHeader>
+  1222→            <CardContent className="p-4 space-y-4">
+  1223→              <div className="flex flex-wrap items-end gap-3">
+  1224→                <div className="space-y-1.5">
+  1225→                  <Label className="text-slate-900 dark:text-white">From</Label>
+  1226→                  <Input
+  1227→                    type="date"
+  1228→                    value={reportFrom}
+  1229→                    onChange={(e) => setReportFrom(e.target.value)}
+  1230→                    className="w-44"
+  1231→                  />
+  1232→                </div>
+  1233→                <div className="space-y-1.5">
+  1234→                  <Label className="text-slate-900 dark:text-white">To</Label>
+  1235→                  <Input
+  1236→                    type="date"
+  1237→                    value={reportTo}
+  1238→                    onChange={(e) => setReportTo(e.target.value)}
+  1239→                    className="w-44"
+  1240→                  />
+  1241→                </div>
+  1242→                <Button
+  1243→                  size="sm"
+  1244→                  className="bg-[#2563eb] hover:bg-[#1d4ed8]"
+  1245→                  onClick={loadReport}
+  1246→                >
+  1247→                  <RefreshCw className="w-4 h-4 mr-1" />
+  1248→                  Generate
+  1249→                </Button>
+  1250→                <Button variant="outline" size="sm" onClick={handleExportReportPDF}>
+  1251→                  <FileDown className="w-4 h-4 mr-1" />
+  1252→                  Export PDF
+  1253→                </Button>
+  1254→                <Button variant="outline" size="sm" onClick={() => {
+  1255→                  try {
+  1256→                    const reportColumns: ExportColumnDef[] = [
+  1257→                      { key: "date", label: "Date", type: "date" },
+  1258→                      { key: "totalSent", label: "Total Sent", type: "number" },
+  1259→                      { key: "delivered", label: "Delivered", type: "number" },
+  1260→                      { key: "failed", label: "Failed", type: "number" },
+  1261→                      { key: "cost", label: "Cost", type: "currency" },
+  1262→                    ];
+  1263→                    exportToCSV({ title: "SMS Report", columns: reportColumns, data: smsReport, isVatAuditor, vatMaskedColumns: ["cost"], filename: "sms-report" });
+  1264→                    toast({ title: "Exported", description: "SMS Report exported to CSV" });
+  1265→                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1266→                }}>
+  1267→                  <Download className="w-4 h-4 mr-1" />
+  1268→                  Export CSV
+  1269→                </Button>
+  1270→              </div>
+  1271→
+  1272→              {smsReport.length > 0 ? (
+  1273→                <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-md border -mx-2 sm:mx-0">
+  1274→                  <Table className="min-w-[600px]">
+  1275→                    <TableHeader>
+  1276→                      <TableRow className="bg-muted/50">
+  1277→                        <TableHead>Date</TableHead>
+  1278→                        <TableHead>Total Sent</TableHead>
+  1279→                        <TableHead>Delivered</TableHead>
+  1280→                        <TableHead>Failed</TableHead>
+  1281→                        <TableHead>Cost</TableHead>
+  1282→                      </TableRow>
+  1283→                    </TableHeader>
+  1284→                    <TableBody>
+  1285→                      {smsReport.map((row: any, idx: number) => (
+  1286→                        <TableRow key={idx} className="data-table-row hover:bg-muted/50">
+  1287→                          <TableCell className="text-slate-900 dark:text-white font-medium">
+  1288→                            {fmtDate(row.date || row.sentAt)}
+  1289→                          </TableCell>
+  1290→                          <TableCell className="text-slate-900 dark:text-white">{row.totalSent ?? row.sent ?? "—"}</TableCell>
+  1291→                          <TableCell className="text-emerald-600 dark:text-emerald-400">{row.delivered ?? "—"}</TableCell>
+  1292→                          <TableCell className="text-red-600 dark:text-red-400">{row.failed ?? "—"}</TableCell>
+  1293→                          <TableCell className="font-mono text-slate-900 dark:text-white">
+  1294→                            {isVatAuditor ? "N/A (Audit Mode)" : fmt(row.cost ?? row.totalCost, "currency")}
+  1295→                          </TableCell>
+  1296→                        </TableRow>
+  1297→                      ))}
+  1298→                    </TableBody>
+  1299→                  </Table>
+  1300→                </div>
+  1301→              ) : (
+  1302→                <div className="text-center py-8 text-muted-foreground text-sm">
+  1303→                  No report data for the selected period
+  1304→                </div>
+  1305→              )}
+  1306→            </CardContent>
+  1307→          </Card>
+  1308→        </TabsContent>
+  1309→
+  1310→        {/* ============================================================
+  1311→            SMS INBOX TAB
+  1312→            ============================================================ */}
+  1313→        <TabsContent value="inbox" className="space-y-4">
+  1314→          {/* Inbox KPIs */}
+  1315→          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+  1316→            {[
+  1317→              { label: "Total Messages", value: smsInbox.length, icon: Mail, color: "text-cyan-600", bg: "bg-cyan-50 dark:bg-cyan-900/30" },
+  1318→              { label: "Unread", value: smsInbox.filter((m: any) => m.status === "Unread").length, icon: Eye, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+  1319→              { label: "Flagged", value: smsInbox.filter((m: any) => m.status === "Flagged").length, icon: Flag, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+  1320→              { label: "High Priority", value: smsInbox.filter((m: any) => m.priority === "High" || m.priority === "Urgent").length, icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50 dark:bg-orange-900/30" },
+  1321→            ].map((kpi, i) => (
+  1322→              <Card key={i} className="stat-mini-card">
+  1323→                <CardContent className="p-4 flex items-center gap-3">
+  1324→                  <div className={`p-2 rounded-lg ${kpi.bg} ${kpi.color}`}><kpi.icon className="w-5 h-5" /></div>
+  1325→                  <div>
+  1326→                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
+  1327→                    <p className="text-lg font-bold text-slate-900 dark:text-white">{fmt(kpi.value, "number")}</p>
+  1328→                  </div>
+  1329→                </CardContent>
+  1330→              </Card>
+  1331→            ))}
+  1332→          </div>
+  1333→
+  1334→          {/* Inbox Toolbar */}
+  1335→          <Card>
+  1336→            <CardContent className="p-4 flex flex-wrap items-center gap-3">
+  1337→              <div className="relative flex-1 min-w-[180px]">
+  1338→                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+  1339→                <Input placeholder="Search inbox..." value={inboxSearch} onChange={e => setInboxSearch(e.target.value)} className="pl-9" />
+  1340→              </div>
+  1341→              <Select value={inboxStatusFilter} onValueChange={setInboxStatusFilter}>
+  1342→                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
+  1343→                <SelectContent>
+  1344→                  <SelectItem value="all">All Status</SelectItem>
+  1345→                  <SelectItem value="Unread">Unread</SelectItem>
+  1346→                  <SelectItem value="Read">Read</SelectItem>
+  1347→                  <SelectItem value="Archived">Archived</SelectItem>
+  1348→                  <SelectItem value="Flagged">Flagged</SelectItem>
+  1349→                </SelectContent>
+  1350→              </Select>
+  1351→              <Select value={inboxPriorityFilter} onValueChange={setInboxPriorityFilter}>
+  1352→                <SelectTrigger className="w-[130px]"><SelectValue placeholder="Priority" /></SelectTrigger>
+  1353→                <SelectContent>
+  1354→                  <SelectItem value="all">All Priority</SelectItem>
+  1355→                  <SelectItem value="Low">Low</SelectItem>
+  1356→                  <SelectItem value="Normal">Normal</SelectItem>
+  1357→                  <SelectItem value="High">High</SelectItem>
+  1358→                  <SelectItem value="Urgent">Urgent</SelectItem>
+  1359→                </SelectContent>
+  1360→              </Select>
+  1361→              <Button size="sm" onClick={() => { setInboxForm({ sender: "", message: "", category: "", priority: "Normal", relatedModule: "", relatedCode: "" }); setInboxDialog(true); }}>
+  1362→                <Plus className="w-4 h-4 mr-1" /> Add Entry
+  1363→              </Button>
+  1364→              <Button variant="outline" size="sm" onClick={() => {
+  1365→                try {
+  1366→                  const inboxColumns: ExportColumnDef[] = [
+  1367→                    { key: "sender", label: "Sender", type: "text" },
+  1368→                    { key: "message", label: "Message", type: "text" },
+  1369→                    { key: "category", label: "Category", type: "text" },
+  1370→                    { key: "priority", label: "Priority", type: "text" },
+  1371→                    { key: "status", label: "Status", type: "text" },
+  1372→                    { key: "receivedAt", label: "Received", type: "date" },
+  1373→                  ];
+  1374→                  exportToPDF({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+  1375→                  toast({ title: "Exported", description: "SMS Inbox exported to PDF" });
+  1376→                } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1377→              }}>
+  1378→                <FileDown className="w-4 h-4 mr-1" /> Export PDF
+  1379→              </Button>
+  1380→              <Button variant="outline" size="sm" onClick={() => {
+  1381→                try {
+  1382→                  const inboxColumns: ExportColumnDef[] = [
+  1383→                    { key: "sender", label: "Sender", type: "text" },
+  1384→                    { key: "message", label: "Message", type: "text" },
+  1385→                    { key: "category", label: "Category", type: "text" },
+  1386→                    { key: "priority", label: "Priority", type: "text" },
+  1387→                    { key: "status", label: "Status", type: "text" },
+  1388→                    { key: "receivedAt", label: "Received", type: "date" },
+  1389→                  ];
+  1390→                  exportToCSV({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox" });
+  1391→                  toast({ title: "Exported", description: "SMS Inbox exported to CSV" });
+  1392→                } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1393→              }}>
+  1394→                <Download className="w-4 h-4 mr-1" /> Export CSV
+  1395→              </Button>
+  1396→              <Button variant="outline" size="sm" onClick={() => {
+  1397→                importFromCSV({ apiPath: "/api/sms-inbox", formFields: [
+  1398→                  { key: "sender", label: "Sender", type: "text", required: true },
+  1399→                  { key: "message", label: "Message", type: "textarea", required: true },
+  1400→                  { key: "category", label: "Category", type: "text" },
+  1401→                  { key: "priority", label: "Priority", type: "text" },
+  1402→                ] }).then(result => {
+  1403→                  toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+  1404→                  loadData();
+  1405→                });
+  1406→              }}>
+  1407→                <Upload className="w-4 h-4 mr-1" /> Import CSV
+  1408→              </Button>
+  1409→            </CardContent>
+  1410→          </Card>
+  1411→
+  1412→          {/* Inbox Table */}
+  1413→          <Card>
+  1414→            <CardContent className="p-0 overflow-hidden">
+  1415→              <div className="max-h-[500px] overflow-x-auto overflow-y-auto -mx-2 sm:mx-0">
+  1416→                <Table className="min-w-[600px]">
+  1417→                  <TableHeader>
+  1418→                    <TableRow>
+  1419→                      <TableHead>Sender</TableHead>
+  1420→                      <TableHead>Message</TableHead>
+  1421→                      <TableHead>Category</TableHead>
+  1422→                      <TableHead>Priority</TableHead>
+  1423→                      <TableHead>Status</TableHead>
+  1424→                      <TableHead>Received</TableHead>
+  1425→                      <TableHead className="text-right">Actions</TableHead>
+  1426→                    </TableRow>
+  1427→                  </TableHeader>
+  1428→                  <TableBody>
+  1429→                    {smsInbox
+  1430→                      .filter((m: any) => {
+  1431→                        if (inboxStatusFilter !== "all" && m.status !== inboxStatusFilter) return false;
+  1432→                        if (inboxPriorityFilter !== "all" && m.priority !== inboxPriorityFilter) return false;
+  1433→                        if (inboxSearch) {
+  1434→                          const s = inboxSearch.toLowerCase();
+  1435→                          return m.sender?.toLowerCase().includes(s) || m.message?.toLowerCase().includes(s);
+  1436→                        }
+  1437→                        return true;
+  1438→                      })
+  1439→                      .map((msg: any) => (
+  1440→                      <TableRow key={msg.id} className={msg.status === "Unread" ? "bg-yellow-50/50 dark:bg-yellow-900/10" : ""}>
+  1441→                        <TableCell className="font-medium text-sm">{msg.sender || "—"}</TableCell>
+  1442→                        <TableCell className="max-w-[200px] truncate text-sm">{msg.message || "—"}</TableCell>
+  1443→                        <TableCell><Badge variant="outline" className="text-xs">{msg.category || "—"}</Badge></TableCell>
+  1444→                        <TableCell>
+  1445→                          <Badge className={`text-xs ${msg.priority === "Urgent" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : msg.priority === "High" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : msg.priority === "Low" ? "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"}`}>{msg.priority}</Badge>
+  1446→                        </TableCell>
+  1447→                        <TableCell>
+  1448→                          <Badge className={`text-xs ${msg.status === "Unread" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : msg.status === "Flagged" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : msg.status === "Archived" ? "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"}`}>{msg.status}</Badge>
+  1449→                        </TableCell>
+  1450→                        <TableCell className="text-sm">{fmtDate(msg.receivedAt)}</TableCell>
+  1451→                        <TableCell className="text-right">
+  1452→                          <div className="flex items-center justify-end gap-1">
+  1453→                            {msg.status === "Unread" && (
+  1454→                              <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={async () => { await apiFetch(`/api/sms-inbox/${msg.id}`, { method: "PUT", body: JSON.stringify({ status: "Read" }) }); loadData(); }}><Eye className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>Mark Read</TooltipContent></Tooltip>
+  1455→                            )}
+  1456→                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={() => { setInboxDetail(msg); setInboxDetailDialog(true); }}><FileText className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>View</TooltipContent></Tooltip>
+  1457→                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={async () => { await apiFetch(`/api/sms-inbox/${msg.id}`, { method: "PUT", body: JSON.stringify({ status: msg.status === "Flagged" ? "Read" : "Flagged" }) }); loadData(); }}><Flag className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>{msg.status === "Flagged" ? "Unflag" : "Flag"}</TooltipContent></Tooltip>
+  1458→                            <Tooltip><TooltipTrigger asChild><Button variant="ghost" size="sm" onClick={async () => { await apiFetch(`/api/sms-inbox/${msg.id}`, { method: "PUT", body: JSON.stringify({ status: "Archived" }) }); loadData(); }}><Archive className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent>Archive</TooltipContent></Tooltip>
+  1459→                          </div>
+  1460→                        </TableCell>
+  1461→                      </TableRow>
+  1462→                    ))}
+  1463→                    {smsInbox.filter((m: any) => {
+  1464→                      if (inboxStatusFilter !== "all" && m.status !== inboxStatusFilter) return false;
+  1465→                      if (inboxPriorityFilter !== "all" && m.priority !== inboxPriorityFilter) return false;
+  1466→                      if (inboxSearch) { const s = inboxSearch.toLowerCase(); return m.sender?.toLowerCase().includes(s) || m.message?.toLowerCase().includes(s); }
+  1467→                      return true;
+  1468→                    }).length === 0 && (
+  1469→                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground"><Mail className="w-8 h-8 mx-auto mb-2 opacity-40" />No inbox messages found</TableCell></TableRow>
+  1470→                    )}
+  1471→                  </TableBody>
+  1472→                </Table>
+  1473→              </div>
+  1474→            </CardContent>
+  1475→          </Card>
+  1476→
+  1477→          {/* Inbox Create Dialog */}
+  1478→          <Dialog open={inboxDialog} onOpenChange={setInboxDialog}>
+  1479→            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+  1480→              <DialogHeader><DialogTitle>Add Inbox Message</DialogTitle><DialogDescription>Record an incoming SMS message</DialogDescription></DialogHeader>
+  1481→              <div className="space-y-3">
+  1482→                <div><Label>Sender Phone *</Label><Input value={inboxForm.sender} onChange={e => setInboxForm({ ...inboxForm, sender: e.target.value })} placeholder="+880XXXXXXXXXX" /></div>
+  1483→                <div><Label>Message *</Label><Textarea value={inboxForm.message} onChange={e => setInboxForm({ ...inboxForm, message: e.target.value })} rows={3} /></div>
+  1484→                <div className="grid grid-cols-2 gap-3">
+  1485→                  <div><Label>Category</Label><Select value={inboxForm.category} onValueChange={v => setInboxForm({ ...inboxForm, category: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="CustomerReply">Customer Reply</SelectItem><SelectItem value="SupplierNotice">Supplier Notice</SelectItem><SelectItem value="SystemAlert">System Alert</SelectItem><SelectItem value="Spam">Spam</SelectItem><SelectItem value="OptOut">Opt-Out</SelectItem></SelectContent></Select></div>
+  1486→                  <div><Label>Priority</Label><Select value={inboxForm.priority} onValueChange={v => setInboxForm({ ...inboxForm, priority: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Low">Low</SelectItem><SelectItem value="Normal">Normal</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Urgent">Urgent</SelectItem></SelectContent></Select></div>
+  1487→                </div>
+  1488→                <div className="grid grid-cols-2 gap-3">
+  1489→                  <div><Label>Related Module</Label><Input value={inboxForm.relatedModule} onChange={e => setInboxForm({ ...inboxForm, relatedModule: e.target.value })} placeholder="e.g. SalesOrder" /></div>
+  1490→                  <div><Label>Related Code</Label><Input value={inboxForm.relatedCode} onChange={e => setInboxForm({ ...inboxForm, relatedCode: e.target.value })} placeholder="e.g. SO-00001" /></div>
+  1491→                </div>
+  1492→              </div>
+  1493→              <DialogFooter>
+  1494→                <Button variant="outline" onClick={() => setInboxDialog(false)}>Cancel</Button>
+  1495→                <Button disabled={inboxSaving} onClick={async () => {
+  1496→                  if (!inboxForm.sender || !inboxForm.message) { toast({ title: "Error", description: "Sender and message are required", variant: "destructive" }); return; }
+  1497→                  setInboxSaving(true);
+  1498→                  try {
+  1499→                    await apiFetch("/api/sms-inbox", { method: "POST", body: JSON.stringify(inboxForm) });
+  1500→                    toast({ title: "Created", description: "Inbox message recorded" });
+  1501→                    setInboxDialog(false); loadData();
+  1502→                  } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setInboxSaving(false); }
+  1503→                }}>{inboxSaving ? "Saving..." : "Save"}</Button>
+  1504→              </DialogFooter>
+  1505→            </DialogContent>
+  1506→          </Dialog>
+  1507→
+  1508→          {/* Inbox Detail Dialog */}
+  1509→          <Dialog open={inboxDetailDialog} onOpenChange={setInboxDetailDialog}>
+  1510→            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+  1511→              <DialogHeader><DialogTitle>Inbox Message Detail</DialogTitle></DialogHeader>
+  1512→              {inboxDetail && (
+  1513→                <div className="space-y-3 text-sm">
+  1514→                  <div className="grid grid-cols-2 gap-3">
+  1515→                    <div><span className="text-muted-foreground">Sender:</span> <span className="font-medium">{inboxDetail.sender}</span></div>
+  1516→                    <div><span className="text-muted-foreground">Status:</span> <Badge className={`text-xs ${inboxDetail.status === "Unread" ? "bg-yellow-100 text-yellow-700" : inboxDetail.status === "Flagged" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{inboxDetail.status}</Badge></div>
+  1517→                    <div><span className="text-muted-foreground">Priority:</span> <Badge variant="outline" className="text-xs">{inboxDetail.priority}</Badge></div>
+  1518→                    <div><span className="text-muted-foreground">Category:</span> {inboxDetail.category || "—"}</div>
+  1519→                    <div><span className="text-muted-foreground">Received:</span> {fmtDate(inboxDetail.receivedAt)}</div>
+  1520→                    {inboxDetail.relatedCode && <div><span className="text-muted-foreground">Reference:</span> {inboxDetail.relatedCode}</div>}
+  1521→                  </div>
+  1522→                  <Separator />
+  1523→                  <div><span className="text-muted-foreground">Message:</span><p className="mt-1 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg whitespace-pre-wrap">{inboxDetail.message}</p></div>
+  1524→                  {inboxDetail.notes && <div><span className="text-muted-foreground">Notes:</span> {inboxDetail.notes}</div>}
+  1525→                </div>
+  1526→              )}
+  1527→            </DialogContent>
+  1528→          </Dialog>
+  1529→        </TabsContent>
+  1530→
+  1531→        {/* ============================================================
+  1532→            SMS LOG TAB
+  1533→            ============================================================ */}
+  1534→        <TabsContent value="logs" className="space-y-4">
+  1535→          {/* Toolbar */}
+  1536→          <Card>
+  1537→            <CardContent className="p-4">
+  1538→              <div className="flex flex-wrap items-center gap-3">
+  1539→                <div className="relative flex-1 min-w-[200px] max-w-sm">
+  1540→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+  1541→                  <Input
+  1542→                    placeholder="Search by recipient, message, status, campaign..."
+  1543→                    value={logSearch}
+  1544→                    onChange={(e) => setLogSearch(e.target.value)}
+  1545→                    className="pl-10"
+  1546→                  />
+  1547→                </div>
+  1548→                <Select value={logStatusFilter} onValueChange={setLogStatusFilter}>
+  1549→                  <SelectTrigger className="w-36">
+  1550→                    <SelectValue placeholder="Status" />
+  1551→                  </SelectTrigger>
+  1552→                  <SelectContent>
+  1553→                    <SelectItem value="all">All Status</SelectItem>
+  1554→                    <SelectItem value="delivered">Delivered</SelectItem>
+  1555→                    <SelectItem value="pending">Pending</SelectItem>
+  1556→                    <SelectItem value="failed">Failed</SelectItem>
+  1557→                    <SelectItem value="sent">Sent</SelectItem>
+  1558→                  </SelectContent>
+  1559→                </Select>
+  1560→                <Select value={logTriggerTypeFilter} onValueChange={setLogTriggerTypeFilter}>
+  1561→                  <SelectTrigger className="w-36">
+  1562→                    <SelectValue placeholder="Trigger Type" />
+  1563→                  </SelectTrigger>
+  1564→                  <SelectContent>
+  1565→                    <SelectItem value="all">All Types</SelectItem>
+  1566→                    <SelectItem value="Manual">Manual</SelectItem>
+  1567→                    <SelectItem value="SalesConfirmation">Sales Confirm</SelectItem>
+  1568→                    <SelectItem value="FinancialCollection">Collection</SelectItem>
+  1569→                    <SelectItem value="InventoryIngestion">Ingestion</SelectItem>
+  1570→                    <SelectItem value="HRLifecycle">HR Lifecycle</SelectItem>
+  1571→                    <SelectItem value="Campaign">Campaign</SelectItem>
+  1572→                  </SelectContent>
+  1573→                </Select>
+  1574→                <Separator orientation="vertical" className="h-8" />
+  1575→                <Button variant="outline" size="sm" onClick={handleImportLogCSV}>
+  1576→                  <Upload className="w-4 h-4 mr-1" />
+  1577→                  Import CSV
+  1578→                </Button>
+  1579→                <Button variant="outline" size="sm" onClick={handleExportLogCSV}>
+  1580→                  <Download className="w-4 h-4 mr-1" />
+  1581→                  Export CSV
+  1582→                </Button>
+  1583→                <Button variant="outline" size="sm" onClick={handleExportLogPDF}>
+  1584→                  <FileDown className="w-4 h-4 mr-1" />
+  1585→                  Export PDF
+  1586→                </Button>
+  1587→                <Button variant="outline" size="sm" onClick={loadData}>
+  1588→                  <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+  1589→                </Button>
+  1590→              </div>
+  1591→            </CardContent>
+  1592→          </Card>
+  1593→
+  1594→          {/* SMS Log Table */}
+  1595→          <Card>
+  1596→            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+  1597→              <CardTitle className="text-white text-sm flex items-center gap-2">
+  1598→                <MessageSquare className="w-4 h-4" />
+  1599→                SMS Logs
+  1600→                <Badge variant="secondary" className="ml-2">{filteredLogs.length} records</Badge>
+  1601→              </CardTitle>
+  1602→            </CardHeader>
+  1603→            <CardContent className="p-0 overflow-hidden">
+  1604→              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-b-md">
+  1605→                <Table>
+  1606→                  <TableHeader>
+  1607→                    <TableRow className="bg-muted/50">
+  1608→                      <TableHead className="w-12">#</TableHead>
+  1609→                      <TableHead>Recipient</TableHead>
+  1610→                      <TableHead>Message</TableHead>
+  1611→                      <TableHead className="text-center">Chars</TableHead>
+  1612→                      <TableHead className="text-center">Segments</TableHead>
+  1613→                      <TableHead className="text-center">Type</TableHead>
+  1614→                      <TableHead>Status</TableHead>
+  1615→                      <TableHead>Sent At</TableHead>
+  1616→                      <TableHead className="text-right">Cost</TableHead>
+  1617→                      <TableHead>Campaign</TableHead>
+  1618→                    </TableRow>
+  1619→                  </TableHeader>
+  1620→                  <TableBody>
+  1621→                    {loading ? (
+  1622→                      <TableRow>
+  1623→                        <TableCell colSpan={10} className="h-24 text-center">
+  1624→                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+  1625→                        </TableCell>
+  1626→                      </TableRow>
+  1627→                    ) : filteredLogs.length === 0 ? (
+  1628→                      <TableRow>
+  1629→                        <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
+  1630→                          No SMS logs found
+  1631→                        </TableCell>
+  1632→                      </TableRow>
+  1633→                    ) : (
+  1634→                      filteredLogs.map((log: any, idx: number) => (
+  1635→                        <TableRow key={log.id || idx} className="data-table-row hover:bg-muted/50">
+  1636→                          <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+  1637→                          <TableCell className="font-mono text-slate-900 dark:text-white">
+  1638→                            <div className="flex items-center gap-1.5">
+  1639→                              <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+  1640→                              {log.recipient || "—"}
+  1641→                            </div>
+  1642→                          </TableCell>
+  1643→                          <TableCell className="max-w-[300px] truncate text-slate-900 dark:text-white">
+  1644→                            {log.message || "—"}
+  1645→                          </TableCell>
+  1646→                          <TableCell className="text-center text-slate-900 dark:text-white">
+  1647→                            {log.charCount ?? "—"}
+  1648→                          </TableCell>
+  1649→                          <TableCell className="text-center text-slate-900 dark:text-white">
+  1650→                            {log.smsSegmentCount ?? "—"}
+  1651→                          </TableCell>
+  1652→                          <TableCell className="text-center">
+  1653→                            <Badge className={log.isUnicode
+  1654→                              ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+  1655→                              : "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400"
+  1656→                            }>
+  1657→                              {log.isUnicode ? "Unicode" : "Standard"}
+  1658→                            </Badge>
+  1659→                          </TableCell>
+  1660→                          <TableCell>
+  1661→                            <Badge className={statusColor(log.status)}>
+  1662→                              {log.status === "Sending" && (
+  1663→                                <Clock className="w-3 h-3 mr-1 animate-spin inline" />
+  1664→                              )}
+  1665→                              {log.status || "Unknown"}
+  1666→                            </Badge>
+  1667→                          </TableCell>
+  1668→                          <TableCell className="text-slate-900 dark:text-white">
+  1669→                            {fmtDate(log.sentAt || log.createdAt)}
+  1670→                          </TableCell>
+  1671→                          <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+  1672→                            {isVatAuditor ? "N/A (Audit Mode)" : fmt(log.cost, "currency")}
+  1673→                          </TableCell>
+  1674→                          <TableCell className="text-slate-900 dark:text-white">
+  1675→                            {fmtEmpty(log.campaignName)}
+  1676→                          </TableCell>
+  1677→                        </TableRow>
+  1678→                      ))
+  1679→                    )}
+  1680→                  </TableBody>
+  1681→                </Table>
+  1682→              </div>
+  1683→              <div className="px-4 py-2 text-xs text-muted-foreground border-t">
+  1684→                Showing {filteredLogs.length} of {smsLogs.length} logs
+  1685→                {logStatusFilter !== "all" && ` | Filter: ${logStatusFilter}`}
+  1686→                {logSearch && ` | Search: "${logSearch}"`}
+  1687→              </div>
+  1688→            </CardContent>
+  1689→          </Card>
+  1690→        </TabsContent>
+  1691→
+  1692→        {/* ============================================================
+  1693→            SMS BILLING TAB (Hidden for SR)
+  1694→            ============================================================ */}
+  1695→        {!isSR && (
+  1696→        <TabsContent value="billing" className="space-y-4">
+  1697→          {/* Billing Summary Cards */}
+  1698→          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+  1699→            <Card className="stat-mini-card">
+  1700→              <CardContent className="p-3 flex items-center gap-2">
+  1701→                <div className="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600">
+  1702→                  <FileText className="w-4 h-4" />
+  1703→                </div>
+  1704→                <div>
+  1705→                  <p className="text-xs text-muted-foreground">Total Bills</p>
+  1706→                  <p className="text-lg font-bold text-slate-900 dark:text-white">{smsBills.length}</p>
+  1707→                </div>
+  1708→              </CardContent>
+  1709→            </Card>
+  1710→            <Card className="stat-mini-card">
+  1711→              <CardContent className="p-3 flex items-center gap-2">
+  1712→                <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600">
+  1713→                  <CheckCircle className="w-4 h-4" />
+  1714→                </div>
+  1715→                <div>
+  1716→                  <p className="text-xs text-muted-foreground">Paid</p>
+  1717→                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+  1718→                    {smsBills.filter((b: any) => b.status === "Paid").length}
+  1719→                  </p>
+  1720→                </div>
+  1721→              </CardContent>
+  1722→            </Card>
+  1723→            <Card className="stat-mini-card">
+  1724→              <CardContent className="p-3 flex items-center gap-2">
+  1725→                <div className="p-1.5 rounded-lg bg-red-50 dark:bg-red-900/30 text-red-600">
+  1726→                  <XCircle className="w-4 h-4" />
+  1727→                </div>
+  1728→                <div>
+  1729→                  <p className="text-xs text-muted-foreground">Unpaid</p>
+  1730→                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+  1731→                    {smsBills.filter((b: any) => b.status === "Unpaid").length}
+  1732→                  </p>
+  1733→                </div>
+  1734→              </CardContent>
+  1735→            </Card>
+  1736→            <Card className="stat-mini-card">
+  1737→              <CardContent className="p-3 flex items-center gap-2">
+  1738→                <div className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-900/30 text-purple-600">
+  1739→                  <Banknote className="w-4 h-4" />
+  1740→                </div>
+  1741→                <div>
+  1742→                  <p className="text-xs text-muted-foreground">Outstanding</p>
+  1743→                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+  1744→                    {isVatAuditor ? "N/A (Audit Mode)" : fmt(outstandingAmount, "currency")}
+  1745→                  </p>
+  1746→                </div>
+  1747→              </CardContent>
+  1748→            </Card>
+  1749→          </div>
+  1750→
+  1751→          {/* Bills Toolbar */}
+  1752→          <Card>
+  1753→            <CardContent className="p-4">
+  1754→              <div className="flex flex-wrap items-center gap-3">
+  1755→                <Select value={billStatusFilter} onValueChange={setBillStatusFilter}>
+  1756→                  <SelectTrigger className="w-36">
+  1757→                    <SelectValue placeholder="Bill Status" />
+  1758→                  </SelectTrigger>
+  1759→                  <SelectContent>
+  1760→                    <SelectItem value="all">All Status</SelectItem>
+  1761→                    <SelectItem value="paid">Paid</SelectItem>
+  1762→                    <SelectItem value="partial">Partial</SelectItem>
+  1763→                    <SelectItem value="unpaid">Unpaid</SelectItem>
+  1764→                  </SelectContent>
+  1765→                </Select>
+  1766→                <Separator orientation="vertical" className="h-8" />
+  1767→                <Button variant="outline" size="sm" onClick={openBillCreate}>
+  1768→                  <Plus className="w-4 h-4 mr-1" />
+  1769→                  New Bill
+  1770→                </Button>
+  1771→                <Button variant="outline" size="sm" onClick={handleExportBillCSV}>
+  1772→                  <Download className="w-4 h-4 mr-1" />
+  1773→                  Export CSV
+  1774→                </Button>
+  1775→                <Button variant="outline" size="sm" onClick={handleExportBillPDF}>
+  1776→                  <FileDown className="w-4 h-4 mr-1" />
+  1777→                  Export PDF
+  1778→                </Button>
+  1779→                <Button variant="outline" size="sm" onClick={handleImportBillCSV}>
+  1780→                  <Upload className="w-4 h-4 mr-1" />
+  1781→                  Import CSV
+  1782→                </Button>
+  1783→              </div>
+  1784→            </CardContent>
+  1785→          </Card>
+  1786→
+  1787→          {/* Bills Table */}
+  1788→          <Card>
+  1789→            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+  1790→              <CardTitle className="text-white text-sm flex items-center gap-2">
+  1791→                <CreditCard className="w-4 h-4" />
+  1792→                SMS Bills
+  1793→                <Badge variant="secondary" className="ml-2">{filteredBills.length} records</Badge>
+  1794→              </CardTitle>
+  1795→            </CardHeader>
+  1796→            <CardContent className="p-0 overflow-hidden">
+  1797→              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-b-md">
+  1798→                <Table>
+  1799→                  <TableHeader>
+  1800→                    <TableRow className="bg-muted/50">
+  1801→                      <TableHead className="w-12">#</TableHead>
+  1802→                      <TableHead>Period</TableHead>
+  1803→                      <TableHead className="text-center">Total SMS</TableHead>
+  1804→                      <TableHead className="text-center">Total Segments</TableHead>
+  1805→                      <TableHead className="text-right">Total Cost</TableHead>
+  1806→                      <TableHead className="text-right">Paid</TableHead>
+  1807→                      <TableHead className="text-right">Outstanding</TableHead>
+  1808→                      <TableHead>Status</TableHead>
+  1809→                      <TableHead className="text-center">Actions</TableHead>
+  1810→                    </TableRow>
+  1811→                  </TableHeader>
+  1812→                  <TableBody>
+  1813→                    {loading ? (
+  1814→                      <TableRow>
+  1815→                        <TableCell colSpan={9} className="h-24 text-center">
+  1816→                          <RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+  1817→                        </TableCell>
+  1818→                      </TableRow>
+  1819→                    ) : filteredBills.length === 0 ? (
+  1820→                      <TableRow>
+  1821→                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+  1822→                          No SMS bills found
+  1823→                        </TableCell>
+  1824→                      </TableRow>
+  1825→                    ) : (
+  1826→                      filteredBills.map((bill: any, idx: number) => {
+  1827→                        const outstanding = Number(bill.outstanding) || (Number(bill.totalCost) || 0) - (Number(bill.paidAmount) || 0);
+  1828→                        return (
+  1829→                          <TableRow key={bill.id || idx} className="data-table-row hover:bg-muted/50">
+  1830→                            <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+  1831→                            <TableCell className="font-medium text-slate-900 dark:text-white">
+  1832→                              {bill.period || "—"}
+  1833→                            </TableCell>
+  1834→                            <TableCell className="text-center text-slate-900 dark:text-white">
+  1835→                              {bill.totalSms ?? "—"}
+  1836→                            </TableCell>
+  1837→                            <TableCell className="text-center text-slate-900 dark:text-white">
+  1838→                              {bill.totalSegments ?? "—"}
+  1839→                            </TableCell>
+  1840→                            <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+  1841→                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(bill.totalCost, "currency")}
+  1842→                            </TableCell>
+  1843→                            <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+  1844→                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(bill.paidAmount, "currency")}
+  1845→                            </TableCell>
+  1846→                            <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+  1847→                              {isVatAuditor ? "N/A (Audit Mode)" : fmt(outstanding, "currency")}
+  1848→                            </TableCell>
+  1849→                            <TableCell>
+  1850→                              <Badge className={billStatusColor(bill.status)}>
+  1851→                                {bill.status || "Unknown"}
+  1852→                              </Badge>
+  1853→                            </TableCell>
+  1854→                            <TableCell className="text-center">
+  1855→                              <div className="flex items-center justify-center gap-1">
+  1856→                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openBillEdit(bill)}>
+  1857→                                  <Pencil className="h-3.5 w-3.5" />
+  1858→                                </Button>
+  1859→                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openPaymentDialog(bill.id)}>
+  1860→                                  <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
+  1861→                                </Button>
+  1862→                                {isAdmin ? (
+  1863→                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => { setDeleteTarget({ type: "bill", id: bill.id }); setDeleteDialog(true); }}>
+  1864→                                    <Trash2 className="h-3.5 w-3.5" />
+  1865→                                  </Button>
+  1866→                                ) : (
+  1867→                                  <Tooltip>
+  1868→                                    <TooltipTrigger asChild>
+  1869→                                      <span>
+  1870→                                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-300 cursor-not-allowed" disabled>
+  1871→                                          <Trash2 className="h-3.5 w-3.5" />
+  1872→                                        </Button>
+  1873→                                      </span>
+  1874→                                    </TooltipTrigger>
+  1875→                                    <TooltipContent>
+  1876→                                      <p>Only administrators can delete bills</p>
+  1877→                                    </TooltipContent>
+  1878→                                  </Tooltip>
+  1879→                                )}
+  1880→                              </div>
+  1881→                            </TableCell>
+  1882→                          </TableRow>
+  1883→                        );
+  1884→                      })
+  1885→                    )}
+  1886→                  </TableBody>
+  1887→                </Table>
+  1888→              </div>
+  1889→            </CardContent>
+  1890→          </Card>
+  1891→
+  1892→          {/* Payment History */}
+  1893→          <Card>
+  1894→            <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-xl">
+  1895→              <CardTitle className="text-white text-sm flex items-center gap-2">
+  1896→                <DollarSign className="w-4 h-4" />
+  1897→                Payment History
+  1898→              </CardTitle>
+  1899→            </CardHeader>
+  1900→            <CardContent className="p-0 overflow-hidden">
+  1901→              <div className="table-container overflow-x-auto overflow-y-auto max-h-96 rounded-b-md">
+  1902→                <Table className="min-w-[600px]">
+  1903→                  <TableHeader>
+  1904→                    <TableRow className="bg-muted/50">
+  1905→                      <TableHead className="w-12">#</TableHead>
+  1906→                      <TableHead>Bill</TableHead>
+  1907→                      <TableHead className="text-right">Amount</TableHead>
+  1908→                      <TableHead>Date</TableHead>
+  1909→                      <TableHead>Method</TableHead>
+  1910→                      <TableHead>Reference</TableHead>
+  1911→                      <TableHead>Notes</TableHead>
+  1912→                    </TableRow>
+  1913→                  </TableHeader>
+  1914→                  <TableBody>
+  1915→                    {smsBillPayments.length === 0 ? (
+  1916→                      <TableRow>
+  1917→                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+  1918→                          No payment records found
+  1919→                        </TableCell>
+  1920→                      </TableRow>
+  1921→                    ) : (
+  1922→                      smsBillPayments.map((payment: any, idx: number) => (
+  1923→                        <TableRow key={payment.id || idx} className="data-table-row hover:bg-muted/50">
+  1924→                          <TableCell className="text-muted-foreground text-xs">{idx + 1}</TableCell>
+  1925→                          <TableCell className="font-medium text-slate-900 dark:text-white">
+  1926→                            {payment.smsBill?.period || payment.smsBillId || "—"}
+  1927→                          </TableCell>
+  1928→                          <TableCell className="text-right font-mono text-slate-900 dark:text-white">
+  1929→                            {isVatAuditor ? "N/A (Audit Mode)" : fmt(payment.amount, "currency")}
+  1930→                          </TableCell>
+  1931→                          <TableCell className="text-slate-900 dark:text-white">
+  1932→                            {fmtDate(payment.date)}
+  1933→                          </TableCell>
+  1934→                          <TableCell className="text-slate-900 dark:text-white">
+  1935→                            {fmtEmpty(payment.method)}
+  1936→                          </TableCell>
+  1937→                          <TableCell className="text-slate-900 dark:text-white">
+  1938→                            {fmtEmpty(payment.reference)}
+  1939→                          </TableCell>
+  1940→                          <TableCell className="text-slate-900 dark:text-white">
+  1941→                            {fmtEmpty(payment.notes)}
+  1942→                          </TableCell>
+  1943→                        </TableRow>
+  1944→                      ))
+  1945→                    )}
+  1946→                  </TableBody>
+  1947→                </Table>
+  1948→              </div>
+  1949→            </CardContent>
+  1950→          </Card>
+  1951→
+  1952→          {/* Bill Create/Edit Dialog */}
+  1953→          <Dialog open={billDialog} onOpenChange={setBillDialog}>
+  1954→            <DialogContent className="max-w-[95vw] sm:max-w-lg">
+  1955→              <DialogHeader>
+  1956→                <DialogTitle>{billEdit ? "Edit SMS Bill" : "New SMS Bill"}</DialogTitle>
+  1957→                <DialogDescription>
+  1958→                  {billEdit ? "Update the SMS billing record." : "Create a new SMS billing record."}
+  1959→                </DialogDescription>
+  1960→              </DialogHeader>
+  1961→              <div className="space-y-4 py-2">
+  1962→                <div className="space-y-2">
+  1963→                  <Label htmlFor="bill-period">Period <span className="text-red-500">*</span></Label>
+  1964→                  <Input id="bill-period" placeholder="e.g. January 2025" value={billForm.period} onChange={e => setBillForm({ ...billForm, period: e.target.value })} />
+  1965→                </div>
+  1966→                <div className="grid grid-cols-2 gap-4">
+  1967→                  <div className="space-y-2">
+  1968→                    <Label htmlFor="bill-total-sms">Total SMS</Label>
+  1969→                    <Input id="bill-total-sms" type="number" min="0" value={billForm.totalSms} onChange={e => setBillForm({ ...billForm, totalSms: Number(e.target.value) || 0 })} />
+  1970→                  </div>
+  1971→                  <div className="space-y-2">
+  1972→                    <Label htmlFor="bill-total-segments">Total Segments</Label>
+  1973→                    <Input id="bill-total-segments" type="number" min="0" value={billForm.totalSegments} onChange={e => setBillForm({ ...billForm, totalSegments: Number(e.target.value) || 0 })} />
+  1974→                  </div>
+  1975→                </div>
+  1976→                <div className="grid grid-cols-2 gap-4">
+  1977→                  <div className="space-y-2">
+  1978→                    <Label htmlFor="bill-total-cost">Total Cost (Tk. )</Label>
+  1979→                    <Input id="bill-total-cost" type="number" step="0.01" min="0" value={billForm.totalCost} onChange={e => setBillForm({ ...billForm, totalCost: Number(e.target.value) || 0 })} />
+  1980→                  </div>
+  1981→                  <div className="space-y-2">
+  1982→                    <Label htmlFor="bill-paid-amount">Paid Amount (Tk. )</Label>
+  1983→                    <Input id="bill-paid-amount" type="number" step="0.01" min="0" value={billForm.paidAmount} onChange={e => setBillForm({ ...billForm, paidAmount: Number(e.target.value) || 0 })} />
+  1984→                  </div>
+  1985→                </div>
+  1986→                <div className="space-y-2">
+  1987→                  <Label htmlFor="bill-status">Status</Label>
+  1988→                  <Select value={billForm.status} onValueChange={v => setBillForm({ ...billForm, status: v })}>
+  1989→                    <SelectTrigger>
+  1990→                      <SelectValue placeholder="Select status" />
+  1991→                    </SelectTrigger>
+  1992→                    <SelectContent>
+  1993→                      <SelectItem value="Unpaid">Unpaid</SelectItem>
+  1994→                      <SelectItem value="Partial">Partial</SelectItem>
+  1995→                      <SelectItem value="Paid">Paid</SelectItem>
+  1996→                    </SelectContent>
+  1997→                  </Select>
+  1998→                </div>
+  1999→              </div>
+  2000→              <DialogFooter>
+
+[showing lines 1-2000 of 3122; use offset=2001 with limit to continue reading]

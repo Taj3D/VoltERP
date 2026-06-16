@@ -19,6 +19,9 @@ function sanitizeText(value: unknown): string {
   return cleaned;
 }
 
+// ── Name Length Limit ──
+const CATEGORY_NAME_MAX_LENGTH = 100;
+
 // GET /api/categories — List all active categories filtered by companyId
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Categories', 'GET');
@@ -68,6 +71,10 @@ export async function POST(request: NextRequest) {
 
           if (!sanitizedName) {
             throw new Error('DUPLICATE_NAME: Category name cannot be empty after sanitization.');
+          }
+
+          if (sanitizedName.length > CATEGORY_NAME_MAX_LENGTH) {
+            throw new Error(`VALIDATION_ERROR: Category name must not exceed ${CATEGORY_NAME_MAX_LENGTH} characters (got ${sanitizedName.length}).`);
           }
 
           // Case-insensitive unique check scoped by company (SQLite-compatible)
@@ -143,6 +150,13 @@ export async function POST(request: NextRequest) {
     if (!sanitizedName) {
       return NextResponse.json(
         { error: 'Category name cannot be empty after sanitization.' },
+        { status: 400 }
+      );
+    }
+
+    if (sanitizedName.length > CATEGORY_NAME_MAX_LENGTH) {
+      return NextResponse.json(
+        { error: `Category name must not exceed ${CATEGORY_NAME_MAX_LENGTH} characters (got ${sanitizedName.length}).` },
         { status: 400 }
       );
     }

@@ -108,7 +108,7 @@ export async function triggerEventSms(
     }
 
     // Step 1: Find active notification trigger matching eventType
-    const trigger = await db.smsNotificationTrigger.findFirst({
+    let trigger = await db.smsNotificationTrigger.findFirst({
       where: {
         eventType,
         isEnabled: true,
@@ -125,7 +125,93 @@ export async function triggerEventSms(
     });
 
     if (!trigger) {
-      return { triggered: false, error: 'No active notification trigger' };
+      // Auto-seed: Create a default SmsNotificationTrigger if none exists for this eventType
+      // This ensures auto-SMS works as soon as toggles are turned ON in SMS Settings
+      const defaultTemplates: Record<string, { label: string; templateBody: string; recipientType: string }> = {
+        'SalesConfirmation': {
+          label: 'Customer Purchase SMS',
+          templateBody: 'Dear {{customerName}}, your order {{invoiceNo}} of {{amount}} on {{date}} ({{productSummary}}) is confirmed. Thank you!',
+          recipientType: 'Customer',
+        },
+        'FinancialCollection': {
+          label: 'Payment Receive SMS',
+          templateBody: 'Dear {{clientName}}, we received {{amount}} via {{paymentMethod}} on {{date}}. Ref: {{receiptRef}}. Thank you!',
+          recipientType: 'Customer',
+        },
+        'InventoryIngestion': {
+          label: 'Godown Receive SMS',
+          templateBody: 'Dear {{supplierName}}, stock received: {{quantity}} x {{productName}} at {{godownName}} on {{date}}. Ref: {{referenceNo}}.',
+          recipientType: 'Supplier',
+        },
+        'HRLifecycle': {
+          label: 'HR Lifecycle SMS',
+          templateBody: 'Dear {{employeeName}}, {{eventType}}: {{details}} — {{companyName}}.',
+          recipientType: 'Employee',
+        },
+        'PaymentReceived': {
+          label: 'Payment Received SMS',
+          templateBody: 'Dear {{clientName}}, payment of {{amount}} received on {{date}} via {{paymentMethod}}. Ref: {{receiptRef}}. Thank you!',
+          recipientType: 'Customer',
+        },
+        'PurchaseOrderReceived': {
+          label: 'Purchase Order Received SMS',
+          templateBody: 'Dear {{supplierName}}, your PO {{poNumber}} of {{amount}} has been received on {{date}}. Items: {{productSummary}}.',
+          recipientType: 'Supplier',
+        },
+        'EmployeeJoined': {
+          label: 'Employee Join SMS',
+          templateBody: 'Welcome {{employeeName}}! You have joined {{companyName}} as {{designation}} on {{joinDate}}. We wish you great success!',
+          recipientType: 'Employee',
+        },
+        'EmployeeExamDate': {
+          label: 'Employee Exam SMS',
+          templateBody: 'Dear {{employeeName}}, your exam "{{examTitle}}" is scheduled on {{examDate}} at {{venue}}. — {{companyName}}',
+          recipientType: 'Employee',
+        },
+      };
+
+      const defaultTpl = defaultTemplates[eventType];
+      if (defaultTpl) {
+        try {
+          // Auto-generate SNT code
+          const allTriggers = await db.smsNotificationTrigger.findMany({ select: { code: true } });
+          let maxNum = 0;
+          for (const t of allTriggers) {
+            const match = t.code.match(/SNT-(\d+)/);
+            if (match) maxNum = Math.max(maxNum, parseInt(match[1]));
+          }
+          const newCode = `SNT-${String(maxNum + 1).padStart(5, '0')}`;
+
+          const autoTrigger = await db.smsNotificationTrigger.create({
+            data: {
+              code: newCode,
+              eventType,
+              label: defaultTpl.label,
+              isEnabled: true,
+              recipientType: defaultTpl.recipientType,
+              templateBody: defaultTpl.templateBody,
+              companyId: companyId ?? null,
+              isActive: true,
+            },
+          });
+
+          // Use the auto-created trigger to continue the flow
+          trigger = autoTrigger;
+
+          await logUserActivity({
+            action: 'CREATE',
+            module: 'SMS-Notification-Trigger',
+            recordId: autoTrigger.id,
+            recordLabel: `Auto-seeded: ${eventType}`,
+            details: `Auto-created SmsNotificationTrigger for event type "${eventType}" with default template.`,
+          });
+        } catch (seedError) {
+          console.error('[SmsEventHooks] Failed to auto-seed trigger:', seedError);
+          return { triggered: false, error: 'No active notification trigger and auto-seed failed' };
+        }
+      } else {
+        return { triggered: false, error: 'No active notification trigger' };
+      }
     }
 
     // Step 2: Replace {{variableName}} placeholders in templateBody

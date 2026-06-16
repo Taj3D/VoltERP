@@ -5,6 +5,13 @@ import { logUserActivity } from '@/lib/activity-logger';
 
 const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
 
+// Valid customer types
+const VALID_CUSTOMER_TYPES = ['Regular', 'Dealer'] as const;
+type CustomerType = typeof VALID_CUSTOMER_TYPES[number];
+function isValidCustomerType(value: unknown): value is CustomerType {
+  return typeof value === 'string' && VALID_CUSTOMER_TYPES.includes(value as CustomerType);
+}
+
 // XSS sanitization — strip HTML tags from text inputs
 function stripHtml(input: string): string {
   return input.replace(/<[^>]*>/g, '').trim();
@@ -193,6 +200,9 @@ export async function POST(request: NextRequest) {
             customerCode = `CUS-${String(nextNum).padStart(5, '0')}`;
           }
 
+          // Customer type validation
+          const customerType = isValidCustomerType(row.customerType) ? row.customerType : 'Regular';
+
           const openingBalance = safeFinancialRound(Number(row.openingBalance) || 0);
           const openingBalanceType = row.openingBalanceType || 'Dr';
           const creditLimit = safeFinancialRound(Number(row.creditLimit) || 0);
@@ -218,7 +228,7 @@ export async function POST(request: NextRequest) {
               currentBalanceType: openingBalanceType,
               creditLimit,
               creditStatus: initialCreditStatus,
-              customerType: row.customerType || 'Regular',
+              customerType,
               profileImage: row.profileImage || null,
               nidFrontImage: row.nidFrontImage || null,
               nidBackImage: row.nidBackImage || null,
@@ -278,6 +288,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Customer type validation
+    if (body.customerType && !isValidCustomerType(body.customerType)) {
+      return NextResponse.json(
+        { error: `Invalid customer type "${body.customerType}". Allowed values: ${VALID_CUSTOMER_TYPES.join(', ')}` },
+        { status: 400 }
+      );
+    }
+
     // Set initial balance from opening balance
     const openingBalance = safeFinancialRound(Number(body.openingBalance) || 0);
     const openingBalanceType = body.openingBalanceType || 'Dr';
@@ -317,7 +335,7 @@ export async function POST(request: NextRequest) {
           currentBalanceType: openingBalanceType, // Same type as opening
           creditLimit,
           creditStatus: initialCreditStatus,
-          customerType: body.customerType || 'Regular',
+          customerType: isValidCustomerType(body.customerType) ? body.customerType : 'Regular',
           profileImage: body.profileImage || null,
           nidFrontImage: body.nidFrontImage || null,
           nidBackImage: body.nidBackImage || null,

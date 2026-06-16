@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiSecurity } from '@/lib/api-security';
+import { withApiSecurity, safeFinancialRound } from '@/lib/api-security';
 import { dispatchSmsBatch, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
 import { getCachedSmsSettings } from '@/lib/sms-settings-cache';
 
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     // Check credit balance limit
     if ((activeSetting as any).creditBalanceLimit > 0) {
       // Calculate estimated cost: count total SMS units that would be sent
-      const estimatedCost = (campaign as any).totalSmsUnits || (campaign.recipientCount * (campaign as any).smsUnitsPerMsg);
+      const estimatedCost = campaign.recipientCount * smsUnits * (activeSetting.ratePerSms || 0);
       if (estimatedCost > (activeSetting as any).creditBalanceLimit) {
         return NextResponse.json(
           { error: `Insufficient SMS API credits. Estimated cost: ${estimatedCost} units, available limit: ${(activeSetting as any).creditBalanceLimit} units. Please top up your SMS credits.` },
@@ -127,12 +127,15 @@ export async function POST(request: NextRequest) {
             data: {
               recipient: customer.phone.trim(),
               message: campaign.message,
+              charCount: campaign.charCount || campaign.message.length,
+              smsSegmentCount: smsUnits,
+              isUnicode: encodingType === 'Unicode',
               status: 'Pending',
               sentAt: new Date(),
               cost: 0,
-              encodingType,
-              smsUnits,
               campaignId: campaign.id,
+              campaignName: campaign.name,
+              triggerType: 'Campaign',
               isActive: true,
               ...(campaign.companyId && { companyId: campaign.companyId }),
             },
@@ -149,15 +152,17 @@ export async function POST(request: NextRequest) {
 
       // Update campaign status and dispatch log
       const finalStatus = failCount === 0 ? 'Completed' : successCount === 0 ? 'Failed' : 'Completed';
+      const totalCost = safeFinancialRound(successCount * (campaign.costPerSms || 0));
       await tx.smsCampaign.update({
         where: { id: campaignId },
         data: {
           status: finalStatus,
           recipientCount: successCount,
-          totalSmsUnits: successCount * smsUnits,
-          smsUnitsPerMsg: smsUnits,
-          encodingType,
-          dispatchLog: JSON.stringify(dispatchResults),
+          sentCount: successCount,
+          deliveredCount: successCount,
+          failedCount: failCount,
+          totalCost,
+          completedAt: new Date(),
         },
       });
 

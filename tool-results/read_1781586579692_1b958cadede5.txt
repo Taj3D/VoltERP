@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+     4→import {
+     5→  AlertTriangle, Building2, FileText, Hash, Gauge,
+     6→  Download, Upload, FileDown, RefreshCw, Plus, Trash2,
+     7→  Edit, Eye, Shield, CheckCircle, X, Save, Settings,
+     8→  Printer, Mail, DollarSign, Percent, Palette, Search,
+     9→  Database, Zap, Trash, RotateCcw, Info, Code,
+    10→  Image as ImageIcon, Phone, Globe, Receipt, StickyNote,
+    11→  HardDrive, Activity, Server, Cpu, MemoryStick, Clock,
+    12→  ChevronDown, Star, Copy,
+    13→} from "lucide-react";
+    14→import { Button } from "@/components/ui/button";
+    15→import { Input } from "@/components/ui/input";
+    16→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    17→import {
+    18→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+    19→} from "@/components/ui/dialog";
+    20→import {
+    21→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    22→} from "@/components/ui/select";
+    23→import {
+    24→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    25→} from "@/components/ui/table";
+    26→import { Badge } from "@/components/ui/badge";
+    27→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    28→import { Textarea } from "@/components/ui/textarea";
+    29→import { Label } from "@/components/ui/label";
+    30→import { Separator } from "@/components/ui/separator";
+    31→import { Switch } from "@/components/ui/switch";
+    32→import { useToast } from "@/hooks/use-toast";
+    33→import {
+    34→  exportToPDF, exportToCSV, importFromCSV,
+    35→  sanitizeCurrencyValue,
+    36→} from "@/lib/export-utils";
+    37→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
+    38→import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+    39→import { apiFetch, type UserRole, authState } from "@/lib/api-client";
+    40→import { useAuth } from "@/hooks/useAuth";
+    41→import { toLatinDigits } from "@/lib/number-format";
+    42→import { clearCompanyProfileCache } from "@/lib/company-branding-cache";
+    43→
+    44→// ============================================================
+    45→// UTILITY FUNCTIONS
+    46→// ============================================================
+    47→
+    48→const settingsCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    49→const settingsNumberFmt = new Intl.NumberFormat("en-US");
+    50→
+    51→const fmt = (v: any, type?: string) => {
+    52→  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
+    53→  if (type === "currency") return `Tk. ${toLatinDigits(settingsCurrencyFmt.format(Number(v)))}`;
+    54→  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
+    55→  if (type === "boolean") return v ? "Active" : "Inactive";
+    56→  if (type === "number") return toLatinDigits(settingsNumberFmt.format(Number(v)));
+    57→  return String(v);
+    58→};
+    59→
+    60→
+    61→/** Validate Bangladesh phone number with +880 prefix */
+    62→function validateBDPhone(phone: string): { valid: boolean; message: string } {
+    63→  if (!phone) return { valid: true, message: "" };
+    64→  const stripped = phone.replace(/[\s\-()]/g, "");
+    65→  if (/^\+?880\d{9,10}$/.test(stripped) || /^01\d{9}$/.test(stripped)) {
+    66→    return { valid: true, message: "" };
+    67→  }
+    68→  return { valid: false, message: "Phone must use Bangladesh format: +880XXXXXXXXXX or 01XXXXXXXXX" };
+    69→}
+    70→
+    71→/** Validate email address format */
+    72→function validateEmail(email: string): { valid: boolean; message: string } {
+    73→  if (!email) return { valid: true, message: "" };
+    74→  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    75→  if (emailRegex.test(email)) {
+    76→    return { valid: true, message: "" };
+    77→  }
+    78→  return { valid: false, message: "Please enter a valid email address" };
+    79→}
+    80→
+    81→/** Validate Bangladesh BIN/VAT number */
+    82→function validateVATNumber(vat: string): { valid: boolean; message: string } {
+    83→  if (!vat) return { valid: true, message: "" };
+    84→  const cleaned = vat.replace(/[\s\-]/g, "");
+    85→  if (/^\d{9,15}$/.test(cleaned) || /^[A-Za-z]{0,3}\d{9,15}$/.test(cleaned)) {
+    86→    return { valid: true, message: "" };
+    87→  }
+    88→  return { valid: false, message: "BIN/VAT number should be 9-15 digits" };
+    89→}
+    90→
+    91→/** Convert file to base64 data URL */
+    92→function fileToBase64(file: File): Promise<string> {
+    93→  return new Promise((resolve, reject) => {
+    94→    const reader = new FileReader();
+    95→    reader.onload = () => resolve(reader.result as string);
+    96→    reader.onerror = reject;
+    97→    reader.readAsDataURL(file);
+    98→  });
+    99→}
+   100→
+   101→// ============================================================
+   102→// AUTH
+   103→
+   104→// ============================================================
+   105→// TYPES
+   106→// ============================================================
+   107→
+   108→interface SystemConfigGroupPageProps {
+   109→  initialTab?: string;
+   110→}
+   111→
+   112→interface SystemConfig {
+   113→  id: string;
+   114→  configKey: string;
+   115→  configValue: string;
+   116→  configType: string;
+   117→  category: string;
+   118→  description: string | null;
+   119→  isActive: boolean;
+   120→}
+   121→
+   122→interface CompanyData {
+   123→  id: string;
+   124→  code: string;
+   125→  name: string;
+   126→  address: string | null;
+   127→  phone: string | null;
+   128→  email: string | null;
+   129→  logo: string | null;
+   130→  brandLogo: string | null;
+   131→  mobile: string | null;
+   132→  website: string | null;
+   133→  vatNumber: string | null;
+   134→  tradeLicense: string | null;
+   135→  invoicePrefix: string | null;
+   136→  thankYouMsg: string | null;
+   137→  systemNote: string | null;
+   138→  showBarcode: boolean;
+   139→  showPayInWord: boolean;
+   140→  logoWidth: number;
+   141→  logoHeight: number;
+   142→  isActive: boolean;
+   143→}
+   144→
+   145→interface InvoiceTemplate {
+   146→  id: string;
+   147→  code: string;
+   148→  name: string;
+   149→  templateType: string;
+   150→  subject: string | null;
+   151→  headerHtml: string | null;
+   152→  bodyHtml: string | null;
+   153→  footerHtml: string | null;
+   154→  cssStyles: string | null;
+   155→  paperSize: string;
+   156→  orientation: string;
+   157→  defaultPrinter: string | null;
+   158→  companyName: string | null;
+   159→  showLogo: boolean;
+   160→  showBrandLogo: boolean;
+   161→  showMobile: boolean;
+   162→  showAddress: boolean;
+   163→  showVatNumber: boolean;
+   164→  showTradeLicense: boolean;
+   165→  showCustomerCode: boolean;
+   166→  showPrevDue: boolean;
+   167→  showTotalDue: boolean;
+   168→  showRemindDate: boolean;
+   169→  showModel: boolean;
+   170→  showColor: boolean;
+   171→  showDescription: boolean;
+   172→  showMRP: boolean;
+   173→  showDiscountAmt: boolean;
+   174→  showUnitPrice: boolean;
+   175→  showDiscountPct: boolean;
+   176→  showPPDiscount: boolean;
+   177→  showAdjustment: boolean;
+   178→  showDeliveryCost: boolean;
+   179→  showPaymentDetails: boolean;
+   180→  showCustomerSignature: boolean;
+   181→  showPreparedBy: boolean;
+   182→  showCheckedBy: boolean;
+   183→  showAuthorizedBy: boolean;
+   184→  showPrintedBy: boolean;
+   185→  showSalesPerson: boolean;
+   186→  showPrintDate: boolean;
+   187→  termsAndConditions: string | null;
+   188→  customFooterNote: string | null;
+   189→  isDefault: boolean;
+   190→  isActive: boolean;
+   191→}
+   192→
+   193→interface NumberFormat {
+   194→  id: string;
+   195→  code: string;
+   196→  moduleKey: string;
+   197→  prefix: string;
+   198→  paddingLength: number;
+   199→  nextSequence: number;
+   200→  resetYearly: boolean;
+   201→  separator: string | null;
+   202→  dateFormat: string | null;
+   203→  isActive: boolean;
+   204→}
+   205→
+   206→// Category icon and color map
+   207→const CATEGORY_META: Record<string, { icon: React.ElementType; color: string }> = {
+   208→  General: { icon: Settings, color: "text-blue-500" },
+   209→  Tax: { icon: Percent, color: "text-emerald-500" },
+   210→  Currency: { icon: DollarSign, color: "text-amber-500" },
+   211→  Printer: { icon: Printer, color: "text-purple-500" },
+   212→  Branding: { icon: Palette, color: "text-pink-500" },
+   213→  Email: { icon: Mail, color: "text-cyan-500" },
+   214→};
+   215→
+   216→// Sensitive keys that VAT Auditor should not see values for
+   217→const PROFIT_SENSITIVE_PATTERNS = ["profit", "margin", "writeoff"];
+   218→
+   219→function isProfitSensitive(key: string): boolean {
+   220→  return PROFIT_SENSITIVE_PATTERNS.some(s => key.toLowerCase().includes(s));
+   221→}
+   222→
+   223→// 27 toggle field definitions for Invoice Templates
+   224→const TOGGLE_FIELDS: { key: keyof InvoiceTemplate; label: string; group: string }[] = [
+   225→  { key: "showLogo", label: "Logo", group: "Header" },
+   226→  { key: "showBrandLogo", label: "Brand Logo", group: "Header" },
+   227→  { key: "showMobile", label: "Mobile", group: "Header" },
+   228→  { key: "showAddress", label: "Address", group: "Header" },
+   229→  { key: "showVatNumber", label: "VAT Number", group: "Header" },
+   230→  { key: "showTradeLicense", label: "Trade License", group: "Header" },
+   231→  { key: "showCustomerCode", label: "Customer Code", group: "Metadata" },
+   232→  { key: "showPrevDue", label: "Previous Due", group: "Metadata" },
+   233→  { key: "showTotalDue", label: "Total Due", group: "Metadata" },
+   234→  { key: "showRemindDate", label: "Remind Date", group: "Metadata" },
+   235→  { key: "showModel", label: "Model Column", group: "Table Columns" },
+   236→  { key: "showColor", label: "Color Column", group: "Table Columns" },
+   237→  { key: "showDescription", label: "Description Column", group: "Table Columns" },
+   238→  { key: "showMRP", label: "MRP Column", group: "Table Columns" },
+   239→  { key: "showDiscountAmt", label: "Discount Amount", group: "Table Columns" },
+   240→  { key: "showUnitPrice", label: "Unit Price", group: "Table Columns" },
+   241→  { key: "showDiscountPct", label: "Discount %", group: "Summary" },
+   242→  { key: "showPPDiscount", label: "PP Discount", group: "Summary" },
+   243→  { key: "showAdjustment", label: "Adjustment", group: "Summary" },
+   244→  { key: "showDeliveryCost", label: "Delivery Cost", group: "Summary" },
+   245→  { key: "showPaymentDetails", label: "Payment Details", group: "Payment" },
+   246→  { key: "showCustomerSignature", label: "Customer Signature", group: "Footer" },
+   247→  { key: "showPreparedBy", label: "Prepared By", group: "Footer" },
+   248→  { key: "showCheckedBy", label: "Checked By", group: "Footer" },
+   249→  { key: "showAuthorizedBy", label: "Authorized By", group: "Footer" },
+   250→  { key: "showPrintedBy", label: "Printed By", group: "Footer" },
+   251→  { key: "showSalesPerson", label: "Sales Person", group: "Footer" },
+   252→];
+   253→
+   254→// All 28 toggle fields including showPrintDate
+   255→const ALL_TOGGLE_FIELDS = [...TOGGLE_FIELDS, { key: "showPrintDate" as keyof InvoiceTemplate, label: "Print Date", group: "Footer" }];
+   256→
+   257→const TEMPLATE_TYPES = ["Invoice", "Receipt", "Email", "CreditMemo", "DebitNote", "Statement", "Mushok63", "Challan"];
+   258→
+   259→// ============================================================
+   260→// 403 FORBIDDEN PAGE
+   261→// ============================================================
+   262→
+   263→function ForbiddenPage() {
+   264→  return (
+   265→    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+   266→      <div className="h-20 w-20 rounded-full bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
+   267→        <AlertTriangle className="h-10 w-10 text-red-500" />
+   268→      </div>
+   269→      <h1 className="text-2xl font-bold text-red-600 dark:text-red-400">403 Forbidden</h1>
+   270→      <p className="text-slate-600 dark:text-slate-400 text-center max-w-md">
+   271→        Access Denied. System Settings are restricted to Admin and Manager roles.
+   272→      </p>
+   273→    </div>
+   274→  );
+   275→}
+   276→
+   277→// ============================================================
+   278→// TAB 1: COMPANY SETTINGS
+   279→// ============================================================
+   280→
+   281→function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
+   282→  const { toast } = useToast();
+   283→  const [company, setCompany] = useState<CompanyData | null>(null);
+   284→  const [configs, setConfigs] = useState<SystemConfig[]>([]);
+   285→  const [loading, setLoading] = useState(true);
+   286→  const [savingCompany, setSavingCompany] = useState(false);
+   287→  const [savingCategory, setSavingCategory] = useState<string | null>(null);
+   288→  const [editedValues, setEditedValues] = useState<Record<string, string>>({});
+   289→  const [companyEdits, setCompanyEdits] = useState<Partial<CompanyData>>({});
+   290→  const [phoneError, setPhoneError] = useState("");
+   291→  const [mobileError, setMobileError] = useState("");
+   292→  const [emailError, setEmailError] = useState("");
+   293→  const [vatError, setVatError] = useState("");
+   294→
+   295→  // Company branding is Admin-only for editing; Manager/VAT Auditor/other roles are read-only
+   296→  const isAdmin = userRole === "admin";
+   297→  const canMutateBranding = isAdmin && !isVatAuditor;
+   298→  // System configs can still be mutated by admin or manager
+   299→  const canMutateConfigs = (userRole === "admin" || userRole === "manager") && !isVatAuditor;
+   300→
+   301→  // Load company data via company-branding API (single source of truth)
+   302→  const loadCompany = useCallback(async () => {
+   303→    try {
+   304→      const result = await apiFetch("/api/company-branding");
+   305→      if (result.company) {
+   306→        // Map the branding API response to CompanyData format
+   307→        const c = result.company;
+   308→        setCompany({
+   309→          id: c.id,
+   310→          code: c.code || "",
+   311→          name: c.name || "",
+   312→          address: c.address || null,
+   313→          phone: c.phone || null,
+   314→          email: c.email || null,
+   315→          logo: c.logo || null,
+   316→          brandLogo: c.brandLogo || null,
+   317→          mobile: c.mobile || null,
+   318→          website: c.website || null,
+   319→          vatNumber: c.vatNumber || null,
+   320→          tradeLicense: c.tradeLicense || null,
+   321→          invoicePrefix: c.invoicePrefix || null,
+   322→          thankYouMsg: c.thankYouMsg || null,
+   323→          systemNote: c.systemNote || null,
+   324→          showBarcode: c.showBarcode ?? true,
+   325→          showPayInWord: c.showPayInWord ?? true,
+   326→          logoWidth: c.logoWidth ?? 30,
+   327→          logoHeight: c.logoHeight ?? 20,
+   328→          isActive: true,
+   329→        });
+   330→        setCompanyEdits({});
+   331→      }
+   332→    } catch (e: any) {
+   333→      console.error("Failed to load company branding:", e);
+   334→    }
+   335→  }, []);
+   336→
+   337→  // Load system configs
+   338→  const loadConfigs = useCallback(async () => {
+   339→    setLoading(true);
+   340→    try {
+   341→      const result = await apiFetch("/api/system-config");
+   342→      const configsList = result.configs || result || [];
+   343→      setConfigs(Array.isArray(configsList) ? configsList : []);
+   344→      const vals: Record<string, string> = {};
+   345→      configsList.forEach((c: SystemConfig) => { vals[c.configKey] = c.configValue; });
+   346→      setEditedValues(vals);
+   347→    } catch (e: any) {
+   348→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   349→    } finally {
+   350→      setLoading(false);
+   351→    }
+   352→  }, [toast]);
+   353→
+   354→  useEffect(() => { loadCompany(); loadConfigs(); }, [loadCompany, loadConfigs]);
+   355→
+   356→  // Group by category
+   357→  const groupedConfigs = useMemo(() => {
+   358→    const groups: Record<string, SystemConfig[]> = {};
+   359→    configs.forEach(c => {
+   360→      if (!groups[c.category]) groups[c.category] = [];
+   361→      groups[c.category].push(c);
+   362→    });
+   363→    return groups;
+   364→  }, [configs]);
+   365→
+   366→  const categories = Object.keys(groupedConfigs).sort();
+   367→
+   368→  // Save company branding via dedicated branding API (Admin-only)
+   369→  const handleSaveCompany = async () => {
+   370→    if (!company) return;
+   371→    const phoneVal = companyEdits.phone !== undefined ? companyEdits.phone : company.phone;
+   372→    const mobileVal = companyEdits.mobile !== undefined ? companyEdits.mobile : company.mobile;
+   373→    if (phoneVal) {
+   374→      const v = validateBDPhone(phoneVal);
+   375→      if (!v.valid) { setPhoneError(v.message); return; }
+   376→    }
+   377→    if (mobileVal) {
+   378→      const v = validateBDPhone(mobileVal);
+   379→      if (!v.valid) { setMobileError(v.message); return; }
+   380→    }
+   381→    const emailVal = companyEdits.email !== undefined ? companyEdits.email : company.email;
+   382→    if (emailVal) {
+   383→      const v = validateEmail(emailVal);
+   384→      if (!v.valid) { setEmailError(v.message); return; }
+   385→    }
+   386→    const vatVal = companyEdits.vatNumber !== undefined ? companyEdits.vatNumber : company.vatNumber;
+   387→    if (vatVal) {
+   388→      const v = validateVATNumber(vatVal);
+   389→      if (!v.valid) { setVatError(v.message); return; }
+   390→    }
+   391→    setPhoneError("");
+   392→    setMobileError("");
+   393→    setEmailError("");
+   394→    setVatError("");
+   395→    setSavingCompany(true);
+   396→    try {
+   397→      await apiFetch("/api/company-branding", {
+   398→        method: "PUT",
+   399→        body: JSON.stringify(companyEdits),
+   400→      });
+   401→      // Clear the company branding cache so next PDF export fetches fresh data
+   402→      clearCompanyProfileCache();
+   403→      toast({ title: "Saved", description: "Company branding saved successfully" });
+   404→      loadCompany();
+   405→    } catch (e: any) {
+   406→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   407→    } finally {
+   408→      setSavingCompany(false);
+   409→    }
+   410→  };
+   411→
+   412→  // Save config category
+   413→  const handleSaveCategory = async (category: string) => {
+   414→    setSavingCategory(category);
+   415→    try {
+   416→      const categoryConfigs = groupedConfigs[category];
+   417→      for (const config of categoryConfigs) {
+   418→        const newValue = editedValues[config.configKey];
+   419→        if (newValue !== config.configValue) {
+   420→          await apiFetch(`/api/system-config?configKey=${encodeURIComponent(config.configKey)}`, {
+   421→            method: "PUT",
+   422→            body: JSON.stringify({ configValue: newValue }),
+   423→          });
+   424→        }
+   425→      }
+   426→      toast({ title: "Saved", description: `${category} settings saved successfully` });
+   427→      loadConfigs();
+   428→    } catch (e: any) {
+   429→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   430→    } finally {
+   431→      setSavingCategory(null);
+   432→    }
+   433→  };
+   434→
+   435→  // Export handlers
+   436→  const handleExportPDF = async () => {
+   437→    try {
+   438→      let companyProfile: CompanyProfile | undefined;
+   439→      try {
+   440→        const brandingRes = await apiFetch("/api/company-profile");
+   441→        companyProfile = brandingRes.profile || undefined;
+   442→      } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
+   443→      const columns: ExportColumnDef[] = [
+   444→        { key: "configKey", label: "Key", type: "text" },
+   445→        { key: "configValue", label: "Value", type: "text" },
+   446→        { key: "configType", label: "Type", type: "text" },
+   447→        { key: "category", label: "Category", type: "text" },
+   448→        { key: "description", label: "Description", type: "text" },
+   449→      ];
+   450→      const exportData = configs.map(c => ({
+   451→        ...c,
+   452→        configValue: isVatAuditor && isProfitSensitive(c.configKey) ? "N/A (Audit Mode)" : c.configValue,
+   453→      }));
+   454→      const userName = authState.user?.displayName || authState.user?.name || "System";
+   455→      exportToPDF({
+   456→        title: "Company Settings",
+   457→        subtitle: `Total: ${configs.length} configurations`,
+   458→        columns,
+   459→        data: exportData,
+   460→        isVatAuditor,
+   461→        company: companyProfile,
+   462→        systemNotice: "This document contains system configuration data. Handle with care.",
+   463→        financialFooter: {
+   464→          preparedBy: userName,
+   465→          checkedBy: "",
+   466→          authorizedBy: "",
+   467→          printedBy: userName || "System",
+   468→        },
+   469→      });
+   470→      toast({ title: "PDF Exported", description: "Company settings data exported" });
+   471→    } catch (e: any) {
+   472→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   473→    }
+   474→  };
+   475→
+   476→  const handleExportCSV = () => {
+   477→    try {
+   478→      const columns: ExportColumnDef[] = [
+   479→        { key: "configKey", label: "Key", type: "text" },
+   480→        { key: "configValue", label: "Value", type: "text" },
+   481→        { key: "configType", label: "Type", type: "text" },
+   482→        { key: "category", label: "Category", type: "text" },
+   483→        { key: "description", label: "Description", type: "text" },
+   484→        { key: "isActive", label: "Active", type: "boolean" },
+   485→      ];
+   486→      const exportData = configs.map(c => ({
+   487→        ...c,
+   488→        configValue: isVatAuditor && isProfitSensitive(c.configKey) ? "N/A (Audit Mode)" : c.configValue,
+   489→      }));
+   490→      exportToCSV({ title: "Company Settings", columns, data: exportData, isVatAuditor, vatMaskedColumns: [] });
+   491→      toast({ title: "CSV Exported", description: "Company settings data exported" });
+   492→    } catch (e: any) {
+   493→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   494→    }
+   495→  };
+   496→
+   497→  const handleImportCSV = () => {
+   498→    importFromCSV({
+   499→      apiPath: "/api/system-config",
+   500→      formFields: [
+   501→        { key: "configKey", label: "Key", type: "text", required: true },
+   502→        { key: "configValue", label: "Value", type: "text", required: true },
+   503→        { key: "configType", label: "Type", type: "text" },
+   504→        { key: "category", label: "Category", type: "text" },
+   505→        { key: "description", label: "Description", type: "textarea" },
+   506→      ] as ExportFieldDef[],
+   507→    }).then(result => {
+   508→      toast({
+   509→        title: "Import Complete",
+   510→        description: `${result.imported} imported, ${result.failed} failed`,
+   511→        variant: result.failed > 0 ? "destructive" : "default",
+   512→      });
+   513→      loadConfigs();
+   514→    }).catch((e: any) => {
+   515→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   516→    });
+   517→  };
+   518→
+   519→  const renderConfigField = (config: SystemConfig) => {
+   520→    const value = editedValues[config.configKey] ?? config.configValue;
+   521→    const sensitive = isVatAuditor && isProfitSensitive(config.configKey);
+   522→    const disabled = !canMutateConfigs || sensitive;
+   523→    if (sensitive) {
+   524→      return <Input value="N/A (Audit Mode)" disabled className="bg-slate-50 dark:bg-slate-800 text-slate-400" />;
+   525→    }
+   526→    if (config.configType === "boolean") {
+   527→      return (
+   528→        <div className="flex items-center gap-2">
+   529→          <Switch checked={value === "true"} onCheckedChange={(checked) => setEditedValues(prev => ({ ...prev, [config.configKey]: String(checked) }))} disabled={disabled} />
+   530→          <span className="text-sm text-slate-600 dark:text-slate-400">{value === "true" ? "Enabled" : "Disabled"}</span>
+   531→        </div>
+   532→      );
+   533→    }
+   534→    if (config.configType === "number") {
+   535→      return <Input type="number" value={value} onChange={(e) => setEditedValues(prev => ({ ...prev, [config.configKey]: e.target.value }))} disabled={disabled} />;
+   536→    }
+   537→    if (config.configType === "json") {
+   538→      return <Textarea value={value} onChange={(e) => setEditedValues(prev => ({ ...prev, [config.configKey]: e.target.value }))} disabled={disabled} rows={3} className="font-mono text-xs" />;
+   539→    }
+   540→    return <Input type="text" value={value} onChange={(e) => setEditedValues(prev => ({ ...prev, [config.configKey]: e.target.value }))} disabled={disabled} />;
+   541→  };
+   542→
+   543→  const getCompanyValue = (field: keyof CompanyData) => {
+   544→    return companyEdits[field] !== undefined ? companyEdits[field] : company?.[field] ?? "";
+   545→  };
+   546→
+   547→  // Compute effective values for PDF preview
+   548→  const effectiveLogo = companyEdits.logo !== undefined ? companyEdits.logo : company?.logo;
+   549→  const effectiveBrandLogo = companyEdits.brandLogo !== undefined ? companyEdits.brandLogo : company?.brandLogo;
+   550→  const effectiveName = companyEdits.name !== undefined ? companyEdits.name : company?.name || "";
+   551→  const effectiveAddress = companyEdits.address !== undefined ? companyEdits.address : company?.address || "";
+   552→  const effectiveMobile = companyEdits.mobile !== undefined ? companyEdits.mobile : company?.mobile || "";
+   553→  const effectiveVatNumber = companyEdits.vatNumber !== undefined ? companyEdits.vatNumber : company?.vatNumber || "";
+   554→  const effectiveThankYouMsg = companyEdits.thankYouMsg !== undefined ? companyEdits.thankYouMsg : company?.thankYouMsg || "Thank You Come Again.";
+   555→
+   556→  // Compute preview dimensions (avoid 'as' cast inside template literal JSX)
+   557→  const currentLogoWidth = (companyEdits.logoWidth !== undefined ? companyEdits.logoWidth : company?.logoWidth) || 30;
+   558→  const currentLogoHeight = (companyEdits.logoHeight !== undefined ? companyEdits.logoHeight : company?.logoHeight) || 20;
+   559→  const previewLogoWidthPx = `${Math.min(currentLogoWidth * 2.5, 100)}px`;
+   560→  const previewLogoHeightPx = `${Math.min(currentLogoHeight * 2.5, 65)}px`;
+   561→
+   562→  return (
+   563→    <div className="space-y-4">
+   564→      {/* Toolbar */}
+   565→      <div className="flex flex-wrap items-center gap-2">
+   566→        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+   567→          <Download className="h-4 w-4 mr-1" /> Export CSV
+   568→        </Button>
+   569→        <Button variant="outline" size="sm" onClick={handleExportPDF}>
+   570→          <FileDown className="h-4 w-4 mr-1" /> Export PDF
+   571→        </Button>
+   572→        {canMutateConfigs && (
+   573→          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+   574→            <Upload className="h-4 w-4 mr-1" /> Import CSV
+   575→          </Button>
+   576→        )}
+   577→        <Button variant="ghost" size="sm" onClick={() => { loadCompany(); loadConfigs(); }}>
+   578→          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+   579→        </Button>
+   580→      </div>
+   581→
+   582→      {/* Read-Only Banner for Non-Admin Users */}
+   583→      {!isAdmin && (
+   584→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+   585→          <Shield className="h-4 w-4 text-amber-600" />
+   586→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+   587→            {isVatAuditor
+   588→              ? "VAT AUDIT MODE — Profit/margin/writeoff configurations are masked. You can view but not modify settings."
+   589→              : "READ-ONLY MODE — Company branding can only be modified by Admin users. Contact your administrator to request changes."}
+   590→          </span>
+   591→        </div>
+   592→      )}
+   593→
+   594→      {/* ============================================================
+   595→          SECTION 1: COMPANY IDENTITY
+   596→          ============================================================ */}
+   597→      {company && (
+   598→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   599→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   600→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   601→              <Building2 className="h-4 w-4 text-emerald-400" />
+   602→              Company Identity
+   603→              {company.code && <Badge variant="secondary" className="ml-2 bg-white/10 text-white/70 text-xs">{company.code}</Badge>}
+   604→              {!canMutateBranding && (
+   605→                <Badge variant="outline" className="ml-auto border-amber-400 text-amber-400 text-xs">Read Only</Badge>
+   606→              )}
+   607→            </CardTitle>
+   608→          </CardHeader>
+   609→          <CardContent className="p-4 space-y-4">
+   610→            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   611→              {/* Company Name */}
+   612→              <div className="space-y-1.5 lg:col-span-1">
+   613→                <Label className="text-sm font-medium">Company Name</Label>
+   614→                <Input
+   615→                  value={getCompanyValue("name") as string}
+   616→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, name: e.target.value }))}
+   617→                  disabled={!canMutateBranding}
+   618→                  placeholder="Your Company Name"
+   619→                />
+   620→                <p className="text-xs text-slate-500 dark:text-slate-400">Appears on all PDF headers and invoices</p>
+   621→              </div>
+   622→
+   623→              {/* Company Logo */}
+   624→              <div className="space-y-1.5 lg:col-span-1">
+   625→                <ImageUploadField
+   626→                  value={effectiveLogo || null}
+   627→                  onChange={(base64) => setCompanyEdits(prev => ({ ...prev, logo: base64 }))}
+   628→                  label="Company Logo"
+   629→                  placeholder="Drop company logo here or click to browse"
+   630→                  maxSizeMB={5}
+   631→                />
+   632→                <p className="text-xs text-slate-500 dark:text-slate-400">Primary logo for invoice headers</p>
+   633→              </div>
+   634→
+   635→              {/* Brand Logo */}
+   636→              <div className="space-y-1.5 lg:col-span-1">
+   637→                <ImageUploadField
+   638→                  value={effectiveBrandLogo || null}
+   639→                  onChange={(base64) => setCompanyEdits(prev => ({ ...prev, brandLogo: base64 }))}
+   640→                  label="Brand Logo"
+   641→                  placeholder="Drop brand logo here or click to browse"
+   642→                  maxSizeMB={5}
+   643→                />
+   644→                <p className="text-xs text-slate-500 dark:text-slate-400">Secondary logo (right-aligned on invoices)</p>
+   645→              </div>
+   646→            </div>
+   647→          </CardContent>
+   648→        </Card>
+   649→      )}
+   650→
+   651→      {/* ============================================================
+   652→          SECTION 2: COMPANY ADDRESS
+   653→          ============================================================ */}
+   654→      {company && (
+   655→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   656→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   657→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   658→              <Globe className="h-4 w-4 text-cyan-400" />
+   659→              Company Address & Contact
+   660→              {!canMutateBranding && (
+   661→                <Badge variant="outline" className="ml-auto border-amber-400 text-amber-400 text-xs">Read Only</Badge>
+   662→              )}
+   663→            </CardTitle>
+   664→          </CardHeader>
+   665→          <CardContent className="p-4 space-y-4">
+   666→            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   667→              <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+   668→                <Label className="text-sm font-medium">Full Address</Label>
+   669→                <Textarea
+   670→                  value={getCompanyValue("address") as string}
+   671→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, address: e.target.value }))}
+   672→                  disabled={!canMutateBranding}
+   673→                  rows={2}
+   674→                  placeholder="Street, City, State, Postal Code, Country"
+   675→                />
+   676→              </div>
+   677→              <div className="space-y-1.5">
+   678→                <Label className="text-sm font-medium flex items-center gap-1">
+   679→                  <Phone className="h-3 w-3" /> Phone
+   680→                </Label>
+   681→                <Input
+   682→                  value={getCompanyValue("phone") as string}
+   683→                  onChange={(e) => { setCompanyEdits(prev => ({ ...prev, phone: e.target.value })); const v = validateBDPhone(e.target.value); setPhoneError(v.valid ? "" : v.message); }}
+   684→                  disabled={!canMutateBranding}
+   685→                  placeholder="+880XXXXXXXXXX"
+   686→                />
+   687→                {phoneError && <p className="text-xs text-red-500">{phoneError}</p>}
+   688→              </div>
+   689→              <div className="space-y-1.5">
+   690→                <Label className="text-sm font-medium flex items-center gap-1">
+   691→                  <Phone className="h-3 w-3" /> Mobile
+   692→                </Label>
+   693→                <Input
+   694→                  value={getCompanyValue("mobile") as string}
+   695→                  onChange={(e) => { setCompanyEdits(prev => ({ ...prev, mobile: e.target.value })); const v = validateBDPhone(e.target.value); setMobileError(v.valid ? "" : v.message); }}
+   696→                  disabled={!canMutateBranding}
+   697→                  placeholder="+880XXXXXXXXXX"
+   698→                />
+   699→                {mobileError && <p className="text-xs text-red-500">{mobileError}</p>}
+   700→              </div>
+   701→              <div className="space-y-1.5">
+   702→                <Label className="text-sm font-medium flex items-center gap-1">
+   703→                  <Mail className="h-3 w-3" /> Email
+   704→                </Label>
+   705→                <Input
+   706→                  type="email"
+   707→                  value={getCompanyValue("email") as string}
+   708→                  onChange={(e) => { setCompanyEdits(prev => ({ ...prev, email: e.target.value })); const v = validateEmail(e.target.value); setEmailError(v.valid ? "" : v.message); }}
+   709→                  disabled={!canMutateBranding}
+   710→                  placeholder="info@company.com"
+   711→                />
+   712→                {emailError && <p className="text-xs text-red-500">{emailError}</p>}
+   713→              </div>
+   714→              <div className="space-y-1.5">
+   715→                <Label className="text-sm font-medium flex items-center gap-1">
+   716→                  <Globe className="h-3 w-3" /> Website
+   717→                </Label>
+   718→                <Input
+   719→                  value={getCompanyValue("website") as string}
+   720→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, website: e.target.value }))}
+   721→                  disabled={!canMutateBranding}
+   722→                  placeholder="https://www.company.com"
+   723→                />
+   724→              </div>
+   725→            </div>
+   726→          </CardContent>
+   727→        </Card>
+   728→      )}
+   729→
+   730→      {/* ============================================================
+   731→          SECTION 3: LEGAL INFORMATION
+   732→          ============================================================ */}
+   733→      {company && (
+   734→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   735→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   736→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   737→              <Receipt className="h-4 w-4 text-amber-400" />
+   738→              Legal Information
+   739→              {!canMutateBranding && (
+   740→                <Badge variant="outline" className="ml-auto border-amber-400 text-amber-400 text-xs">Read Only</Badge>
+   741→              )}
+   742→            </CardTitle>
+   743→          </CardHeader>
+   744→          <CardContent className="p-4 space-y-4">
+   745→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   746→              <div className="space-y-1.5">
+   747→                <Label className="text-sm font-medium">BIN / VAT Number</Label>
+   748→                <Input
+   749→                  value={getCompanyValue("vatNumber") as string}
+   750→                  onChange={(e) => { setCompanyEdits(prev => ({ ...prev, vatNumber: e.target.value })); const v = validateVATNumber(e.target.value); setVatError(v.valid ? "" : v.message); }}
+   751→                  disabled={!canMutateBranding}
+   752→                  placeholder="e.g. 1234567890"
+   753→                />
+   754→                {vatError && <p className="text-xs text-red-500">{vatError}</p>}
+   755→                <p className="text-xs text-slate-500 dark:text-slate-400">Business Identification Number for tax purposes</p>
+   756→              </div>
+   757→              <div className="space-y-1.5">
+   758→                <Label className="text-sm font-medium">Trade License Number</Label>
+   759→                <Input
+   760→                  value={getCompanyValue("tradeLicense") as string}
+   761→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, tradeLicense: e.target.value }))}
+   762→                  disabled={!canMutateBranding}
+   763→                  placeholder="e.g. TRD-123456"
+   764→                />
+   765→                <p className="text-xs text-slate-500 dark:text-slate-400">Official trade license registration number</p>
+   766→              </div>
+   767→            </div>
+   768→          </CardContent>
+   769→        </Card>
+   770→      )}
+   771→
+   772→      {/* ============================================================
+   773→          SECTION 4: INVOICE CUSTOMIZATION
+   774→          ============================================================ */}
+   775→      {company && (
+   776→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   777→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   778→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   779→              <FileText className="h-4 w-4 text-pink-400" />
+   780→              Invoice Customization
+   781→              {!canMutateBranding && (
+   782→                <Badge variant="outline" className="ml-auto border-amber-400 text-amber-400 text-xs">Read Only</Badge>
+   783→              )}
+   784→            </CardTitle>
+   785→          </CardHeader>
+   786→          <CardContent className="p-4 space-y-4">
+   787→            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+   788→              <div className="space-y-1.5">
+   789→                <Label className="text-sm font-medium">Invoice Prefix</Label>
+   790→                <Input
+   791→                  value={getCompanyValue("invoicePrefix") as string}
+   792→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, invoicePrefix: e.target.value }))}
+   793→                  disabled={!canMutateBranding}
+   794→                  placeholder="e.g. EM"
+   795→                />
+   796→                <p className="text-xs text-slate-500 dark:text-slate-400">Prepended to all invoice numbers</p>
+   797→              </div>
+   798→              <div className="space-y-1.5 sm:col-span-2">
+   799→                <Label className="text-sm font-medium">Thank You Message</Label>
+   800→                <Input
+   801→                  value={getCompanyValue("thankYouMsg") as string}
+   802→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, thankYouMsg: e.target.value }))}
+   803→                  disabled={!canMutateBranding}
+   804→                  placeholder="Thank You Come Again."
+   805→                />
+   806→                <p className="text-xs text-slate-500 dark:text-slate-400">Displayed centered and bold in PDF footer</p>
+   807→              </div>
+   808→              <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+   809→                <Label className="text-sm font-medium">System Note / Disclaimer</Label>
+   810→                <Textarea
+   811→                  value={getCompanyValue("systemNote") as string}
+   812→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, systemNote: e.target.value }))}
+   813→                  disabled={!canMutateBranding}
+   814→                  rows={2}
+   815→                  placeholder="This is a system generated invoice no need to seal & signature."
+   816→                />
+   817→                <p className="text-xs text-slate-500 dark:text-slate-400">Italic disclaimer at the bottom of all PDF invoices</p>
+   818→              </div>
+   819→            </div>
+   820→          </CardContent>
+   821→        </Card>
+   822→      )}
+   823→
+   824→      {/* ============================================================
+   825→          SECTION 5: DISPLAY OPTIONS
+   826→          ============================================================ */}
+   827→      {company && (
+   828→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   829→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   830→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   831→              <Palette className="h-4 w-4 text-violet-400" />
+   832→              Display Options
+   833→              {!canMutateBranding && (
+   834→                <Badge variant="outline" className="ml-auto border-amber-400 text-amber-400 text-xs">Read Only</Badge>
+   835→              )}
+   836→            </CardTitle>
+   837→          </CardHeader>
+   838→          <CardContent className="p-4 space-y-4">
+   839→            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+   840→              <div className="space-y-1.5">
+   841→                <Label className="text-sm font-medium">Logo Width (mm)</Label>
+   842→                <Input
+   843→                  type="number"
+   844→                  value={getCompanyValue("logoWidth") as number}
+   845→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, logoWidth: parseFloat(e.target.value) || 30 }))}
+   846→                  disabled={!canMutateBranding}
+   847→                  min={10}
+   848→                  max={80}
+   849→                />
+   850→              </div>
+   851→              <div className="space-y-1.5">
+   852→                <Label className="text-sm font-medium">Logo Height (mm)</Label>
+   853→                <Input
+   854→                  type="number"
+   855→                  value={getCompanyValue("logoHeight") as number}
+   856→                  onChange={(e) => setCompanyEdits(prev => ({ ...prev, logoHeight: parseFloat(e.target.value) || 20 }))}
+   857→                  disabled={!canMutateBranding}
+   858→                  min={10}
+   859→                  max={60}
+   860→                />
+   861→              </div>
+   862→              <div className="flex items-center gap-3 pt-5">
+   863→                <Switch
+   864→                  checked={companyEdits.showBarcode !== undefined ? companyEdits.showBarcode : company.showBarcode}
+   865→                  onCheckedChange={(checked) => setCompanyEdits(prev => ({ ...prev, showBarcode: checked }))}
+   866→                  disabled={!canMutateBranding}
+   867→                />
+   868→                <Label className="text-sm font-medium">Show Barcode on Invoices</Label>
+   869→              </div>
+   870→              <div className="flex items-center gap-3 pt-5">
+   871→                <Switch
+   872→                  checked={companyEdits.showPayInWord !== undefined ? companyEdits.showPayInWord : company.showPayInWord}
+   873→                  onCheckedChange={(checked) => setCompanyEdits(prev => ({ ...prev, showPayInWord: checked }))}
+   874→                  disabled={!canMutateBranding}
+   875→                />
+   876→                <Label className="text-sm font-medium">Show Amount in Words</Label>
+   877→              </div>
+   878→            </div>
+   879→          </CardContent>
+   880→        </Card>
+   881→      )}
+   882→
+   883→      {/* ============================================================
+   884→          SECTION 6: PDF HEADER PREVIEW
+   885→          ============================================================ */}
+   886→      {company && (
+   887→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   888→          <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   889→            <CardTitle className="text-white flex items-center gap-2 text-base">
+   890→              <Eye className="h-4 w-4 text-sky-400" />
+   891→              PDF Header Preview
+   892→            </CardTitle>
+   893→          </CardHeader>
+   894→          <CardContent className="p-4">
+   895→            <div className="border border-slate-300 dark:border-slate-600 rounded-lg p-4 bg-white dark:bg-slate-900">
+   896→              {/* Mini preview of PDF header */}
+   897→              <div className="flex items-start gap-3">
+   898→                {/* Logo preview */}
+   899→                <div className="shrink-0" style={{ width: previewLogoWidthPx, height: previewLogoHeightPx }}>
+   900→                  {effectiveLogo ? (
+   901→                    <img src={effectiveLogo} alt="Logo Preview" className="w-full h-full object-contain" />
+   902→                  ) : (
+   903→                    <div className="w-full h-full border border-dashed border-slate-300 dark:border-slate-600 rounded flex items-center justify-center">
+   904→                      <ImageIcon className="h-4 w-4 text-slate-400" />
+   905→                    </div>
+   906→                  )}
+   907→                </div>
+   908→                {/* Company info preview */}
+   909→                <div className="flex-1 min-w-0 space-y-0.5">
+   910→                  <p className="font-bold text-[#0a1628] dark:text-white text-sm truncate">{effectiveName || "Company Name"}</p>
+   911→                  {effectiveAddress && (
+   912→                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{effectiveAddress}</p>
+   913→                  )}
+   914→                  {effectiveMobile && (
+   915→                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">Mobile: {effectiveMobile}</p>
+   916→                  )}
+   917→                  {effectiveVatNumber && (
+   918→                    <p className="text-xs text-slate-500 dark:text-slate-500 truncate">VAT: {effectiveVatNumber}</p>
+   919→                  )}
+   920→                </div>
+   921→                {/* Brand logo preview */}
+   922→                <div className="shrink-0" style={{ width: previewLogoWidthPx, height: previewLogoHeightPx }}>
+   923→                  {effectiveBrandLogo ? (
+   924→                    <img src={effectiveBrandLogo} alt="Brand Logo Preview" className="w-full h-full object-contain" />
+   925→                  ) : (
+   926→                    <div className="w-full h-full border border-dashed border-slate-300 dark:border-slate-600 rounded flex items-center justify-center">
+   927→                      <ImageIcon className="h-4 w-4 text-slate-400" />
+   928→                    </div>
+   929→                  )}
+   930→                </div>
+   931→              </div>
+   932→              {/* Separator */}
+   933→              <div className="border-t-2 border-[#0a1628] dark:border-white/30 mt-3" />
+   934→              {/* Invoice title placeholder */}
+   935→              <p className="text-center font-bold text-[#0a1628] dark:text-white text-xs mt-2">Sales Invoice</p>
+   936→              <div className="border-t border-[#0a1628]/30 dark:border-white/10 mt-2" />
+   937→              {/* Footer preview */}
+   938→              <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+   939→                <p className="text-center font-bold text-xs text-slate-700 dark:text-slate-300">{effectiveThankYouMsg}</p>
+   940→              </div>
+   941→            </div>
+   942→            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center gap-1">
+   943→              <Info className="h-3 w-3" />
+   944→              This is a simplified preview. The actual PDF output may differ slightly.
+   945→            </p>
+   946→          </CardContent>
+   947→        </Card>
+   948→      )}
+   949→
+   950→      {/* Save Company Branding Button */}
+   951→      {company && canMutateBranding && (
+   952→        <div className="flex justify-end">
+   953→          <Button onClick={handleSaveCompany} disabled={savingCompany} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+   954→            {savingCompany ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-1" /> Save Company Branding</>}
+   955→          </Button>
+   956→        </div>
+   957→      )}
+   958→
+   959→      {/* ============================================================
+   960→          SYSTEM CONFIGURATION GROUPS (below company branding)
+   961→          ============================================================ */}
+   962→      {loading ? (
+   963→        <div className="text-center py-12 text-slate-400">
+   964→          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-2" />
+   965→          Loading configurations...
+   966→        </div>
+   967→      ) : (
+   968→        categories.map(category => {
+   969→          const meta = CATEGORY_META[category] || { icon: Settings, color: "text-slate-500" };
+   970→          const CategoryIcon = meta.icon;
+   971→          return (
+   972→            <Card key={category} className="border-slate-200 dark:border-slate-700">
+   973→              <CardHeader className="bg-[#132240] dark:bg-[#0a1628] rounded-t-lg pb-3">
+   974→                <CardTitle className="text-white flex items-center gap-2 text-base">
+   975→                  <CategoryIcon className={`h-4 w-4 ${meta.color}`} />
+   976→                  {category}
+   977→                  <Badge variant="secondary" className="ml-2 bg-white/10 text-white/70 text-xs">
+   978→                    {groupedConfigs[category].length} settings
+   979→                  </Badge>
+   980→                </CardTitle>
+   981→              </CardHeader>
+   982→              <CardContent className="p-4 space-y-4">
+   983→                {groupedConfigs[category].map(config => (
+   984→                  <div key={config.id} className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-2 items-start">
+   985→                    <div>
+   986→                      <Label className="text-sm font-medium text-slate-900 dark:text-white">
+   987→                        {config.configKey.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
+   988→                      </Label>
+   989→                      {config.description && (
+   990→                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{config.description}</p>
+   991→                      )}
+   992→                    </div>
+   993→                    {renderConfigField(config)}
+   994→                  </div>
+   995→                ))}
+   996→                {canMutateConfigs && (
+   997→                  <div className="flex justify-end pt-2">
+   998→                    <Button onClick={() => handleSaveCategory(category)} disabled={savingCategory === category} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+   999→                      {savingCategory === category ? <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Saving...</> : <><Save className="h-4 w-4 mr-1" /> Save {category}</>}
+  1000→                    </Button>
+  1001→                  </div>
+  1002→                )}
+  1003→              </CardContent>
+  1004→            </Card>
+  1005→          );
+  1006→        })
+  1007→      )}
+  1008→    </div>
+  1009→  );
+  1010→}
+  1011→
+  1012→// ============================================================
+  1013→// TAB 2: INVOICE TEMPLATES
+  1014→// ============================================================
+  1015→
+  1016→// Sample data for invoice template preview substitution
+  1017→const SAMPLE_DATA: Record<string, string> = {
+  1018→  '{{companyName}}': 'Electronics Mart',
+  1019→  '{{companyAddress}}': '123 Business Road, Dhaka 1207',
+  1020→  '{{companyPhone}}': '+880 1712-345678',
+  1021→  '{{companyEmail}}': 'info@electronicsmart.com.bd',
+  1022→  '{{invoiceNo}}': 'EM-00001',
+  1023→  '{{poNumber}}': 'PUR-00001',
+  1024→  '{{date}}': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+  1025→  '{{customerName}}': 'Rahim Uddin',
+  1026→  '{{supplierName}}': 'Sony Bangladesh Ltd',
+  1027→  '{{subTotal}}': 'Tk. 14,130.00',
+  1028→  '{{vatRate}}': '15',
+  1029→  '{{vatAmount}}': 'Tk. 2,119.50',
+  1030→  '{{grandTotal}}': 'Tk. 16,249.50',
+  1031→  '{{totalItems}}': '2',
+  1032→  '{{downPayment}}': 'Tk. 5,000.00',
+  1033→  '{{installmentAmount}}': 'Tk. 1,500.00',
+  1034→  '{{duration}}': '12',
+  1035→  '{{message}}': 'Thank you for your purchase!',
+  1036→  '{{vatNumber}}': 'VAT-1234567890',
+  1037→  '{{lineItems}}': '<tr><td style="border:1px solid #ccc;padding:4px">1</td><td style="border:1px solid #ccc;padding:4px">Sony Bravia 43&quot; TV</td><td style="border:1px solid #ccc;padding:4px">1</td><td style="border:1px solid #ccc;padding:4px">Tk. 14,130.00</td></tr>',
+  1038→};
+  1039→
+  1040→function substitutePlaceholders(html: string): string {
+  1041→  let result = html;
+  1042→  for (const [placeholder, value] of Object.entries(SAMPLE_DATA)) {
+  1043→    result = result.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), value);
+  1044→  }
+  1045→  return result;
+  1046→}
+  1047→
+  1048→function InvoiceTemplatesTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
+  1049→  const { toast } = useToast();
+  1050→  const [templates, setTemplates] = useState<InvoiceTemplate[]>([]);
+  1051→  const [loading, setLoading] = useState(true);
+  1052→  const [search, setSearch] = useState("");
+  1053→  const [createOpen, setCreateOpen] = useState(false);
+  1054→  const [editorOpen, setEditorOpen] = useState(false);
+  1055→  const [toggleOpen, setToggleOpen] = useState(false);
+  1056→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  1057→  const [selectedTemplate, setSelectedTemplate] = useState<InvoiceTemplate | null>(null);
+  1058→  const [saving, setSaving] = useState(false);
+  1059→  const [newTemplate, setNewTemplate] = useState({
+  1060→    name: "",
+  1061→    templateType: "Invoice",
+  1062→    subject: "",
+  1063→    paperSize: "A4",
+  1064→    orientation: "Portrait",
+  1065→  });
+  1066→  const [editorData, setEditorData] = useState({
+  1067→    headerHtml: "",
+  1068→    bodyHtml: "",
+  1069→    footerHtml: "",
+  1070→    cssStyles: "",
+  1071→    termsAndConditions: "",
+  1072→    customFooterNote: "",
+  1073→  });
+  1074→  const [toggleData, setToggleData] = useState<Record<string, boolean>>({});
+  1075→  const previewIframeRef = useRef<HTMLIFrameElement>(null);
+  1076→
+  1077→  const canMutate = (userRole === "admin" || userRole === "manager") && !isVatAuditor;
+  1078→  const isAdmin = userRole === "admin";
+  1079→
+  1080→  const loadTemplates = useCallback(async () => {
+  1081→    setLoading(true);
+  1082→    try {
+  1083→      const result = await apiFetch("/api/invoice-templates");
+  1084→      const list = result.templates || result || [];
+  1085→      setTemplates(Array.isArray(list) ? list : []);
+  1086→    } catch (e: any) {
+  1087→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1088→    } finally {
+  1089→      setLoading(false);
+  1090→    }
+  1091→  }, [toast]);
+  1092→
+  1093→  useEffect(() => { loadTemplates(); }, [loadTemplates]);
+  1094→
+  1095→  const filteredTemplates = useMemo(() => {
+  1096→    if (!search.trim()) return templates;
+  1097→    const q = search.toLowerCase();
+  1098→    return templates.filter(t =>
+  1099→      t.name.toLowerCase().includes(q) ||
+  1100→      t.code.toLowerCase().includes(q) ||
+  1101→      t.templateType.toLowerCase().includes(q)
+  1102→    );
+  1103→  }, [templates, search]);
+  1104→
+  1105→  const openEditor = (template: InvoiceTemplate) => {
+  1106→    setSelectedTemplate(template);
+  1107→    setEditorData({
+  1108→      headerHtml: template.headerHtml || "",
+  1109→      bodyHtml: template.bodyHtml || "",
+  1110→      footerHtml: template.footerHtml || "",
+  1111→      cssStyles: template.cssStyles || "",
+  1112→      termsAndConditions: template.termsAndConditions || "",
+  1113→      customFooterNote: template.customFooterNote || "",
+  1114→    });
+  1115→    const toggles: Record<string, boolean> = {};
+  1116→    ALL_TOGGLE_FIELDS.forEach(f => {
+  1117→      toggles[f.key] = template[f.key] as boolean;
+  1118→    });
+  1119→    setToggleData(toggles);
+  1120→    setEditorOpen(true);
+  1121→  };
+  1122→
+  1123→  const openToggleEditor = (template: InvoiceTemplate) => {
+  1124→    setSelectedTemplate(template);
+  1125→    const toggles: Record<string, boolean> = {};
+  1126→    ALL_TOGGLE_FIELDS.forEach(f => {
+  1127→      toggles[f.key] = template[f.key] as boolean;
+  1128→    });
+  1129→    setToggleData(toggles);
+  1130→    setToggleOpen(true);
+  1131→  };
+  1132→
+  1133→  const handleCreate = async () => {
+  1134→    if (!newTemplate.name.trim()) {
+  1135→      toast({ title: "Validation Error", description: "Template name is required", variant: "destructive" });
+  1136→      return;
+  1137→    }
+  1138→    setSaving(true);
+  1139→    try {
+  1140→      await apiFetch("/api/invoice-templates", {
+  1141→        method: "POST",
+  1142→        body: JSON.stringify(newTemplate),
+  1143→      });
+  1144→      toast({ title: "Created", description: "Template created successfully" });
+  1145→      setCreateOpen(false);
+  1146→      setNewTemplate({ name: "", templateType: "Invoice", subject: "", paperSize: "A4", orientation: "Portrait" });
+  1147→      loadTemplates();
+  1148→    } catch (e: any) {
+  1149→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1150→    } finally {
+  1151→      setSaving(false);
+  1152→    }
+  1153→  };
+  1154→
+  1155→  const handleSaveEditor = async () => {
+  1156→    if (!selectedTemplate) return;
+  1157→    setSaving(true);
+  1158→    try {
+  1159→      await apiFetch("/api/invoice-templates", {
+  1160→        method: "PUT",
+  1161→        body: JSON.stringify({
+  1162→          id: selectedTemplate.id,
+  1163→          ...editorData,
+  1164→        }),
+  1165→      });
+  1166→      toast({ title: "Saved", description: "Template HTML/CSS updated successfully" });
+  1167→      setEditorOpen(false);
+  1168→      loadTemplates();
+  1169→    } catch (e: any) {
+  1170→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1171→    } finally {
+  1172→      setSaving(false);
+  1173→    }
+  1174→  };
+  1175→
+  1176→  const handleSaveToggles = async () => {
+  1177→    if (!selectedTemplate) return;
+  1178→    setSaving(true);
+  1179→    try {
+  1180→      await apiFetch("/api/invoice-templates", {
+  1181→        method: "PUT",
+  1182→        body: JSON.stringify({
+  1183→          id: selectedTemplate.id,
+  1184→          ...toggleData,
+  1185→          termsAndConditions: editorData.termsAndConditions || null,
+  1186→          customFooterNote: editorData.customFooterNote || null,
+  1187→        }),
+  1188→      });
+  1189→      toast({ title: "Saved", description: "Template toggle settings updated successfully" });
+  1190→      setToggleOpen(false);
+  1191→      loadTemplates();
+  1192→    } catch (e: any) {
+  1193→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1194→    } finally {
+  1195→      setSaving(false);
+  1196→    }
+  1197→  };
+  1198→
+  1199→  const handleDelete = async (id: string) => {
+  1200→    try {
+  1201→      await apiFetch(`/api/invoice-templates/${id}`, { method: "DELETE" });
+  1202→      toast({ title: "Deleted", description: "Template deleted successfully" });
+  1203→      setDeleteConfirm(null);
+  1204→      loadTemplates();
+  1205→    } catch (e: any) {
+  1206→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1207→    }
+  1208→  };
+  1209→
+  1210→  const handleSetDefault = async (template: InvoiceTemplate) => {
+  1211→    try {
+  1212→      await apiFetch("/api/invoice-templates", {
+  1213→        method: "PUT",
+  1214→        body: JSON.stringify({ id: template.id, isDefault: true }),
+  1215→      });
+  1216→      toast({ title: "Default Set", description: `"${template.name}" is now the default ${template.templateType} template` });
+  1217→      loadTemplates();
+  1218→    } catch (e: any) {
+  1219→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1220→    }
+  1221→  };
+  1222→
+  1223→  const handleDuplicate = async (template: InvoiceTemplate) => {
+  1224→    setSaving(true);
+  1225→    try {
+  1226→      // Copy all template data, clear id, append "(Copy)" to name, set isDefault to false
+  1227→      const { id, code, createdAt, updatedAt, ...rest } = template;
+  1228→      await apiFetch("/api/invoice-templates", {
+  1229→        method: "POST",
+  1230→        body: JSON.stringify({
+  1231→          ...rest,
+  1232→          name: `${template.name} (Copy)`,
+  1233→          isDefault: false,
+  1234→        }),
+  1235→      });
+  1236→      toast({ title: "Duplicated", description: `"${template.name}" duplicated as "${template.name} (Copy)"` });
+  1237→      loadTemplates();
+  1238→    } catch (e: any) {
+  1239→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1240→    } finally {
+  1241→      setSaving(false);
+  1242→    }
+  1243→  };
+  1244→
+  1245→  const updatePreview = useCallback(() => {
+  1246→    if (!previewIframeRef.current) return;
+  1247→    const css = editorData.cssStyles || "";
+  1248→    const html = `
+  1249→      <!DOCTYPE html>
+  1250→      <html>
+  1251→      <head><style>
+  1252→        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 16px; color: #1e293b; font-size: 13px; }
+  1253→        ${css}
+  1254→      </style></head>
+  1255→      <body>
+  1256→        ${substitutePlaceholders(editorData.headerHtml || "<!-- No header -->")}
+  1257→        <hr style="border-color: #e2e8f0; margin: 12px 0;" />
+  1258→        ${substitutePlaceholders(editorData.bodyHtml || "<!-- No body -->")}
+  1259→        <hr style="border-color: #e2e8f0; margin: 12px 0;" />
+  1260→        ${substitutePlaceholders(editorData.footerHtml || "<!-- No footer -->")}
+  1261→        ${editorData.termsAndConditions ? `<div style="margin-top:16px;padding:8px;border:1px solid #e2e8f0;border-radius:4px;"><strong>Terms & Conditions:</strong><br/>${substitutePlaceholders(editorData.termsAndConditions)}</div>` : ""}
+  1262→        ${editorData.customFooterNote ? `<div style="margin-top:8px;font-style:italic;color:#64748b;">${substitutePlaceholders(editorData.customFooterNote)}</div>` : ""}
+  1263→      </body>
+  1264→      </html>
+  1265→    `;
+  1266→    const doc = previewIframeRef.current.contentDocument;
+  1267→    if (doc) {
+  1268→      doc.open();
+  1269→      doc.write(html);
+  1270→      doc.close();
+  1271→    }
+  1272→  }, [editorData]);
+  1273→
+  1274→  useEffect(() => {
+  1275→    if (editorOpen) {
+  1276→      const timer = setTimeout(updatePreview, 300);
+  1277→      return () => clearTimeout(timer);
+  1278→    }
+  1279→  }, [editorOpen, editorData, updatePreview]);
+  1280→
+  1281→  // Export handlers
+  1282→  const handleExportPDF = async () => {
+  1283→    try {
+  1284→      let companyProfile: CompanyProfile | undefined;
+  1285→      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
+  1286→      const columns: ExportColumnDef[] = [
+  1287→        { key: "code", label: "Code", type: "text" },
+  1288→        { key: "name", label: "Name", type: "text" },
+  1289→        { key: "templateType", label: "Type", type: "text" },
+  1290→        { key: "isDefault", label: "Default", type: "boolean" },
+  1291→        { key: "paperSize", label: "Paper Size", type: "text" },
+  1292→        { key: "orientation", label: "Orientation", type: "text" },
+  1293→        { key: "isActive", label: "Active", type: "boolean" },
+  1294→      ];
+  1295→      const userName = authState.user?.displayName || authState.user?.name || "System";
+  1296→      exportToPDF({
+  1297→        title: "Invoice Templates",
+  1298→        subtitle: `Total: ${filteredTemplates.length}`,
+  1299→        columns,
+  1300→        data: filteredTemplates,
+  1301→        isVatAuditor,
+  1302→        company: companyProfile,
+  1303→        financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" },
+  1304→      });
+  1305→      toast({ title: "PDF Exported", description: "Invoice templates data exported" });
+  1306→    } catch (e: any) {
+  1307→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1308→    }
+  1309→  };
+  1310→
+  1311→  const handleExportCSV = () => {
+  1312→    try {
+  1313→      const columns: ExportColumnDef[] = [
+  1314→        { key: "code", label: "Code", type: "text" },
+  1315→        { key: "name", label: "Name", type: "text" },
+  1316→        { key: "templateType", label: "Type", type: "text" },
+  1317→        { key: "isDefault", label: "Default", type: "boolean" },
+  1318→        { key: "paperSize", label: "Paper Size", type: "text" },
+  1319→        { key: "orientation", label: "Orientation", type: "text" },
+  1320→        { key: "isActive", label: "Active", type: "boolean" },
+  1321→      ];
+  1322→      exportToCSV({ title: "Invoice Templates", columns, data: filteredTemplates, isVatAuditor });
+  1323→      toast({ title: "CSV Exported", description: "Invoice templates data exported" });
+  1324→    } catch (e: any) {
+  1325→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1326→    }
+  1327→  };
+  1328→
+  1329→  const handleImportCSV = () => {
+  1330→    importFromCSV({
+  1331→      apiPath: "/api/invoice-templates",
+  1332→      formFields: [
+  1333→        { key: "name", label: "Name", type: "text", required: true },
+  1334→        { key: "templateType", label: "Type", type: "text" },
+  1335→        { key: "subject", label: "Subject", type: "text" },
+  1336→        { key: "paperSize", label: "Paper Size", type: "text" },
+  1337→        { key: "orientation", label: "Orientation", type: "text" },
+  1338→      ] as ExportFieldDef[],
+  1339→    }).then(result => {
+  1340→      toast({
+  1341→        title: "Import Complete",
+  1342→        description: `${result.imported} imported, ${result.failed} failed`,
+  1343→        variant: result.failed > 0 ? "destructive" : "default",
+  1344→      });
+  1345→      loadTemplates();
+  1346→    }).catch((e: any) => {
+  1347→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+  1348→    });
+  1349→  };
+  1350→
+  1351→  // Group toggle fields by group
+  1352→  const toggleGroups = useMemo(() => {
+  1353→    const groups: Record<string, typeof ALL_TOGGLE_FIELDS> = {};
+  1354→    ALL_TOGGLE_FIELDS.forEach(f => {
+  1355→      if (!groups[f.group]) groups[f.group] = [];
+  1356→      groups[f.group].push(f);
+  1357→    });
+  1358→    return groups;
+  1359→  }, []);
+  1360→
+  1361→  return (
+  1362→    <div className="space-y-4">
+  1363→      {/* Toolbar */}
+  1364→      <div className="flex flex-wrap items-center gap-2">
+  1365→        <div className="relative flex-1 min-w-[200px]">
+  1366→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+  1367→          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search templates..." className="pl-8" />
+  1368→        </div>
+  1369→        {canMutate && (
+  1370→          <Button onClick={() => setCreateOpen(true)} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1371→            <Plus className="h-4 w-4 mr-1" /> Create Template
+  1372→          </Button>
+  1373→        )}
+  1374→        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+  1375→          <Download className="h-4 w-4 mr-1" /> Export CSV
+  1376→        </Button>
+  1377→        <Button variant="outline" size="sm" onClick={handleExportPDF}>
+  1378→          <FileDown className="h-4 w-4 mr-1" /> Export PDF
+  1379→        </Button>
+  1380→        {canMutate && (
+  1381→          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+  1382→            <Upload className="h-4 w-4 mr-1" /> Import CSV
+  1383→          </Button>
+  1384→        )}
+  1385→        <Button variant="ghost" size="sm" onClick={loadTemplates}>
+  1386→          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+  1387→        </Button>
+  1388→      </div>
+  1389→
+  1390→      {isVatAuditor && (
+  1391→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+  1392→          <Shield className="h-4 w-4 text-amber-600" />
+  1393→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+  1394→            VAT AUDIT MODE — Templates containing cost/profit placeholders are masked.
+  1395→          </span>
+  1396→        </div>
+  1397→      )}
+  1398→
+  1399→      {/* Templates Table */}
+  1400→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1401→        <CardContent className="p-0 overflow-hidden">
+  1402→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1403→            <Table className="min-w-[600px]">
+  1404→              <TableHeader>
+  1405→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1406→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+  1407→                  <TableHead className="text-white font-semibold">Code</TableHead>
+  1408→                  <TableHead className="text-white font-semibold">Name</TableHead>
+  1409→                  <TableHead className="text-white font-semibold">Type</TableHead>
+  1410→                  <TableHead className="text-white font-semibold">Default</TableHead>
+  1411→                  <TableHead className="text-white font-semibold">Paper</TableHead>
+  1412→                  <TableHead className="text-white font-semibold">Active</TableHead>
+  1413→                  <TableHead className="text-white font-semibold w-48">Actions</TableHead>
+  1414→                </TableRow>
+  1415→              </TableHeader>
+  1416→              <TableBody>
+  1417→                {loading ? (
+  1418→                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-400"><RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />Loading...</TableCell></TableRow>
+  1419→                ) : filteredTemplates.length === 0 ? (
+  1420→                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-400">No templates found</TableCell></TableRow>
+  1421→                ) : (
+  1422→                  filteredTemplates.map((t, idx) => (
+  1423→                    <TableRow key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1424→                      <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+  1425→                      <TableCell className="font-mono text-xs">{t.code}</TableCell>
+  1426→                      <TableCell className="font-medium text-slate-900 dark:text-white">
+  1427→                        <div className="flex items-center gap-1.5">
+  1428→                          {t.name}
+  1429→                          {t.isDefault && (
+  1430→                            <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] px-1.5 py-0 h-5">
+  1431→                              <Star className="h-3 w-3 mr-0.5" />Default
+  1432→                            </Badge>
+  1433→                          )}
+  1434→                        </div>
+  1435→                      </TableCell>
+  1436→                      <TableCell><Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">{t.templateType}</Badge></TableCell>
+  1437→                      <TableCell>
+  1438→                        {t.isDefault ? (
+  1439→                          <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
+  1440→                        ) : (
+  1441→                          <Star className="h-4 w-4 text-slate-300 dark:text-slate-600" />
+  1442→                        )}
+  1443→                      </TableCell>
+  1444→                      <TableCell>{t.paperSize}</TableCell>
+  1445→                      <TableCell>
+  1446→                        <Badge variant={t.isActive ? "default" : "secondary"} className={t.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}>
+  1447→                          {t.isActive ? "Active" : "Inactive"}
+  1448→                        </Badge>
+  1449→                      </TableCell>
+  1450→                      <TableCell>
+  1451→                        <div className="flex items-center gap-1">
+  1452→                          {!t.isDefault && canMutate && (
+  1453→                            <Button variant="ghost" size="sm" onClick={() => handleSetDefault(t)} className="h-7 px-2" title="Set as Default">
+  1454→                              <Star className="h-3.5 w-3.5 text-amber-500" />
+  1455→                            </Button>
+  1456→                          )}
+  1457→                          <Button variant="ghost" size="sm" onClick={() => handleDuplicate(t)} className="h-7 px-2" title="Duplicate Template">
+  1458→                            <Copy className="h-3.5 w-3.5 text-slate-500" />
+  1459→                          </Button>
+  1460→                          <Button variant="ghost" size="sm" onClick={() => openEditor(t)} className="h-7 px-2" title="Edit HTML/CSS">
+  1461→                            <Code className="h-3.5 w-3.5 text-blue-500" />
+  1462→                          </Button>
+  1463→                          <Button variant="ghost" size="sm" onClick={() => openToggleEditor(t)} className="h-7 px-2" title="Toggle Fields">
+  1464→                            <Settings className="h-3.5 w-3.5 text-emerald-500" />
+  1465→                          </Button>
+  1466→                          {isAdmin && (
+  1467→                            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(t.id)} className="h-7 px-2" title="Delete">
+  1468→                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+  1469→                            </Button>
+  1470→                          )}
+  1471→                        </div>
+  1472→                      </TableCell>
+  1473→                    </TableRow>
+  1474→                  ))
+  1475→                )}
+  1476→              </TableBody>
+  1477→            </Table>
+  1478→          </div>
+  1479→        </CardContent>
+  1480→      </Card>
+  1481→
+  1482→      <div className="text-xs text-slate-500 dark:text-slate-400">
+  1483→        Showing {filteredTemplates.length} of {templates.length} templates
+  1484→      </div>
+  1485→
+  1486→      {/* Create Template Dialog */}
+  1487→      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+  1488→        <DialogContent className="max-w-[95vw] sm:max-w-md">
+  1489→          <DialogHeader>
+  1490→            <DialogTitle>Create Invoice Template</DialogTitle>
+  1491→            <DialogDescription>Create a new invoice template with HTML/CSS support</DialogDescription>
+  1492→          </DialogHeader>
+  1493→          <div className="space-y-4 py-2">
+  1494→            <div className="space-y-1.5">
+  1495→              <Label className="text-sm font-medium">Name <span className="text-red-500">*</span></Label>
+  1496→              <Input value={newTemplate.name} onChange={(e) => setNewTemplate(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Sales Invoice V2" />
+  1497→            </div>
+  1498→            <div className="space-y-1.5">
+  1499→              <Label className="text-sm font-medium">Template Type</Label>
+  1500→              <Select value={newTemplate.templateType} onValueChange={(v) => setNewTemplate(prev => ({ ...prev, templateType: v }))}>
+  1501→                <SelectTrigger><SelectValue /></SelectTrigger>
+  1502→                <SelectContent>
+  1503→                  {TEMPLATE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+  1504→                </SelectContent>
+  1505→              </Select>
+  1506→            </div>
+  1507→            <div className="space-y-1.5">
+  1508→              <Label className="text-sm font-medium">Subject</Label>
+  1509→              <Input value={newTemplate.subject} onChange={(e) => setNewTemplate(prev => ({ ...prev, subject: e.target.value }))} placeholder="e.g. Invoice {{invoiceNo}}" />
+  1510→            </div>
+  1511→            <div className="grid grid-cols-2 gap-4">
+  1512→              <div className="space-y-1.5">
+  1513→                <Label className="text-sm font-medium">Paper Size</Label>
+  1514→                <Select value={newTemplate.paperSize} onValueChange={(v) => setNewTemplate(prev => ({ ...prev, paperSize: v }))}>
+  1515→                  <SelectTrigger><SelectValue /></SelectTrigger>
+  1516→                  <SelectContent>
+  1517→                    <SelectItem value="A4">A4</SelectItem>
+  1518→                    <SelectItem value="Letter">Letter</SelectItem>
+  1519→                    <SelectItem value="Legal">Legal</SelectItem>
+  1520→                  </SelectContent>
+  1521→                </Select>
+  1522→              </div>
+  1523→              <div className="space-y-1.5">
+  1524→                <Label className="text-sm font-medium">Orientation</Label>
+  1525→                <Select value={newTemplate.orientation} onValueChange={(v) => setNewTemplate(prev => ({ ...prev, orientation: v }))}>
+  1526→                  <SelectTrigger><SelectValue /></SelectTrigger>
+  1527→                  <SelectContent>
+  1528→                    <SelectItem value="Portrait">Portrait</SelectItem>
+  1529→                    <SelectItem value="Landscape">Landscape</SelectItem>
+  1530→                  </SelectContent>
+  1531→                </Select>
+  1532→              </div>
+  1533→            </div>
+  1534→          </div>
+  1535→          <DialogFooter>
+  1536→            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+  1537→            <Button onClick={handleCreate} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1538→              {saving ? "Creating..." : "Create Template"}
+  1539→            </Button>
+  1540→          </DialogFooter>
+  1541→        </DialogContent>
+  1542→      </Dialog>
+  1543→
+  1544→      {/* Template HTML/CSS Editor Dialog */}
+  1545→      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+  1546→        <DialogContent className="max-w-[95vw] sm:max-w-5xl max-h-[90vh] overflow-y-auto">
+  1547→          <DialogHeader>
+  1548→            <DialogTitle>Edit Template: {selectedTemplate?.name}</DialogTitle>
+  1549→            <DialogDescription>Customize the HTML template with placeholders. Preview updates in real-time.</DialogDescription>
+  1550→          </DialogHeader>
+  1551→          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  1552→            <div className="space-y-4">
+  1553→              <div className="space-y-1.5">
+  1554→                <Label className="text-sm font-medium flex items-center gap-1"><Code className="h-3.5 w-3.5" /> Header HTML</Label>
+  1555→                <Textarea value={editorData.headerHtml} onChange={(e) => setEditorData(prev => ({ ...prev, headerHtml: e.target.value }))} rows={5} className="font-mono text-xs" disabled={!canMutate} />
+  1556→              </div>
+  1557→              <div className="space-y-1.5">
+  1558→                <Label className="text-sm font-medium flex items-center gap-1"><Code className="h-3.5 w-3.5" /> Body HTML</Label>
+  1559→                <Textarea value={editorData.bodyHtml} onChange={(e) => setEditorData(prev => ({ ...prev, bodyHtml: e.target.value }))} rows={8} className="font-mono text-xs" disabled={!canMutate} />
+  1560→              </div>
+  1561→              <div className="space-y-1.5">
+  1562→                <Label className="text-sm font-medium flex items-center gap-1"><Code className="h-3.5 w-3.5" /> Footer HTML</Label>
+  1563→                <Textarea value={editorData.footerHtml} onChange={(e) => setEditorData(prev => ({ ...prev, footerHtml: e.target.value }))} rows={5} className="font-mono text-xs" disabled={!canMutate} />
+  1564→              </div>
+  1565→              <div className="space-y-1.5">
+  1566→                <Label className="text-sm font-medium flex items-center gap-1"><Palette className="h-3.5 w-3.5" /> CSS Styles</Label>
+  1567→                <Textarea value={editorData.cssStyles} onChange={(e) => setEditorData(prev => ({ ...prev, cssStyles: e.target.value }))} rows={5} className="font-mono text-xs" disabled={!canMutate} />
+  1568→              </div>
+  1569→              <div className="space-y-1.5">
+  1570→                <Label className="text-sm font-medium flex items-center gap-1"><StickyNote className="h-3.5 w-3.5" /> Terms & Conditions</Label>
+  1571→                <Textarea value={editorData.termsAndConditions} onChange={(e) => setEditorData(prev => ({ ...prev, termsAndConditions: e.target.value }))} rows={3} className="text-xs" disabled={!canMutate} placeholder="Payment due within 30 days..." />
+  1572→              </div>
+  1573→              <div className="space-y-1.5">
+  1574→                <Label className="text-sm font-medium">Custom Footer Note</Label>
+  1575→                <Input value={editorData.customFooterNote} onChange={(e) => setEditorData(prev => ({ ...prev, customFooterNote: e.target.value }))} disabled={!canMutate} placeholder="Override system note..." />
+  1576→              </div>
+  1577→              <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-xs">
+  1578→                <p className="font-semibold text-slate-900 dark:text-white mb-1">Available Placeholders:</p>
+  1579→                <p className="text-slate-600 dark:text-slate-400">Header: <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{company_name}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{company_logo}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{company_address}}"}</code></p>
+  1580→                <p className="text-slate-600 dark:text-slate-400 mt-1">Body: <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{invoice_no}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{date}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{customer_name}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{items_table}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{grand_total}}"}</code></p>
+  1581→                <p className="text-slate-600 dark:text-slate-400 mt-1">Footer: <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{bank_details}}"}</code> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{"{{terms}}"}</code></p>
+  1582→              </div>
+  1583→            </div>
+  1584→            <div className="space-y-2">
+  1585→              <Label className="text-sm font-medium flex items-center gap-1"><Eye className="h-3.5 w-3.5" /> Live Preview</Label>
+  1586→              <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white">
+  1587→                <iframe ref={previewIframeRef} className="w-full" style={{ height: "600px" }} title="Template Preview" sandbox="allow-same-origin" />
+  1588→              </div>
+  1589→            </div>
+  1590→          </div>
+  1591→          <DialogFooter>
+  1592→            <Button variant="outline" onClick={() => setEditorOpen(false)}>Close</Button>
+  1593→            {canMutate && (
+  1594→              <Button onClick={handleSaveEditor} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1595→                {saving ? "Saving..." : <><Save className="h-4 w-4 mr-1" /> Save Template</>}
+  1596→              </Button>
+  1597→            )}
+  1598→          </DialogFooter>
+  1599→        </DialogContent>
+  1600→      </Dialog>
+  1601→
+  1602→      {/* Toggle Fields Editor Dialog */}
+  1603→      <Dialog open={toggleOpen} onOpenChange={setToggleOpen}>
+  1604→        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+  1605→          <DialogHeader>
+  1606→            <DialogTitle>Toggle Fields: {selectedTemplate?.name}</DialogTitle>
+  1607→            <DialogDescription>Control which fields appear on the invoice template.</DialogDescription>
+  1608→          </DialogHeader>
+  1609→          <div className="space-y-4 py-2">
+  1610→            {Object.entries(toggleGroups).map(([group, fields]) => (
+  1611→              <div key={group}>
+  1612→                <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-1">
+  1613→                  <Receipt className="h-3.5 w-3.5 text-emerald-500" /> {group}
+  1614→                </h4>
+  1615→                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+  1616→                  {fields.map(f => (
+  1617→                    <div key={f.key} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+  1618→                      <Switch
+  1619→                        checked={toggleData[f.key] ?? true}
+  1620→                        onCheckedChange={(checked) => setToggleData(prev => ({ ...prev, [f.key]: checked }))}
+  1621→                        disabled={!canMutate}
+  1622→                      />
+  1623→                      <Label className="text-xs">{f.label}</Label>
+  1624→                    </div>
+  1625→                  ))}
+  1626→                </div>
+  1627→              </div>
+  1628→            ))}
+  1629→            <Separator />
+  1630→            <div className="space-y-1.5">
+  1631→              <Label className="text-sm font-medium">Terms & Conditions</Label>
+  1632→              <Textarea
+  1633→                value={editorData.termsAndConditions}
+  1634→                onChange={(e) => setEditorData(prev => ({ ...prev, termsAndConditions: e.target.value }))}
+  1635→                rows={3}
+  1636→                disabled={!canMutate}
+  1637→              />
+  1638→            </div>
+  1639→            <div className="space-y-1.5">
+  1640→              <Label className="text-sm font-medium">Custom Footer Note</Label>
+  1641→              <Input
+  1642→                value={editorData.customFooterNote}
+  1643→                onChange={(e) => setEditorData(prev => ({ ...prev, customFooterNote: e.target.value }))}
+  1644→                disabled={!canMutate}
+  1645→              />
+  1646→            </div>
+  1647→          </div>
+  1648→          <DialogFooter>
+  1649→            <Button variant="outline" onClick={() => setToggleOpen(false)}>Cancel</Button>
+  1650→            {canMutate && (
+  1651→              <Button onClick={handleSaveToggles} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1652→                {saving ? "Saving..." : <><Save className="h-4 w-4 mr-1" /> Save Toggles</>}
+  1653→              </Button>
+  1654→            )}
+  1655→          </DialogFooter>
+  1656→        </DialogContent>
+  1657→      </Dialog>
+  1658→
+  1659→      {/* Delete Confirmation Dialog */}
+  1660→      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+  1661→        <DialogContent className="max-w-[95vw] sm:max-w-sm">
+  1662→          <DialogHeader>
+  1663→            <DialogTitle>Permanently Remove Invoice Template</DialogTitle>
+  1664→            <DialogDescription>Are you sure you want to permanently remove this invoice template? All associated HTML/CSS and toggle configurations will be lost. This action cannot be undone and the data cannot be recovered.</DialogDescription>
+  1665→          </DialogHeader>
+  1666→          <DialogFooter>
+  1667→            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+  1668→            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Permanently Remove</Button>
+  1669→          </DialogFooter>
+  1670→        </DialogContent>
+  1671→      </Dialog>
+  1672→    </div>
+  1673→  );
+  1674→}
+  1675→
+  1676→// ============================================================
+  1677→// TAB 3: NUMBER FORMATS
+  1678→// ============================================================
+  1679→
+  1680→function NumberFormatsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean; userRole: UserRole }) {
+  1681→  const { toast } = useToast();
+  1682→  const [formats, setFormats] = useState<NumberFormat[]>([]);
+  1683→  const [loading, setLoading] = useState(true);
+  1684→  const [createOpen, setCreateOpen] = useState(false);
+  1685→  const [editOpen, setEditOpen] = useState(false);
+  1686→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  1687→  const [selectedFormat, setSelectedFormat] = useState<NumberFormat | null>(null);
+  1688→  const [saving, setSaving] = useState(false);
+  1689→  const [newFormat, setNewFormat] = useState({ moduleKey: "", prefix: "", paddingLength: 5, nextSequence: 1, resetYearly: false, separator: "", dateFormat: "" });
+  1690→  const [editFormat, setEditFormat] = useState<Partial<NumberFormat>>({});
+  1691→
+  1692→  const canMutate = (userRole === "admin" || userRole === "manager") && !isVatAuditor;
+  1693→  const isAdmin = userRole === "admin";
+  1694→
+  1695→  const loadFormats = useCallback(async () => {
+  1696→    setLoading(true);
+  1697→    try {
+  1698→      const result = await apiFetch("/api/number-formats");
+  1699→      const list = result.formats || result || [];
+  1700→      setFormats(Array.isArray(list) ? list : []);
+  1701→    } catch (e: any) {
+  1702→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1703→    } finally {
+  1704→      setLoading(false);
+  1705→    }
+  1706→  }, [toast]);
+  1707→
+  1708→  useEffect(() => { loadFormats(); }, [loadFormats]);
+  1709→
+  1710→  // Generate preview string from format
+  1711→  const getPreview = (f: NumberFormat | Partial<NumberFormat>) => {
+  1712→    const prefix = f.prefix || "";
+  1713→    const sep = f.separator || "-";
+  1714→    const pad = f.paddingLength || 5;
+  1715→    const seq = f.nextSequence || 1;
+  1716→    const padded = String(seq).padStart(pad, "0");
+  1717→    let datePart = "";
+  1718→    if (f.dateFormat) {
+  1719→      const now = new Date();
+  1720→      datePart = f.dateFormat
+  1721→        .replace(/YYYY/g, String(now.getFullYear()))
+  1722→        .replace(/YY/g, String(now.getFullYear()).slice(-2))
+  1723→        .replace(/MM/g, String(now.getMonth() + 1).padStart(2, "0"))
+  1724→        .replace(/DD/g, String(now.getDate()).padStart(2, "0"));
+  1725→    }
+  1726→    const parts = [prefix || "PRE-"];
+  1727→    if (datePart) parts.push(datePart);
+  1728→    parts.push(padded);
+  1729→    return parts.join(sep);
+  1730→  };
+  1731→
+  1732→  const handleCreate = async () => {
+  1733→    if (!newFormat.moduleKey.trim() || !newFormat.prefix.trim()) {
+  1734→      toast({ title: "Validation Error", description: "Module Key and Prefix are required", variant: "destructive" });
+  1735→      return;
+  1736→    }
+  1737→    setSaving(true);
+  1738→    try {
+  1739→      await apiFetch("/api/number-formats", {
+  1740→        method: "POST",
+  1741→        body: JSON.stringify({
+  1742→          ...newFormat,
+  1743→          separator: newFormat.separator || null,
+  1744→          dateFormat: newFormat.dateFormat || null,
+  1745→        }),
+  1746→      });
+  1747→      toast({ title: "Created", description: "Number format created successfully" });
+  1748→      setCreateOpen(false);
+  1749→      setNewFormat({ moduleKey: "", prefix: "", paddingLength: 5, nextSequence: 1, resetYearly: false, separator: "", dateFormat: "" });
+  1750→      loadFormats();
+  1751→    } catch (e: any) {
+  1752→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1753→    } finally {
+  1754→      setSaving(false);
+  1755→    }
+  1756→  };
+  1757→
+  1758→  const openEdit = (format: NumberFormat) => {
+  1759→    setSelectedFormat(format);
+  1760→    setEditFormat({ ...format });
+  1761→    setEditOpen(true);
+  1762→  };
+  1763→
+  1764→  const handleSaveEdit = async () => {
+  1765→    if (!selectedFormat || !editFormat) return;
+  1766→    setSaving(true);
+  1767→    try {
+  1768→      await apiFetch("/api/number-formats", {
+  1769→        method: "PUT",
+  1770→        body: JSON.stringify({
+  1771→          id: selectedFormat.id,
+  1772→          prefix: editFormat.prefix,
+  1773→          paddingLength: editFormat.paddingLength,
+  1774→          nextSequence: editFormat.nextSequence,
+  1775→          resetYearly: editFormat.resetYearly,
+  1776→          separator: editFormat.separator === "" ? null : editFormat.separator,
+  1777→          dateFormat: editFormat.dateFormat === "" ? null : editFormat.dateFormat,
+  1778→          isActive: editFormat.isActive,
+  1779→        }),
+  1780→      });
+  1781→      toast({ title: "Saved", description: "Number format updated successfully" });
+  1782→      setEditOpen(false);
+  1783→      loadFormats();
+  1784→    } catch (e: any) {
+  1785→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1786→    } finally {
+  1787→      setSaving(false);
+  1788→    }
+  1789→  };
+  1790→
+  1791→  const handleResetSequence = async (format: NumberFormat) => {
+  1792→    try {
+  1793→      await apiFetch("/api/number-formats", {
+  1794→        method: "PUT",
+  1795→        body: JSON.stringify({ id: format.id, nextSequence: 1 }),
+  1796→      });
+  1797→      toast({ title: "Sequence Reset", description: `${format.moduleKey} sequence reset to 1` });
+  1798→      loadFormats();
+  1799→    } catch (e: any) {
+  1800→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1801→    }
+  1802→  };
+  1803→
+  1804→  const handleDelete = async (id: string) => {
+  1805→    try {
+  1806→      await apiFetch(`/api/number-formats?id=${id}`, { method: "DELETE" });
+  1807→      toast({ title: "Deleted", description: "Number format deleted successfully" });
+  1808→      setDeleteConfirm(null);
+  1809→      loadFormats();
+  1810→    } catch (e: any) {
+  1811→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1812→    }
+  1813→  };
+  1814→
+  1815→  // Export handlers
+  1816→  const handleExportPDF = async () => {
+  1817→    try {
+  1818→      let companyProfile: CompanyProfile | undefined;
+  1819→      try { const r = await apiFetch("/api/company-profile"); companyProfile = r.profile || undefined; } catch (e) { console.warn("Failed to load company profile for PDF:", e); }
+  1820→      const columns: ExportColumnDef[] = [
+  1821→        { key: "code", label: "Code", type: "text" },
+  1822→        { key: "moduleKey", label: "Module", type: "text" },
+  1823→        { key: "prefix", label: "Prefix", type: "text" },
+  1824→        { key: "paddingLength", label: "Padding", type: "number" },
+  1825→        { key: "nextSequence", label: "Next Seq", type: "number" },
+  1826→        { key: "resetYearly", label: "Reset Yearly", type: "boolean" },
+  1827→        { key: "preview", label: "Preview", type: "text" },
+  1828→      ];
+  1829→      const dataWithPreview = formats.map(f => ({ ...f, preview: getPreview(f) }));
+  1830→      const userName = authState.user?.displayName || authState.user?.name || "System";
+  1831→      exportToPDF({
+  1832→        title: "Number Formats",
+  1833→        subtitle: `Total: ${formats.length} format configurations`,
+  1834→        columns,
+  1835→        data: dataWithPreview,
+  1836→        isVatAuditor,
+  1837→        company: companyProfile,
+  1838→        financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" },
+  1839→      });
+  1840→      toast({ title: "PDF Exported", description: "Number formats data exported" });
+  1841→    } catch (e: any) {
+  1842→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1843→    }
+  1844→  };
+  1845→
+  1846→  const handleExportCSV = () => {
+  1847→    try {
+  1848→      const columns: ExportColumnDef[] = [
+  1849→        { key: "code", label: "Code", type: "text" },
+  1850→        { key: "moduleKey", label: "Module", type: "text" },
+  1851→        { key: "prefix", label: "Prefix", type: "text" },
+  1852→        { key: "paddingLength", label: "Padding", type: "number" },
+  1853→        { key: "nextSequence", label: "Next Seq", type: "number" },
+  1854→        { key: "resetYearly", label: "Reset Yearly", type: "boolean" },
+  1855→        { key: "preview", label: "Preview", type: "text" },
+  1856→      ];
+  1857→      const dataWithPreview = formats.map(f => ({ ...f, preview: getPreview(f) }));
+  1858→      exportToCSV({ title: "Number Formats", columns, data: dataWithPreview, isVatAuditor });
+  1859→      toast({ title: "CSV Exported" });
+  1860→    } catch (e: any) {
+  1861→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1862→    }
+  1863→  };
+  1864→
+  1865→  const handleImportCSV = () => {
+  1866→    importFromCSV({
+  1867→      apiPath: "/api/number-formats",
+  1868→      formFields: [
+  1869→        { key: "moduleKey", label: "Module Key", type: "text", required: true },
+  1870→        { key: "prefix", label: "Prefix", type: "text", required: true },
+  1871→        { key: "paddingLength", label: "Padding", type: "number" },
+  1872→        { key: "nextSequence", label: "Next Sequence", type: "number" },
+  1873→        { key: "resetYearly", label: "Reset Yearly", type: "text" },
+  1874→      ] as ExportFieldDef[],
+  1875→    }).then(result => {
+  1876→      toast({
+  1877→        title: "Import Complete",
+  1878→        description: `${result.imported} imported, ${result.failed} failed`,
+  1879→        variant: result.failed > 0 ? "destructive" : "default",
+  1880→      });
+  1881→      loadFormats();
+  1882→    }).catch((e: any) => {
+  1883→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+  1884→    });
+  1885→  };
+  1886→
+  1887→  return (
+  1888→    <div className="space-y-4">
+  1889→      {/* Toolbar */}
+  1890→      <div className="flex flex-wrap items-center gap-2">
+  1891→        {canMutate && (
+  1892→          <Button onClick={() => setCreateOpen(true)} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1893→            <Plus className="h-4 w-4 mr-1" /> Add Format
+  1894→          </Button>
+  1895→        )}
+  1896→        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+  1897→          <Download className="h-4 w-4 mr-1" /> Export CSV
+  1898→        </Button>
+  1899→        <Button variant="outline" size="sm" onClick={handleExportPDF}>
+  1900→          <FileDown className="h-4 w-4 mr-1" /> Export PDF
+  1901→        </Button>
+  1902→        {canMutate && (
+  1903→          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+  1904→            <Upload className="h-4 w-4 mr-1" /> Import CSV
+  1905→          </Button>
+  1906→        )}
+  1907→        <Button variant="ghost" size="sm" onClick={loadFormats}>
+  1908→          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+  1909→        </Button>
+  1910→      </div>
+  1911→
+  1912→      {/* Number Formats Table */}
+  1913→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1914→        <CardContent className="p-0 overflow-hidden">
+  1915→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1916→            <Table className="min-w-[600px]">
+  1917→              <TableHeader>
+  1918→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1919→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+  1920→                  <TableHead className="text-white font-semibold">Code</TableHead>
+  1921→                  <TableHead className="text-white font-semibold">Module</TableHead>
+  1922→                  <TableHead className="text-white font-semibold">Prefix</TableHead>
+  1923→                  <TableHead className="text-white font-semibold">Padding</TableHead>
+  1924→                  <TableHead className="text-white font-semibold">Next Seq</TableHead>
+  1925→                  <TableHead className="text-white font-semibold">Preview</TableHead>
+  1926→                  <TableHead className="text-white font-semibold">Reset Yearly</TableHead>
+  1927→                  <TableHead className="text-white font-semibold">Active</TableHead>
+  1928→                  <TableHead className="text-white font-semibold w-36">Actions</TableHead>
+  1929→                </TableRow>
+  1930→              </TableHeader>
+  1931→              <TableBody>
+  1932→                {loading ? (
+  1933→                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400"><RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />Loading...</TableCell></TableRow>
+  1934→                ) : formats.length === 0 ? (
+  1935→                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400">No number formats found</TableCell></TableRow>
+  1936→                ) : (
+  1937→                  formats.map((f, idx) => (
+  1938→                    <TableRow key={f.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1939→                      <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+  1940→                      <TableCell className="font-mono text-xs">{f.code}</TableCell>
+  1941→                      <TableCell className="font-medium text-slate-900 dark:text-white">{f.moduleKey.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</TableCell>
+  1942→                      <TableCell className="font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400">{f.prefix}</TableCell>
+  1943→                      <TableCell>{f.paddingLength}</TableCell>
+  1944→                      <TableCell>{f.nextSequence}</TableCell>
+  1945→                      <TableCell>
+  1946→                        <Badge variant="secondary" className="font-mono bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100">
+  1947→                          {getPreview(f)}
+  1948→                        </Badge>
+  1949→                      </TableCell>
+  1950→                      <TableCell>
+  1951→                        <Badge variant={f.resetYearly ? "default" : "secondary"} className={f.resetYearly ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-500"}>
+  1952→                          {f.resetYearly ? "Yes" : "No"}
+  1953→                        </Badge>
+  1954→                      </TableCell>
+  1955→                      <TableCell>
+  1956→                        <Badge variant={f.isActive ? "default" : "secondary"} className={f.isActive ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500"}>
+  1957→                          {f.isActive ? "Active" : "Inactive"}
+  1958→                        </Badge>
+  1959→                      </TableCell>
+  1960→                      <TableCell>
+  1961→                        <div className="flex items-center gap-1">
+  1962→                          {canMutate && (
+  1963→                            <Button variant="ghost" size="sm" onClick={() => openEdit(f)} className="h-7 px-2" title="Edit">
+  1964→                              <Edit className="h-3.5 w-3.5 text-blue-500" />
+  1965→                            </Button>
+  1966→                          )}
+  1967→                          {canMutate && (
+  1968→                            <Button variant="ghost" size="sm" onClick={() => handleResetSequence(f)} className="h-7 px-2" title="Reset Sequence">
+  1969→                              <RotateCcw className="h-3.5 w-3.5 text-amber-500" />
+  1970→                            </Button>
+  1971→                          )}
+  1972→                          {isAdmin && (
+  1973→                            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(f.id)} className="h-7 px-2" title="Delete">
+  1974→                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+  1975→                            </Button>
+  1976→                          )}
+  1977→                        </div>
+  1978→                      </TableCell>
+  1979→                    </TableRow>
+  1980→                  ))
+  1981→                )}
+  1982→              </TableBody>
+  1983→            </Table>
+  1984→          </div>
+  1985→        </CardContent>
+  1986→      </Card>
+  1987→
+  1988→      <div className="text-xs text-slate-500 dark:text-slate-400">{formats.length} number format configurations</div>
+  1989→
+  1990→      {/* Create Format Dialog */}
+  1991→      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+  1992→        <DialogContent className="max-w-[95vw] sm:max-w-md">
+  1993→          <DialogHeader>
+  1994→            <DialogTitle>Create Number Format</DialogTitle>
+  1995→            <DialogDescription>Define a new document number format for a module.</DialogDescription>
+  1996→          </DialogHeader>
+  1997→          <div className="space-y-4 py-2">
+  1998→            <div className="space-y-1.5">
+  1999→              <Label className="text-sm font-medium">Module Key <span className="text-red-500">*</span></Label>
+  2000→              <Input value={newFormat.moduleKey} onChange={(e) => setNewFormat(prev => ({ ...prev, moduleKey: e.target.value.replace(/\s+/g, "_").toLowerCase() }))} placeholder="e.g. purchase_order" />
+
+[showing lines 1-2000 of 2970; use offset=2001 with limit to continue reading]

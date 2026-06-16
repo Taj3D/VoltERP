@@ -273,8 +273,9 @@ export async function POST(request: NextRequest) {
 
     // ── Single record creation ──
 
-    // Validate percentage
-    if (body.percentage === undefined || body.percentage === null || body.percentage < 0 || body.percentage > 100) {
+    // Parse percentage (handle string input from forms)
+    const percentage = parseFloat(String(body.percentage));
+    if (body.percentage === undefined || body.percentage === null || isNaN(percentage) || percentage < 0 || percentage > 100) {
       return NextResponse.json(
         { error: 'Percentage must be between 0 and 100' },
         { status: 400 }
@@ -299,9 +300,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Amount range validation
-    const minimumAmount = body.minimumAmount ?? 0;
-    const maximumAmount = body.maximumAmount ?? 0;
+    // Amount range validation (parse strings to numbers for safe comparison)
+    const minimumAmount = parseFloat(String(body.minimumAmount ?? 0)) || 0;
+    const maximumAmount = parseFloat(String(body.maximumAmount ?? 0)) || 0;
     if (minimumAmount > 0 && maximumAmount > 0 && minimumAmount > maximumAmount) {
       return NextResponse.json(
         { error: 'minimumAmount must be less than or equal to maximumAmount' },
@@ -309,9 +310,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Duration range validation
-    const durationMonthsMin = body.durationMonthsMin ?? 0;
-    const durationMonthsMax = body.durationMonthsMax ?? 0;
+    // Duration range validation (parse strings to numbers for safe comparison)
+    const durationMonthsMin = parseInt(String(body.durationMonthsMin ?? 0), 10) || 0;
+    const durationMonthsMax = parseInt(String(body.durationMonthsMax ?? 0), 10) || 0;
     if (durationMonthsMin > 0 && durationMonthsMax > 0 && durationMonthsMin > durationMonthsMax) {
       return NextResponse.json(
         { error: 'durationMonthsMin must be less than or equal to durationMonthsMax' },
@@ -343,7 +344,7 @@ export async function POST(request: NextRequest) {
       const record = await tx.interestPercentage.create({
         data: {
           code: code!,
-          percentage: body.percentage,
+          percentage: percentage,
           type,
           effectiveDate,
           expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,

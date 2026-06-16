@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { withApiSecurity, invalidateUserCache } from "@/lib/api-security";
-import { logUserActivity } from "@/lib/activity-logger";
+import { logUserActivity, logSystemAudit } from "@/lib/activity-logger";
 import { sanitizeError } from "@/lib/exception-sanitizer";
 import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/password-utils";
@@ -71,6 +71,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Password complexity validation ──
+    // Must match the complexity rules in /api/auth/change-password
+    if (!/[A-Z]/.test(newPassword)) {
+      return NextResponse.json(
+        { error: "New password must contain at least one uppercase letter." },
+        { status: 400 }
+      );
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      return NextResponse.json(
+        { error: "New password must contain at least one number." },
+        { status: 400 }
+      );
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/\?]/.test(newPassword)) {
+      return NextResponse.json(
+        { error: "New password must contain at least one special character." },
+        { status: 400 }
+      );
+    }
+
     // Resolve target user — support "self" for admin's own password
     let targetUser;
     if (targetUserId === "self") {
@@ -122,6 +143,22 @@ export async function POST(request: NextRequest) {
         resetAt: new Date().toISOString(),
       }),
     });
+
+    // Log to SystemAuditLog for security tracking
+    await logSystemAudit({
+      actionType: 'PASSWORD_RESET',
+      targetModel: 'User',
+      targetRecordId: targetUser.id,
+      actorUserId: adminUser.id,
+      actorUserName: adminUser.name,
+      metadata: JSON.stringify({
+        action: 'ADMIN_PASSWORD_RESET',
+        targetUserEmail: targetUser.email,
+        targetUserRole: targetUser.role,
+        resetBy: security.user.email,
+      }),
+      companyId: adminUser.companyId || undefined,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

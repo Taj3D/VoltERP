@@ -1,0 +1,845 @@
+     1→     1→// ============================================================
+     2→     2→// SMS EVENT HOOKS — Automated Notification Trigger Utility
+     3→     3→// Provides functions that other API routes can call to trigger
+     4→     4→// SMS notifications automatically based on business events.
+     5→     5→// ============================================================
+     6→     6→
+     7→     7→import { db } from '@/lib/db';
+     8→     8→import { computeSmsSegments, safeFinancialRound } from '@/lib/api-security';
+     9→     9→import { logUserActivity } from '@/lib/activity-logger';
+    10→    10→import { dispatchSingleSms, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
+    11→    11→
+    12→    12→// ── Type Definitions ──────────────────────────────────────────
+    13→    13→
+    14→    14→type EventType = 'SalesConfirmation' | 'FinancialCollection' | 'InventoryIngestion' | 'HRLifecycle' | 'PaymentReceived' | 'PurchaseOrderReceived' | 'EmployeeJoined' | 'EmployeeExamDate';
+    15→    15→
+    16→    16→interface TriggerEventSmsParams {
+    17→    17→  eventType: EventType;
+    18→    18→  recipientPhone: string;
+    19→    19→  templateVariables: Record<string, string>;
+    20→    20→  companyId?: string;
+    21→    21→}
+    22→    22→
+    23→    23→interface TriggerEventSmsResult {
+    24→    24→  triggered: boolean;
+    25→    25→  smsLogId?: string;
+    26→    26→  error?: string;
+    27→    27→}
+    28→    28→
+    29→    29→interface PhoneValidationResult {
+    30→    30→  valid: boolean;
+    31→    31→  formatted: string;
+    32→    32→  country: string;
+    33→    33→}
+    34→    34→
+    35→    35→interface BulkPhoneParseResult {
+    36→    36→  valid: string[];
+    37→    37→  invalid: string[];
+    38→    38→  duplicates: string[];
+    39→    39→}
+    40→    40→
+    41→    41→// ── Currency Formatting Helper ────────────────────────────────
+    42→    42→
+    43→    43→function formatCurrency(amount: number): string {
+    44→    44→  // Use en-US locale to guarantee Latin digits (0-9) — en-US falls back to Bengali numerals
+    45→    45→  return `Tk. ${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)}`;
+    46→    46→}
+    47→    47→
+    48→    48→// ── Date Formatting Helper ────────────────────────────────────
+    49→    49→
+    50→    50→function formatDate(date: Date | string): string {
+    51→    51→  const d = typeof date === 'string' ? new Date(date) : date;
+    52→    52→  return d.toLocaleDateString('en-GB', {
+    53→    53→    day: '2-digit',
+    54→    54→    month: 'short',
+    55→    55→    year: 'numeric',
+    56→    56→  });
+    57→    57→}
+    58→    58→
+    59→    59→// ── 1. Core Trigger Function ──────────────────────────────────
+    60→    60→
+    61→    61→/**
+    62→    62→ * triggerEventSms — Core automated SMS trigger function.
+    63→    63→ *
+    64→    64→ * Looks up an active SmsNotificationTrigger matching the eventType,
+    65→    65→ * replaces {{variable}} placeholders in the template body with
+    66→    66→ * actual values, computes SMS segments and cost, creates an SmsLog
+    67→    67→ * entry, and logs the activity.
+    68→    68→ *
+    69→    69→ * This function NEVER throws — all errors are caught and returned
+    70→    70→ * in the result object.
+    71→    71→ */
+    72→    72→export async function triggerEventSms(
+    73→    73→  params: TriggerEventSmsParams
+    74→    74→): Promise<TriggerEventSmsResult> {
+    75→    75→  try {
+    76→    76→    const { eventType, recipientPhone, templateVariables, companyId } = params;
+    77→    77→
+    78→    78→    // Step 0: Check company-wide SmsAutomationConfig toggle
+    79→    79→    // Maps eventType to the corresponding automation config field
+    80→    80→    const eventTypeToConfigField: Record<string, string> = {
+    81→    81→      'SalesConfirmation': 'autoSmsOnPurchase',
+    82→    82→      'FinancialCollection': 'autoSmsOnReceipt',
+    83→    83→      'InventoryIngestion': 'autoSmsOnStockReceive',
+    84→    84→      'HRLifecycle': 'autoSmsOnEmployeeEvent',
+    85→    85→      'PaymentReceived': 'autoSmsOnPaymentReceive',
+    86→    86→      'PurchaseOrderReceived': 'autoSmsOnGodownReceive',
+    87→    87→      'EmployeeJoined': 'autoSmsOnEmployeeJoin',
+    88→    88→      'EmployeeExamDate': 'autoSmsOnEmployeeExam',
+    89→    89→    };
+    90→    90→    const configField = eventTypeToConfigField[eventType];
+    91→    91→    if (configField) {
+    92→    92→      const automationConfig = await db.smsAutomationConfig.findFirst({
+    93→    93→        where: {
+    94→    94→          OR: [
+    95→    95→            { companyId: companyId ?? null },
+    96→    96→            { companyId: null },
+    97→    97→          ],
+    98→    98→        },
+    99→    99→        orderBy: { companyId: 'desc' },
+   100→   100→      });
+   101→   101→      if (automationConfig) {
+   102→   102→        const isToggleOn = (automationConfig as Record<string, unknown>)[configField];
+   103→   103→        if (isToggleOn === false) {
+   104→   104→          // Company-wide toggle is OFF — skip this SMS event
+   105→   105→          return { triggered: false, error: `SMS automation toggle "${configField}" is disabled` };
+   106→   106→        }
+   107→   107→      }
+   108→   108→    }
+   109→   109→
+   110→   110→    // Step 1: Find active notification trigger matching eventType
+   111→   111→    const trigger = await db.smsNotificationTrigger.findFirst({
+   112→   112→      where: {
+   113→   113→        eventType,
+   114→   114→        isEnabled: true,
+   115→   115→        isActive: true,
+   116→   116→        OR: [
+   117→   117→          { companyId: companyId ?? null },
+   118→   118→          { companyId: null },
+   119→   119→        ],
+   120→   120→      },
+   121→   121→      orderBy: {
+   122→   122→        // Prefer company-specific trigger over global trigger
+   123→   123→        companyId: 'desc',
+   124→   124→      },
+   125→   125→    });
+   126→   126→
+   127→   127→    if (!trigger) {
+   128→   128→      return { triggered: false, error: 'No active notification trigger' };
+   129→   129→    }
+   130→   130→
+   131→   131→    // Step 2: Replace {{variableName}} placeholders in templateBody
+   132→   132→    let message = trigger.templateBody;
+   133→   133→    const placeholderRegex = /\{\{(\w+)\}\}/g;
+   134→   134→    message = message.replace(placeholderRegex, (match, varName: string) => {
+   135→   135→      return templateVariables[varName] !== undefined ? templateVariables[varName] : 'N/A';
+   136→   136→    });
+   137→   137→
+   138→   138→    // Step 3: Get active SmsSetting for rate calculation
+   139→   139→    const smsSetting = await db.smsSetting.findFirst({
+   140→   140→      where: {
+   141→   141→        isActive: true,
+   142→   142→        OR: [
+   143→   143→          { companyId: companyId ?? null },
+   144→   144→          { companyId: null },
+   145→   145→        ],
+   146→   146→      },
+   147→   147→      orderBy: {
+   148→   148→        companyId: 'desc',
+   149→   149→      },
+   150→   150→    });
+   151→   151→
+   152→   152→    // Step 4: Compute SMS segments
+   153→   153→    const { charCount, isUnicode, segmentCount } = computeSmsSegments(message);
+   154→   154→
+   155→   155→    // Step 5: Calculate cost
+   156→   156→    const ratePerSms = smsSetting?.ratePerSms ?? 0;
+   157→   157→    const unicodeRate = smsSetting?.unicodeRate ?? 0;
+   158→   158→    const applicableRate = isUnicode ? unicodeRate : ratePerSms;
+   159→   159→    const cost = safeFinancialRound(segmentCount * applicableRate);
+   160→   160→
+   161→   161→    // Step 6: Create SmsLog entry
+   162→   162→    const log = await db.smsLog.create({
+   163→   163→      data: {
+   164→   164→        recipient: recipientPhone,
+   165→   165→        message,
+   166→   166→        charCount,
+   167→   167→        smsSegmentCount: segmentCount,
+   168→   168→        isUnicode,
+   169→   169→        status: 'Pending',
+   170→   170→        cost,
+   171→   171→        triggerType: eventType,
+   172→   172→        companyId: companyId ?? null,
+   173→   173→        isActive: true,
+   174→   174→      },
+   175→   175→    });
+   176→   176→
+   177→   177→    // Step 7: Log activity
+   178→   178→    await logUserActivity({
+   179→   179→      action: 'CREATE',
+   180→   180→      module: 'SMS-Notification-Trigger',
+   181→   181→      recordId: log.id,
+   182→   182→      recordLabel: `${eventType} → ${recipientPhone}`,
+   183→   183→      details: `Auto-triggered SMS for event "${eventType}" to ${recipientPhone}. Segments: ${segmentCount}, Cost: ${formatCurrency(cost)}`,
+   184→   184→    });
+   185→   185→
+   186→   186→    // Step 8: Try to dispatch through the SMS gateway (non-blocking)
+   187→   187→    // If the gateway dispatch fails, the SmsLog stays as "Pending"
+   188→   188→    // and will be picked up later by the /api/sms/dispatch-pending route.
+   189→   189→    if (smsSetting) {
+   190→   190→      try {
+   191→   191→        const gatewayConfig = buildGatewayConfig(smsSetting);
+   192→   192→        const dispatchResult = await dispatchSingleSms(gatewayConfig, {
+   193→   193→          smsLogId: log.id,
+   194→   194→          recipient: recipientPhone,
+   195→   195→          message,
+   196→   196→        });
+   197→   197→
+   198→   198→        // Update the SmsLog with the gateway result
+   199→   199→        await db.smsLog.update({
+   200→   200→          where: { id: log.id },
+   201→   201→          data: {
+   202→   202→            status: dispatchResult.status,
+   203→   203→            gatewayResponse: dispatchResult.gatewayResponse,
+   204→   204→            cost: dispatchResult.cost,
+   205→   205→            ...(dispatchResult.status === 'Sent' && { sentAt: new Date() }),
+   206→   206→          },
+   207→   207→        });
+   208→   208→      } catch (gatewayErr) {
+   209→   209→        // Gateway dispatch failed — SmsLog stays as "Pending"
+   210→   210→        // The /api/sms/dispatch-pending route can retry later
+   211→   211→        console.error('[triggerEventSms] Gateway dispatch failed (entry stays Pending):', gatewayErr);
+   212→   212→      }
+   213→   213→    }
+   214→   214→
+   215→   215→    return { triggered: true, smsLogId: log.id };
+   216→   216→  } catch (error) {
+   217→   217→    console.error('[SmsEventHooks] triggerEventSms failed:', error);
+   218→   218→    return {
+   219→   219→      triggered: false,
+   220→   220→      error: error instanceof Error ? error.message : 'Unknown error in triggerEventSms',
+   221→   221→    };
+   222→   222→  }
+   223→   223→}
+   224→   224→
+   225→   225→// ── 2. Sales Confirmation SMS ─────────────────────────────────
+   226→   226→
+   227→   227→/**
+   228→   228→ * triggerSalesConfirmationSms — Sends an SMS when a sales order is confirmed.
+   229→   229→ * Looks up the customer's phone number and triggers a SalesConfirmation event SMS.
+   230→   230→ * Skips silently if the customer has no phone number.
+   231→   231→ */
+   232→   232→export async function triggerSalesConfirmationSms(salesOrder: {
+   233→   233→  id: string;
+   234→   234→  invoiceNo: string;
+   235→   235→  customerId: string;
+   236→   236→  grandTotal: number;
+   237→   237→  date: Date | string;
+   238→   238→  companyId?: string;
+   239→   239→}): Promise<void> {
+   240→   240→  try {
+   241→   241→    // Look up customer phone
+   242→   242→    const customer = await db.customer.findUnique({
+   243→   243→      where: { id: salesOrder.customerId },
+   244→   244→      select: { name: true, phone: true },
+   245→   245→    });
+   246→   246→
+   247→   247→    if (!customer || !customer.phone) {
+   248→   248→      // Skip silently — customer has no phone
+   249→   249→      return;
+   250→   250→    }
+   251→   251→
+   252→   252→    // Validate phone number
+   253→   253→    const phoneValidation = validatePhonePrefix(customer.phone);
+   254→   254→    if (!phoneValidation.valid) {
+   255→   255→      return; // Skip silently — invalid phone format
+   256→   256→    }
+   257→   257→
+   258→   258→    // Look up product summary (first 2 product names from sales order lines)
+   259→   259→    let productSummary = 'N/A';
+   260→   260→    try {
+   261→   261→      const lines = await db.salesOrderLine.findMany({
+   262→   262→        where: { salesOrderId: salesOrder.id },
+   263→   263→        include: { product: { select: { name: true } } },
+   264→   264→        take: 2,
+   265→   265→      });
+   266→   266→      if (lines.length > 0) {
+   267→   267→        productSummary = lines.map((l) => l.product.name).join(', ');
+   268→   268→      }
+   269→   269→    } catch {
+   270→   270→      // Non-critical — default to N/A
+   271→   271→    }
+   272→   272→
+   273→   273→    await triggerEventSms({
+   274→   274→      eventType: 'SalesConfirmation',
+   275→   275→      recipientPhone: phoneValidation.formatted,
+   276→   276→      templateVariables: {
+   277→   277→        customerName: customer.name,
+   278→   278→        invoiceNo: salesOrder.invoiceNo,
+   279→   279→        amount: formatCurrency(salesOrder.grandTotal),
+   280→   280→        date: formatDate(salesOrder.date),
+   281→   281→        productSummary,
+   282→   282→      },
+   283→   283→      companyId: salesOrder.companyId,
+   284→   284→    });
+   285→   285→  } catch (error) {
+   286→   286→    // Never throw — log and move on
+   287→   287→    console.error('[SmsEventHooks] triggerSalesConfirmationSms failed:', error);
+   288→   288→  }
+   289→   289→}
+   290→   290→
+   291→   291→// ── 3. Financial Collection SMS ───────────────────────────────
+   292→   292→
+   293→   293→/**
+   294→   294→ * triggerFinancialCollectionSms — Sends an SMS when a financial collection
+   295→   295→ * (payment receipt) is recorded. Looks up the customer or supplier phone
+   296→   296→ * and triggers a FinancialCollection event SMS.
+   297→   297→ * Skips silently if the entity has no phone number.
+   298→   298→ */
+   299→   299→export async function triggerFinancialCollectionSms(collection: {
+   300→   300→  id: string;
+   301→   301→  customerId?: string;
+   302→   302→  supplierId?: string;
+   303→   303→  amount: number;
+   304→   304→  paymentMethod: string;
+   305→   305→  date: Date | string;
+   306→   306→  companyId?: string;
+   307→   307→}): Promise<void> {
+   308→   308→  try {
+   309→   309→    let recipientPhone: string | null = null;
+   310→   310→    let clientName: string = 'N/A';
+   311→   311→
+   312→   312→    if (collection.customerId) {
+   313→   313→      // Look up customer phone
+   314→   314→      const customer = await db.customer.findUnique({
+   315→   315→        where: { id: collection.customerId },
+   316→   316→        select: { name: true, phone: true },
+   317→   317→      });
+   318→   318→      if (customer) {
+   319→   319→        clientName = customer.name;
+   320→   320→        recipientPhone = customer.phone ?? null;
+   321→   321→      }
+   322→   322→    } else if (collection.supplierId) {
+   323→   323→      // Look up supplier phone
+   324→   324→      const supplier = await db.supplier.findUnique({
+   325→   325→        where: { id: collection.supplierId },
+   326→   326→        select: { name: true, phone: true },
+   327→   327→      });
+   328→   328→      if (supplier) {
+   329→   329→        clientName = supplier.name;
+   330→   330→        recipientPhone = supplier.phone ?? null;
+   331→   331→      }
+   332→   332→    }
+   333→   333→
+   334→   334→    if (!recipientPhone) {
+   335→   335→      // Skip silently — no phone available
+   336→   336→      return;
+   337→   337→    }
+   338→   338→
+   339→   339→    // Validate phone number
+   340→   340→    const phoneValidation = validatePhonePrefix(recipientPhone);
+   341→   341→    if (!phoneValidation.valid) {
+   342→   342→      return; // Skip silently — invalid phone format
+   343→   343→    }
+   344→   344→
+   345→   345→    // Generate a receipt reference
+   346→   346→    const receiptRef = `RCT-${collection.id.slice(-6).toUpperCase()}`;
+   347→   347→
+   348→   348→    await triggerEventSms({
+   349→   349→      eventType: 'FinancialCollection',
+   350→   350→      recipientPhone: phoneValidation.formatted,
+   351→   351→      templateVariables: {
+   352→   352→        clientName,
+   353→   353→        amount: formatCurrency(collection.amount),
+   354→   354→        paymentMethod: collection.paymentMethod,
+   355→   355→        date: formatDate(collection.date),
+   356→   356→        receiptRef,
+   357→   357→      },
+   358→   358→      companyId: collection.companyId,
+   359→   359→    });
+   360→   360→  } catch (error) {
+   361→   361→    // Never throw — log and move on
+   362→   362→    console.error('[SmsEventHooks] triggerFinancialCollectionSms failed:', error);
+   363→   363→  }
+   364→   364→}
+   365→   365→
+   366→   366→// ── 4. Inventory Ingestion SMS ────────────────────────────────
+   367→   367→
+   368→   368→/**
+   369→   369→ * triggerInventoryIngestionSms — Sends an SMS when inventory is ingested
+   370→   370→ * (stock entry from supplier). Looks up the supplier phone and triggers
+   371→   371→ * an InventoryIngestion event SMS.
+   372→   372→ * Skips silently if the supplier has no phone number.
+   373→   373→ */
+   374→   374→export async function triggerInventoryIngestionSms(stockEntry: {
+   375→   375→  id: string;
+   376→   376→  supplierId?: string;
+   377→   377→  productId: string;
+   378→   378→  quantity: number;
+   379→   379→  godownId?: string;
+   380→   380→  date: Date | string;
+   381→   381→  companyId?: string;
+   382→   382→}): Promise<void> {
+   383→   383→  try {
+   384→   384→    // Look up supplier phone (if supplierId provided)
+   385→   385→    let supplierPhone: string | null = null;
+   386→   386→    let supplierName: string = 'N/A';
+   387→   387→
+   388→   388→    if (stockEntry.supplierId) {
+   389→   389→      const supplier = await db.supplier.findUnique({
+   390→   390→        where: { id: stockEntry.supplierId },
+   391→   391→        select: { name: true, phone: true },
+   392→   392→      });
+   393→   393→      if (supplier) {
+   394→   394→        supplierName = supplier.name;
+   395→   395→        supplierPhone = supplier.phone ?? null;
+   396→   396→      }
+   397→   397→    }
+   398→   398→
+   399→   399→    if (!supplierPhone) {
+   400→   400→      // Skip silently — no supplier phone
+   401→   401→      return;
+   402→   402→    }
+   403→   403→
+   404→   404→    // Validate phone number
+   405→   405→    const phoneValidation = validatePhonePrefix(supplierPhone);
+   406→   406→    if (!phoneValidation.valid) {
+   407→   407→      return; // Skip silently — invalid phone format
+   408→   408→    }
+   409→   409→
+   410→   410→    // Look up product name
+   411→   411→    let productName: string = 'N/A';
+   412→   412→    try {
+   413→   413→      const product = await db.product.findUnique({
+   414→   414→        where: { id: stockEntry.productId },
+   415→   415→        select: { name: true },
+   416→   416→      });
+   417→   417→      if (product) {
+   418→   418→        productName = product.name;
+   419→   419→      }
+   420→   420→    } catch {
+   421→   421→      // Non-critical — default to N/A
+   422→   422→    }
+   423→   423→
+   424→   424→    // Look up godown name
+   425→   425→    let godownName: string = 'N/A';
+   426→   426→    if (stockEntry.godownId) {
+   427→   427→      try {
+   428→   428→        const godown = await db.godown.findUnique({
+   429→   429→          where: { id: stockEntry.godownId },
+   430→   430→          select: { name: true },
+   431→   431→        });
+   432→   432→        if (godown) {
+   433→   433→          godownName = godown.name;
+   434→   434→        }
+   435→   435→      } catch {
+   436→   436→        // Non-critical — default to N/A
+   437→   437→      }
+   438→   438→    }
+   439→   439→
+   440→   440→    // Generate reference number
+   441→   441→    const referenceNo = `STK-${stockEntry.id.slice(-6).toUpperCase()}`;
+   442→   442→
+   443→   443→    await triggerEventSms({
+   444→   444→      eventType: 'InventoryIngestion',
+   445→   445→      recipientPhone: phoneValidation.formatted,
+   446→   446→      templateVariables: {
+   447→   447→        supplierName,
+   448→   448→        productName,
+   449→   449→        quantity: String(stockEntry.quantity),
+   450→   450→        godownName,
+   451→   451→        date: formatDate(stockEntry.date),
+   452→   452→        referenceNo,
+   453→   453→      },
+   454→   454→      companyId: stockEntry.companyId,
+   455→   455→    });
+   456→   456→  } catch (error) {
+   457→   457→    // Never throw — log and move on
+   458→   458→    console.error('[SmsEventHooks] triggerInventoryIngestionSms failed:', error);
+   459→   459→  }
+   460→   460→}
+   461→   461→
+   462→   462→// ── 5. HR Lifecycle SMS ──────────────────────────────────────
+   463→   463→
+   464→   464→/**
+   465→   465→ * triggerHRLifecycleSms — Sends an SMS for HR lifecycle events
+   466→   466→ * (e.g., employee examination, update, start date).
+   467→   467→ * Uses the employee's phone number directly.
+   468→   468→ * Skips silently if the employee has no phone number.
+   469→   469→ */
+   470→   470→export async function triggerHRLifecycleSms(employee: {
+   471→   471→  id: string;
+   472→   472→  name: string;
+   473→   473→  phone?: string;
+   474→   474→  eventType: string;
+   475→   475→  details: string;
+   476→   476→  companyId?: string;
+   477→   477→}): Promise<void> {
+   478→   478→  try {
+   479→   479→    if (!employee.phone) {
+   480→   480→      // Skip silently — no phone
+   481→   481→      return;
+   482→   482→    }
+   483→   483→
+   484→   484→    // Validate phone number
+   485→   485→    const phoneValidation = validatePhonePrefix(employee.phone);
+   486→   486→    if (!phoneValidation.valid) {
+   487→   487→      return; // Skip silently — invalid phone format
+   488→   488→    }
+   489→   489→
+   490→   490→    // Look up company name
+   491→   491→    let companyName: string = 'N/A';
+   492→   492→    if (employee.companyId) {
+   493→   493→      try {
+   494→   494→        const company = await db.company.findUnique({
+   495→   495→          where: { id: employee.companyId },
+   496→   496→          select: { name: true },
+   497→   497→        });
+   498→   498→        if (company) {
+   499→   499→          companyName = company.name;
+   500→   500→        }
+   501→   501→      } catch {
+   502→   502→        // Non-critical — default to N/A
+   503→   503→      }
+   504→   504→    }
+   505→   505→
+   506→   506→    await triggerEventSms({
+   507→   507→      eventType: 'HRLifecycle',
+   508→   508→      recipientPhone: phoneValidation.formatted,
+   509→   509→      templateVariables: {
+   510→   510→        employeeName: employee.name,
+   511→   511→        eventType: employee.eventType,
+   512→   512→        details: employee.details,
+   513→   513→        companyName,
+   514→   514→      },
+   515→   515→      companyId: employee.companyId,
+   516→   516→    });
+   517→   517→  } catch (error) {
+   518→   518→    // Never throw — log and move on
+   519→   519→    console.error('[SmsEventHooks] triggerHRLifecycleSms failed:', error);
+   520→   520→  }
+   521→   521→}
+   522→   522→
+   523→   523→// ── 6. Phone Validation ──────────────────────────────────────
+   524→   524→
+   525→   525→/**
+   526→   526→ * validatePhonePrefix — Validates Bangladesh phone number format.
+   527→   527→ *
+   528→   528→ * Accepts formats:
+   529→   529→ *   +8801XXXXXXXXX
+   530→   530→ *   8801XXXXXXXXX
+   531→   531→ *   01XXXXXXXXX
+   532→   532→ *
+   533→   533→ * Validates against: /^(\+880|880|0)?1[3-9]\d{8}$/
+   534→   534→ * Formats to: +880XXXXXXXXXX
+   535→   535→ *
+   536→   536→ * Returns validation result with country identification.
+   537→   537→ */
+   538→   538→export function validatePhonePrefix(phone: string): PhoneValidationResult {
+   539→   539→  try {
+   540→   540→    // Strip whitespace
+   541→   541→    const cleaned = phone.trim().replace(/[\s\-()]/g, '');
+   542→   542→
+   543→   543→    // Bangladesh mobile number regex:
+   544→   544→    // Optional prefix: +880, 880, or 0
+   545→   545→    // Then: 1 (mobile network indicator)
+   546→   546→    // Then: [3-9] (operator digit)
+   547→   547→    // Then: 8 more digits
+   548→   548→    const bdPhoneRegex = /^(\+880|880|0)?1[3-9]\d{8}$/;
+   549→   549→
+   550→   550→    if (!bdPhoneRegex.test(cleaned)) {
+   551→   551→      return {
+   552→   552→        valid: false,
+   553→   553→        formatted: cleaned,
+   554→   554→        country: 'Bangladesh',
+   555→   555→      };
+   556→   556→    }
+   557→   557→
+   558→   558→    // Extract the 11-digit local format: 1XXXXXXXXX
+   559→   559→    const match = cleaned.match(/1[3-9]\d{8}$/);
+   560→   560→    if (!match) {
+   561→   561→      return {
+   562→   562→        valid: false,
+   563→   563→        formatted: cleaned,
+   564→   564→        country: 'Bangladesh',
+   565→   565→      };
+   566→   566→    }
+   567→   567→
+   568→   568→    const localDigits = match[0];
+   569→   569→
+   570→   570→    // Format to +880XXXXXXXXXX (11 digits after +880)
+   571→   571→    const formatted = `+880${localDigits}`;
+   572→   572→
+   573→   573→    return {
+   574→   574→      valid: true,
+   575→   575→      formatted,
+   576→   576→      country: 'Bangladesh',
+   577→   577→    };
+   578→   578→  } catch (error) {
+   579→   579→    console.error('[SmsEventHooks] validatePhonePrefix failed:', error);
+   580→   580→    return {
+   581→   581→      valid: false,
+   582→   582→      formatted: phone,
+   583→   583→      country: 'Bangladesh',
+   584→   584→    };
+   585→   585→  }
+   586→   586→}
+   587→   587→
+   588→   588→// ── 7. Bulk Phone Parser ─────────────────────────────────────
+   589→   589→
+   590→   590→/**
+   591→   591→ * parseBulkPhoneList — Parse comma-separated or newline-separated phone numbers.
+   592→   592→ *
+   593→   593→ * Validates each number using validatePhonePrefix, removes duplicates,
+   594→   594→ * and returns categorized results:
+   595→   595→ *   - valid: Array of properly formatted +880XXXXXXXXXX numbers
+   596→   596→ *   - invalid: Array of phone strings that failed validation
+   597→   597→ *   - duplicates: Array of phone strings that appeared more than once
+   598→   598→ */
+   599→   599→export function parseBulkPhoneList(input: string): BulkPhoneParseResult {
+   600→   600→  const result: BulkPhoneParseResult = {
+   601→   601→    valid: [],
+   602→   602→    invalid: [],
+   603→   603→    duplicates: [],
+   604→   604→  };
+   605→   605→
+   606→   606→  try {
+   607→   607→    if (!input || typeof input !== 'string') {
+   608→   608→      return result;
+   609→   609→    }
+   610→   610→
+   611→   611→    // Split by comma, newline, or both
+   612→   612→    const rawPhones = input
+   613→   613→      .split(/[,\n\r]+/)
+   614→   614→      .map((p) => p.trim())
+   615→   615→      .filter((p) => p.length > 0);
+   616→   616→
+   617→   617→    // Track seen formatted numbers to detect duplicates
+   618→   618→    const seenFormatted = new Map<string, string>(); // formatted → original
+   619→   619→
+   620→   620→    for (const rawPhone of rawPhones) {
+   621→   621→      const validation = validatePhonePrefix(rawPhone);
+   622→   622→
+   623→   623→      if (!validation.valid) {
+   624→   624→        result.invalid.push(rawPhone);
+   625→   625→        continue;
+   626→   626→      }
+   627→   627→
+   628→   628→      if (seenFormatted.has(validation.formatted)) {
+   629→   629→        // This is a duplicate
+   630→   630→        result.duplicates.push(rawPhone);
+   631→   631→        continue;
+   632→   632→      }
+   633→   633→
+   634→   634→      seenFormatted.set(validation.formatted, rawPhone);
+   635→   635→      result.valid.push(validation.formatted);
+   636→   636→    }
+   637→   637→  } catch (error) {
+   638→   638→    console.error('[SmsEventHooks] parseBulkPhoneList failed:', error);
+   639→   639→  }
+   640→   640→
+   641→   641→  return result;
+   642→   642→}
+   643→   643→
+   644→   644→// ── 8. Payment Received SMS (NEW) ──────────────────────────────
+   645→   645→
+   646→   646→/**
+   647→   647→ * triggerPaymentReceivedSms — Sends an SMS when a cash/bank/bkash/nagad
+   648→   648→ * payment is received from a customer/dealer. Uses the autoSmsOnPaymentReceive toggle.
+   649→   649→ */
+   650→   650→export async function triggerPaymentReceivedSms(collection: {
+   651→   651→  id: string;
+   652→   652→  customerId?: string;
+   653→   653→  supplierId?: string;
+   654→   654→  amount: number;
+   655→   655→  paymentMethod: string;
+   656→   656→  date: Date | string;
+   657→   657→  companyId?: string;
+   658→   658→}): Promise<void> {
+   659→   659→  try {
+   660→   660→    let recipientPhone: string | null = null;
+   661→   661→    let clientName: string = 'N/A';
+   662→   662→
+   663→   663→    if (collection.customerId) {
+   664→   664→      const customer = await db.customer.findUnique({
+   665→   665→        where: { id: collection.customerId },
+   666→   666→        select: { name: true, phone: true },
+   667→   667→      });
+   668→   668→      if (customer) {
+   669→   669→        clientName = customer.name;
+   670→   670→        recipientPhone = customer.phone ?? null;
+   671→   671→      }
+   672→   672→    } else if (collection.supplierId) {
+   673→   673→      const supplier = await db.supplier.findUnique({
+   674→   674→        where: { id: collection.supplierId },
+   675→   675→        select: { name: true, phone: true },
+   676→   676→      });
+   677→   677→      if (supplier) {
+   678→   678→        clientName = supplier.name;
+   679→   679→        recipientPhone = supplier.phone ?? null;
+   680→   680→      }
+   681→   681→    }
+   682→   682→
+   683→   683→    if (!recipientPhone) return;
+   684→   684→
+   685→   685→    const phoneValidation = validatePhonePrefix(recipientPhone);
+   686→   686→    if (!phoneValidation.valid) return;
+   687→   687→
+   688→   688→    const receiptRef = `RCT-${collection.id.slice(-6).toUpperCase()}`;
+   689→   689→
+   690→   690→    await triggerEventSms({
+   691→   691→      eventType: 'PaymentReceived',
+   692→   692→      recipientPhone: phoneValidation.formatted,
+   693→   693→      templateVariables: {
+   694→   694→        clientName,
+   695→   695→        amount: formatCurrency(collection.amount),
+   696→   696→        paymentMethod: collection.paymentMethod,
+   697→   697→        date: formatDate(collection.date),
+   698→   698→        receiptRef,
+   699→   699→      },
+   700→   700→      companyId: collection.companyId,
+   701→   701→    });
+   702→   702→  } catch (error) {
+   703→   703→    console.error('[SmsEventHooks] triggerPaymentReceivedSms failed:', error);
+   704→   704→  }
+   705→   705→}
+   706→   706→
+   707→   707→// ── 9. Purchase Order Received SMS (NEW) ───────────────────────
+   708→   708→
+   709→   709→/**
+   710→   710→ * triggerPurchaseOrderReceivedSms — Sends an SMS to the supplier when
+   711→   711→ * products are received at a godown/showroom. Uses autoSmsOnGodownReceive toggle.
+   712→   712→ */
+   713→   713→export async function triggerPurchaseOrderReceivedSms(params: {
+   714→   714→  purchaseOrderId: string;
+   715→   715→  poNumber: string;
+   716→   716→  supplierId: string;
+   717→   717→  itemSummary: string;
+   718→   718→  godownName: string;
+   719→   719→  companyId?: string;
+   720→   720→}): Promise<void> {
+   721→   721→  try {
+   722→   722→    // Look up supplier phone
+   723→   723→    const supplier = await db.supplier.findUnique({
+   724→   724→      where: { id: params.supplierId },
+   725→   725→      select: { name: true, phone: true },
+   726→   726→    });
+   727→   727→
+   728→   728→    if (!supplier || !supplier.phone) return;
+   729→   729→
+   730→   730→    const phoneValidation = validatePhonePrefix(supplier.phone);
+   731→   731→    if (!phoneValidation.valid) return;
+   732→   732→
+   733→   733→    await triggerEventSms({
+   734→   734→      eventType: 'PurchaseOrderReceived',
+   735→   735→      recipientPhone: phoneValidation.formatted,
+   736→   736→      templateVariables: {
+   737→   737→        supplierName: supplier.name,
+   738→   738→        itemSummary: params.itemSummary,
+   739→   739→        godownName: params.godownName,
+   740→   740→        poNumber: params.poNumber,
+   741→   741→        date: formatDate(new Date()),
+   742→   742→      },
+   743→   743→      companyId: params.companyId,
+   744→   744→    });
+   745→   745→  } catch (error) {
+   746→   746→    console.error('[SmsEventHooks] triggerPurchaseOrderReceivedSms failed:', error);
+   747→   747→  }
+   748→   748→}
+   749→   749→
+   750→   750→// ── 10. Employee Joined SMS (NEW) ──────────────────────────────
+   751→   751→
+   752→   752→/**
+   753→   753→ * triggerEmployeeJoinedSms — Sends a welcome SMS when a new employee joins.
+   754→   754→ * Uses the autoSmsOnEmployeeJoin toggle.
+   755→   755→ */
+   756→   756→export async function triggerEmployeeJoinedSms(employee: {
+   757→   757→  id: string;
+   758→   758→  name: string;
+   759→   759→  phone?: string;
+   760→   760→  joiningDate: Date | string;
+   761→   761→  designation?: string;
+   762→   762→  companyId?: string;
+   763→   763→}): Promise<void> {
+   764→   764→  try {
+   765→   765→    if (!employee.phone) return;
+   766→   766→
+   767→   767→    const phoneValidation = validatePhonePrefix(employee.phone);
+   768→   768→    if (!phoneValidation.valid) return;
+   769→   769→
+   770→   770→    let companyName: string = 'N/A';
+   771→   771→    if (employee.companyId) {
+   772→   772→      try {
+   773→   773→        const company = await db.company.findUnique({
+   774→   774→          where: { id: employee.companyId },
+   775→   775→          select: { name: true },
+   776→   776→        });
+   777→   777→        if (company) companyName = company.name;
+   778→   778→      } catch {}
+   779→   779→    }
+   780→   780→
+   781→   781→    await triggerEventSms({
+   782→   782→      eventType: 'EmployeeJoined',
+   783→   783→      recipientPhone: phoneValidation.formatted,
+   784→   784→      templateVariables: {
+   785→   785→        employeeName: employee.name,
+   786→   786→        joiningDate: formatDate(employee.joiningDate),
+   787→   787→        designation: employee.designation || 'N/A',
+   788→   788→        companyName,
+   789→   789→      },
+   790→   790→      companyId: employee.companyId,
+   791→   791→    });
+   792→   792→  } catch (error) {
+   793→   793→    console.error('[SmsEventHooks] triggerEmployeeJoinedSms failed:', error);
+   794→   794→  }
+   795→   795→}
+   796→   796→
+   797→   797→// ── 11. Employee Exam Date SMS (NEW) ───────────────────────────
+   798→   798→
+   799→   799→/**
+   800→   800→ * triggerEmployeeExamDateSms — Sends an SMS when an employee has an exam date.
+   801→   801→ * Uses the autoSmsOnEmployeeExam toggle.
+   802→   802→ */
+   803→   803→export async function triggerEmployeeExamDateSms(employee: {
+   804→   804→  id: string;
+   805→   805→  name: string;
+   806→   806→  phone?: string;
+   807→   807→  examDate: string;
+   808→   808→  examTime: string;
+   809→   809→  venue?: string;
+   810→   810→  companyId?: string;
+   811→   811→}): Promise<void> {
+   812→   812→  try {
+   813→   813→    if (!employee.phone) return;
+   814→   814→
+   815→   815→    const phoneValidation = validatePhonePrefix(employee.phone);
+   816→   816→    if (!phoneValidation.valid) return;
+   817→   817→
+   818→   818→    let companyName: string = 'N/A';
+   819→   819→    if (employee.companyId) {
+   820→   820→      try {
+   821→   821→        const company = await db.company.findUnique({
+   822→   822→          where: { id: employee.companyId },
+   823→   823→          select: { name: true },
+   824→   824→        });
+   825→   825→        if (company) companyName = company.name;
+   826→   826→      } catch {}
+   827→   827→    }
+   828→   828→
+   829→   829→    await triggerEventSms({
+   830→   830→      eventType: 'EmployeeExamDate',
+   831→   831→      recipientPhone: phoneValidation.formatted,
+   832→   832→      templateVariables: {
+   833→   833→        employeeName: employee.name,
+   834→   834→        examDate: employee.examDate,
+   835→   835→        examTime: employee.examTime,
+   836→   836→        venue: employee.venue || 'Please contact HR',
+   837→   837→        companyName,
+   838→   838→      },
+   839→   839→      companyId: employee.companyId,
+   840→   840→    });
+   841→   841→  } catch (error) {
+   842→   842→    console.error('[SmsEventHooks] triggerEmployeeExamDateSms failed:', error);
+   843→   843→  }
+   844→   844→}
+   845→   845→

@@ -19,6 +19,9 @@ function sanitizeText(value: unknown): string {
   return cleaned;
 }
 
+// ── Name Length Limit ──
+const CATEGORY_NAME_MAX_LENGTH = 100;
+
 // GET /api/categories/[id] — Get single category with cross-tenant validation
 export async function GET(
   request: NextRequest,
@@ -92,6 +95,13 @@ export async function PUT(
     if (body.name !== undefined && !sanitizedName) {
       return NextResponse.json(
         { error: 'Category name cannot be empty after sanitization.' },
+        { status: 400 }
+      );
+    }
+
+    if (sanitizedName && sanitizedName.length > CATEGORY_NAME_MAX_LENGTH) {
+      return NextResponse.json(
+        { error: `Category name must not exceed ${CATEGORY_NAME_MAX_LENGTH} characters (got ${sanitizedName.length}).` },
         { status: 400 }
       );
     }

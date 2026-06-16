@@ -11,7 +11,9 @@ import { db } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   try {
-    const security = await withApiSecurity(request, "AuditLogs", "GET");
+    // Use "UserProfile" module — accessible by ALL authenticated roles (maps to 'user-profile' group)
+    // Previously used "AuditLogs" which blocked SR and Dealer roles
+    const security = await withApiSecurity(request, "UserProfile", "GET");
     if (!security.authorized) return security.response;
 
     const user = await db.user.findUnique({

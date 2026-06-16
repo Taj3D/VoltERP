@@ -1,0 +1,1247 @@
+     1→// ============================================================
+     2→// VoltERP — ACCOUNTING EXPORT API
+     3→// Executive-level structured data endpoint for PDF/CSV export engine.
+     4→// Provides company branding, structured columns/rows, summary totals,
+     5→// financial footer signature blocks, and system disclaimers.
+     6→// Supports 5 report types: Cash-in-Hand, Trial Balance, Profit & Loss,
+     7→// Balance Sheet, and Chart of Accounts.
+     8→// Stage 12: Multi-tenant, safe math, VAT auditor masking, RBAC, activity log
+     9→// ============================================================
+    10→
+    11→import { db } from '@/lib/db';
+    12→import { NextRequest, NextResponse } from 'next/server';
+    13→import {
+    14→  withApiSecurity,
+    15→  validateVatMode,
+    16→  maskAccountingReportForVatAuditor,
+    17→  safeFinancialAdd,
+    18→  safeFinancialSubtract,
+    19→  safeFinancialRound,
+    20→  formatFinancialField,
+    21→} from '@/lib/api-security';
+    22→import type { UserRole } from '@/lib/api-security';
+    23→import { logUserActivity } from '@/lib/activity-logger';
+    24→import { sanitizeCurrencyValue } from '@/lib/export-utils';
+    25→import { calculateAccountBalance } from '@/lib/accounting-utils';
+    26→
+    27→// ============================================================
+    28→// TYPES
+    29→// ============================================================
+    30→
+    31→type ReportType = 'cash-in-hand' | 'trial-balance' | 'profit-loss' | 'balance-sheet' | 'chart-of-accounts';
+    32→type ExportFormat = 'pdf-data' | 'csv-data';
+    33→type ColumnType = 'text' | 'currency' | 'number' | 'date' | 'percent';
+    34→
+    35→interface ExportColumn {
+    36→  key: string;
+    37→  label: string;
+    38→  type: ColumnType;
+    39→}
+    40→
+    41→interface CompanyProfile {
+    42→  name: string;
+    43→  address: string;
+    44→  phone: string;
+    45→  mobile: string;
+    46→  email: string;
+    47→  website: string;
+    48→  logo: string | null;
+    49→  brandLogo: string | null;
+    50→  logoWidth: number;
+    51→  logoHeight: number;
+    52→  vatNumber: string | null;
+    53→  tradeLicense: string | null;
+    54→}
+    55→
+    56→interface FinancialFooter {
+    57→  preparedBy: string;
+    58→  checkedBy: string;
+    59→  authorizedBy: string;
+    60→  approvedBy: string;
+    61→  printedBy: string;
+    62→}
+    63→
+    64→interface ExportResponse {
+    65→  columns: ExportColumn[];
+    66→  rows: Record<string, unknown>[];
+    67→  summary: Record<string, unknown>;
+    68→  company: CompanyProfile;
+    69→  reportTitle: string;
+    70→  subtitle: string;
+    71→  systemNotice: string;
+    72→  financialFooter: FinancialFooter;
+    73→  reportType: ReportType;
+    74→  format: ExportFormat;
+    75→  generatedAt: string;
+    76→}
+    77→
+    78→// ============================================================
+    79→// VALID REPORT TYPES
+    80→// ============================================================
+    81→
+    82→const VALID_REPORT_TYPES: ReportType[] = [
+    83→  'cash-in-hand',
+    84→  'trial-balance',
+    85→  'profit-loss',
+    86→  'balance-sheet',
+    87→  'chart-of-accounts',
+    88→];
+    89→
+    90→// ============================================================
+    91→// HELPER: Format date for display
+    92→// ============================================================
+    93→
+    94→function formatDateForSubtitle(dateStr: string | null): string {
+    95→  if (!dateStr) return '—';
+    96→  try {
+    97→    return new Date(dateStr).toLocaleDateString('en-GB', {
+    98→      day: '2-digit',
+    99→      month: 'short',
+   100→      year: 'numeric',
+   101→    });
+   102→  } catch {
+   103→    return dateStr;
+   104→  }
+   105→}
+   106→
+   107→// ============================================================
+   108→// HELPER: Build period subtitle string
+   109→// ============================================================
+   110→
+   111→function buildPeriodSubtitle(from: string | null, to: string | null, asOf: string | null, reportType: ReportType): string {
+   112→  if (reportType === 'balance-sheet' && asOf) {
+   113→    return `As of: ${formatDateForSubtitle(asOf)}`;
+   114→  }
+   115→  if (from && to) {
+   116→    return `Period: ${formatDateForSubtitle(from)} - ${formatDateForSubtitle(to)}`;
+   117→  }
+   118→  if (from) {
+   119→    return `From: ${formatDateForSubtitle(from)}`;
+   120→  }
+   121→  if (to) {
+   122→    return `Up to: ${formatDateForSubtitle(to)}`;
+   123→  }
+   124→  return 'All Time';
+   125→}
+   126→
+   127→// ============================================================
+   128→// HELPER: Fetch company profile for branding
+   129→// ============================================================
+   130→
+   131→async function fetchCompanyProfile(companyId: string | null): Promise<CompanyProfile> {
+   132→  const where: Record<string, unknown> = { isActive: true };
+   133→  if (companyId) where.id = companyId;
+   134→
+   135→  const company = await db.company.findFirst({
+   136→    where,
+   137→    orderBy: { createdAt: 'asc' },
+   138→    select: {
+   139→      name: true,
+   140→      address: true,
+   141→      phone: true,
+   142→      mobile: true,
+   143→      email: true,
+   144→      website: true,
+   145→      logo: true,
+   146→      brandLogo: true,
+   147→      logoWidth: true,
+   148→      logoHeight: true,
+   149→      vatNumber: true,
+   150→      tradeLicense: true,
+   151→    },
+   152→  });
+   153→
+   154→  if (!company) {
+   155→    return {
+   156→      name: 'VoltERP — Electronics Mart IMS',
+   157→      address: '',
+   158→      phone: '',
+   159→      mobile: '',
+   160→      email: '',
+   161→      website: '',
+   162→      logo: null,
+   163→      brandLogo: null,
+   164→      logoWidth: 30,
+   165→      logoHeight: 20,
+   166→      vatNumber: null,
+   167→      tradeLicense: null,
+   168→    };
+   169→  }
+   170→
+   171→  return {
+   172→    name: company.name || 'VoltERP — Electronics Mart IMS',
+   173→    address: company.address || '',
+   174→    phone: company.phone || '',
+   175→    mobile: company.mobile || '',
+   176→    email: company.email || '',
+   177→    website: company.website || '',
+   178→    logo: company.logo || null,
+   179→    brandLogo: company.brandLogo || null,
+   180→    logoWidth: company.logoWidth || 30,
+   181→    logoHeight: company.logoHeight || 20,
+   182→    vatNumber: company.vatNumber || null,
+   183→    tradeLicense: company.tradeLicense || null,
+   184→  };
+   185→}
+   186→
+   187→// ============================================================
+   188→// HELPER: Build financial footer signature block
+   189→// ============================================================
+   190→
+   191→function buildFinancialFooter(displayName: string): FinancialFooter {
+   192→  return {
+   193→    preparedBy: displayName,
+   194→    checkedBy: '',
+   195→    authorizedBy: '',
+   196→    approvedBy: '',
+   197→    printedBy: displayName,
+   198→  };
+   199→}
+   200→
+   201→// ============================================================
+   202→// REPORT: Cash-in-Hand
+   203→// ============================================================
+   204→
+   205→async function generateCashInHandReport(
+   206→  companyId: string | null,
+   207→  from: string | null,
+   208→  to: string | null
+   209→): Promise<{ columns: ExportColumn[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> }> {
+   210→  const columns: ExportColumn[] = [
+   211→    { key: 'bankName', label: 'Bank / Cash', type: 'text' },
+   212→    { key: 'accountNo', label: 'Account No', type: 'text' },
+   213→    { key: 'openingBalance', label: 'Opening Balance', type: 'currency' },
+   214→    { key: 'deposits', label: 'Deposits', type: 'currency' },
+   215→    { key: 'withdrawals', label: 'Withdrawals', type: 'currency' },
+   216→    { key: 'income', label: 'Income', type: 'currency' },
+   217→    { key: 'expense', label: 'Expense', type: 'currency' },
+   218→    { key: 'collections', label: 'Collections', type: 'currency' },
+   219→    { key: 'deliveries', label: 'Deliveries', type: 'currency' },
+   220→    { key: 'currentBalance', label: 'Current Balance', type: 'currency' },
+   221→  ];
+   222→
+   223→  // Build date filters
+   224→  const dateFilterBT: Record<string, Date> = {};
+   225→  const dateFilterExp: Record<string, unknown> = {};
+   226→  const dateFilterInc: Record<string, unknown> = {};
+   227→  const dateFilterCC: Record<string, unknown> = {};
+   228→  const dateFilterCD: Record<string, unknown> = {};
+   229→
+   230→  if (from) {
+   231→    dateFilterBT.gte = new Date(from);
+   232→    dateFilterExp.date = { gte: new Date(from) };
+   233→    dateFilterInc.date = { gte: new Date(from) };
+   234→    dateFilterCC.date = { gte: new Date(from) };
+   235→    dateFilterCD.date = { gte: new Date(from) };
+   236→  }
+   237→  if (to) {
+   238→    dateFilterBT.lte = new Date(to);
+   239→    const existingExp = dateFilterExp.date as Record<string, Date> || {};
+   240→    dateFilterExp.date = { ...existingExp, lte: new Date(to) };
+   241→    const existingInc = dateFilterInc.date as Record<string, Date> || {};
+   242→    dateFilterInc.date = { ...existingInc, lte: new Date(to) };
+   243→    const existingCC = dateFilterCC.date as Record<string, Date> || {};
+   244→    dateFilterCC.date = { ...existingCC, lte: new Date(to) };
+   245→    const existingCD = dateFilterCD.date as Record<string, Date> || {};
+   246→    dateFilterCD.date = { ...existingCD, lte: new Date(to) };
+   247→  }
+   248→
+   249→  const bankWhere: Record<string, unknown> = { isActive: true };
+   250→  if (companyId) bankWhere.companyId = companyId;
+   251→
+   252→  const banks = await db.bank.findMany({
+   253→    where: bankWhere,
+   254→    include: {
+   255→      bankTransactions: {
+   256→        where: from || to ? { date: dateFilterBT } : undefined,
+   257→      },
+   258→      expenses: {
+   259→        where: {
+   260→          isActive: true,
+   261→          status: 'Approved',
+   262→          ...(from || to ? dateFilterExp : {}),
+   263→          ...(companyId ? { companyId } : {}),
+   264→        },
+   265→      },
+   266→      incomes: {
+   267→        where: {
+   268→          isActive: true,
+   269→          status: 'Approved',
+   270→          ...(from || to ? dateFilterInc : {}),
+   271→          ...(companyId ? { companyId } : {}),
+   272→        },
+   273→      },
+   274→      cashCollections: {
+   275→        where: {
+   276→          isActive: true,
+   277→          status: 'Approved',
+   278→          ...(from || to ? dateFilterCC : {}),
+   279→          ...(companyId ? { companyId } : {}),
+   280→        },
+   281→      },
+   282→      cashDeliveries: {
+   283→        where: {
+   284→          isActive: true,
+   285→          status: 'Approved',
+   286→          ...(from || to ? dateFilterCD : {}),
+   287→          ...(companyId ? { companyId } : {}),
+   288→        },
+   289→      },
+   290→    },
+   291→  });
+   292→
+   293→  const rows: Record<string, unknown>[] = [];
+   294→  let totalOpeningBalance = 0;
+   295→  let totalDeposits = 0;
+   296→  let totalWithdrawals = 0;
+   297→  let totalIncome = 0;
+   298→  let totalExpense = 0;
+   299→  let totalCollections = 0;
+   300→  let totalDeliveries = 0;
+   301→  let totalCurrentBalance = 0;
+   302→
+   303→  for (const bank of banks) {
+   304→    let deposits = 0;
+   305→    for (const t of bank.bankTransactions.filter((t) => t.type === 'Deposit')) {
+   306→      deposits = safeFinancialAdd(deposits, t.amount);
+   307→    }
+   308→    let withdrawals = 0;
+   309→    for (const t of bank.bankTransactions.filter((t) => t.type === 'Withdraw')) {
+   310→      withdrawals = safeFinancialAdd(withdrawals, t.amount);
+   311→    }
+   312→    let bankIncome = 0;
+   313→    for (const i of bank.incomes) {
+   314→      bankIncome = safeFinancialAdd(bankIncome, i.amount);
+   315→    }
+   316→    let bankExpense = 0;
+   317→    for (const e of bank.expenses) {
+   318→      bankExpense = safeFinancialAdd(bankExpense, e.amount);
+   319→    }
+   320→    let collections = 0;
+   321→    for (const c of bank.cashCollections) {
+   322→      collections = safeFinancialAdd(collections, c.amount);
+   323→    }
+   324→    let deliveries = 0;
+   325→    for (const d of bank.cashDeliveries) {
+   326→      deliveries = safeFinancialAdd(deliveries, d.amount);
+   327→    }
+   328→
+   329→    const currentBalance = safeFinancialRound(
+   330→      bank.openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries
+   331→    );
+   332→
+   333→    rows.push({
+   334→      bankName: formatFinancialField(bank.bankName),
+   335→      accountNo: formatFinancialField(bank.accountNo),
+   336→      openingBalance: sanitizeCurrencyValue(bank.openingBalance),
+   337→      deposits: sanitizeCurrencyValue(deposits),
+   338→      withdrawals: sanitizeCurrencyValue(withdrawals),
+   339→      income: sanitizeCurrencyValue(bankIncome),
+   340→      expense: sanitizeCurrencyValue(bankExpense),
+   341→      collections: sanitizeCurrencyValue(collections),
+   342→      deliveries: sanitizeCurrencyValue(deliveries),
+   343→      currentBalance: sanitizeCurrencyValue(currentBalance),
+   344→    });
+   345→
+   346→    totalOpeningBalance = safeFinancialAdd(totalOpeningBalance, bank.openingBalance);
+   347→    totalDeposits = safeFinancialAdd(totalDeposits, deposits);
+   348→    totalWithdrawals = safeFinancialAdd(totalWithdrawals, withdrawals);
+   349→    totalIncome = safeFinancialAdd(totalIncome, bankIncome);
+   350→    totalExpense = safeFinancialAdd(totalExpense, bankExpense);
+   351→    totalCollections = safeFinancialAdd(totalCollections, collections);
+   352→    totalDeliveries = safeFinancialAdd(totalDeliveries, deliveries);
+   353→    totalCurrentBalance = safeFinancialAdd(totalCurrentBalance, currentBalance);
+   354→  }
+   355→
+   356→  // Cash income/expense not linked to any bank
+   357→  const cashOption = await db.paymentOption.findFirst({
+   358→    where: { name: 'Cash', isActive: true },
+   359→  });
+   360→
+   361→  let cashIncome = 0;
+   362→  let cashExpense = 0;
+   363→
+   364→  if (cashOption) {
+   365→    const cashIncomes = await db.income.aggregate({
+   366→      where: {
+   367→        paymentOptionId: cashOption.id,
+   368→        isActive: true,
+   369→        ...(from || to ? dateFilterInc : {}),
+   370→        ...(companyId ? { companyId } : {}),
+   371→      },
+   372→      _sum: { amount: true },
+   373→    });
+   374→    const cashExpenses = await db.expense.aggregate({
+   375→      where: {
+   376→        paymentOptionId: cashOption.id,
+   377→        isActive: true,
+   378→        ...(from || to ? dateFilterExp : {}),
+   379→        ...(companyId ? { companyId } : {}),
+   380→      },
+   381→      _sum: { amount: true },
+   382→    });
+   383→    cashIncome = cashIncomes._sum.amount || 0;
+   384→    cashExpense = cashExpenses._sum.amount || 0;
+   385→  }
+   386→
+   387→  // Add cash row
+   388→  rows.push({
+   389→    bankName: 'Cash (Unbanked)',
+   390→    accountNo: '—',
+   391→    openingBalance: 0,
+   392→    deposits: 0,
+   393→    withdrawals: 0,
+   394→    income: sanitizeCurrencyValue(cashIncome),
+   395→    expense: sanitizeCurrencyValue(cashExpense),
+   396→    collections: 0,
+   397→    deliveries: 0,
+   398→    currentBalance: sanitizeCurrencyValue(safeFinancialSubtract(cashIncome, cashExpense)),
+   399→  });
+   400→
+   401→  // All cash collections/deliveries totals
+   402→  const ccWhere: Record<string, unknown> = { isActive: true, status: 'Approved', ...(from || to ? dateFilterCC : {}) };
+   403→  if (companyId) ccWhere.companyId = companyId;
+   404→
+   405→  const cdWhere: Record<string, unknown> = { isActive: true, status: 'Approved', ...(from || to ? dateFilterCD : {}) };
+   406→  if (companyId) cdWhere.companyId = companyId;
+   407→
+   408→  const allCashCollections = await db.cashCollection.aggregate({ where: ccWhere, _sum: { amount: true } });
+   409→  const allCashDeliveries = await db.cashDelivery.aggregate({ where: cdWhere, _sum: { amount: true } });
+   410→
+   411→  const totalCashInHand = safeFinancialRound(
+   412→    totalOpeningBalance +
+   413→    totalDeposits -
+   414→    totalWithdrawals +
+   415→    cashIncome -
+   416→    cashExpense +
+   417→    (allCashCollections._sum.amount || 0) -
+   418→    (allCashDeliveries._sum.amount || 0)
+   419→  );
+   420→
+   421→  const summary = {
+   422→    totalOpeningBalance: sanitizeCurrencyValue(totalOpeningBalance),
+   423→    totalDeposits: sanitizeCurrencyValue(totalDeposits),
+   424→    totalWithdrawals: sanitizeCurrencyValue(totalWithdrawals),
+   425→    totalIncome: sanitizeCurrencyValue(totalIncome),
+   426→    totalExpense: sanitizeCurrencyValue(totalExpense),
+   427→    totalCollections: sanitizeCurrencyValue(allCashCollections._sum.amount || 0),
+   428→    totalDeliveries: sanitizeCurrencyValue(allCashDeliveries._sum.amount || 0),
+   429→    totalCashInHand: sanitizeCurrencyValue(totalCashInHand),
+   430→    bankCount: banks.length,
+   431→  };
+   432→
+   433→  return { columns, rows, summary };
+   434→}
+   435→
+   436→// ============================================================
+   437→// REPORT: Trial Balance
+   438→// ============================================================
+   439→
+   440→async function generateTrialBalanceReport(
+   441→  companyId: string | null,
+   442→  from: string | null,
+   443→  to: string | null
+   444→): Promise<{ columns: ExportColumn[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> }> {
+   445→  const columns: ExportColumn[] = [
+   446→    { key: 'account', label: 'Account', type: 'text' },
+   447→    { key: 'classification', label: 'Classification', type: 'text' },
+   448→    { key: 'openingDebit', label: 'Opening Dr', type: 'currency' },
+   449→    { key: 'openingCredit', label: 'Opening Cr', type: 'currency' },
+   450→    { key: 'totalDebit', label: 'Total Debit', type: 'currency' },
+   451→    { key: 'totalCredit', label: 'Total Credit', type: 'currency' },
+   452→    { key: 'netBalance', label: 'Net Balance', type: 'currency' },
+   453→  ];
+   454→
+   455→  // Build date filter
+   456→  const dateFilter: Record<string, Date> = {};
+   457→  if (from) dateFilter.gte = new Date(from);
+   458→  if (to) dateFilter.lte = new Date(to);
+   459→
+   460→  const where: Record<string, unknown> = { isActive: true };
+   461→  if (companyId) where.companyId = companyId;
+   462→  if (from || to) where.date = dateFilter;
+   463→
+   464→  // Fetch ledger entries with chartOfAccount relation
+   465→  const ledgerEntries = await db.ledgerEntry.findMany({
+   466→    where,
+   467→    include: { chartOfAccount: true },
+   468→  });
+   469→
+   470→  // Fetch all COA records for classification lookup and opening balance seeding
+   471→  const coaWhere: Record<string, unknown> = { isActive: true };
+   472→  if (companyId) coaWhere.companyId = companyId;
+   473→
+   474→  const coaRecords = await db.chartOfAccount.findMany({ where: coaWhere });
+   475→  const coaMap = new Map(coaRecords.map((c) => [c.name, c.classification]));
+   476→
+   477→  // Group by account and sum debits/credits
+   478→  const accountMap = new Map<
+   479→    string,
+   480→    {
+   481→      account: string;
+   482→      classification: string;
+   483→      totalDebit: number;
+   484→      totalCredit: number;
+   485→      openingDebit: number;
+   486→      openingCredit: number;
+   487→    }
+   488→  >();
+   489→
+   490→  // Seed with opening balances
+   491→  for (const coa of coaRecords) {
+   492→    if (coa.openingBalance > 0) {
+   493→      const openDebit = coa.openingBalanceType === 'Dr' ? coa.openingBalance : 0;
+   494→      const openCredit = coa.openingBalanceType === 'Cr' ? coa.openingBalance : 0;
+   495→      accountMap.set(coa.name, {
+   496→        account: coa.name,
+   497→        classification: coa.classification,
+   498→        totalDebit: openDebit,
+   499→        totalCredit: openCredit,
+   500→        openingDebit: openDebit,
+   501→        openingCredit: openCredit,
+   502→      });
+   503→    }
+   504→  }
+   505→
+   506→  // Add ledger entry totals
+   507→  for (const entry of ledgerEntries) {
+   508→    let classification = 'Unclassified';
+   509→    if (entry.chartOfAccount) {
+   510→      classification = entry.chartOfAccount.classification;
+   511→    } else if (coaMap.has(entry.account)) {
+   512→      classification = coaMap.get(entry.account)!;
+   513→    }
+   514→
+   515→    const existing = accountMap.get(entry.account);
+   516→    if (existing) {
+   517→      existing.totalDebit = safeFinancialAdd(existing.totalDebit, entry.debit);
+   518→      existing.totalCredit = safeFinancialAdd(existing.totalCredit, entry.credit);
+   519→    } else {
+   520→      accountMap.set(entry.account, {
+   521→        account: entry.account,
+   522→        classification,
+   523→        totalDebit: entry.debit,
+   524→        totalCredit: entry.credit,
+   525→        openingDebit: 0,
+   526→        openingCredit: 0,
+   527→      });
+   528→    }
+   529→  }
+   530→
+   531→  const entries = Array.from(accountMap.values()).sort((a, b) => a.account.localeCompare(b.account));
+   532→
+   533→  const rows = entries.map((e) => ({
+   534→    account: formatFinancialField(e.account),
+   535→    classification: formatFinancialField(e.classification),
+   536→    openingDebit: sanitizeCurrencyValue(e.openingDebit),
+   537→    openingCredit: sanitizeCurrencyValue(e.openingCredit),
+   538→    totalDebit: sanitizeCurrencyValue(e.totalDebit),
+   539→    totalCredit: sanitizeCurrencyValue(e.totalCredit),
+   540→    netBalance: sanitizeCurrencyValue(safeFinancialSubtract(e.totalDebit, e.totalCredit)),
+   541→  }));
+   542→
+   543→  // Grand totals
+   544→  let grandTotalDebit = 0;
+   545→  let grandTotalCredit = 0;
+   546→  for (const e of entries) {
+   547→    grandTotalDebit = safeFinancialAdd(grandTotalDebit, e.totalDebit);
+   548→    grandTotalCredit = safeFinancialAdd(grandTotalCredit, e.totalCredit);
+   549→  }
+   550→  grandTotalDebit = safeFinancialRound(grandTotalDebit);
+   551→  grandTotalCredit = safeFinancialRound(grandTotalCredit);
+   552→  const balanced = safeFinancialSubtract(grandTotalDebit, grandTotalCredit) === 0;
+   553→
+   554→  // Classification summary
+   555→  const classificationSummary = new Map<string, { classification: string; totalDebit: number; totalCredit: number }>();
+   556→  for (const entry of entries) {
+   557→    const existing = classificationSummary.get(entry.classification);
+   558→    if (existing) {
+   559→      existing.totalDebit = safeFinancialAdd(existing.totalDebit, entry.totalDebit);
+   560→      existing.totalCredit = safeFinancialAdd(existing.totalCredit, entry.totalCredit);
+   561→    } else {
+   562→      classificationSummary.set(entry.classification, {
+   563→        classification: entry.classification,
+   564→        totalDebit: entry.totalDebit,
+   565→        totalCredit: entry.totalCredit,
+   566→      });
+   567→    }
+   568→  }
+   569→
+   570→  const summary = {
+   571→    grandTotalDebit: sanitizeCurrencyValue(grandTotalDebit),
+   572→    grandTotalCredit: sanitizeCurrencyValue(grandTotalCredit),
+   573→    balanced,
+   574→    accountCount: entries.length,
+   575→    classificationSummary: Array.from(classificationSummary.values()).map((cs) => ({
+   576→      classification: formatFinancialField(cs.classification),
+   577→      totalDebit: sanitizeCurrencyValue(cs.totalDebit),
+   578→      totalCredit: sanitizeCurrencyValue(cs.totalCredit),
+   579→    })),
+   580→  };
+   581→
+   582→  return { columns, rows, summary };
+   583→}
+   584→
+   585→// ============================================================
+   586→// REPORT: Profit & Loss
+   587→// ============================================================
+   588→
+   589→async function generateProfitLossReport(
+   590→  companyId: string | null,
+   591→  from: string | null,
+   592→  to: string | null
+   593→): Promise<{ columns: ExportColumn[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> }> {
+   594→  const columns: ExportColumn[] = [
+   595→    { key: 'category', label: 'Category', type: 'text' },
+   596→    { key: 'head', label: 'Head / Item', type: 'text' },
+   597→    { key: 'amount', label: 'Amount', type: 'currency' },
+   598→  ];
+   599→
+   600→  // Build date filters
+   601→  const dateFilterSO: Record<string, Date> = {};
+   602→  const dateFilterIncome: Record<string, unknown> = {};
+   603→  const dateFilterExpense: Record<string, unknown> = {};
+   604→
+   605→  if (from) {
+   606→    dateFilterSO.gte = new Date(from);
+   607→    dateFilterIncome.date = { gte: new Date(from) };
+   608→    dateFilterExpense.date = { gte: new Date(from) };
+   609→  }
+   610→  if (to) {
+   611→    dateFilterSO.lte = new Date(to);
+   612→    if (dateFilterIncome.date) {
+   613→      (dateFilterIncome.date as Record<string, Date>).lte = new Date(to);
+   614→    } else {
+   615→      dateFilterIncome.date = { lte: new Date(to) };
+   616→    }
+   617→    if (dateFilterExpense.date) {
+   618→      (dateFilterExpense.date as Record<string, Date>).lte = new Date(to);
+   619→    } else {
+   620→      dateFilterExpense.date = { lte: new Date(to) };
+   621→    }
+   622→  }
+   623→
+   624→  const salesWhere: Record<string, unknown> = { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true };
+   625→  if (from || to) salesWhere.date = dateFilterSO;
+   626→
+   627→  const incomeWhere: Record<string, unknown> = {
+   628→    isActive: true,
+   629→    status: { notIn: ['Draft', 'Cancelled'] },
+   630→    ...dateFilterIncome,
+   631→    ...(companyId ? { companyId } : {}),
+   632→  };
+   633→  const expenseWhere: Record<string, unknown> = {
+   634→    isActive: true,
+   635→    status: { notIn: ['Draft', 'Cancelled'] },
+   636→    ...dateFilterExpense,
+   637→    ...(companyId ? { companyId } : {}),
+   638→  };
+   639→
+   640→  const [confirmedSales, allIncomes, allExpenses] = await Promise.all([
+   641→    db.salesOrder.findMany({
+   642→      where: salesWhere,
+   643→      include: { lines: { include: { product: { select: { costPrice: true } } } } },
+   644→    }),
+   645→    db.income.findMany({
+   646→      where: incomeWhere,
+   647→      include: { head: true },
+   648→    }),
+   649→    db.expense.findMany({
+   650→      where: expenseWhere,
+   651→      include: { head: true },
+   652→    }),
+   653→  ]);
+   654→
+   655→  // Calculate values
+   656→  let salesRevenue = 0;
+   657→  for (const s of confirmedSales) {
+   658→    salesRevenue = safeFinancialAdd(salesRevenue, s.grandTotal);
+   659→  }
+   660→  let totalOtherIncome = 0;
+   661→  for (const i of allIncomes) {
+   662→    totalOtherIncome = safeFinancialAdd(totalOtherIncome, i.amount);
+   663→  }
+   664→  const revenue = safeFinancialAdd(salesRevenue, totalOtherIncome);
+   665→
+   666→  let costOfGoods = 0;
+   667→  for (const so of confirmedSales) {
+   668→    for (const line of so.lines) {
+   669→      const costPrice = line.product?.costPrice || 0;
+   670→      costOfGoods = safeFinancialAdd(costOfGoods, line.quantity * costPrice);
+   671→    }
+   672→  }
+   673→
+   674→  const grossProfit = safeFinancialSubtract(revenue, costOfGoods);
+   675→  const grossProfitMargin = revenue > 0 ? safeFinancialRound((grossProfit / revenue) * 100) : 0;
+   676→
+   677→  let operatingExpenses = 0;
+   678→  for (const e of allExpenses) {
+   679→    operatingExpenses = safeFinancialAdd(operatingExpenses, e.amount);
+   680→  }
+   681→
+   682→  const netProfit = safeFinancialSubtract(grossProfit, operatingExpenses);
+   683→  const netProfitMargin = revenue > 0 ? safeFinancialRound((netProfit / revenue) * 100) : 0;
+   684→
+   685→  // Build rows
+   686→  const rows: Record<string, unknown>[] = [];
+   687→
+   688→  // Revenue section
+   689→  rows.push({ category: 'REVENUE', head: 'Sales Revenue', amount: sanitizeCurrencyValue(salesRevenue) });
+   690→  rows.push({ category: 'REVENUE', head: 'Other Income', amount: sanitizeCurrencyValue(totalOtherIncome) });
+   691→  rows.push({ category: 'REVENUE', head: 'Total Revenue', amount: sanitizeCurrencyValue(revenue) });
+   692→
+   693→  // COGS section
+   694→  rows.push({ category: 'COST OF GOODS SOLD', head: 'Cost of Goods Sold', amount: sanitizeCurrencyValue(costOfGoods) });
+   695→
+   696→  // Gross Profit
+   697→  rows.push({ category: 'GROSS PROFIT', head: 'Gross Profit', amount: sanitizeCurrencyValue(grossProfit) });
+   698→
+   699→  // Operating Expenses by head
+   700→  const expenseByHead = new Map<string, { head: string; amount: number; count: number }>();
+   701→  for (const expense of allExpenses) {
+   702→    const headName = expense.head?.name || 'Uncategorized';
+   703→    const existing = expenseByHead.get(headName);
+   704→    if (existing) {
+   705→      existing.amount = safeFinancialAdd(existing.amount, expense.amount);
+   706→      existing.count += 1;
+   707→    } else {
+   708→      expenseByHead.set(headName, { head: headName, amount: expense.amount, count: 1 });
+   709→    }
+   710→  }
+   711→
+   712→  for (const [, detail] of expenseByHead) {
+   713→    rows.push({ category: 'OPERATING EXPENSES', head: detail.head, amount: sanitizeCurrencyValue(detail.amount) });
+   714→  }
+   715→  rows.push({ category: 'OPERATING EXPENSES', head: 'Total Operating Expenses', amount: sanitizeCurrencyValue(operatingExpenses) });
+   716→
+   717→  // Net Profit
+   718→  rows.push({ category: 'NET PROFIT', head: 'Net Profit', amount: sanitizeCurrencyValue(netProfit) });
+   719→
+   720→  // Income by head detail
+   721→  const incomeByHead = new Map<string, { head: string; amount: number; count: number }>();
+   722→  for (const income of allIncomes) {
+   723→    const headName = income.head?.name || 'Uncategorized';
+   724→    const existing = incomeByHead.get(headName);
+   725→    if (existing) {
+   726→      existing.amount = safeFinancialAdd(existing.amount, income.amount);
+   727→      existing.count += 1;
+   728→    } else {
+   729→      incomeByHead.set(headName, { head: headName, amount: income.amount, count: 1 });
+   730→    }
+   731→  }
+   732→
+   733→  const summary = {
+   734→    revenue: sanitizeCurrencyValue(revenue),
+   735→    salesRevenue: sanitizeCurrencyValue(salesRevenue),
+   736→    otherIncome: sanitizeCurrencyValue(totalOtherIncome),
+   737→    costOfGoods: sanitizeCurrencyValue(costOfGoods),
+   738→    grossProfit: sanitizeCurrencyValue(grossProfit),
+   739→    grossProfitMargin: sanitizeCurrencyValue(grossProfitMargin),
+   740→    operatingExpenses: sanitizeCurrencyValue(operatingExpenses),
+   741→    netProfit: sanitizeCurrencyValue(netProfit),
+   742→    netProfitMargin: sanitizeCurrencyValue(netProfitMargin),
+   743→    incomeDetails: Array.from(incomeByHead.values()).map((d) => ({
+   744→      head: formatFinancialField(d.head),
+   745→      amount: sanitizeCurrencyValue(d.amount),
+   746→      count: d.count,
+   747→    })),
+   748→    expenseDetails: Array.from(expenseByHead.values()).map((d) => ({
+   749→      head: formatFinancialField(d.head),
+   750→      amount: sanitizeCurrencyValue(d.amount),
+   751→      count: d.count,
+   752→    })),
+   753→  };
+   754→
+   755→  return { columns, rows, summary };
+   756→}
+   757→
+   758→// ============================================================
+   759→// REPORT: Balance Sheet
+   760→// ============================================================
+   761→
+   762→async function generateBalanceSheetReport(
+   763→  companyId: string | null,
+   764→  asOf: string | null
+   765→): Promise<{ columns: ExportColumn[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> }> {
+   766→  const columns: ExportColumn[] = [
+   767→    { key: 'section', label: 'Section', type: 'text' },
+   768→    { key: 'item', label: 'Item', type: 'text' },
+   769→    { key: 'amount', label: 'Amount', type: 'currency' },
+   770→  ];
+   771→
+   772→  const asOfDate = asOf ? new Date(asOf) : new Date();
+   773→
+   774→  // === ASSETS ===
+   775→  const productWhere: Record<string, unknown> = { isActive: true };
+   776→  if (companyId) productWhere.companyId = companyId;
+   777→
+   778→  const products = await db.product.findMany({
+   779→    where: productWhere,
+   780→    select: { costPrice: true, openingStock: true },
+   781→  });
+   782→
+   783→  let stockValue = 0;
+   784→  for (const p of products) {
+   785→    stockValue = safeFinancialAdd(stockValue, p.costPrice * p.openingStock);
+   786→  }
+   787→
+   788→  // Bank balances
+   789→  const bankWhere: Record<string, unknown> = { isActive: true };
+   790→  if (companyId) bankWhere.companyId = companyId;
+   791→
+   792→  const banks = await db.bank.findMany({
+   793→    where: bankWhere,
+   794→    include: {
+   795→      bankTransactions: { where: asOf ? { date: { lte: asOfDate } } : undefined },
+   796→      expenses: {
+   797→        where: { isActive: true, status: 'Approved', ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   798→      },
+   799→      incomes: {
+   800→        where: { isActive: true, status: 'Approved', ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   801→      },
+   802→      cashCollections: {
+   803→        where: { isActive: true, status: 'Approved', ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   804→      },
+   805→      cashDeliveries: {
+   806→        where: { isActive: true, status: 'Approved', ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   807→      },
+   808→    },
+   809→  });
+   810→
+   811→  let bankBalance = 0;
+   812→  for (const bank of banks) {
+   813→    let deposits = 0;
+   814→    for (const t of bank.bankTransactions.filter((t) => t.type === 'Deposit')) {
+   815→      deposits = safeFinancialAdd(deposits, t.amount);
+   816→    }
+   817→    let withdrawals = 0;
+   818→    for (const t of bank.bankTransactions.filter((t) => t.type === 'Withdraw')) {
+   819→      withdrawals = safeFinancialAdd(withdrawals, t.amount);
+   820→    }
+   821→    let bankIncome = 0;
+   822→    for (const i of bank.incomes) bankIncome = safeFinancialAdd(bankIncome, i.amount);
+   823→    let bankExpense = 0;
+   824→    for (const e of bank.expenses) bankExpense = safeFinancialAdd(bankExpense, e.amount);
+   825→    let collections = 0;
+   826→    for (const c of bank.cashCollections) collections = safeFinancialAdd(collections, c.amount);
+   827→    let deliveries = 0;
+   828→    for (const d of bank.cashDeliveries) deliveries = safeFinancialAdd(deliveries, d.amount);
+   829→
+   830→    const currentBal = safeFinancialRound(
+   831→      bank.openingBalance + deposits - withdrawals + bankIncome - bankExpense + collections - deliveries
+   832→    );
+   833→    bankBalance = safeFinancialAdd(bankBalance, currentBal);
+   834→  }
+   835→
+   836→  // Customer receivables
+   837→  const customers = await db.customer.findMany({
+   838→    where: { isActive: true },
+   839→    include: {
+   840→      salesOrders: {
+   841→        where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}) },
+   842→      },
+   843→      hireSales: {
+   844→        where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}) },
+   845→      },
+   846→      cashCollections: {
+   847→        where: { isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   848→      },
+   849→      salesReturns: {
+   850→        where: { isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}) },
+   851→      },
+   852→    },
+   853→  });
+   854→
+   855→  let totalReceivables = 0;
+   856→  let customerAdvances = 0;
+   857→
+   858→  for (const customer of customers) {
+   859→    let totalSales = 0;
+   860→    for (const so of customer.salesOrders) totalSales = safeFinancialAdd(totalSales, so.grandTotal);
+   861→    let totalHireSales = 0;
+   862→    for (const hs of customer.hireSales) totalHireSales = safeFinancialAdd(totalHireSales, hs.grandTotal);
+   863→    let totalCollections = 0;
+   864→    for (const c of customer.cashCollections) totalCollections = safeFinancialAdd(totalCollections, c.amount);
+   865→    let totalReturns = 0;
+   866→    for (const r of customer.salesReturns) totalReturns = safeFinancialAdd(totalReturns, r.grandTotal);
+   867→
+   868→    const balance = safeFinancialSubtract(
+   869→      safeFinancialAdd(safeFinancialAdd(customer.openingBalance, totalSales), totalHireSales),
+   870→      safeFinancialAdd(totalCollections, totalReturns)
+   871→    );
+   872→
+   873→    if (balance >= 0) {
+   874→      totalReceivables = safeFinancialAdd(totalReceivables, balance);
+   875→    } else {
+   876→      customerAdvances = safeFinancialAdd(customerAdvances, Math.abs(balance));
+   877→    }
+   878→  }
+   879→
+   880→  const totalCurrentAssets = safeFinancialAdd(bankBalance, totalReceivables);
+   881→  const totalAssets = safeFinancialAdd(stockValue, totalCurrentAssets);
+   882→
+   883→  // === LIABILITIES ===
+   884→  const suppliers = await db.supplier.findMany({
+   885→    where: { isActive: true },
+   886→    include: {
+   887→      purchaseOrders: {
+   888→        where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}) },
+   889→      },
+   890→      cashDeliveries: {
+   891→        where: { isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   892→      },
+   893→      purchaseReturns: {
+   894→        where: { isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}) },
+   895→      },
+   896→    },
+   897→  });
+   898→
+   899→  let totalPayables = 0;
+   900→  let supplierAdvances = 0;
+   901→
+   902→  for (const supplier of suppliers) {
+   903→    let totalPurchases = 0;
+   904→    for (const po of supplier.purchaseOrders) totalPurchases = safeFinancialAdd(totalPurchases, po.grandTotal);
+   905→    let totalDeliveries = 0;
+   906→    for (const d of supplier.cashDeliveries) totalDeliveries = safeFinancialAdd(totalDeliveries, d.amount);
+   907→    let totalReturns = 0;
+   908→    for (const r of supplier.purchaseReturns) totalReturns = safeFinancialAdd(totalReturns, r.grandTotal);
+   909→
+   910→    const balance = safeFinancialSubtract(
+   911→      safeFinancialAdd(supplier.openingBalance, totalPurchases),
+   912→      safeFinancialAdd(totalDeliveries, totalReturns)
+   913→    );
+   914→
+   915→    if (balance >= 0) {
+   916→      totalPayables = safeFinancialAdd(totalPayables, balance);
+   917→    } else {
+   918→      supplierAdvances = safeFinancialAdd(supplierAdvances, Math.abs(balance));
+   919→    }
+   920→  }
+   921→
+   922→  // Equity (P&L)
+   923→  const [confirmedSalesWithLines, allIncomes, allExpenses] = await Promise.all([
+   924→    db.salesOrder.findMany({
+   925→      where: { status: { notIn: ['Draft', 'Cancelled'] }, isActive: true, ...(asOf ? { date: { lte: asOfDate } } : {}) },
+   926→      include: { lines: { include: { product: { select: { costPrice: true } } } } },
+   927→    }),
+   928→    db.income.aggregate({
+   929→      where: { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   930→      _sum: { amount: true },
+   931→    }),
+   932→    db.expense.aggregate({
+   933→      where: { isActive: true, status: { notIn: ['Draft', 'Cancelled'] }, ...(asOf ? { date: { lte: asOfDate } } : {}), ...(companyId ? { companyId } : {}) },
+   934→      _sum: { amount: true },
+   935→    }),
+   936→  ]);
+   937→
+   938→  let salesTotal = 0;
+   939→  for (const s of confirmedSalesWithLines) salesTotal = safeFinancialAdd(salesTotal, s.grandTotal);
+   940→  const equityRevenue = safeFinancialAdd(salesTotal, allIncomes._sum.amount || 0);
+   941→
+   942→  let equityCOGS = 0;
+   943→  for (const so of confirmedSalesWithLines) {
+   944→    for (const line of so.lines) {
+   945→      const costPrice = line.product?.costPrice || 0;
+   946→      equityCOGS = safeFinancialAdd(equityCOGS, line.quantity * costPrice);
+   947→    }
+   948→  }
+   949→
+   950→  const equityOperatingExpenses = allExpenses._sum.amount || 0;
+   951→  const retainedEarnings = safeFinancialSubtract(safeFinancialSubtract(equityRevenue, equityCOGS), equityOperatingExpenses);
+   952→
+   953→  const totalAssetsWithAdvances = safeFinancialAdd(totalAssets, supplierAdvances);
+   954→  const totalLiabilities = safeFinancialAdd(
+   955→    safeFinancialAdd(totalPayables, customerAdvances),
+   956→    Math.max(retainedEarnings, 0)
+   957→  );
+   958→
+   959→  // Build rows
+   960→  const rows: Record<string, unknown>[] = [];
+   961→
+   962→  // ASSETS
+   963→  rows.push({ section: 'ASSETS', item: 'Fixed Assets', amount: '' });
+   964→  rows.push({ section: 'ASSETS', item: 'Stock / Inventory', amount: sanitizeCurrencyValue(stockValue) });
+   965→  rows.push({ section: 'ASSETS', item: 'Current Assets', amount: '' });
+   966→  rows.push({ section: 'ASSETS', item: 'Bank Balance', amount: sanitizeCurrencyValue(bankBalance) });
+   967→  rows.push({ section: 'ASSETS', item: 'Receivables', amount: sanitizeCurrencyValue(totalReceivables) });
+   968→  rows.push({ section: 'ASSETS', item: 'Supplier Advances', amount: sanitizeCurrencyValue(supplierAdvances) });
+   969→  rows.push({ section: 'ASSETS', item: 'Total Current Assets', amount: sanitizeCurrencyValue(totalCurrentAssets) });
+   970→  rows.push({ section: 'ASSETS', item: 'Total Assets', amount: sanitizeCurrencyValue(totalAssetsWithAdvances) });
+   971→
+   972→  // LIABILITIES
+   973→  rows.push({ section: 'LIABILITIES', item: 'Current Liabilities', amount: '' });
+   974→  rows.push({ section: 'LIABILITIES', item: 'Payables', amount: sanitizeCurrencyValue(totalPayables) });
+   975→  rows.push({ section: 'LIABILITIES', item: 'Customer Advances', amount: sanitizeCurrencyValue(customerAdvances) });
+   976→  rows.push({ section: 'LIABILITIES', item: 'Equity / Retained Earnings', amount: sanitizeCurrencyValue(Math.max(retainedEarnings, 0)) });
+   977→  rows.push({ section: 'LIABILITIES', item: 'Total Liabilities + Equity', amount: sanitizeCurrencyValue(totalLiabilities) });
+   978→
+   979→  // Ratios
+   980→  const currentRatio = totalPayables > 0 ? safeFinancialRound(totalCurrentAssets / totalPayables) : 0;
+   981→  const debtToEquity = retainedEarnings > 0 ? safeFinancialRound(totalLiabilities / retainedEarnings) : 0;
+   982→
+   983→  const balanced = safeFinancialSubtract(
+   984→    safeFinancialRound(totalAssetsWithAdvances),
+   985→    safeFinancialRound(totalLiabilities)
+   986→  ) === 0;
+   987→
+   988→  const summary = {
+   989→    totalAssets: sanitizeCurrencyValue(totalAssetsWithAdvances),
+   990→    totalLiabilities: sanitizeCurrencyValue(totalLiabilities),
+   991→    stockValue: sanitizeCurrencyValue(stockValue),
+   992→    bankBalance: sanitizeCurrencyValue(bankBalance),
+   993→    receivables: sanitizeCurrencyValue(totalReceivables),
+   994→    payables: sanitizeCurrencyValue(totalPayables),
+   995→    retainedEarnings: sanitizeCurrencyValue(retainedEarnings),
+   996→    currentRatio: sanitizeCurrencyValue(currentRatio),
+   997→    debtToEquity: sanitizeCurrencyValue(debtToEquity),
+   998→    balanced,
+   999→  };
+  1000→
+  1001→  return { columns, rows, summary };
+  1002→}
+  1003→
+  1004→// ============================================================
+  1005→// REPORT: Chart of Accounts
+  1006→// ============================================================
+  1007→
+  1008→async function generateChartOfAccountsReport(
+  1009→  companyId: string | null
+  1010→): Promise<{ columns: ExportColumn[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> }> {
+  1011→  const columns: ExportColumn[] = [
+  1012→    { key: 'code', label: 'Code', type: 'text' },
+  1013→    { key: 'name', label: 'Account Name', type: 'text' },
+  1014→    { key: 'classification', label: 'Classification', type: 'text' },
+  1015→    { key: 'parentAccount', label: 'Parent Account', type: 'text' },
+  1016→    { key: 'openingBalance', label: 'Opening Balance', type: 'currency' },
+  1017→    { key: 'openingBalanceType', label: 'Dr/Cr', type: 'text' },
+  1018→    { key: 'ownDebit', label: 'Own Debit', type: 'currency' },
+  1019→    { key: 'ownCredit', label: 'Own Credit', type: 'currency' },
+  1020→    { key: 'ownNet', label: 'Own Net', type: 'currency' },
+  1021→    { key: 'totalDebit', label: 'Total Debit', type: 'currency' },
+  1022→    { key: 'totalCredit', label: 'Total Credit', type: 'currency' },
+  1023→    { key: 'totalNet', label: 'Total Net', type: 'currency' },
+  1024→    { key: 'childCount', label: 'Children', type: 'number' },
+  1025→  ];
+  1026→
+  1027→  const whereClause: Record<string, unknown> = { isActive: true };
+  1028→  if (companyId) whereClause.companyId = companyId;
+  1029→
+  1030→  const accounts = await db.chartOfAccount.findMany({
+  1031→    where: whereClause,
+  1032→    include: {
+  1033→      parentAccount: true,
+  1034→      childAccounts: { where: { isActive: true } },
+  1035→      _count: { select: { childAccounts: true } },
+  1036→    },
+  1037→    orderBy: { code: 'asc' },
+  1038→  });
+  1039→
+  1040→  // Calculate dynamic sub-balances
+  1041→  const accountsWithBalance = await Promise.all(
+  1042→    accounts.map(async (account) => {
+  1043→      const balance = await calculateAccountBalance(account.id, undefined, companyId);
+  1044→      const parentAccountName = account.parentAccount
+  1045→        ? account.parentAccount.name
+  1046→        : formatFinancialField(null);
+  1047→
+  1048→      return {
+  1049→        code: account.code,
+  1050→        name: account.name,
+  1051→        classification: account.classification,
+  1052→        parentAccount: parentAccountName,
+  1053→        openingBalance: sanitizeCurrencyValue(account.openingBalance),
+  1054→        openingBalanceType: account.openingBalanceType,
+  1055→        ownDebit: sanitizeCurrencyValue(balance.ownDebit),
+  1056→        ownCredit: sanitizeCurrencyValue(balance.ownCredit),
+  1057→        ownNet: sanitizeCurrencyValue(balance.ownNet),
+  1058→        totalDebit: sanitizeCurrencyValue(balance.totalDebit),
+  1059→        totalCredit: sanitizeCurrencyValue(balance.totalCredit),
+  1060→        totalNet: sanitizeCurrencyValue(balance.totalNet),
+  1061→        childCount: account._count.childAccounts,
+  1062→      };
+  1063→    })
+  1064→  );
+  1065→
+  1066→  // Classification summary
+  1067→  const classificationSummary = new Map<string, { count: number; totalDebit: number; totalCredit: number; totalNet: number }>();
+  1068→  for (const account of accountsWithBalance) {
+  1069→    const cls = account.classification;
+  1070→    const existing = classificationSummary.get(cls);
+  1071→    if (existing) {
+  1072→      existing.count += 1;
+  1073→      existing.totalDebit = safeFinancialAdd(existing.totalDebit, sanitizeCurrencyValue(account.totalDebit));
+  1074→      existing.totalCredit = safeFinancialAdd(existing.totalCredit, sanitizeCurrencyValue(account.totalCredit));
+  1075→      existing.totalNet = safeFinancialAdd(existing.totalNet, sanitizeCurrencyValue(account.totalNet));
+  1076→    } else {
+  1077→      classificationSummary.set(cls, {
+  1078→        count: 1,
+  1079→        totalDebit: sanitizeCurrencyValue(account.totalDebit),
+  1080→        totalCredit: sanitizeCurrencyValue(account.totalCredit),
+  1081→        totalNet: sanitizeCurrencyValue(account.totalNet),
+  1082→      });
+  1083→    }
+  1084→  }
+  1085→
+  1086→  const summary = {
+  1087→    totalAccounts: accounts.length,
+  1088→    classificationSummary: Array.from(classificationSummary.entries()).map(([classification, data]) => ({
+  1089→      classification,
+  1090→      count: data.count,
+  1091→      totalDebit: sanitizeCurrencyValue(data.totalDebit),
+  1092→      totalCredit: sanitizeCurrencyValue(data.totalCredit),
+  1093→      totalNet: sanitizeCurrencyValue(data.totalNet),
+  1094→    })),
+  1095→  };
+  1096→
+  1097→  return { columns, rows: accountsWithBalance, summary };
+  1098→}
+  1099→
+  1100→// ============================================================
+  1101→// MAIN HANDLER: GET /api/reports/accounting-export
+  1102→// ============================================================
+  1103→
+  1104→export async function GET(request: NextRequest) {
+  1105→  const security = await withApiSecurity(request, 'TrialBalance', 'GET');
+  1106→  if (!security.authorized) return security.response;
+  1107→
+  1108→  try {
+  1109→    const { searchParams } = new URL(request.url);
+  1110→
+  1111→    // Parse and validate report type
+  1112→    const reportTypeParam = searchParams.get('reportType') || 'trial-balance';
+  1113→    if (!VALID_REPORT_TYPES.includes(reportTypeParam as ReportType)) {
+  1114→      return NextResponse.json(
+  1115→        { error: `Invalid reportType "${reportTypeParam}". Must be one of: ${VALID_REPORT_TYPES.join(', ')}` },
+  1116→        { status: 400 }
+  1117→      );
+  1118→    }
+  1119→    const reportType = reportTypeParam as ReportType;
+  1120→
+  1121→    // Parse format
+  1122→    const formatParam = searchParams.get('format') || 'pdf-data';
+  1123→    if (formatParam !== 'pdf-data' && formatParam !== 'csv-data') {
+  1124→      return NextResponse.json(
+  1125→        { error: `Invalid format "${formatParam}". Must be "pdf-data" or "csv-data"` },
+  1126→        { status: 400 }
+  1127→      );
+  1128→    }
+  1129→    const format = formatParam as ExportFormat;
+  1130→
+  1131→    // Parse date filters
+  1132→    const from = searchParams.get('from');
+  1133→    const to = searchParams.get('to');
+  1134→    const asOf = searchParams.get('asOf');
+  1135→
+  1136→    // VAT Auditor mode
+  1137→    const rawVatMode = searchParams.get('vatMode') === 'true';
+  1138→    const userRole = security.user.role as UserRole;
+  1139→    const vatMode = validateVatMode(rawVatMode, userRole);
+  1140→
+  1141→    // Multi-tenant companyId isolation
+  1142→    const companyId = security.user.companyId;
+  1143→
+  1144→    // Fetch company profile for branding
+  1145→    const company = await fetchCompanyProfile(companyId);
+  1146→
+  1147→    // Generate report data based on type
+  1148→    let reportData: { columns: ExportColumn[]; rows: Record<string, unknown>[]; summary: Record<string, unknown> };
+  1149→
+  1150→    switch (reportType) {
+  1151→      case 'cash-in-hand':
+  1152→        reportData = await generateCashInHandReport(companyId, from, to);
+  1153→        break;
+  1154→      case 'trial-balance':
+  1155→        reportData = await generateTrialBalanceReport(companyId, from, to);
+  1156→        break;
+  1157→      case 'profit-loss':
+  1158→        reportData = await generateProfitLossReport(companyId, from, to);
+  1159→        break;
+  1160→      case 'balance-sheet':
+  1161→        reportData = await generateBalanceSheetReport(companyId, asOf);
+  1162→        break;
+  1163→      case 'chart-of-accounts':
+  1164→        reportData = await generateChartOfAccountsReport(companyId);
+  1165→        break;
+  1166→      default:
+  1167→        return NextResponse.json(
+  1168→          { error: `Unsupported report type: ${reportType}` },
+  1169→          { status: 400 }
+  1170→        );
+  1171→    }
+  1172→
+  1173→    // Build report title and subtitle
+  1174→    const reportTitles: Record<ReportType, string> = {
+  1175→      'cash-in-hand': 'Cash in Hand',
+  1176→      'trial-balance': 'Trial Balance',
+  1177→      'profit-loss': 'Profit & Loss Statement',
+  1178→      'balance-sheet': 'Balance Sheet',
+  1179→      'chart-of-accounts': 'Chart of Accounts',
+  1180→    };
+  1181→
+  1182→    const reportTitle = `${reportTitles[reportType]} — ${company.name}`;
+  1183→    const subtitle = buildPeriodSubtitle(from, to, asOf, reportType);
+  1184→
+  1185→    const systemNotice = 'This is a system-generated report from VoltERP — Electronics Mart IMS. No manual signature or seal is required unless explicitly stated.';
+  1186→
+  1187→    const financialFooter = buildFinancialFooter(security.user.displayName || security.user.name);
+  1188→
+  1189→    // Build response
+  1190→    const responseData: ExportResponse = {
+  1191→      columns: reportData.columns,
+  1192→      rows: reportData.rows,
+  1193→      summary: reportData.summary,
+  1194→      company,
+  1195→      reportTitle,
+  1196→      subtitle,
+  1197→      systemNotice,
+  1198→      financialFooter,
+  1199→      reportType,
+  1200→      format,
+  1201→      generatedAt: new Date().toISOString(),
+  1202→    };
+  1203→
+  1204→    // Apply VAT Auditor deep masking
+  1205→    if (vatMode) {
+  1206→      const masked = maskAccountingReportForVatAuditor(
+  1207→        responseData as unknown as Record<string, unknown>,
+  1208→        userRole
+  1209→      );
+  1210→      // Preserve structured fields that should not be masked
+  1211→      masked.reportTitle = reportTitle;
+  1212→      masked.subtitle = subtitle;
+  1213→      masked.systemNotice = systemNotice;
+  1214→      masked.reportType = reportType;
+  1215→      masked.format = format;
+  1216→      masked.generatedAt = responseData.generatedAt;
+  1217→      // Preserve financialFooter structure
+  1218→      masked.financialFooter = financialFooter;
+  1219→      // Preserve company non-monetary fields
+  1220→      masked.company = {
+  1221→        ...company,
+  1222→        vatNumber: company.vatNumber,
+  1223→        tradeLicense: company.tradeLicense,
+  1224→      };
+  1225→
+  1226→      return NextResponse.json(masked);
+  1227→    }
+  1228→
+  1229→    // Activity logging
+  1230→    await logUserActivity({
+  1231→      action: 'EXPORT',
+  1232→      module: 'Acc-Accounting-Export',
+  1233→      userId: security.user.id,
+  1234→      userName: security.user.name,
+  1235→      details: `Accounting export generated: ${reportTitles[reportType]} (${format})`,
+  1236→    });
+  1237→
+  1238→    return NextResponse.json(responseData);
+  1239→  } catch (error) {
+  1240→    console.error('Error generating accounting export:', error);
+  1241→    return NextResponse.json(
+  1242→      { error: 'Failed to generate accounting export' },
+  1243→      { status: 500 }
+  1244→    );
+  1245→  }
+  1246→}
+  1247→

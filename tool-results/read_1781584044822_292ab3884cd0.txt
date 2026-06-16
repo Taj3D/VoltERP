@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo } from "react";
+     4→import {
+     5→  Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
+     6→  FileDown, Users, UserCircle, Truck, Shield, X, CheckCircle,
+     7→  Briefcase, UserCheck, CalendarDays,
+     8→  Check, Ban, AlertTriangle,
+     9→} from "lucide-react";
+    10→import { Button } from "@/components/ui/button";
+    11→import { Input } from "@/components/ui/input";
+    12→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    13→import {
+    14→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+    15→} from "@/components/ui/dialog";
+    16→import {
+    17→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    18→} from "@/components/ui/select";
+    19→import {
+    20→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    21→} from "@/components/ui/table";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    24→import { Textarea } from "@/components/ui/textarea";
+    25→import { Label } from "@/components/ui/label";
+    26→import { Separator } from "@/components/ui/separator";
+    27→import { useToast } from "@/hooks/use-toast";
+    28→import {
+    29→  exportToPDF, exportToCSV, importFromCSV,
+    30→} from "@/lib/export-utils";
+    31→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile } from "@/lib/export-utils";
+    32→import ImageUploadField from "@/components/erp/ui/ImageUploadField";
+    33→import { apiFetch, type UserRole } from "@/lib/api-client";
+    34→import { useAuth } from "@/hooks/useAuth";
+    35→
+    36→// ============================================================
+    37→// UTILITY FUNCTIONS
+    38→// ============================================================
+    39→
+    40→// Safe number formatters — use Intl.NumberFormat to prevent Bengali digit output
+    41→const currencyFormatter = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    42→const numberFormatter = new Intl.NumberFormat('en-US');
+    43→const dateFormatter = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+    44→
+    45→const fmt = (v: any, type?: string) => {
+    46→  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
+    47→  if (type === "currency") return `Tk. ${currencyFormatter.format(Number(v))}`;
+    48→  if (type === "date") return v ? dateFormatter.format(new Date(v)) : "—";
+    49→  if (type === "boolean") return v ? "Active" : "Inactive";
+    50→  if (type === "number") return numberFormatter.format(Number(v));
+    51→  return String(v);
+    52→};
+    53→
+    54→const fmtCurrency = (v: any) => {
+    55→  if (v === null || v === undefined) return "—";
+    56→  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
+    57→  return `Tk. ${currencyFormatter.format(Number(v))}`;
+    58→};
+    59→
+    60→
+    61→// ============================================================
+    62→// AUTH
+    63→
+    64→// ============================================================
+    65→// HELPER: Get nested value from object
+    66→// ============================================================
+    67→
+    68→function getNestedValue(obj: any, path: string): any {
+    69→  return path.split(".").reduce((acc, part) => acc?.[part], obj);
+    70→}
+    71→
+    72→// ============================================================
+    73→// MODULE CONFIGURATION
+    74→// ============================================================
+    75→
+    76→interface ModuleConfig {
+    77→  key: string;
+    78→  label: string;
+    79→  icon: React.ElementType;
+    80→  apiPath: string;
+    81→  columns: ExportColumnDef[];
+    82→  formFields: ExportFieldDef[];
+    83→  vatMaskedColumns?: string[];
+    84→  category?: "personnel" | "crm";
+    85→  dialogWidth?: string;
+    86→  formSections?: { title: string; fields: string[] }[];
+    87→}
+    88→
+    89→const GRADE_LEVEL_OPTIONS = [
+    90→  { value: "Grade-1", label: "Grade-1" },
+    91→  { value: "Grade-2", label: "Grade-2" },
+    92→  { value: "Grade-3", label: "Grade-3" },
+    93→  { value: "Grade-4", label: "Grade-4" },
+    94→  { value: "Grade-5", label: "Grade-5" },
+    95→  { value: "Senior", label: "Senior" },
+    96→  { value: "Junior", label: "Junior" },
+    97→  { value: "Lead", label: "Lead" },
+    98→  { value: "Executive", label: "Executive" },
+    99→];
+   100→
+   101→const EMPLOYEE_TYPE_OPTIONS = [
+   102→  { value: "Permanent", label: "Permanent" },
+   103→  { value: "Contract", label: "Contract" },
+   104→  { value: "Probation", label: "Probation" },
+   105→  { value: "Part-time", label: "Part-time" },
+   106→];
+   107→
+   108→const EMPLOYEE_STATUS_OPTIONS = [
+   109→  { value: "Active", label: "Active" },
+   110→  { value: "On Leave", label: "On Leave" },
+   111→  { value: "Resigned", label: "Resigned" },
+   112→  { value: "Terminated", label: "Terminated" },
+   113→];
+   114→
+   115→const GENDER_OPTIONS = [
+   116→  { value: "Male", label: "Male" },
+   117→  { value: "Female", label: "Female" },
+   118→  { value: "Other", label: "Other" },
+   119→];
+   120→
+   121→const BLOOD_GROUP_OPTIONS = [
+   122→  { value: "A+", label: "A+" },
+   123→  { value: "A-", label: "A-" },
+   124→  { value: "B+", label: "B+" },
+   125→  { value: "B-", label: "B-" },
+   126→  { value: "O+", label: "O+" },
+   127→  { value: "O-", label: "O-" },
+   128→  { value: "AB+", label: "AB+" },
+   129→  { value: "AB-", label: "AB-" },
+   130→];
+   131→
+   132→const MARITAL_STATUS_OPTIONS = [
+   133→  { value: "Single", label: "Single" },
+   134→  { value: "Married", label: "Married" },
+   135→  { value: "Divorced", label: "Divorced" },
+   136→  { value: "Widowed", label: "Widowed" },
+   137→];
+   138→
+   139→const LEAVE_TYPE_OPTIONS = [
+   140→  { value: "Casual", label: "Casual" },
+   141→  { value: "Sick", label: "Sick" },
+   142→  { value: "Annual", label: "Annual" },
+   143→  { value: "Maternity", label: "Maternity" },
+   144→];
+   145→
+   146→const LEAVE_STATUS_OPTIONS = [
+   147→  { value: "Pending", label: "Pending" },
+   148→  { value: "Approved", label: "Approved" },
+   149→  { value: "Rejected", label: "Rejected" },
+   150→];
+   151→
+   152→const CUSTOMER_TYPE_OPTIONS = [
+   153→  { value: "Regular", label: "Regular" },
+   154→  { value: "Dealer", label: "Dealer" },
+   155→];
+   156→
+   157→const BALANCE_TYPE_OPTIONS_CUSTOMER = [
+   158→  { value: "Dr", label: "Dr" },
+   159→  { value: "Cr", label: "Cr" },
+   160→];
+   161→
+   162→const BALANCE_TYPE_OPTIONS_SUPPLIER = [
+   163→  { value: "Cr", label: "Cr" },
+   164→  { value: "Dr", label: "Dr" },
+   165→];
+   166→
+   167→const CREDIT_STATUS_OPTIONS = [
+   168→  { value: "Active", label: "Active" },
+   169→  { value: "Frozen", label: "Frozen" },
+   170→  { value: "OverLimit", label: "Over Limit" },
+   171→];
+   172→
+   173→const MODULE_CONFIGS: ModuleConfig[] = [
+   174→  // ── Personnel Management ──
+   175→  {
+   176→    key: "designations",
+   177→    label: "Designations",
+   178→    icon: Briefcase,
+   179→    apiPath: "/api/designations",
+   180→    category: "personnel",
+   181→    columns: [
+   182→      { key: "code", label: "Code", type: "text" },
+   183→      { key: "name", label: "Designation Name", type: "text" },
+   184→      { key: "department.name", label: "Department", type: "text" },
+   185→      { key: "gradeLevel", label: "Grade Level", type: "text" },
+   186→      { key: "salaryBandMin", label: "Salary Band Min", type: "currency" },
+   187→      { key: "salaryBandMax", label: "Salary Band Max", type: "currency" },
+   188→      { key: "_count.employees", label: "Employees", type: "number" },
+   189→      { key: "isActive", label: "Status", type: "boolean" },
+   190→    ],
+   191→    formFields: [
+   192→      { key: "name", label: "Designation Name", type: "text", required: true },
+   193→      { key: "departmentId", label: "Department", type: "select", required: true, options: [] },
+   194→      { key: "gradeLevel", label: "Grade Level", type: "select", required: false, options: GRADE_LEVEL_OPTIONS },
+   195→      { key: "salaryBandMin", label: "Salary Band Min (Tk. )", type: "number", step: "0.01" },
+   196→      { key: "salaryBandMax", label: "Salary Band Max (Tk. )", type: "number", step: "0.01" },
+   197→      { key: "description", label: "Description", type: "textarea" },
+   198→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   199→    ],
+   200→    vatMaskedColumns: ["salaryBandMin", "salaryBandMax"],
+   201→  },
+   202→  {
+   203→    key: "employees",
+   204→    label: "Employees",
+   205→    icon: UserCheck,
+   206→    apiPath: "/api/employees",
+   207→    category: "personnel",
+   208→    dialogWidth: "max-w-2xl",
+   209→    columns: [
+   210→      { key: "employeeCode", label: "Employee Code", type: "text" },
+   211→      { key: "name", label: "Name", type: "text" },
+   212→      { key: "designation.name", label: "Designation", type: "text" },
+   213→      { key: "department.name", label: "Department", type: "text" },
+   214→      { key: "joiningDate", label: "Joining Date", type: "date" },
+   215→      { key: "resignationDate", label: "Resignation Date", type: "date" },
+   216→      { key: "employeeType", label: "Employee Type", type: "text" },
+   217→      { key: "status", label: "Status", type: "text" },
+   218→      { key: "baseSalary", label: "Base Salary", type: "currency" },
+   219→      { key: "phone", label: "Phone", type: "text" },
+   220→      { key: "isActive", label: "Active", type: "boolean" },
+   221→    ],
+   222→    formFields: [
+   223→      // Section 1: Employment Details
+   224→      { key: "name", label: "Full Name", type: "text", required: true },
+   225→      { key: "designationId", label: "Designation", type: "select", required: true, options: [] },
+   226→      { key: "departmentId", label: "Department", type: "select", required: true, options: [] },
+   227→      { key: "joiningDate", label: "Joining Date", type: "date", required: true },
+   228→      { key: "resignationDate", label: "Resignation Date", type: "date" },
+   229→      { key: "baseSalary", label: "Base Salary (Tk. )", type: "number", step: "0.01" },
+   230→      { key: "employeeType", label: "Employee Type", type: "select", required: false, options: EMPLOYEE_TYPE_OPTIONS },
+   231→      { key: "status", label: "Status", type: "select", required: false, options: EMPLOYEE_STATUS_OPTIONS },
+   232→      { key: "referenceBy", label: "Reference By", type: "text" },
+   233→      // Section 2: Personal Information
+   234→      { key: "gender", label: "Gender", type: "select", required: false, options: GENDER_OPTIONS },
+   235→      { key: "bloodGroup", label: "Blood Group", type: "select", required: false, options: BLOOD_GROUP_OPTIONS },
+   236→      { key: "religion", label: "Religion", type: "text" },
+   237→      { key: "dateOfBirth", label: "Date of Birth", type: "date" },
+   238→      { key: "fatherName", label: "Father's Name", type: "text" },
+   239→      { key: "motherName", label: "Mother's Name", type: "text" },
+   240→      { key: "spouseName", label: "Spouse Name", type: "text" },
+   241→      { key: "maritalStatus", label: "Marital Status", type: "select", required: false, options: MARITAL_STATUS_OPTIONS },
+   242→      { key: "nidNumber", label: "NID Number", type: "text" },
+   243→      { key: "tinNumber", label: "TIN Number", type: "text" },
+   244→      // Section 3: Contact & Banking
+   245→      { key: "phone", label: "Phone", type: "text" },
+   246→      { key: "email", label: "Email", type: "email" },
+   247→      { key: "presentAddress", label: "Present Address", type: "textarea" },
+   248→      { key: "permanentAddress", label: "Permanent Address", type: "textarea" },
+   249→      { key: "emergencyContact", label: "Emergency Contact", type: "text" },
+   250→      { key: "emergencyContactName", label: "Emergency Contact Name", type: "text" },
+   251→      { key: "bankName", label: "Bank Name", type: "text" },
+   252→      { key: "bankAccountNo", label: "Bank Account No", type: "text" },
+   253→      // Section 4: Document Uploads
+   254→      { key: "photo", label: "Profile Photo", type: "image" },
+   255→      { key: "nidFrontImage", label: "NID Front", type: "image" },
+   256→      { key: "nidBackImage", label: "NID Back", type: "image" },
+   257→    ],
+   258→    vatMaskedColumns: ["baseSalary"],
+   259→    formSections: [
+   260→      { title: "Employment Details", fields: ["name", "designationId", "departmentId", "joiningDate", "resignationDate", "baseSalary", "employeeType", "status", "referenceBy"] },
+   261→      { title: "Personal Information", fields: ["gender", "bloodGroup", "religion", "dateOfBirth", "fatherName", "motherName", "spouseName", "maritalStatus", "nidNumber", "tinNumber"] },
+   262→      { title: "Contact & Banking", fields: ["phone", "email", "presentAddress", "permanentAddress", "emergencyContact", "emergencyContactName", "bankName", "bankAccountNo"] },
+   263→      { title: "Document Uploads", fields: ["photo", "nidFrontImage", "nidBackImage"] },
+   264→    ],
+   265→  },
+   266→  {
+   267→    key: "employee-leaves",
+   268→    label: "Employee Leave",
+   269→    icon: CalendarDays,
+   270→    apiPath: "/api/employee-leaves",
+   271→    category: "personnel",
+   272→    columns: [
+   273→      { key: "leaveCode", label: "Leave Code", type: "text" },
+   274→      { key: "employee.name", label: "Employee", type: "text" },
+   275→      { key: "leaveType", label: "Leave Type", type: "text" },
+   276→      { key: "fromDate", label: "From Date", type: "date" },
+   277→      { key: "toDate", label: "To Date", type: "date" },
+   278→      { key: "totalDays", label: "Total Days", type: "number" },
+   279→      { key: "status", label: "Status", type: "text" },
+   280→      { key: "approvedBy", label: "Approved By", type: "text" },
+   281→      { key: "reason", label: "Reason", type: "text" },
+   282→    ],
+   283→    formFields: [
+   284→      { key: "employeeId", label: "Employee", type: "select", required: true, options: [] },
+   285→      { key: "leaveType", label: "Leave Type", type: "select", required: true, options: LEAVE_TYPE_OPTIONS },
+   286→      { key: "fromDate", label: "From Date", type: "date", required: true },
+   287→      { key: "toDate", label: "To Date", type: "date", required: true },
+   288→      { key: "reason", label: "Reason", type: "textarea" },
+   289→      { key: "status", label: "Status", type: "select", required: false, options: LEAVE_STATUS_OPTIONS, defaultValue: "Pending" },
+   290→    ],
+   291→  },
+   292→  {
+   293→    key: "leave-allocations",
+   294→    label: "Leave Allocations",
+   295→    icon: CalendarDays,
+   296→    apiPath: "/api/leave-allocations",
+   297→    category: "personnel",
+   298→    columns: [
+   299→      { key: "employee.name", label: "Employee", type: "text" },
+   300→      { key: "leaveType", label: "Leave Type", type: "text" },
+   301→      { key: "allocatedDays", label: "Allocated", type: "number" },
+   302→      { key: "usedDays", label: "Used", type: "number" },
+   303→      { key: "remainingDays", label: "Remaining", type: "number" },
+   304→      { key: "year", label: "Year", type: "number" },
+   305→      { key: "isActive", label: "Status", type: "boolean" },
+   306→    ],
+   307→    formFields: [
+   308→      { key: "employeeId", label: "Employee", type: "select", required: true, options: [] },
+   309→      { key: "leaveType", label: "Leave Type", type: "select", required: true, options: LEAVE_TYPE_OPTIONS },
+   310→      { key: "allocatedDays", label: "Allocated Days", type: "number", required: true, step: "0.5" },
+   311→      { key: "year", label: "Year", type: "number", required: true, defaultValue: new Date().getFullYear() },
+   312→    ],
+   313→  },
+   314→  // ── Customer CRM ──
+   315→  {
+   316→    key: "customers",
+   317→    label: "Customers",
+   318→    icon: UserCircle,
+   319→    apiPath: "/api/customers",
+   320→    category: "crm",
+   321→    columns: [
+   322→      { key: "customerCode", label: "Customer Code", type: "text" },
+   323→      { key: "name", label: "Customer Name", type: "text" },
+   324→      { key: "phone", label: "Phone", type: "text" },
+   325→      { key: "email", label: "Email", type: "text" },
+   326→      { key: "customerType", label: "Customer Type", type: "text" },
+   327→      { key: "area", label: "Area", type: "text" },
+   328→      { key: "currentBalance", label: "Current Balance", type: "currency" },
+   329→      { key: "currentBalanceType", label: "Balance Type", type: "text" },
+   330→      { key: "creditLimit", label: "Credit Limit", type: "currency" },
+   331→      { key: "creditStatus", label: "Credit Status", type: "text" },
+   332→      { key: "_count.salesOrders", label: "Sales Orders", type: "number" },
+   333→      { key: "guarantorName", label: "Guarantor", type: "text" },
+   334→      { key: "isActive", label: "Status", type: "boolean" },
+   335→    ],
+   336→    formFields: [
+   337→      { key: "name", label: "Customer Name", type: "text", required: true },
+   338→      { key: "phone", label: "Phone", type: "text" },
+   339→      { key: "email", label: "Email", type: "email" },
+   340→      { key: "address", label: "Address", type: "textarea" },
+   341→      { key: "area", label: "Area", type: "text" },
+   342→      { key: "reference", label: "Reference", type: "text" },
+   343→      { key: "customerType", label: "Customer Type", type: "select", required: true, options: CUSTOMER_TYPE_OPTIONS },
+   344→      { key: "openingBalance", label: "Opening Balance (Tk. )", type: "number", step: "0.01" },
+   345→      { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_CUSTOMER },
+   346→      { key: "creditLimit", label: "Credit Limit (Tk. )", type: "number", step: "0.01" },
+   347→      { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
+   348→      { key: "profileImage", label: "Profile Photo", type: "image" },
+   349→      { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
+   350→      { key: "nidFrontImage", label: "NID Front", type: "image" },
+   351→      { key: "nidBackImage", label: "NID Back", type: "image" },
+   352→      { key: "guarantorName", label: "Guarantor Name", type: "text", placeholder: "Full name of guarantor" },
+   353→      { key: "guarantorContact", label: "Guarantor Contact", type: "text", placeholder: "Phone number of guarantor" },
+   354→      { key: "guarantorAddress", label: "Guarantor Address", type: "text", placeholder: "Address of guarantor" },
+   355→      { key: "guarantorFatherName", label: "Guarantor Father Name", type: "text", placeholder: "Father's name of guarantor" },
+   356→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   357→    ],
+   358→    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
+   359→    formSections: [
+   360→      { title: "Customer Details", fields: ["name", "phone", "email", "address", "area", "reference", "customerType", "openingBalance", "openingBalanceType", "creditLimit"] },
+   361→      { title: "Credit & Balance Info", fields: ["creditStatus"] },
+   362→      { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
+   363→      { title: "Guarantor Information", fields: ["guarantorName", "guarantorContact", "guarantorAddress", "guarantorFatherName"] },
+   364→    ],
+   365→  },
+   366→  // ── Supplier CRM ──
+   367→  {
+   368→    key: "suppliers",
+   369→    label: "Suppliers",
+   370→    icon: Truck,
+   371→    apiPath: "/api/suppliers",
+   372→    category: "crm",
+   373→    columns: [
+   374→      { key: "supplierCode", label: "Supplier Code", type: "text" },
+   375→      { key: "name", label: "Supplier Name", type: "text" },
+   376→      { key: "contactPerson", label: "Contact Person", type: "text" },
+   377→      { key: "phone", label: "Phone", type: "text" },
+   378→      { key: "email", label: "Email", type: "text" },
+   379→      { key: "area", label: "Area", type: "text" },
+   380→      { key: "currentBalance", label: "Current Balance", type: "currency" },
+   381→      { key: "currentBalanceType", label: "Balance Type", type: "text" },
+   382→      { key: "creditLimit", label: "Credit Limit", type: "currency" },
+   383→      { key: "creditStatus", label: "Credit Status", type: "text" },
+   384→      { key: "terms", label: "Terms", type: "text" },
+   385→      { key: "_count.purchaseOrders", label: "Purchase Orders", type: "number" },
+   386→      { key: "isActive", label: "Status", type: "boolean" },
+   387→    ],
+   388→    formFields: [
+   389→      { key: "name", label: "Supplier Name", type: "text", required: true },
+   390→      { key: "contactPerson", label: "Contact Person", type: "text" },
+   391→      { key: "phone", label: "Phone", type: "text" },
+   392→      { key: "email", label: "Email", type: "email" },
+   393→      { key: "address", label: "Address", type: "textarea" },
+   394→      { key: "area", label: "Area", type: "text" },
+   395→      { key: "terms", label: "Terms", type: "textarea" },
+   396→      { key: "openingBalance", label: "Opening Balance (Tk. )", type: "number", step: "0.01" },
+   397→      { key: "openingBalanceType", label: "Balance Type", type: "select", required: false, options: BALANCE_TYPE_OPTIONS_SUPPLIER },
+   398→      { key: "creditLimit", label: "Credit Limit (Tk. )", type: "number", step: "0.01" },
+   399→      { key: "creditStatus", label: "Credit Status", type: "select", required: false, options: CREDIT_STATUS_OPTIONS, defaultValue: "Active" },
+   400→      { key: "profileImage", label: "Profile Photo", type: "image" },
+   401→      { key: "nidNumber", label: "NID / Voter ID No", type: "text", placeholder: "National ID number" },
+   402→      { key: "nidFrontImage", label: "NID Front", type: "image" },
+   403→      { key: "nidBackImage", label: "NID Back", type: "image" },
+   404→      { key: "logoUrl", label: "Company Logo", type: "image", placeholder: "Upload company logo (max 5MB)" },
+   405→      { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   406→    ],
+   407→    vatMaskedColumns: ["openingBalance", "creditLimit", "currentBalance", "computedCurrentBalance"],
+   408→    formSections: [
+   409→      { title: "Supplier Details", fields: ["name", "contactPerson", "phone", "email", "address", "area", "terms", "openingBalance", "openingBalanceType", "creditLimit"] },
+   410→      { title: "Credit & Balance Info", fields: ["creditStatus"] },
+   411→      { title: "Security & Documents", fields: ["profileImage", "nidNumber", "nidFrontImage", "nidBackImage"] },
+   412→      { title: "Branding", fields: ["logoUrl"] },
+   413→    ],
+   414→  },
+   415→];
+   416→
+   417→// ============================================================
+   418→// LEAVE BALANCE ENTITLEMENTS (fallback)
+   419→// ============================================================
+   420→
+   421→const LEAVE_ENTITLEMENTS: Record<string, number> = {
+   422→  Casual: 12,
+   423→  Sick: 10,
+   424→  Annual: 15,
+   425→  Maternity: 90,
+   426→};
+   427→
+   428→// ============================================================
+   429→// GENERIC MODULE TAB COMPONENT
+   430→// ============================================================
+   431→
+   432→function ModuleTab({ config, isVatAuditor, userRole }: {
+   433→  config: ModuleConfig;
+   434→  isVatAuditor: boolean;
+   435→  userRole: UserRole;
+   436→}) {
+   437→  const { toast } = useToast();
+   438→  const [data, setData] = useState<any[]>([]);
+   439→  const [loading, setLoading] = useState(true);
+   440→  const [search, setSearch] = useState("");
+   441→  const [dialogOpen, setDialogOpen] = useState(false);
+   442→  const [editingItem, setEditingItem] = useState<any>(null);
+   443→  const [formData, setFormData] = useState<Record<string, any>>({});
+   444→  const [saving, setSaving] = useState(false);
+   445→  const [dynamicOptions, setDynamicOptions] = useState<Record<string, any[]>>({});
+   446→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+   447→  const [leaveBalances, setLeaveBalances] = useState<Record<string, { used: number; entitled: number; remaining: number }>>({});
+   448→
+   449→  // Phase 8: Collision error state
+   450→  const [collisionError, setCollisionError] = useState<string>("");
+   451→
+   452→  // Phase 8: Snapshot for optimistic rollback
+   453→  const [personnelSnapshot, setPersonnelSnapshot] = useState<any[] | null>(null);
+   454→
+   455→  // Phase 8: Company profile for PDF
+   456→  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+   457→
+   458→  // Personnel Validation Gate: DOB age validation error state
+   459→  const [dobValidationError, setDobValidationError] = useState<string>("");
+   460→
+   461→  // Personnel Validation Gate: Leave balance deduction preview
+   462→  const [balanceDeductionPreview, setBalanceDeductionPreview] = useState<{ type: string; currentRemaining: number; afterDeduction: number; isOver: boolean } | null>(null);
+   463→
+   464→  // RBAC
+   465→  const canMutate = userRole === "admin" || userRole === "manager";
+   466→  const isSR = userRole === "sr";
+   467→  const isDealer = userRole === "dealer";
+   468→  const isAdmin = userRole === "admin";
+   469→
+   470→  // Soft-delete modules: designations, employees, customers, suppliers
+   471→  // Hard-delete modules: employee-leaves, leave-allocations
+   472→  const isSoftDeleteModule = ["designations", "employees", "customers", "suppliers"].includes(config.key);
+   473→
+   474→  // Dealer: hidden from HR and suppliers and leave-allocations
+   475→  const isHidden = isDealer && (config.key === "designations" || config.key === "employees" || config.key === "employee-leaves" || config.key === "leave-allocations" || config.key === "suppliers");
+   476→  // SR: completely blocked from suppliers
+   477→  const isBlocked = isSR && config.key === "suppliers";
+   478→
+   479→  const maskedColumns = useMemo(() => {
+   480→    if (!isVatAuditor) return [];
+   481→    return config.vatMaskedColumns || [];
+   482→  }, [isVatAuditor, config.vatMaskedColumns]);
+   483→
+   484→  // SR salary mask for employees
+   485→  const shouldMaskSalary = isSR && config.key === "employees";
+   486→
+   487→  // SR cannot modify credit limits on customers
+   488→  const shouldMaskCreditLimit = isSR && config.key === "customers";
+   489→
+   490→  // Load company profile for PDF export
+   491→  const loadCompanyProfile = useCallback(async () => {
+   492→    try {
+   493→      const result = await apiFetch("/api/company-branding");
+   494→      if (result && typeof result === "object") {
+   495→        setCompanyProfile(result as CompanyProfile);
+   496→      }
+   497→    } catch (err) {
+   498→      console.error('Error loading company branding:', err);
+   499→      // PDF export will use defaults
+   500→    }
+   501→  }, []);
+   502→
+   503→  // Load data
+   504→  const loadData = useCallback(async () => {
+   505→    setLoading(true);
+   506→    try {
+   507→      const result = await apiFetch(config.apiPath);
+   508→      setData(Array.isArray(result) ? result : []);
+   509→    } catch (e: any) {
+   510→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   511→    } finally {
+   512→      setLoading(false);
+   513→    }
+   514→  }, [config.apiPath, toast]);
+   515→
+   516→  // Load dynamic select options
+   517→  const loadOptions = useCallback(async () => {
+   518→    const selectFields = config.formFields.filter(f => f.type === "select" && !f.options?.length);
+   519→    const opts: Record<string, any[]> = {};
+   520→    for (const field of selectFields) {
+   521→      try {
+   522→        let apiPath = "";
+   523→        if (field.key === "departmentId") apiPath = "/api/departments";
+   524→        else if (field.key === "designationId") apiPath = "/api/designations";
+   525→        else if (field.key === "employeeId") apiPath = "/api/employees";
+   526→        if (apiPath) {
+   527→          const items = await apiFetch(apiPath);
+   528→          opts[field.key] = Array.isArray(items) ? items : [];
+   529→        }
+   530→      } catch (err) {
+   531→        console.error(`Error loading options for ${field.key}:`, err);
+   532→        opts[field.key] = [];
+   533→      }
+   534→    }
+   535→    setDynamicOptions(opts);
+   536→  }, [config.formFields]);
+   537→
+   538→  useEffect(() => { loadData(); }, [loadData]);
+   539→  useEffect(() => { loadOptions(); }, [loadOptions]);
+   540→  useEffect(() => { loadCompanyProfile(); }, [loadCompanyProfile]);
+   541→
+   542→  // Calculate leave balances when employee changes in leave form
+   543→  // Phase 8: Enhanced to use LeaveAllocation API data
+   544→  const calculateLeaveBalances = useCallback(async (employeeId: string) => {
+   545→    if (!employeeId) {
+   546→      setLeaveBalances({});
+   547→      return;
+   548→    }
+   549→    try {
+   550→      // Phase 8: Try to fetch from LeaveAllocation API first
+   551→      let allocations: any[] = [];
+   552→      try {
+   553→        const allocResult = await apiFetch(`/api/leave-allocations?employeeId=${employeeId}`);
+   554→        allocations = Array.isArray(allocResult) ? allocResult : [];
+   555→      } catch (err) {
+   556→        console.warn('Error loading leave allocations, falling back to computation:', err);
+   557→      }
+   558→
+   559→      if (allocations.length > 0) {
+   560→        // Use LeaveAllocation data
+   561→        const balances: Record<string, { used: number; entitled: number; remaining: number }> = {};
+   562→        for (const alloc of allocations) {
+   563→          if (alloc.isActive === false) continue;
+   564→          const type = alloc.leaveType;
+   565→          balances[type] = {
+   566→            used: Number(alloc.usedDays) || 0,
+   567→            entitled: Number(alloc.allocatedDays) || 0,
+   568→            remaining: Number(alloc.remainingDays) || 0,
+   569→          };
+   570→        }
+   571→        // Fill in any missing types from LEAVE_ENTITLEMENTS fallback
+   572→        for (const [type, entitled] of Object.entries(LEAVE_ENTITLEMENTS)) {
+   573→          if (!balances[type]) {
+   574→            balances[type] = { used: 0, entitled, remaining: entitled };
+   575→          }
+   576→        }
+   577→        setLeaveBalances(balances);
+   578→      } else {
+   579→        // Fallback: compute from approved leaves
+   580→        const allLeaves = await apiFetch("/api/employee-leaves");
+   581→        const empLeaves = Array.isArray(allLeaves)
+   582→          ? allLeaves.filter((l: any) => {
+   583→              const empId = l.employeeId || (l.employee && l.employee.id);
+   584→              return empId === employeeId && l.status === "Approved";
+   585→            })
+   586→          : [];
+   587→
+   588→        const balances: Record<string, { used: number; entitled: number; remaining: number }> = {};
+   589→        for (const [type, entitled] of Object.entries(LEAVE_ENTITLEMENTS)) {
+   590→          const used = empLeaves.filter((l: any) => l.leaveType === type).reduce((sum: number, l: any) => sum + (l.totalDays || 0), 0);
+   591→          balances[type] = { used, entitled, remaining: entitled - used };
+   592→        }
+   593→        setLeaveBalances(balances);
+   594→      }
+   595→    } catch (err) {
+   596→      console.error('Error calculating leave balances:', err);
+   597→      setLeaveBalances({});
+   598→    }
+   599→  }, []);
+   600→
+   601→  // Watch employeeId changes for leave balance
+   602→  useEffect(() => {
+   603→    if (config.key === "employee-leaves" && formData.employeeId) {
+   604→      calculateLeaveBalances(formData.employeeId);
+   605→    } else {
+   606→      setLeaveBalances({});
+   607→    }
+   608→  }, [config.key, formData.employeeId, calculateLeaveBalances]);
+   609→
+   610→  // Personnel Validation Gate: Watch DOB changes for real-time age validation
+   611→  useEffect(() => {
+   612→    if (config.key === "employees" && formData.dateOfBirth) {
+   613→      const dob = new Date(formData.dateOfBirth);
+   614→      const today = new Date();
+   615→      const minAgeDate = new Date(today);
+   616→      minAgeDate.setFullYear(minAgeDate.getFullYear() - 18);
+   617→      if (dob > minAgeDate) {
+   618→        const age = today.getFullYear() - dob.getFullYear();
+   619→        setDobValidationError(`Personnel Validation Gate: Employee must be at least 18 years of age. Current age is approximately ${age} years. Minimum age requirement not met.`);
+   620→      } else {
+   621→        setDobValidationError("");
+   622→      }
+   623→    } else {
+   624→      setDobValidationError("");
+   625→    }
+   626→  }, [config.key, formData.dateOfBirth]);
+   627→
+   628→  // Personnel Validation Gate: Watch leave form changes for balance deduction preview
+   629→  useEffect(() => {
+   630→    if (config.key === "employee-leaves" && formData.employeeId && formData.leaveType && formData.fromDate && formData.toDate) {
+   631→      const from = new Date(formData.fromDate);
+   632→      const to = new Date(formData.toDate);
+   633→      if (to >= from) {
+   634→        const requestedDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+   635→        const balance = leaveBalances[formData.leaveType];
+   636→        if (balance) {
+   637→          setBalanceDeductionPreview({
+   638→            type: formData.leaveType,
+   639→            currentRemaining: balance.remaining,
+   640→            afterDeduction: balance.remaining - requestedDays,
+   641→            isOver: balance.remaining < requestedDays,
+   642→          });
+   643→        } else {
+   644→          setBalanceDeductionPreview(null);
+   645→        }
+   646→      } else {
+   647→        setBalanceDeductionPreview(null);
+   648→      }
+   649→    } else {
+   650→      setBalanceDeductionPreview(null);
+   651→    }
+   652→  }, [config.key, formData.employeeId, formData.leaveType, formData.fromDate, formData.toDate, leaveBalances]);
+   653→
+   654→  // Filtered data
+   655→  const filteredData = useMemo(() => {
+   656→    if (!search.trim()) return data;
+   657→    const q = search.toLowerCase();
+   658→    return data.filter(item =>
+   659→      config.columns.some(col =>
+   660→        String(getNestedValue(item, col.key) ?? "").toLowerCase().includes(q)
+   661→      )
+   662→    );
+   663→  }, [data, search, config.columns]);
+   664→
+   665→  // KPI stats — enhanced with module-specific metrics
+   666→  const stats = useMemo(() => {
+   667→    const total = data.length;
+   668→    const active = data.filter(d => d.isActive !== false).length;
+   669→    const inactive = total - active;
+   670→    // Employee-leave specific stats
+   671→    const pendingLeaves = config.key === "employee-leaves" ? data.filter(d => d.status === "Pending").length : 0;
+   672→    const approvedLeaves = config.key === "employee-leaves" ? data.filter(d => d.status === "Approved").length : 0;
+   673→    const rejectedLeaves = config.key === "employee-leaves" ? data.filter(d => d.status === "Rejected").length : 0;
+   674→    // Employee type breakdown
+   675→    const permanentCount = config.key === "employees" ? data.filter(d => d.employeeType === "Permanent").length : 0;
+   676→    const contractCount = config.key === "employees" ? data.filter(d => d.employeeType === "Contract").length : 0;
+   677→    const probationCount = config.key === "employees" ? data.filter(d => d.employeeType === "Probation").length : 0;
+   678→    // Total salary for employees (mask for VAT Auditor / SR)
+   679→    const totalSalary = (config.key === "employees" && !isVatAuditor && !isSR)
+   680→      ? data.filter(d => d.isActive !== false).reduce((sum, d) => sum + (Number(d.baseSalary) || 0), 0)
+   681→      : 0;
+   682→    // Credit status stats for customers/suppliers — use computed credit status
+   683→    const creditFrozen = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => (d.computedCreditStatus || d.creditStatus) === "Frozen").length : 0;
+   684→    const creditOverLimit = (config.key === "customers" || config.key === "suppliers") ? data.filter(d => (d.computedCreditStatus || d.creditStatus) === "OverLimit").length : 0;
+   685→    // AR/AP totals — use computed balance for accuracy
+   686→    const totalOutstandingAR = (config.key === "customers" && !isVatAuditor)
+   687→      ? data.filter(d => d.isActive !== false).reduce((sum, d) => {
+   688→          const bal = d.computedCurrentBalance ?? Number(d.currentBalance) ?? 0;
+   689→          const type = d.computedCurrentBalanceType ?? d.currentBalanceType;
+   690→          return sum + (type === "Dr" ? bal : 0);
+   691→        }, 0)
+   692→      : 0;
+   693→    const totalOutstandingAP = (config.key === "suppliers" && !isVatAuditor)
+   694→      ? data.filter(d => d.isActive !== false).reduce((sum, d) => {
+   695→          const bal = d.computedCurrentBalance ?? Number(d.currentBalance) ?? 0;
+   696→          const type = d.computedCurrentBalanceType ?? d.currentBalanceType;
+   697→          return sum + (type === "Cr" ? bal : 0);
+   698→        }, 0)
+   699→      : 0;
+   700→    return { total, active, inactive, pendingLeaves, approvedLeaves, rejectedLeaves, permanentCount, contractCount, probationCount, totalSalary, creditFrozen, creditOverLimit, totalOutstandingAR, totalOutstandingAP };
+   701→  }, [data, config.key]);
+   702→
+   703→  // Open create dialog
+   704→  const openCreate = () => {
+   705→    setEditingItem(null);
+   706→    setCollisionError("");
+   707→    const defaults: Record<string, any> = {};
+   708→    config.formFields.forEach(f => {
+   709→      if (f.defaultValue !== undefined) defaults[f.key] = f.defaultValue;
+   710→      else if (f.type === "checkbox") defaults[f.key] = true;
+   711→      else defaults[f.key] = "";
+   712→    });
+   713→    setFormData(defaults);
+   714→    setDialogOpen(true);
+   715→  };
+   716→
+   717→  // Open edit dialog
+   718→  const openEdit = (item: any) => {
+   719→    setEditingItem(item);
+   720→    setCollisionError("");
+   721→    const values: Record<string, any> = {};
+   722→    config.formFields.forEach(f => {
+   723→      const val = getNestedValue(item, f.key);
+   724→      if (val !== undefined && val !== null) values[f.key] = val;
+   725→      else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
+   726→      else values[f.key] = f.type === "checkbox" ? true : "";
+   727→    });
+   728→    setFormData(values);
+   729→    setDialogOpen(true);
+   730→  };
+   731→
+   732→  // Save (create or update) — Phase 8: Optimistic UI + snapshot rollback
+   733→  const handleSave = async () => {
+   734→    for (const f of config.formFields) {
+   735→      if (f.required && !formData[f.key] && formData[f.key] !== 0) {
+   736→        toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+   737→        return;
+   738→      }
+   739→    }
+   740→
+   741→    // Personnel Validation Gate: Standalone DOB 18+ age check
+   742→    if (config.key === "employees" && formData.dateOfBirth) {
+   743→      const dob = new Date(formData.dateOfBirth);
+   744→      const today = new Date();
+   745→      const minAgeDate = new Date(today);
+   746→      minAgeDate.setFullYear(minAgeDate.getFullYear() - 18);
+   747→      if (dob > minAgeDate) {
+   748→        toast({ title: "Personnel Validation Gate", description: "Employee must be at least 18 years of age. Date of Birth indicates the individual is under the minimum age requirement.", variant: "destructive" });
+   749→        return;
+   750→      }
+   751→    }
+   752→
+   753→    // Phase 8: Chronological Date Shield — Joining Date >= DOB + 18 years
+   754→    if (config.key === "employees" && formData.dateOfBirth && formData.joiningDate) {
+   755→      const dob = new Date(formData.dateOfBirth);
+   756→      const joining = new Date(formData.joiningDate);
+   757→      const minJoiningDate = new Date(dob);
+   758→      minJoiningDate.setFullYear(minJoiningDate.getFullYear() + 18);
+   759→      if (joining < minJoiningDate) {
+   760→        toast({ title: "Date Validation Error", description: "Joining Date must be at least 18 years after Date of Birth", variant: "destructive" });
+   761→        return;
+   762→      }
+   763→    }
+   764→
+   765→    // Phase 8: Chronological Date Shield — Resignation Date > Joining Date
+   766→    if (config.key === "employees" && formData.resignationDate && formData.joiningDate) {
+   767→      const joining = new Date(formData.joiningDate);
+   768→      const resignation = new Date(formData.resignationDate);
+   769→      if (resignation <= joining) {
+   770→        toast({ title: "Date Validation Error", description: "Resignation/Termination Date must be after Joining Date", variant: "destructive" });
+   771→        return;
+   772→      }
+   773→    }
+   774→
+   775→    // SR cannot modify credit limit on customers
+   776→    if (shouldMaskCreditLimit && editingItem) {
+   777→      delete formData.creditLimit;
+   778→    }
+   779→    // Case-insensitive duplicate name check before API call
+   780→    const nameField = formData.name;
+   781→    if (nameField && typeof nameField === 'string' && nameField.trim()) {
+   782→      const normalizedName = nameField.trim().toLowerCase();
+   783→      const duplicate = data.find(d => {
+   784→        const existingName = (d.name || '').trim().toLowerCase();
+   785→        return existingName === normalizedName && d.id !== editingItem?.id;
+   786→      });
+   787→      if (duplicate) {
+   788→        toast({ title: "Corporate Entity Collision", description: `A ${singularize(config.label).toLowerCase()} with the name "${nameField.trim()}" already exists (case-insensitive match).`, variant: "destructive" });
+   789→        return;
+   790→      }
+   791→    }
+   792→    // Employee Leave: validate date range (toDate >= fromDate)
+   793→    if (config.key === "employee-leaves" && formData.fromDate && formData.toDate) {
+   794→      const from = new Date(formData.fromDate);
+   795→      const to = new Date(formData.toDate);
+   796→      if (to < from) {
+   797→        toast({ title: "Validation Error", description: "End date cannot be before start date", variant: "destructive" });
+   798→        return;
+   799→      }
+   800→      // Auto-calculate totalDays from date range
+   801→      const diffMs = to.getTime() - from.getTime();
+   802→      const calculatedDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
+   803→      formData.totalDays = calculatedDays;
+   804→    }
+   805→
+   806→    // Phase 8: Snapshot for optimistic rollback
+   807→    setPersonnelSnapshot([...data]);
+   808→
+   809→    // Phase 8: Optimistic mutation — immediately update local data (edits only; creates rely on loadData)
+   810→    if (editingItem) {
+   811→      setData(prev => prev.map(item => item.id === editingItem.id ? { ...item, ...formData } : item));
+   812→    }
+   813→
+   814→    setSaving(true);
+   815→    try {
+   816→      if (editingItem) {
+   817→        await apiFetch(`${config.apiPath}/${editingItem.id}`, {
+   818→          method: "PUT",
+   819→          body: JSON.stringify(formData),
+   820→        });
+   821→        toast({ title: "Updated", description: `${config.label} updated successfully` });
+   822→      } else {
+   823→        await apiFetch(config.apiPath, {
+   824→          method: "POST",
+   825→          body: JSON.stringify(formData),
+   826→        });
+   827→        toast({ title: "Created", description: `${config.label} created successfully` });
+   828→      }
+   829→      setDialogOpen(false);
+   830→      loadData();
+   831→    } catch (e: any) {
+   832→      // Phase 8: Rollback on error
+   833→      if (personnelSnapshot) {
+   834→        setData(personnelSnapshot);
+   835→        setPersonnelSnapshot(null);
+   836→      } else {
+   837→        loadData(); // Fallback: reload from server
+   838→      }
+   839→
+   840→      // Phase 8: Corporate Entity Collision error handling
+   841→      if (e.message && e.message.includes("Corporate Entity Collision")) {
+   842→        setCollisionError(e.message);
+   843→        setDialogOpen(true); // Re-open dialog to show collision banner
+   844→      }
+   845→
+   846→      // Phase 8: Insufficient leave balance error
+   847→      if (e.message && e.message.includes("Transaction Blocked: Insufficient accumulated leave balance")) {
+   848→        toast({ title: "Leave Balance Insufficient", description: "Transaction Blocked: Insufficient accumulated leave balance.", variant: "destructive" });
+   849→      } else {
+   850→        toast({ title: "Error", description: e.message, variant: "destructive" });
+   851→      }
+   852→    } finally {
+   853→      setSaving(false);
+   854→    }
+   855→  };
+   856→
+   857→  // Delete
+   858→  const handleDelete = async (id: string) => {
+   859→    try {
+   860→      await apiFetch(`${config.apiPath}/${id}`, { method: "DELETE" });
+   861→      toast({ title: "Deleted", description: `${config.label} deleted successfully` });
+   862→      setDeleteConfirm(null);
+   863→      loadData();
+   864→    } catch (e: any) {
+   865→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   866→    }
+   867→  };
+   868→
+   869→  // Approve/Reject leave — Phase 8: Spin-lock + optimistic + balance refresh
+   870→  const handleLeaveAction = async (id: string, action: "Approved" | "Rejected") => {
+   871→    // Phase 8: Snapshot for rollback
+   872→    setPersonnelSnapshot([...data]);
+   873→
+   874→    // Optimistic update
+   875→    setData(prev => prev.map(item =>
+   876→      item.id === id ? { ...item, status: action } : item
+   877→    ));
+   878→
+   879→    try {
+   880→      await apiFetch(`${config.apiPath}/${id}`, {
+   881→        method: "PUT",
+   882→        body: JSON.stringify({ status: action }),
+   883→      });
+   884→      toast({ title: `Leave ${action}`, description: `Leave request has been ${action.toLowerCase()}` });
+   885→      loadData();
+   886→      // Automated Leave Deductions: Refresh leave balance after approval/rejection
+   887→      if (formData.employeeId) {
+   888→        calculateLeaveBalances(formData.employeeId);
+   889→      }
+   890→    } catch (e: any) {
+   891→      // Rollback
+   892→      if (personnelSnapshot) {
+   893→        setData(personnelSnapshot);
+   894→        setPersonnelSnapshot(null);
+   895→      } else {
+   896→        loadData();
+   897→      }
+   898→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   899→    }
+   900→  };
+   901→
+   902→  // Export CSV
+   903→  const handleExportCSV = () => {
+   904→    try {
+   905→      const exportData = filteredData.map(item => {
+   906→        const row: Record<string, any> = {};
+   907→        config.columns.forEach(col => {
+   908→          let val = getNestedValue(item, col.key);
+   909→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+   910→          if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Restricted)";
+   911→          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Restricted)";
+   912→          row[col.key] = val;
+   913→        });
+   914→        return row;
+   915→      });
+   916→      exportToCSV({
+   917→        title: config.label,
+   918→        columns: config.columns,
+   919→        data: exportData,
+   920→        isVatAuditor,
+   921→        vatMaskedColumns: maskedColumns,
+   922→      });
+   923→      toast({ title: "CSV Exported", description: `${config.label} data exported` });
+   924→    } catch (e: any) {
+   925→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   926→    }
+   927→  };
+   928→
+   929→  // Phase 8: Export PDF with company profile and financialFooter
+   930→  const handleExportPDF = () => {
+   931→    try {
+   932→      const exportData = filteredData.map(item => {
+   933→        const row: Record<string, any> = {};
+   934→        config.columns.forEach(col => {
+   935→          let val = getNestedValue(item, col.key);
+   936→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+   937→          if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Restricted)";
+   938→          if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Restricted)";
+   939→          row[col.key] = val;
+   940→        });
+   941→        return row;
+   942→      });
+   943→
+   944→      // Phase 8: Use exportToPDF with company profile and financialFooter
+   945→      const stored = localStorage.getItem("ems_auth");
+   946→      let userName = "";
+   947→      let userEmail = "";
+   948→      try {
+   949→        if (stored) {
+   950→          const parsed = JSON.parse(stored);
+   951→          userName = parsed.user?.displayName || parsed.user?.name || "";
+   952→          userEmail = parsed.user?.email || "";
+   953→        }
+   954→      } catch (err) {
+   955→        console.warn('Error parsing auth for PDF export:', err);
+   956→      }
+   957→
+   958→      exportToPDF({
+   959→        title: config.label,
+   960→        subtitle: `Total Records: ${filteredData.length}`,
+   961→        orientation: "landscape",
+   962→        columns: config.columns,
+   963→        data: exportData,
+   964→        isVatAuditor,
+   965→        vatMaskedColumns: maskedColumns,
+   966→        company: companyProfile || undefined,
+   967→        systemNotice: config.key === "employees" || config.key === "designations" || config.key === "employee-leaves" || config.key === "leave-allocations"
+   968→          ? "CONFIDENTIAL — This document contains personnel records protected under labor law. Unauthorized disclosure is prohibited. All monetary figures are displayed in Bangladeshi Taka (BDT)."
+   969→          : config.key === "customers" || config.key === "suppliers"
+   970→          ? "CONFIDENTIAL — This document contains proprietary financial data. Credit limits and outstanding balances are subject to the Credit Limit Protection System. Unauthorized reproduction or distribution is strictly prohibited. All monetary figures are displayed in Bangladeshi Taka (BDT). Legal Disclaimer: This report is generated for internal audit and management review purposes only."
+   971→          : "This is a system-generated report. All monetary figures are displayed in Bangladeshi Taka (BDT).",
+   972→        financialFooter: {
+   973→          preparedBy: userName,
+   974→          checkedBy: "",
+   975→          authorizedBy: "",
+   976→          printedBy: userName || "System",
+   977→        },
+   978→      });
+   979→      toast({ title: "PDF Exported", description: `${config.label} data exported` });
+   980→    } catch (e: any) {
+   981→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   982→    }
+   983→  };
+   984→
+   985→  // Import CSV
+   986→  const handleImportCSV = () => {
+   987→    importFromCSV({ apiPath: config.apiPath, formFields: config.formFields }).then((result) => {
+   988→      toast({
+   989→        title: "Import Complete",
+   990→        description: `${result.imported} imported, ${result.failed} failed`,
+   991→        variant: result.failed > 0 ? "destructive" : "default",
+   992→      });
+   993→      loadData();
+   994→    }).catch((e: any) => {
+   995→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   996→    });
+   997→  };
+   998→
+   999→  // Render form field
+  1000→  const renderFormField = (field: ExportFieldDef) => {
+  1001→    const val = formData[field.key] ?? "";
+  1002→
+  1003→    // SR: mask credit limit on customer edit
+  1004→    if (shouldMaskCreditLimit && editingItem && field.key === "creditLimit") {
+  1005→      return (
+  1006→        <Input
+  1007→          type="text"
+  1008→          value="N/A (Audit Mode)"
+  1009→          disabled
+  1010→          className="bg-slate-100 dark:bg-slate-800"
+  1011→        />
+  1012→      );
+  1013→    }
+  1014→
+  1015→    if (field.type === "image") {
+  1016→      return (
+  1017→        <ImageUploadField
+  1018→          value={val || null}
+  1019→          onChange={(base64) => setFormData(prev => ({ ...prev, [field.key]: base64 || "" }))}
+  1020→          label={field.label}
+  1021→          placeholder={field.placeholder || `Upload ${field.label.toLowerCase()}`}
+  1022→          onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
+  1023→        />
+  1024→      );
+  1025→    }
+  1026→
+  1027→    if (field.type === "select") {
+  1028→      const options = field.options?.length ? field.options :
+  1029→        (dynamicOptions[field.key] || []).map((item: any) => {
+  1030→          if (field.key === "designationId") {
+  1031→            return { value: item.id, label: `${item.code || ""} - ${item.name || item.id}`.trim() };
+  1032→          }
+  1033→          if (field.key === "employeeId") {
+  1034→            return { value: item.id, label: `${item.employeeCode || ""} - ${item.name || item.id}`.trim() };
+  1035→          }
+  1036→          return { value: item.id, label: item.name || item.employeeCode || item.code || item.id };
+  1037→        });
+  1038→      return (
+  1039→        <Select value={String(val)} onValueChange={(v) => setFormData(prev => ({ ...prev, [field.key]: v }))}>
+  1040→          <SelectTrigger><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+  1041→          <SelectContent>
+  1042→            {options.map(opt => (
+  1043→              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+  1044→            ))}
+  1045→          </SelectContent>
+  1046→        </Select>
+  1047→      );
+  1048→    }
+  1049→
+  1050→    if (field.type === "checkbox") {
+  1051→      return (
+  1052→        <div className="flex items-center gap-2">
+  1053→          <input
+  1054→            type="checkbox"
+  1055→            checked={!!val}
+  1056→            onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.checked }))}
+  1057→            className="h-4 w-4 rounded border-slate-300"
+  1058→          />
+  1059→          <Label>{field.label}</Label>
+  1060→        </div>
+  1061→      );
+  1062→    }
+  1063→
+  1064→    if (field.type === "textarea") {
+  1065→      return (
+  1066→        <Textarea
+  1067→          value={String(val)}
+  1068→          onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
+  1069→          placeholder={field.placeholder || field.label}
+  1070→          rows={3}
+  1071→        />
+  1072→      );
+  1073→    }
+  1074→
+  1075→    if (field.type === "date") {
+  1076→      // Personnel Validation Gate: DOB max date constraint (must be at least 18 years ago)
+  1077→      const isDobField = config.key === "employees" && field.key === "dateOfBirth";
+  1078→      const isJoiningField = config.key === "employees" && field.key === "joiningDate";
+  1079→      const isResignationField = config.key === "employees" && field.key === "resignationDate";
+  1080→      let maxDate = "";
+  1081→      let minDate = "";
+  1082→      if (isDobField) {
+  1083→        // DOB: must be at least 18 years ago, max today-18years
+  1084→        const maxDob = new Date();
+  1085→        maxDob.setFullYear(maxDob.getFullYear() - 18);
+  1086→        maxDate = maxDob.toISOString().split("T")[0];
+  1087→      }
+  1088→      if (isJoiningField) {
+  1089→        // Joining date: cannot be in the future
+  1090→        maxDate = new Date().toISOString().split("T")[0];
+  1091→      }
+  1092→      if (isResignationField) {
+  1093→        // Resignation date: cannot be in the future
+  1094→        maxDate = new Date().toISOString().split("T")[0];
+  1095→        // Min date: must be after joining date
+  1096→        if (formData.joiningDate) {
+  1097→          const joiningDate = new Date(formData.joiningDate);
+  1098→          joiningDate.setDate(joiningDate.getDate() + 1);
+  1099→          minDate = joiningDate.toISOString().split("T")[0];
+  1100→        }
+  1101→      }
+  1102→      return (
+  1103→        <div>
+  1104→          <Input
+  1105→            type="date"
+  1106→            value={val ? (typeof val === "string" ? val.split("T")[0] : new Date(val).toISOString().split("T")[0]) : ""}
+  1107→            onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: e.target.value }))}
+  1108→            placeholder={field.placeholder || field.label}
+  1109→            max={maxDate || undefined}
+  1110→            min={minDate || undefined}
+  1111→          />
+  1112→          {/* Personnel Validation Gate: Inline DOB age error */}
+  1113→          {isDobField && dobValidationError && (
+  1114→            <div className="mt-1.5 flex items-start gap-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+  1115→              <AlertTriangle className="h-3.5 w-3.5 text-red-500 mt-0.5 flex-shrink-0" />
+  1116→              <p className="text-xs text-red-600 dark:text-red-400 font-medium">{dobValidationError}</p>
+  1117→            </div>
+  1118→          )}
+  1119→          {/* Joining date hint */}
+  1120→          {isJoiningField && (
+  1121→            <p className="mt-1 text-[11px] text-slate-400">Must be at least 18 years after Date of Birth</p>
+  1122→          )}
+  1123→        </div>
+  1124→      );
+  1125→    }
+  1126→
+  1127→    return (
+  1128→      <Input
+  1129→        type={field.type === "number" ? "number" : field.type === "email" ? "email" : "text"}
+  1130→        value={String(val)}
+  1131→        onChange={(e) => setFormData(prev => ({ ...prev, [field.key]: field.type === "number" ? Number(e.target.value) : e.target.value }))}
+  1132→        placeholder={field.placeholder || field.label}
+  1133→        step={field.step}
+  1134→      />
+  1135→    );
+  1136→  };
+  1137→
+  1138→  // Render form with sections (for employees)
+  1139→  const renderFormContent = () => {
+  1140→    if (config.formSections && config.formSections.length > 0) {
+  1141→      return (
+  1142→        <div className="space-y-6 py-2">
+  1143→          {config.formSections.map((section, sIdx) => {
+  1144→            const sectionFields = config.formFields.filter(f => section.fields.includes(f.key));
+  1145→            const isDocUploadSection = section.title === "Document Uploads";
+  1146→            return (
+  1147→              <div key={sIdx}>
+  1148→                <div className="flex items-center gap-2 mb-3">
+  1149→                  <div className="h-6 w-6 rounded bg-[#2563eb]/10 flex items-center justify-center">
+  1150→                    <span className="text-xs font-bold text-[#2563eb]">{sIdx + 1}</span>
+  1151→                  </div>
+  1152→                  <h4 className="text-sm font-semibold text-slate-900 dark:text-white">{section.title}</h4>
+  1153→                  {sIdx < config.formSections!.length - 1 && <Separator className="flex-1" />}
+  1154→                </div>
+  1155→                {isDocUploadSection ? (
+  1156→                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 pl-8">
+  1157→                    {sectionFields.map(field => (
+  1158→                      <div key={field.key}>
+  1159→                        {renderFormField(field)}
+  1160→                      </div>
+  1161→                    ))}
+  1162→                  </div>
+  1163→                ) : (
+  1164→                  <div className="space-y-4 pl-8">
+  1165→                    {sectionFields.map(field => (
+  1166→                      <div key={field.key} className="space-y-1.5">
+  1167→                        {field.type !== "checkbox" && field.type !== "image" && (
+  1168→                          <Label className="text-sm font-medium">
+  1169→                            {field.label} {field.required && <span className="text-red-500">*</span>}
+  1170→                            {/* Phase 8: Uniqueness warnings for employee NID/Phone/Email */}
+  1171→                            {config.key === "employees" && !editingItem && (field.key === "nidNumber" || field.key === "phone" || field.key === "email") && (
+  1172→                              <span className="ml-2 text-[11px] font-normal text-amber-600 dark:text-amber-400">(must be unique across system)</span>
+  1173→                            )}
+  1174→                          </Label>
+  1175→                        )}
+  1176→                        {renderFormField(field)}
+  1177→                      </div>
+  1178→                    ))}
+  1179→                  </div>
+  1180→                )}
+  1181→              </div>
+  1182→            );
+  1183→          })}
+  1184→        </div>
+  1185→      );
+  1186→    }
+  1187→
+  1188→    // Non-sectioned forms — add uniqueness warnings for employee fields
+  1189→    return (
+  1190→      <div className="space-y-4 py-2">
+  1191→        {config.formFields.map(field => (
+  1192→          <div key={field.key} className="space-y-1.5">
+  1193→            {field.type !== "checkbox" && field.type !== "image" && (
+  1194→              <Label className="text-sm font-medium">
+  1195→                {field.label} {field.required && <span className="text-red-500">*</span>}
+  1196→                {/* Phase 8: Uniqueness warnings for employee NID/Phone/Email */}
+  1197→                {config.key === "employees" && !editingItem && (field.key === "nidNumber" || field.key === "phone" || field.key === "email") && (
+  1198→                  <span className="ml-2 text-[11px] font-normal text-amber-600 dark:text-amber-400">(must be unique across system)</span>
+  1199→                )}
+  1200→              </Label>
+  1201→            )}
+  1202→            {renderFormField(field)}
+  1203→          </div>
+  1204→        ))}
+  1205→      </div>
+  1206→    );
+  1207→  };
+  1208→
+  1209→  // Personnel Validation Gate: Enhanced leave balance cards with progress gauges + deduction preview
+  1210→  const renderLeaveBalanceCards = () => {
+  1211→    if (config.key !== "employee-leaves" || !formData.employeeId) return null;
+  1212→
+  1213→    // Calculate requested days from form
+  1214→    let requestedDays = 0;
+  1215→    if (formData.fromDate && formData.toDate) {
+  1216→      const from = new Date(formData.fromDate);
+  1217→      const to = new Date(formData.toDate);
+  1218→      if (to >= from) {
+  1219→        requestedDays = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  1220→      }
+  1221→    }
+  1222→
+  1223→    return (
+  1224→      <div className="space-y-3 mb-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+  1225→        <div className="flex items-center gap-2">
+  1226→          <CalendarDays className="h-4 w-4 text-[#2563eb]" />
+  1227→          <span className="text-sm font-semibold text-slate-900 dark:text-white">Leave Balance Tracker</span>
+  1228→        </div>
+  1229→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+  1230→          {Object.entries(leaveBalances).map(([type, balance]) => {
+  1231→            // Automated Leave Deductions: Red indicator when remaining < requested
+  1232→            const isOverBalance = formData.leaveType === type && requestedDays > 0 && balance.remaining < requestedDays;
+  1233→            const isSelectedType = formData.leaveType === type;
+  1234→            const usagePercent = balance.entitled > 0 ? Math.round((balance.used / balance.entitled) * 100) : 0;
+  1235→            let gaugeColor = "bg-emerald-500";
+  1236→            let gaugeBg = "bg-emerald-100 dark:bg-emerald-900/30";
+  1237→            if (usagePercent > 80) { gaugeColor = "bg-red-500"; gaugeBg = "bg-red-100 dark:bg-red-900/30"; }
+  1238→            else if (usagePercent > 50) { gaugeColor = "bg-amber-500"; gaugeBg = "bg-amber-100 dark:bg-amber-900/30"; }
+  1239→            if (isOverBalance) { gaugeColor = "bg-red-500"; gaugeBg = "bg-red-100 dark:bg-red-900/30"; }
+  1240→
+  1241→            return (
+  1242→              <div key={type} className={`text-center p-2.5 rounded-lg border-2 transition-all ${isOverBalance ? "border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20" : isSelectedType ? "border-[#2563eb]/30 bg-blue-50 dark:bg-blue-900/20" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"}`}>
+  1243→                <p className={`text-xs font-semibold mb-1 ${isOverBalance ? "text-red-600 dark:text-red-400" : isSelectedType ? "text-[#2563eb]" : "text-slate-500 dark:text-slate-400"}`}>{type}</p>
+  1244→                {/* Progress Gauge */}
+  1245→                <div className={`h-2 w-full rounded-full overflow-hidden mb-1.5 ${gaugeBg}`}>
+  1246→                  <div className={`h-full ${gaugeColor} rounded-full transition-all duration-300`} style={{ width: `${Math.min(usagePercent, 100)}%` }} />
+  1247→                </div>
+  1248→                <p className={`text-lg font-bold ${isOverBalance ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"}`}>
+  1249→                  {balance.remaining}
+  1250→                  <span className="text-[10px] font-normal text-slate-400 ml-0.5">days</span>
+  1251→                </p>
+  1252→                <p className="text-[10px] text-slate-400">Used: {balance.used} / Entitled: {balance.entitled}</p>
+  1253→                {isOverBalance && (
+  1254→                  <div className="mt-1 flex items-center justify-center gap-0.5 text-red-500">
+  1255→                    <AlertTriangle className="h-3 w-3" />
+  1256→                    <span className="text-[10px] font-medium">Insufficient</span>
+  1257→                  </div>
+  1258→                )}
+  1259→              </div>
+  1260→            );
+  1261→          })}
+  1262→        </div>
+  1263→        {/* Automated Leave Deductions: Balance Deduction Preview */}
+  1264→        {balanceDeductionPreview && requestedDays > 0 && (
+  1265→          <div className={`mt-2 p-2.5 rounded-lg border ${balanceDeductionPreview.isOver ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800"}`}>
+  1266→            <div className="flex items-center gap-2 mb-1">
+  1267→              {balanceDeductionPreview.isOver ? (
+  1268→                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+  1269→              ) : (
+  1270→                <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+  1271→              )}
+  1272→              <span className={`text-xs font-semibold ${balanceDeductionPreview.isOver ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+  1273→                Balance Deduction Preview — {balanceDeductionPreview.type}
+  1274→              </span>
+  1275→            </div>
+  1276→            <div className="flex items-center gap-3 text-xs">
+  1277→              <span className="text-slate-600 dark:text-slate-300">Current: <strong>{balanceDeductionPreview.currentRemaining} days</strong></span>
+  1278→              <span className="text-slate-400">→</span>
+  1279→              <span className={balanceDeductionPreview.isOver ? "text-red-600 font-bold" : "text-emerald-600 font-bold"}>
+  1280→                After: {balanceDeductionPreview.afterDeduction} days
+  1281→              </span>
+  1282→              <span className="text-slate-400">(−{requestedDays})</span>
+  1283→            </div>
+  1284→            {balanceDeductionPreview.isOver && (
+  1285→              <p className="text-[11px] text-red-500 mt-1 font-medium">
+  1286→                Transaction will be blocked — insufficient accumulated leave balance.
+  1287→              </p>
+  1288→            )}
+  1289→          </div>
+  1290→        )}
+  1291→      </div>
+  1292→    );
+  1293→  };
+  1294→
+  1295→  // Credit utilization for customers
+  1296→  const renderCreditUtilization = (item: any) => {
+  1297→    if (config.key !== "customers") return null;
+  1298→    const balance = Number(item.currentBalance) || 0;
+  1299→    const limit = Number(item.creditLimit) || 0;
+  1300→    if (limit <= 0) return <span className="text-xs text-slate-400">No limit</span>;
+  1301→    const pct = Math.round((balance / limit) * 100);
+  1302→    let barColor = "bg-emerald-500";
+  1303→    if (pct > 100) barColor = "bg-red-500";
+  1304→    else if (pct > 80) barColor = "bg-amber-500";
+  1305→
+  1306→    return (
+  1307→      <div className="w-24">
+  1308→        <div className="h-2 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+  1309→          <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+  1310→        </div>
+  1311→        <p className={`text-[10px] mt-0.5 ${pct > 100 ? "text-red-500 font-medium" : pct > 80 ? "text-amber-500 font-medium" : "text-slate-400"}`}>
+  1312→          {pct}% used
+  1313→        </p>
+  1314→      </div>
+  1315→    );
+  1316→  };
+  1317→
+  1318→  const Icon = config.icon;
+  1319→
+  1320→  // ── Hidden/Blocked state ──
+  1321→  if (isHidden || isBlocked) {
+  1322→    return (
+  1323→      <div className="space-y-4">
+  1324→        <Card className="border-slate-200 dark:border-slate-700">
+  1325→          <CardContent className="p-12 text-center">
+  1326→            <Shield className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+  1327→            <h3 className="text-lg font-semibold text-slate-500 dark:text-slate-400">Access Restricted</h3>
+  1328→            <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
+  1329→              You do not have permission to view this module.
+  1330→            </p>
+  1331→          </CardContent>
+  1332→        </Card>
+  1333→      </div>
+  1334→    );
+  1335→  }
+  1336→
+  1337→  // Phase 8: Determine button label based on module
+  1338→  const getCreateButtonLabel = () => {
+  1339→    if (config.key === "employees") return `Register Active Employee`;
+  1340→    if (config.key === "employee-leaves") return `Apply for Leave`;
+  1341→    return `Add ${singularize(config.label)}`;
+  1342→  };
+  1343→
+  1344→  return (
+  1345→    <div className="space-y-4">
+  1346→      {/* KPI Cards */}
+  1347→      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
+  1348→        <Card className="border-slate-200 dark:border-slate-700">
+  1349→          <CardContent className="p-4 flex items-center gap-3">
+  1350→            <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1351→              <Icon className="h-5 w-5 text-[#2563eb]" />
+  1352→            </div>
+  1353→            <div>
+  1354→              <p className="text-xs text-slate-500 dark:text-slate-400">Total {config.label}</p>
+  1355→              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.total}</p>
+  1356→            </div>
+  1357→          </CardContent>
+  1358→        </Card>
+  1359→        <Card className="border-slate-200 dark:border-slate-700">
+  1360→          <CardContent className="p-4 flex items-center gap-3">
+  1361→            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1362→              <CheckCircle className="h-5 w-5 text-emerald-500" />
+  1363→            </div>
+  1364→            <div>
+  1365→              <p className="text-xs text-slate-500 dark:text-slate-400">Active</p>
+  1366→              <p className="text-xl font-bold text-emerald-600">{stats.active}</p>
+  1367→            </div>
+  1368→          </CardContent>
+  1369→        </Card>
+  1370→        <Card className="border-slate-200 dark:border-slate-700">
+  1371→          <CardContent className="p-4 flex items-center gap-3">
+  1372→            <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+  1373→              <X className="h-5 w-5 text-red-500" />
+  1374→            </div>
+  1375→            <div>
+  1376→              <p className="text-xs text-slate-500 dark:text-slate-400">Inactive</p>
+  1377→              <p className="text-xl font-bold text-red-500">{stats.inactive}</p>
+  1378→            </div>
+  1379→          </CardContent>
+  1380→        </Card>
+  1381→      </div>
+  1382→
+  1383→      {/* Employee-Leaves Specific KPI Cards */}
+  1384→      {config.key === "employee-leaves" && (
+  1385→        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-4">
+  1386→          <Card className="border-amber-200 dark:border-amber-800">
+  1387→            <CardContent className="p-4 flex items-center gap-3">
+  1388→              <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+  1389→                <CalendarDays className="h-5 w-5 text-amber-500" />
+  1390→              </div>
+  1391→              <div>
+  1392→                <p className="text-xs text-slate-500 dark:text-slate-400">Pending Approval</p>
+  1393→                <p className="text-xl font-bold text-amber-600">{stats.pendingLeaves}</p>
+  1394→              </div>
+  1395→            </CardContent>
+  1396→          </Card>
+  1397→          <Card className="border-emerald-200 dark:border-emerald-800">
+  1398→            <CardContent className="p-4 flex items-center gap-3">
+  1399→              <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1400→                <Check className="h-5 w-5 text-emerald-500" />
+  1401→              </div>
+  1402→              <div>
+  1403→                <p className="text-xs text-slate-500 dark:text-slate-400">Approved Leaves</p>
+  1404→                <p className="text-xl font-bold text-emerald-600">{stats.approvedLeaves}</p>
+  1405→              </div>
+  1406→            </CardContent>
+  1407→          </Card>
+  1408→          <Card className="border-red-200 dark:border-red-800">
+  1409→            <CardContent className="p-4 flex items-center gap-3">
+  1410→              <div className="h-10 w-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+  1411→                <Ban className="h-5 w-5 text-red-500" />
+  1412→              </div>
+  1413→              <div>
+  1414→                <p className="text-xs text-slate-500 dark:text-slate-400">Rejected Leaves</p>
+  1415→                <p className="text-xl font-bold text-red-500">{stats.rejectedLeaves}</p>
+  1416→              </div>
+  1417→            </CardContent>
+  1418→          </Card>
+  1419→        </div>
+  1420→      )}
+  1421→
+  1422→      {/* Employee Workforce Composition Cards */}
+  1423→      {config.key === "employees" && stats.total > 0 && (
+  1424→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+  1425→          <Card className="border-emerald-200 dark:border-emerald-800">
+  1426→            <CardContent className="p-4 flex items-center gap-3">
+  1427→              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1428→                <UserCheck className="h-4 w-4 text-emerald-500" />
+  1429→              </div>
+  1430→              <div>
+  1431→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Permanent</p>
+  1432→                <p className="text-lg font-bold text-emerald-600">{stats.permanentCount}</p>
+  1433→              </div>
+  1434→            </CardContent>
+  1435→          </Card>
+  1436→          <Card className="border-blue-200 dark:border-blue-800">
+  1437→            <CardContent className="p-4 flex items-center gap-3">
+  1438→              <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+  1439→                <Briefcase className="h-4 w-4 text-blue-500" />
+  1440→              </div>
+  1441→              <div>
+  1442→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Contract</p>
+  1443→                <p className="text-lg font-bold text-blue-600">{stats.contractCount}</p>
+  1444→              </div>
+  1445→            </CardContent>
+  1446→          </Card>
+  1447→          <Card className="border-amber-200 dark:border-amber-800">
+  1448→            <CardContent className="p-4 flex items-center gap-3">
+  1449→              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+  1450→                <Users className="h-4 w-4 text-amber-500" />
+  1451→              </div>
+  1452→              <div>
+  1453→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Probation</p>
+  1454→                <p className="text-lg font-bold text-amber-600">{stats.probationCount}</p>
+  1455→              </div>
+  1456→            </CardContent>
+  1457→          </Card>
+  1458→          <Card className="border-slate-200 dark:border-slate-700">
+  1459→            <CardContent className="p-4 flex items-center gap-3">
+  1460→              <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1461→                <span className="text-sm font-bold text-[#2563eb]">Tk. </span>
+  1462→              </div>
+  1463→              <div>
+  1464→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Monthly Payroll</p>
+  1465→                <p className="text-lg font-bold text-slate-900 dark:text-white">{(isVatAuditor || isSR) ? "N/A (Audit Mode)" : fmtCurrency(stats.totalSalary)}</p>
+  1466→              </div>
+  1467→            </CardContent>
+  1468→          </Card>
+  1469→        </div>
+  1470→      )}
+  1471→
+  1472→      {/* Customer Credit Risk KPI Cards */}
+  1473→      {config.key === "customers" && stats.total > 0 && (
+  1474→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+  1475→          <Card className="border-red-200 dark:border-red-800">
+  1476→            <CardContent className="p-4 flex items-center gap-3">
+  1477→              <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
+  1478→                <AlertTriangle className="h-4 w-4 text-red-500" />
+  1479→              </div>
+  1480→              <div>
+  1481→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Credit Frozen</p>
+  1482→                <p className="text-lg font-bold text-red-600">{stats.creditFrozen}</p>
+  1483→              </div>
+  1484→            </CardContent>
+  1485→          </Card>
+  1486→          <Card className="border-amber-200 dark:border-amber-800">
+  1487→            <CardContent className="p-4 flex items-center gap-3">
+  1488→              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+  1489→                <Shield className="h-4 w-4 text-amber-500" />
+  1490→              </div>
+  1491→              <div>
+  1492→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Over Limit</p>
+  1493→                <p className="text-lg font-bold text-amber-600">{stats.creditOverLimit}</p>
+  1494→              </div>
+  1495→            </CardContent>
+  1496→          </Card>
+  1497→          <Card className="border-slate-200 dark:border-slate-700 sm:col-span-2">
+  1498→            <CardContent className="p-4 flex items-center gap-3">
+  1499→              <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1500→                <span className="text-sm font-bold text-[#2563eb]">Tk. </span>
+  1501→              </div>
+  1502→              <div>
+  1503→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AR</p>
+  1504→                <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(stats.totalOutstandingAR)}</p>
+  1505→              </div>
+  1506→            </CardContent>
+  1507→          </Card>
+  1508→        </div>
+  1509→      )}
+  1510→
+  1511→      {/* Supplier Credit Risk KPI Cards */}
+  1512→      {config.key === "suppliers" && stats.total > 0 && (
+  1513→        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+  1514→          <Card className="border-red-200 dark:border-red-800">
+  1515→            <CardContent className="p-4 flex items-center gap-3">
+  1516→              <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
+  1517→                <AlertTriangle className="h-4 w-4 text-red-500" />
+  1518→              </div>
+  1519→              <div>
+  1520→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Credit Frozen</p>
+  1521→                <p className="text-lg font-bold text-red-600">{stats.creditFrozen}</p>
+  1522→              </div>
+  1523→            </CardContent>
+  1524→          </Card>
+  1525→          <Card className="border-amber-200 dark:border-amber-800">
+  1526→            <CardContent className="p-4 flex items-center gap-3">
+  1527→              <div className="h-8 w-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+  1528→                <Shield className="h-4 w-4 text-amber-500" />
+  1529→              </div>
+  1530→              <div>
+  1531→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Over Limit</p>
+  1532→                <p className="text-lg font-bold text-amber-600">{stats.creditOverLimit}</p>
+  1533→              </div>
+  1534→            </CardContent>
+  1535→          </Card>
+  1536→          <Card className="border-slate-200 dark:border-slate-700 sm:col-span-2">
+  1537→            <CardContent className="p-4 flex items-center gap-3">
+  1538→              <div className="h-8 w-8 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1539→                <span className="text-sm font-bold text-[#2563eb]">Tk. </span>
+  1540→              </div>
+  1541→              <div>
+  1542→                <p className="text-[11px] text-slate-500 dark:text-slate-400">Total Outstanding AP</p>
+  1543→                <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(stats.totalOutstandingAP)}</p>
+  1544→              </div>
+  1545→            </CardContent>
+  1546→          </Card>
+  1547→        </div>
+  1548→      )}
+  1549→
+  1550→      {/* Toolbar */}
+  1551→      <div className="flex flex-wrap items-center gap-2">
+  1552→        <div className="relative flex-1 min-w-[200px]">
+  1553→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+  1554→          <Input
+  1555→            value={search}
+  1556→            onChange={(e) => setSearch(e.target.value)}
+  1557→            placeholder={`Search ${config.label.toLowerCase()}...`}
+  1558→            className="pl-8"
+  1559→          />
+  1560→        </div>
+  1561→        {canMutate && (
+  1562→          <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1563→            <Plus className="h-4 w-4 mr-1" /> {getCreateButtonLabel()}
+  1564→          </Button>
+  1565→        )}
+  1566→        {/* SR can create customers too */}
+  1567→        {isSR && config.key === "customers" && (
+  1568→          <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1569→            <Plus className="h-4 w-4 mr-1" /> Add Customer
+  1570→          </Button>
+  1571→        )}
+  1572→        <Button variant="outline" size="sm" onClick={handleExportCSV}>
+  1573→          <Download className="h-4 w-4 mr-1" /> Export CSV
+  1574→        </Button>
+  1575→        <Button variant="outline" size="sm" onClick={handleExportPDF}>
+  1576→          <FileDown className="h-4 w-4 mr-1" /> Export PDF
+  1577→        </Button>
+  1578→        {(canMutate || (isSR && config.key === "customers")) && (
+  1579→          <Button variant="outline" size="sm" onClick={handleImportCSV}>
+  1580→            <Upload className="h-4 w-4 mr-1" /> Import CSV
+  1581→          </Button>
+  1582→        )}
+  1583→        <Button variant="ghost" size="sm" onClick={loadData}>
+  1584→          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+  1585→        </Button>
+  1586→        {/* Recalculate Balances Button for Customers/Suppliers */}
+  1587→        {(config.key === "customers" || config.key === "suppliers") && (
+  1588→          <Button variant="outline" size="sm" onClick={async () => {
+  1589→            try {
+  1590→              const balPath = config.key === "customers" ? "/api/customers/balances?recalculate=true" : "/api/suppliers/balances?recalculate=true";
+  1591→              await apiFetch(balPath);
+  1592→              toast({ title: "Balances Recalculated", description: "All balance records updated from transaction engine" });
+  1593→              loadData();
+  1594→            } catch (e: any) {
+  1595→              toast({ title: "Error", description: e.message, variant: "destructive" });
+  1596→            }
+  1597→          }}>
+  1598→            <RefreshCw className="h-4 w-4 mr-1" /> Recalc Balances
+  1599→          </Button>
+  1600→        )}
+  1601→      </div>
+  1602→
+  1603→      {/* VAT Audit Mode Banner */}
+  1604→      {isVatAuditor && maskedColumns.length > 0 && (
+  1605→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+  1606→          <Shield className="h-4 w-4 text-amber-600" />
+  1607→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Financial columns are masked</span>
+  1608→        </div>
+  1609→      )}
+  1610→
+  1611→      {/* SR Salary Mask Banner */}
+  1612→      {shouldMaskSalary && (
+  1613→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+  1614→          <Shield className="h-4 w-4 text-amber-600" />
+  1615→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">SR MODE — Salary information is masked</span>
+  1616→        </div>
+  1617→      )}
+  1618→
+  1619→      {/* SR Credit Limit Mask Banner */}
+  1620→      {shouldMaskCreditLimit && (
+  1621→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+  1622→          <Shield className="h-4 w-4 text-amber-600" />
+  1623→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">SR MODE — Credit limit information is masked</span>
+  1624→        </div>
+  1625→      )}
+  1626→
+  1627→      {/* Data Table */}
+  1628→      <Card className="border-slate-200 dark:border-slate-700">
+  1629→        <CardContent className="p-0 overflow-hidden">
+  1630→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1631→            <Table className="min-w-[600px]">
+  1632→              <TableHeader>
+  1633→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1634→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+  1635→                  {config.columns.map(col => (
+  1636→                    <TableHead key={col.key} className="text-white font-semibold whitespace-nowrap">
+  1637→                      {col.label}
+  1638→                    </TableHead>
+  1639→                  ))}
+  1640→                  {/* Approve/Reject column for employee-leaves (Admin/Manager only) */}
+  1641→                  {config.key === "employee-leaves" && canMutate && (
+  1642→                    <TableHead className="text-white font-semibold w-32">Leave Actions</TableHead>
+  1643→                  )}
+  1644→                  {canMutate && <TableHead className="text-white font-semibold w-24">Actions</TableHead>}
+  1645→                </TableRow>
+  1646→              </TableHeader>
+  1647→              <TableBody>
+  1648→                {loading ? (
+  1649→                  <TableRow><TableCell colSpan={config.columns.length + 3} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow>
+  1650→                ) : filteredData.length === 0 ? (
+  1651→                  <TableRow><TableCell colSpan={config.columns.length + 3} className="text-center py-8 text-slate-400">No {config.label.toLowerCase()} found</TableCell></TableRow>
+  1652→                ) : (
+  1653→                  filteredData.map((item, idx) => (
+  1654→                    <TableRow key={item.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1655→                      <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+  1656→                      {config.columns.map(col => {
+  1657→                        let val = getNestedValue(item, col.key);
+  1658→                        // Use computed balance for customers/suppliers instead of stored stale value
+  1659→                        if (col.key === "currentBalance" && (config.key === "customers" || config.key === "suppliers")) {
+  1660→                          val = item.computedCurrentBalance ?? item.currentBalance ?? val;
+  1661→                        }
+  1662→                        if (col.key === "currentBalanceType" && (config.key === "customers" || config.key === "suppliers")) {
+  1663→                          val = item.computedCurrentBalanceType ?? item.currentBalanceType ?? val;
+  1664→                        }
+  1665→                        if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+  1666→                        if (shouldMaskSalary && col.key === "baseSalary") val = "N/A (Restricted)";
+  1667→                        if (shouldMaskCreditLimit && col.key === "creditLimit") val = "N/A (Restricted)";
+  1668→
+  1669→                        // Special rendering for isActive
+  1670→                        if (col.key === "isActive") {
+  1671→                          return (
+  1672→                            <TableCell key={col.key}>
+  1673→                              <Badge variant={val ? "default" : "secondary"} className={val ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}>
+  1674→                                {val ? "Active" : "Inactive"}
+  1675→                              </Badge>
+  1676→                            </TableCell>
+  1677→                          );
+  1678→                        }
+  1679→
+  1680→                        // Leave status badge
+  1681→                        if (col.key === "status" && config.key === "employee-leaves") {
+  1682→                          const statusColors: Record<string, string> = {
+  1683→                            Pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  1684→                            Approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  1685→                            Rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  1686→                          };
+  1687→                          return (
+  1688→                            <TableCell key={col.key}>
+  1689→                              <Badge className={statusColors[val] || "bg-slate-100 text-slate-500"}>
+  1690→                                {val || "—"}
+  1691→                              </Badge>
+  1692→                            </TableCell>
+  1693→                          );
+  1694→                        }
+  1695→
+  1696→                        // Employee status badge
+  1697→                        if (col.key === "status" && config.key === "employees") {
+  1698→                          const empStatusColors: Record<string, string> = {
+  1699→                            Active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  1700→                            "On Leave": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  1701→                            Resigned: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  1702→                            Terminated: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  1703→                          };
+  1704→                          return (
+  1705→                            <TableCell key={col.key}>
+  1706→                              <Badge className={empStatusColors[val] || "bg-slate-100 text-slate-500"}>
+  1707→                                {val || "—"}
+  1708→                              </Badge>
+  1709→                            </TableCell>
+  1710→                          );
+  1711→                        }
+  1712→
+  1713→                        // Customer type badge
+  1714→                        if (col.key === "customerType" && config.key === "customers") {
+  1715→                          return (
+  1716→                            <TableCell key={col.key}>
+  1717→                              <Badge className={val === "Dealer" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"}>
+  1718→                                {val || "—"}
+  1719→                              </Badge>
+  1720→                            </TableCell>
+  1721→                          );
+  1722→                        }
+  1723→
+  1724→                        // Credit status badge for customers and suppliers — use computed credit status
+  1725→                        if (col.key === "creditStatus" && (config.key === "customers" || config.key === "suppliers")) {
+  1726→                          const displayStatus = item.computedCreditStatus || item.creditStatus || "Active";
+  1727→                          const creditColors: Record<string, string> = {
+  1728→                            Active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  1729→                            Frozen: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  1730→                            OverLimit: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  1731→                          };
+  1732→                          return (
+  1733→                            <TableCell key={col.key}>
+  1734→                              <Badge className={creditColors[displayStatus] || "bg-slate-100 text-slate-500"}>
+  1735→                                {displayStatus === "OverLimit" ? "Over Limit" : displayStatus}
+  1736→                              </Badge>
+  1737→                            </TableCell>
+  1738→                          );
+  1739→                        }
+  1740→
+  1741→                        // Currency formatting
+  1742→                        if (col.type === "currency") {
+  1743→                          return <TableCell key={col.key} className="whitespace-nowrap font-medium">{fmtCurrency(val)}</TableCell>;
+  1744→                        }
+  1745→
+  1746→                        // Date formatting
+  1747→                        if (col.type === "date" && val) {
+  1748→                          return <TableCell key={col.key} className="whitespace-nowrap">{fmt(val, "date")}</TableCell>;
+  1749→                        }
+  1750→
+  1751→                        // Name column with avatar thumbnail for employees, customers, suppliers
+  1752→                        if (col.key === "name" && (config.key === "employees" || config.key === "customers" || config.key === "suppliers")) {
+  1753→                          const avatarSrc = item.photo || item.profileImage || null;
+  1754→                          const initials = (String(val || "?")[0] || "?").toUpperCase();
+  1755→                          return (
+  1756→                            <TableCell key={col.key} className="whitespace-nowrap">
+  1757→                              <div className="flex items-center gap-2">
+  1758→                                {avatarSrc ? (
+  1759→                                  <img src={avatarSrc} alt={String(val || "")} className="w-8 h-8 rounded-full object-cover border border-border flex-shrink-0" />
+  1760→                                ) : (
+  1761→                                  <div className="w-8 h-8 rounded-full bg-[#2563eb]/10 flex items-center justify-center flex-shrink-0">
+  1762→                                    <span className="text-xs font-semibold text-[#2563eb]">{initials}</span>
+  1763→                                  </div>
+  1764→                                )}
+  1765→                                <span className="truncate">{fmt(val, col.type)}</span>
+  1766→                              </div>
+  1767→                            </TableCell>
+  1768→                          );
+  1769→                        }
+  1770→
+  1771→                        return <TableCell key={col.key} className="whitespace-nowrap">{fmt(val, col.type)}</TableCell>;
+  1772→                      })}
+  1773→                      {/* Approve/Reject buttons for pending leaves */}
+  1774→                      {config.key === "employee-leaves" && canMutate && (
+  1775→                        <TableCell>
+  1776→                          {item.status === "Pending" ? (
+  1777→                            <div className="flex items-center gap-1">
+  1778→                              <Button
+  1779→                                variant="ghost"
+  1780→                                size="sm"
+  1781→                                onClick={() => handleLeaveAction(item.id, "Approved")}
+  1782→                                className="h-7 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+  1783→                              >
+  1784→                                <Check className="h-3.5 w-3.5 mr-0.5" /> Approve
+  1785→                              </Button>
+  1786→                              <Button
+  1787→                                variant="ghost"
+  1788→                                size="sm"
+  1789→                                onClick={() => handleLeaveAction(item.id, "Rejected")}
+  1790→                                className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+  1791→                              >
+  1792→                                <Ban className="h-3.5 w-3.5 mr-0.5" /> Reject
+  1793→                              </Button>
+  1794→                            </div>
+  1795→                          ) : (
+  1796→                            <span className="text-xs text-slate-400">—</span>
+  1797→                          )}
+  1798→                        </TableCell>
+  1799→                      )}
+  1800→                      {canMutate && (
+  1801→                        <TableCell>
+  1802→                          <div className="flex items-center gap-1">
+  1803→                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="h-7 w-7 p-0">
+  1804→                              <Edit className="h-3.5 w-3.5 text-blue-500" />
+  1805→                            </Button>
+  1806→                            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(item.id)} className="h-7 w-7 p-0" disabled={!isAdmin && config.key !== "customers" && config.key !== "leave-allocations"}>
+  1807→                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+  1808→                            </Button>
+  1809→                          </div>
+  1810→                        </TableCell>
+  1811→                      )}
+  1812→                    </TableRow>
+  1813→                  ))
+  1814→                )}
+  1815→              </TableBody>
+  1816→            </Table>
+  1817→          </div>
+  1818→        </CardContent>
+  1819→      </Card>
+  1820→
+  1821→      {/* Customer Credit Utilization Section */}
+  1822→      {config.key === "customers" && filteredData.length > 0 && (
+  1823→        <Card className="border-slate-200 dark:border-slate-700">
+  1824→          <CardHeader className="pb-2">
+  1825→            <CardTitle className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+  1826→              <AlertTriangle className="h-4 w-4 text-amber-500" />
+  1827→              Credit Utilization Overview
+  1828→            </CardTitle>
+  1829→          </CardHeader>
+  1830→          <CardContent className="p-0 overflow-hidden">
+  1831→            <div className="overflow-x-auto max-h-64 overflow-y-auto -mx-2 sm:mx-0">
+  1832→              <Table className="min-w-[600px]">
+  1833→                <TableHeader>
+  1834→                  <TableRow className="bg-slate-50 dark:bg-slate-800">
+  1835→                    <TableHead className="text-xs font-semibold">Customer</TableHead>
+  1836→                    <TableHead className="text-xs font-semibold">Current Balance</TableHead>
+  1837→                    <TableHead className="text-xs font-semibold">Credit Limit</TableHead>
+  1838→                    <TableHead className="text-xs font-semibold">Utilization</TableHead>
+  1839→                    <TableHead className="text-xs font-semibold">Credit Status</TableHead>
+  1840→                  </TableRow>
+  1841→                </TableHeader>
+  1842→                <TableBody>
+  1843→                  {filteredData.filter(item => Number(item.creditLimit) > 0 || Number(item.computedCurrentBalance) > 0).map(item => {
+  1844→                    const balance = Number(item.computedCurrentBalance ?? item.currentBalance) || 0;
+  1845→                    const limit = Number(item.creditLimit) || 0;
+  1846→                    const pct = limit > 0 ? Math.round((Math.abs(balance) / limit) * 100) : 0;
+  1847→                    let barColor = "bg-emerald-500";
+  1848→                    let textColor = "text-emerald-600";
+  1849→                    if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
+  1850→                    else if (pct > 80) { barColor = "bg-amber-500"; textColor = "text-amber-600"; }
+  1851→                    const maskedBalance = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(balance);
+  1852→                    const maskedLimit = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(limit);
+  1853→                    return (
+  1854→                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1855→                        <TableCell className="text-xs font-medium whitespace-nowrap">{item.name}</TableCell>
+  1856→                        <TableCell className="text-xs whitespace-nowrap">{maskedBalance}</TableCell>
+  1857→                        <TableCell className="text-xs whitespace-nowrap">{maskedLimit}</TableCell>
+  1858→                        <TableCell className="w-32">
+  1859→                          <div className="flex items-center gap-2">
+  1860→                            <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+  1861→                              <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+  1862→                            </div>
+  1863→                            <span className={`text-xs font-medium ${textColor}`}>{pct}%</span>
+  1864→                          </div>
+  1865→                        </TableCell>
+  1866→                        <TableCell className="text-xs">
+  1867→                          <Badge className={
+  1868→                            (item.computedCreditStatus || item.creditStatus) === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
+  1869→                            (item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
+  1870→                            "bg-emerald-100 text-emerald-700 text-[10px]"
+  1871→                          }>
+  1872→                            {(item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "Over Limit" : (item.computedCreditStatus || item.creditStatus || "Active")}
+  1873→                          </Badge>
+  1874→                        </TableCell>
+  1875→                      </TableRow>
+  1876→                    );
+  1877→                  })}
+  1878→                </TableBody>
+  1879→              </Table>
+  1880→            </div>
+  1881→          </CardContent>
+  1882→        </Card>
+  1883→      )}
+  1884→
+  1885→      {/* Supplier Credit Utilization Section */}
+  1886→      {config.key === "suppliers" && filteredData.length > 0 && (
+  1887→        <Card className="border-slate-200 dark:border-slate-700">
+  1888→          <CardHeader className="pb-2">
+  1889→            <CardTitle className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+  1890→              <AlertTriangle className="h-4 w-4 text-amber-500" />
+  1891→              Credit Utilization Overview
+  1892→            </CardTitle>
+  1893→          </CardHeader>
+  1894→          <CardContent className="p-0 overflow-hidden">
+  1895→            <div className="overflow-x-auto max-h-64 overflow-y-auto -mx-2 sm:mx-0">
+  1896→              <Table className="min-w-[600px]">
+  1897→                <TableHeader>
+  1898→                  <TableRow className="bg-slate-50 dark:bg-slate-800">
+  1899→                    <TableHead className="text-xs font-semibold">Supplier</TableHead>
+  1900→                    <TableHead className="text-xs font-semibold">Current Balance</TableHead>
+  1901→                    <TableHead className="text-xs font-semibold">Credit Limit</TableHead>
+  1902→                    <TableHead className="text-xs font-semibold">Utilization</TableHead>
+  1903→                    <TableHead className="text-xs font-semibold">Credit Status</TableHead>
+  1904→                  </TableRow>
+  1905→                </TableHeader>
+  1906→                <TableBody>
+  1907→                  {filteredData.filter(item => Number(item.creditLimit) > 0 || Number(item.computedCurrentBalance) > 0).map(item => {
+  1908→                    const balance = Number(item.computedCurrentBalance ?? item.currentBalance) || 0;
+  1909→                    const limit = Number(item.creditLimit) || 0;
+  1910→                    const pct = limit > 0 ? Math.round((Math.abs(balance) / limit) * 100) : 0;
+  1911→                    let barColor = "bg-emerald-500";
+  1912→                    let textColor = "text-emerald-600";
+  1913→                    if (pct > 100) { barColor = "bg-red-500"; textColor = "text-red-600"; }
+  1914→                    else if (pct > 80) { barColor = "bg-amber-500"; textColor = "text-amber-600"; }
+  1915→                    const maskedBalance = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(balance);
+  1916→                    const maskedLimit = isVatAuditor ? "N/A (Audit Mode)" : shouldMaskCreditLimit ? "N/A (Restricted)" : fmtCurrency(limit);
+  1917→                    return (
+  1918→                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1919→                        <TableCell className="text-xs font-medium whitespace-nowrap">{item.name}</TableCell>
+  1920→                        <TableCell className="text-xs whitespace-nowrap">{maskedBalance}</TableCell>
+  1921→                        <TableCell className="text-xs whitespace-nowrap">{maskedLimit}</TableCell>
+  1922→                        <TableCell className="w-32">
+  1923→                          <div className="flex items-center gap-2">
+  1924→                            <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+  1925→                              <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+  1926→                            </div>
+  1927→                            <span className={`text-xs font-medium ${textColor}`}>{pct}%</span>
+  1928→                          </div>
+  1929→                        </TableCell>
+  1930→                        <TableCell className="text-xs">
+  1931→                          <Badge className={
+  1932→                            (item.computedCreditStatus || item.creditStatus) === "Frozen" ? "bg-red-100 text-red-700 text-[10px]" :
+  1933→                            (item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "bg-amber-100 text-amber-700 text-[10px]" :
+  1934→                            "bg-emerald-100 text-emerald-700 text-[10px]"
+  1935→                          }>
+  1936→                            {(item.computedCreditStatus || item.creditStatus) === "OverLimit" ? "Over Limit" : (item.computedCreditStatus || item.creditStatus || "Active")}
+  1937→                          </Badge>
+  1938→                        </TableCell>
+  1939→                      </TableRow>
+  1940→                    );
+  1941→                  })}
+  1942→                </TableBody>
+  1943→              </Table>
+  1944→            </div>
+  1945→          </CardContent>
+  1946→        </Card>
+  1947→      )}
+  1948→
+  1949→      {/* Record count */}
+  1950→      <div className="text-xs text-slate-500 dark:text-slate-400">
+  1951→        Showing {filteredData.length} of {data.length} {config.label.toLowerCase()}
+  1952→      </div>
+  1953→
+  1954→      {/* Create/Edit Dialog */}
+  1955→      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+  1956→        <DialogContent className={`max-w-[95vw] sm:${config.dialogWidth || "max-w-lg"} max-h-[85vh] overflow-y-auto`}>
+  1957→          <DialogHeader>
+  1958→            <DialogTitle>{editingItem ? `Edit ${singularize(config.label)}` : `New ${singularize(config.label)}`}</DialogTitle>
+  1959→            <DialogDescription>
+  1960→              {editingItem ? `Update ${singularize(config.label).toLowerCase()} details` : `Create a new ${singularize(config.label).toLowerCase()}`}
+  1961→            </DialogDescription>
+  1962→          </DialogHeader>
+  1963→
+  1964→          {/* Phase 8: Corporate Entity Collision Banner */}
+  1965→          {collisionError && (
+  1966→            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2 mb-4">
+  1967→              <AlertTriangle className="h-4 w-4 text-red-600" />
+  1968→              <span className="text-sm text-red-700 dark:text-red-400 font-medium">{collisionError}</span>
+  1969→            </div>
+  1970→          )}
+  1971→
+  1972→          {/* Leave Balance Cards inside dialog */}
+  1973→          {renderLeaveBalanceCards()}
+  1974→          {renderFormContent()}
+  1975→          <DialogFooter>
+  1976→            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+  1977→            <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1978→              {saving ? (
+  1979→                <>
+  1980→                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+  1981→                  Compiling Personnel Dossier...
+  1982→                </>
+  1983→              ) : editingItem ? "Update" : "Create"}
+  1984→            </Button>
+  1985→          </DialogFooter>
+  1986→        </DialogContent>
+  1987→      </Dialog>
+  1988→
+  1989→      {/* Delete Confirmation Dialog */}
+  1990→      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+  1991→        <DialogContent className="max-w-[95vw] sm:max-w-sm">
+  1992→          <DialogHeader>
+  1993→            <DialogTitle>Confirm {isSoftDeleteModule ? "Deactivate" : "Delete"}</DialogTitle>
+  1994→            <DialogDescription>Are you sure you want to {isSoftDeleteModule ? "deactivate" : "permanently remove"} this {singularize(config.label).toLowerCase()}? {isSoftDeleteModule ? "The record will be marked as inactive but preserved in the system." : "This action cannot be undone."}</DialogDescription>
+  1995→          </DialogHeader>
+  1996→          <DialogFooter>
+  1997→            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+  1998→            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>{isSoftDeleteModule ? "Deactivate" : "Delete"}</Button>
+  1999→          </DialogFooter>
+  2000→        </DialogContent>
+
+[showing lines 1-2000 of 2142; use offset=2001 with limit to continue reading]

@@ -5,7 +5,8 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { revokeToken, extractBearerToken } from "@/lib/jwt-utils";
+import { revokeToken, extractBearerToken, verifyToken } from "@/lib/jwt-utils";
+import { logSystemAudit } from "@/lib/activity-logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,6 +17,22 @@ export async function POST(req: NextRequest) {
     if (bearerToken) {
       await revokeToken(bearerToken);
     }
+
+    // Log to SystemAuditLog for security tracking
+    try {
+      const decoded = bearerToken ? await verifyToken(bearerToken) : null;
+      if (decoded?.valid && decoded.payload) {
+        await logSystemAudit({
+          actionType: 'LOGOUT',
+          targetModel: 'User',
+          targetRecordId: decoded.payload.userId,
+          actorUserId: decoded.payload.userId,
+          actorUserName: decoded.payload.name,
+          metadata: JSON.stringify({ email: decoded.payload.email, role: decoded.payload.role }),
+          companyId: decoded.payload.companyId || undefined,
+        });
+      }
+    } catch { /* non-blocking */ }
 
     // Also revoke refresh token if provided in body
     try {

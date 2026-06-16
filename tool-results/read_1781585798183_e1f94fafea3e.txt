@@ -1,0 +1,1304 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo } from "react";
+     4→import {
+     5→  Banknote, ArrowDownCircle, ArrowUpCircle, ArrowLeftRight, Plus,
+     6→  Edit, Trash2, Download, Upload, RefreshCw, Search, Lock,
+     7→  DollarSign, AlertTriangle, FileDown,
+     8→  ChevronDown, ChevronRight, Building2, X, Wallet, Landmark,
+     9→  Calendar, BookOpen
+    10→} from "lucide-react";
+    11→import { Button } from "@/components/ui/button";
+    12→import { Input } from "@/components/ui/input";
+    13→import { Card, CardContent } from "@/components/ui/card";
+    14→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+    15→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    16→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    17→import { Badge } from "@/components/ui/badge";
+    18→import { Textarea } from "@/components/ui/textarea";
+    19→import { Label } from "@/components/ui/label";
+    20→import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+    21→import { useToast } from "@/hooks/use-toast";
+    22→import {
+    23→  exportToPDF,
+    24→  exportToCSV,
+    25→  importFromCSV,
+    26→  type ColumnDef,
+    27→  type CompanyProfile,
+    28→  type SummaryRow,
+    29→} from "@/lib/export-utils";
+    30→
+    31→// ============================================================
+    32→// LOCAL UTILITY FUNCTIONS (self-contained)
+    33→// ============================================================
+    34→
+    35→type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+    36→
+    37→interface AuthUser {
+    38→  name: string;
+    39→  email: string;
+    40→  role: UserRole;
+    41→  displayName: string;
+    42→}
+    43→
+    44→function useAuth() {
+    45→  const getStoredAuth = (): { user: AuthUser | null; isAuthenticated: boolean } => {
+    46→    if (typeof window === "undefined") return { user: null, isAuthenticated: false };
+    47→    const stored = localStorage.getItem("ems_auth");
+    48→    if (stored) {
+    49→      try {
+    50→        const parsed = JSON.parse(stored);
+    51→        return { user: parsed.user, isAuthenticated: parsed.isAuthenticated };
+    52→      } catch { /* ignore */ }
+    53→    }
+    54→    return { user: null, isAuthenticated: false };
+    55→  };
+    56→
+    57→  const [authState, setAuthState] = useState(getStoredAuth);
+    58→  const [, forceUpdate] = useState({});
+    59→
+    60→  useEffect(() => {
+    61→    const listener = () => {
+    62→      const s = localStorage.getItem("ems_auth");
+    63→      if (s) {
+    64→        try {
+    65→          const p = JSON.parse(s);
+    66→          setAuthState({ user: p.user, isAuthenticated: p.isAuthenticated });
+    67→        } catch { /* ignore */ }
+    68→      }
+    69→      forceUpdate({});
+    70→    };
+    71→    window.addEventListener("storage", listener);
+    72→    window.addEventListener("auth-change", listener);
+    73→    return () => {
+    74→      window.removeEventListener("storage", listener);
+    75→      window.removeEventListener("auth-change", listener);
+    76→    };
+    77→  }, []);
+    78→
+    79→  const isVatAuditor = authState.user?.role === "vat_auditor";
+    80→  const isDealer = authState.user?.role === "dealer";
+    81→  const isSR = authState.user?.role === "sr";
+    82→  const isAdmin = authState.user?.role === "admin";
+    83→
+    84→  return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR, isAdmin };
+    85→}
+    86→
+    87→// ── Intl.NumberFormat('en-US') for ALL financial/numeric figures ──
+    88→const bdCurrencyFormatter = new Intl.NumberFormat("en-US", {
+    89→  minimumFractionDigits: 2,
+    90→  maximumFractionDigits: 2,
+    91→});
+    92→
+    93→const fmtCurrency = (v: any): string => {
+    94→  if (v === null || v === undefined) return "—";
+    95→  const num = Number(v);
+    96→  if (isNaN(num)) return "—";
+    97→  return `৳${bdCurrencyFormatter.format(num)}`;
+    98→};
+    99→
+   100→const fmt = (v: any, type?: string) => {
+   101→  if (v === null || v === undefined) return "—";
+   102→  if (type === "currency") return fmtCurrency(v);
+   103→  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+   104→  if (type === "boolean") return v ? "Active" : "Inactive";
+   105→  return String(v);
+   106→};
+   107→
+   108→const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+   109→
+   110→// Empty field default — returns "—" if null/empty
+   111→const fmtEmpty = (v: any): string => {
+   112→  if (v === null || v === undefined || v === "") return "—";
+   113→  return String(v);
+   114→};
+   115→
+   116→// VAT Auditor mask helper
+   117→const auditMask = "N/A (Audit Mode)";
+   118→
+   119→// ── CRITICAL: Currency Sanitization for PDF Export ──────────────
+   120→// Prevents corrupted digits in running balances caused by floating-point issues
+   121→// Apply to ALL currency values before passing to PDF export
+   122→function sanitizeCurrency(val: any): number {
+   123→  const num = Number(val);
+   124→  if (isNaN(num) || num === null || num === undefined) return 0;
+   125→  return Math.round(num * 100) / 100;
+   126→}
+   127→
+   128→async function apiFetch(path: string, opts?: RequestInit) {
+   129→  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+   130→  try {
+   131→    const stored = localStorage.getItem("ems_auth");
+   132→    if (stored) {
+   133→      const parsed = JSON.parse(stored);
+   134→      if (parsed.user?.email) authHeaders["X-User-Email"] = parsed.user.email;
+   135→    }
+   136→  } catch {}
+   137→  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
+   138→  if (!res.ok) {
+   139→    if (res.status === 401) {
+   140→      localStorage.removeItem("ems_auth");
+   141→      window.location.reload();
+   142→    }
+   143→    const err = await res.json().catch(() => ({ error: res.statusText }));
+   144→    throw new Error(err.error || "Request failed");
+   145→  }
+   146→  return res.json();
+   147→}
+   148→
+   149→// ── Bank Type Helpers ───────────────────────────────────────────
+   150→const bankTypeBorder: Record<string, string> = {
+   151→  Bank: "border-l-blue-600",
+   152→  MFS: "border-l-green-600",
+   153→  CashDrawer: "border-l-amber-600",
+   154→};
+   155→
+   156→const bankTypeIcon: Record<string, any> = {
+   157→  Bank: Landmark,
+   158→  MFS: Wallet,
+   159→  CashDrawer: Building2,
+   160→};
+   161→
+   162→const bankTypeBadgeStyle: Record<string, string> = {
+   163→  Bank: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+   164→  MFS: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+   165→  CashDrawer: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+   166→};
+   167→
+   168→const bankTypeLabel: Record<string, string> = {
+   169→  Bank: "Bank",
+   170→  MFS: "MFS",
+   171→  CashDrawer: "Cash Drawer",
+   172→};
+   173→
+   174→// ============================================================
+   175→// BANK TRANSACTIONS PAGE - Ledger Fusion Edition
+   176→// ============================================================
+   177→
+   178→export default function BankTransactionsPage() {
+   179→  const { toast } = useToast();
+   180→  const { isVatAuditor, isDealer, isSR, isAdmin, user } = useAuth();
+   181→  const [data, setData] = useState<any[]>([]);
+   182→  const [banks, setBanks] = useState<any[]>([]);
+   183→  const [loading, setLoading] = useState(true);
+   184→  const [search, setSearch] = useState("");
+   185→  const [typeFilter, setTypeFilter] = useState("All");
+   186→  const [bankTypeFilter, setBankTypeFilter] = useState("All");
+   187→  const [dateFrom, setDateFrom] = useState("");
+   188→  const [dateTo, setDateTo] = useState("");
+   189→  const [showForm, setShowForm] = useState(false);
+   190→  const [editItem, setEditItem] = useState<any>(null);
+   191→  const [deleteItem, setDeleteItem] = useState<any>(null);
+   192→  const [saving, setSaving] = useState(false);
+   193→  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+   194→  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+   195→  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
+   196→  const [importing, setImporting] = useState(false);
+   197→
+   198→  // Form state
+   199→  const [formData, setFormData] = useState<Record<string, any>>({
+   200→    transactionCode: "",
+   201→    bankId: "",
+   202→    type: "Deposit",
+   203→    amount: "",
+   204→    toBankId: "",
+   205→    date: new Date().toISOString().split("T")[0],
+   206→    description: "",
+   207→    status: "Approved",
+   208→    chequeNo: "",
+   209→    depositorName: "",
+   210→    referenceNo: "",
+   211→    paymentOptionId: "",
+   212→    voucherNo: "",
+   213→  });
+   214→
+   215→  // ── Load company branding for PDF export ──────────────────────
+   216→  const loadCompanyProfile = useCallback(async () => {
+   217→    try {
+   218→      const res = await apiFetch("/api/company-branding");
+   219→      if (res.company) {
+   220→        setCompanyProfile(res.company);
+   221→      }
+   222→    } catch { /* silent — PDF will use default branding */ }
+   223→  }, []);
+   224→
+   225→  // Load bank transactions with server-side filtering
+   226→  const load = useCallback(async () => {
+   227→    setLoading(true);
+   228→    try {
+   229→      const params = new URLSearchParams();
+   230→      if (dateFrom) params.set("dateFrom", dateFrom);
+   231→      if (dateTo) params.set("dateTo", dateTo);
+   232→      if (bankTypeFilter !== "All") params.set("bankType", bankTypeFilter);
+   233→      const qs = params.toString();
+   234→      const url = `/api/bank-transactions${qs ? `?${qs}` : ""}`;
+   235→      const res = await apiFetch(url);
+   236→      setData(Array.isArray(res) ? res : res.data || []);
+   237→    } catch (e: any) {
+   238→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   239→    } finally { setLoading(false); }
+   240→  }, [toast, dateFrom, dateTo, bankTypeFilter]);
+   241→
+   242→  // Load bank accounts
+   243→  const loadBanks = useCallback(async () => {
+   244→    try {
+   245→      const res = await apiFetch("/api/banks");
+   246→      setBanks(Array.isArray(res) ? res : res.data || []);
+   247→    } catch { /* silent */ }
+   248→  }, []);
+   249→
+   250→  // Load payment options
+   251→  const loadPaymentOptions = useCallback(async () => {
+   252→    try {
+   253→      const res = await apiFetch("/api/payment-options?activeOnly=true");
+   254→      setPaymentOptions(Array.isArray(res) ? res : res.data || []);
+   255→    } catch { /* silent */ }
+   256→  }, []);
+   257→
+   258→  useEffect(() => { load(); loadBanks(); loadCompanyProfile(); loadPaymentOptions(); }, [load, loadBanks, loadCompanyProfile, loadPaymentOptions]);
+   259→
+   260→  // Selected bank info for balance display
+   261→  const selectedBank = useMemo(() => {
+   262→    if (!formData.bankId) return null;
+   263→    return banks.find((b: any) => b.id === formData.bankId) || null;
+   264→  }, [formData.bankId, banks]);
+   265→
+   266→  const selectedToBank = useMemo(() => {
+   267→    if (!formData.toBankId) return null;
+   268→    return banks.find((b: any) => b.id === formData.toBankId) || null;
+   269→  }, [formData.toBankId, banks]);
+   270→
+   271→  // Insufficient balance validation
+   272→  const insufficientBalance = useMemo(() => {
+   273→    if (!selectedBank || !formData.amount) return false;
+   274→    const amount = Number(formData.amount) || 0;
+   275→    if (amount <= 0) return false;
+   276→    if (formData.type === "Withdraw" || formData.type === "Transfer") {
+   277→      return amount > selectedBank.currentBalance;
+   278→    }
+   279→    return false;
+   280→  }, [selectedBank, formData.amount, formData.type]);
+   281→
+   282→  // Same bank validation for transfers
+   283→  const sameBankError = useMemo(() => {
+   284→    return formData.type === "Transfer" && formData.bankId && formData.toBankId && formData.bankId === formData.toBankId;
+   285→  }, [formData.type, formData.bankId, formData.toBankId]);
+   286→
+   287→  // ── Filtered data (client-side search + type filter) ──────────
+   288→  const filtered = useMemo(() => {
+   289→    let result = data;
+   290→    // Type filter
+   291→    if (typeFilter !== "All") {
+   292→      result = result.filter((item: any) => item.type === typeFilter);
+   293→    }
+   294→    // Bank type filter (client-side for items already loaded)
+   295→    if (bankTypeFilter !== "All") {
+   296→      result = result.filter((item: any) => item.bank?.bankType === bankTypeFilter);
+   297→    }
+   298→    // Date range filter (client-side supplement for items already loaded)
+   299→    if (dateFrom) {
+   300→      const from = new Date(dateFrom);
+   301→      result = result.filter((item: any) => new Date(item.date) >= from);
+   302→    }
+   303→    if (dateTo) {
+   304→      const to = new Date(dateTo);
+   305→      to.setHours(23, 59, 59, 999);
+   306→      result = result.filter((item: any) => new Date(item.date) <= to);
+   307→    }
+   308→    // Search filter
+   309→    if (!search) return result;
+   310→    const s = search.toLowerCase();
+   311→    return result.filter((item: any) =>
+   312→      item.transactionCode?.toLowerCase().includes(s) ||
+   313→      item.bank?.bankName?.toLowerCase().includes(s) ||
+   314→      item.type?.toLowerCase().includes(s) ||
+   315→      item.description?.toLowerCase().includes(s) ||
+   316→      item.chequeNo?.toLowerCase().includes(s) ||
+   317→      item.depositorName?.toLowerCase().includes(s) ||
+   318→      item.referenceNo?.toLowerCase().includes(s) ||
+   319→      item.bank?.chartOfAccount?.name?.toLowerCase().includes(s) ||
+   320→      item.status?.toLowerCase().includes(s)
+   321→    );
+   322→  }, [data, search, typeFilter, bankTypeFilter, dateFrom, dateTo]);
+   323→
+   324→  // ── Enhanced Stats (5 cards) ──────────────────────────────────
+   325→  const totalTransactions = filtered.length;
+   326→  const totalDeposits = filtered.filter((d: any) => d.type === "Deposit").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+   327→  const totalWithdrawals = filtered.filter((d: any) => d.type === "Withdraw").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+   328→  const totalTransfers = filtered.filter((d: any) => d.type === "Transfer").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+   329→  const netCashPosition = totalDeposits - totalWithdrawals;
+   330→
+   331→  // Toggle expand
+   332→  const toggleExpand = (id: string) => {
+   333→    setExpandedRows(prev => {
+   334→      const next = new Set(prev);
+   335→      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+   336→      return next;
+   337→    });
+   338→  };
+   339→
+   340→  // Type badge styling
+   341→  const typeBadge = (type: string) => {
+   342→    switch (type) {
+   343→      case "Deposit":
+   344→        return { className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: ArrowDownCircle };
+   345→      case "Withdraw":
+   346→        return { className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", icon: ArrowUpCircle };
+   347→      case "Transfer":
+   348→        return { className: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400", icon: ArrowLeftRight };
+   349→      default:
+   350→        return { className: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400", icon: Banknote };
+   351→    }
+   352→  };
+   353→
+   354→  // Status badge styling
+   355→  const statusColor = (status: string) => {
+   356→    switch (status) {
+   357→      case "Pending": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+   358→      case "Approved": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+   359→      case "Rejected": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+   360→      default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+   361→    }
+   362→  };
+   363→
+   364→  // ── Ledger impact for expanded row ────────────────────────────
+   365→  const getLedgerImpact = (item: any): { debitAccount: string; creditAccount: string; amount: number } => {
+   366→    const bankCoA = item.bank?.chartOfAccount?.name || item.bank?.bankName || "Bank";
+   367→    switch (item.type) {
+   368→      case "Deposit":
+   369→        return { debitAccount: bankCoA, creditAccount: "Cash in Hand", amount: item.amount || 0 };
+   370→      case "Withdraw":
+   371→        return { debitAccount: "Cash in Hand", creditAccount: bankCoA, amount: item.amount || 0 };
+   372→      case "Transfer": {
+   373→        const targetCoA = item.toBank?.chartOfAccount?.name || item.toBank?.bankName || "Target Bank";
+   374→        return { debitAccount: targetCoA, creditAccount: bankCoA, amount: item.amount || 0 };
+   375→      }
+   376→      default:
+   377→        return { debitAccount: "—", creditAccount: "—", amount: 0 };
+   378→    }
+   379→  };
+   380→
+   381→  // Open create form
+   382→  const openCreate = () => {
+   383→    const nextNum = data.length > 0
+   384→      ? String(Math.max(...data.map((d: any) => parseInt(d.transactionCode?.replace("BTX-", "") || "0", 10) || 0)) + 1).padStart(5, "0")
+   385→      : "00001";
+   386→    setFormData({
+   387→      transactionCode: `BTX-${nextNum}`,
+   388→      bankId: "",
+   389→      type: "Deposit",
+   390→      amount: "",
+   391→      toBankId: "",
+   392→      date: new Date().toISOString().split("T")[0],
+   393→      description: "",
+   394→      status: "Approved",
+   395→      chequeNo: "",
+   396→      depositorName: "",
+   397→      referenceNo: "",
+   398→      paymentOptionId: "",
+   399→      voucherNo: "",
+   400→    });
+   401→    setEditItem(null);
+   402→    setShowForm(true);
+   403→    loadBanks();
+   404→    loadPaymentOptions();
+   405→  };
+   406→
+   407→  // Open edit form
+   408→  const openEdit = (item: any) => {
+   409→    setFormData({
+   410→      transactionCode: item.transactionCode || "",
+   411→      bankId: item.bankId || "",
+   412→      type: item.type || "Deposit",
+   413→      amount: item.amount || "",
+   414→      toBankId: item.toBankId || "",
+   415→      date: item.date ? item.date.split("T")[0] : "",
+   416→      description: item.description || "",
+   417→      status: item.status || "Approved",
+   418→      chequeNo: item.chequeNo || "",
+   419→      depositorName: item.depositorName || "",
+   420→      referenceNo: item.referenceNo || "",
+   421→      paymentOptionId: item.paymentOptionId || "",
+   422→      voucherNo: item.voucherNo || "",
+   423→    });
+   424→    setEditItem(item);
+   425→    setShowForm(true);
+   426→    loadBanks();
+   427→    loadPaymentOptions();
+   428→  };
+   429→
+   430→  // Handle save
+   431→  const handleSave = async () => {
+   432→    if (!formData.bankId || !formData.type || !formData.date || !formData.amount) {
+   433→      toast({ title: "Error", description: "Bank, Type, Amount, and Date are required", variant: "destructive" });
+   434→      return;
+   435→    }
+   436→    if (Number(formData.amount) <= 0) {
+   437→      toast({ title: "Error", description: "Amount must be a positive number", variant: "destructive" });
+   438→      return;
+   439→    }
+   440→    if (insufficientBalance) {
+   441→      toast({ title: "Error", description: "Insufficient bank balance for this transaction", variant: "destructive" });
+   442→      return;
+   443→    }
+   444→    if (formData.type === "Transfer" && !formData.toBankId) {
+   445→      toast({ title: "Error", description: "Target bank is required for Transfer", variant: "destructive" });
+   446→      return;
+   447→    }
+   448→    if (sameBankError) {
+   449→      toast({ title: "Error", description: "Source bank and target bank cannot be the same", variant: "destructive" });
+   450→      return;
+   451→    }
+   452→    setSaving(true);
+   453→    try {
+   454→      const payload = {
+   455→        bankId: formData.bankId,
+   456→        type: formData.type,
+   457→        amount: Number(formData.amount),
+   458→        toBankId: formData.type === "Transfer" ? formData.toBankId : undefined,
+   459→        date: formData.date,
+   460→        description: formData.description || undefined,
+   461→        status: formData.status || "Approved",
+   462→        chequeNo: formData.chequeNo || undefined,
+   463→        depositorName: formData.depositorName || undefined,
+   464→        referenceNo: formData.referenceNo || undefined,
+   465→        paymentOptionId: formData.paymentOptionId || undefined,
+   466→        voucherNo: formData.voucherNo || undefined,
+   467→      };
+   468→      if (editItem) {
+   469→        await apiFetch(`/api/bank-transactions/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   470→        toast({ title: "Updated", description: "Bank Transaction updated" });
+   471→      } else {
+   472→        await apiFetch("/api/bank-transactions", { method: "POST", body: JSON.stringify(payload) });
+   473→        toast({ title: "Created", description: "Bank Transaction created" });
+   474→      }
+   475→      setShowForm(false);
+   476→      load();
+   477→      loadBanks();
+   478→    } catch (e: any) {
+   479→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   480→    } finally { setSaving(false); }
+   481→  };
+   482→
+   483→  // Handle delete
+   484→  const handleDelete = async () => {
+   485→    if (!deleteItem) return;
+   486→    if (!isAdmin) {
+   487→      toast({ title: "Access Denied", description: "Only administrators can delete financial posts", variant: "destructive" });
+   488→      setDeleteItem(null);
+   489→      return;
+   490→    }
+   491→    try {
+   492→      await apiFetch(`/api/bank-transactions/${deleteItem.id}`, { method: "DELETE" });
+   493→      toast({ title: "Deleted" });
+   494→      setDeleteItem(null);
+   495→      load();
+   496→      loadBanks();
+   497→    } catch (e: any) {
+   498→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   499→    }
+   500→  };
+   501→
+   502→  // ── Enhanced CSV Export with ColumnDef ────────────────────────
+   503→  const exportCSV = () => {
+   504→    try {
+   505→      const columns: ColumnDef[] = [
+   506→        { key: "transactionCode", label: "Transaction Code", type: "text" },
+   507→        { key: "bankName", label: "Bank", type: "text" },
+   508→        { key: "bankType", label: "Bank Type", type: "text" },
+   509→        { key: "ledgerAccount", label: "Ledger Account", type: "text" },
+   510→        { key: "coaCode", label: "CoA Code", type: "text" },
+   511→        { key: "type", label: "Type", type: "text" },
+   512→        { key: "amount", label: "Amount", type: "currency" },
+   513→        { key: "runningBalance", label: "Running Balance", type: "currency" },
+   514→        { key: "chequeNo", label: "Cheque No", type: "text" },
+   515→        { key: "depositorName", label: "Depositor", type: "text" },
+   516→        { key: "referenceNo", label: "Reference No", type: "text" },
+   517→        { key: "toBankName", label: "To Bank", type: "text" },
+   518→        { key: "date", label: "Date", type: "date" },
+   519→        { key: "status", label: "Status", type: "text" },
+   520→      ];
+   521→
+   522→      const vatMaskedColumns = isVatAuditor
+   523→        ? ["amount", "runningBalance", "chequeNo", "depositorName", "referenceNo"]
+   524→        : [];
+   525→
+   526→      const csvData = filtered.map((item: any) => ({
+   527→        transactionCode: item.transactionCode,
+   528→        bankName: item.bank?.bankName || "—",
+   529→        bankType: item.bank?.bankType || "—",
+   530→        ledgerAccount: item.bank?.chartOfAccount?.name || "Unmapped",
+   531→        coaCode: item.bank?.chartOfAccount?.code || "—",
+   532→        type: item.type,
+   533→        amount: sanitizeCurrency(item.amount),
+   534→        runningBalance: sanitizeCurrency(item.runningBalance),
+   535→        chequeNo: item.chequeNo || "—",
+   536→        depositorName: item.depositorName || "—",
+   537→        referenceNo: item.referenceNo || "—",
+   538→        toBankName: item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—",
+   539→        date: item.date,
+   540→        status: item.status,
+   541→      }));
+   542→
+   543→      exportToCSV({
+   544→        title: "Bank Transactions",
+   545→        columns,
+   546→        data: csvData,
+   547→        isVatAuditor,
+   548→        vatMaskedColumns,
+   549→      });
+   550→      toast({ title: "Exported", description: "Bank Transactions exported to CSV" });
+   551→    } catch (e: any) {
+   552→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   553→    }
+   554→  };
+   555→
+   556→  // ── Enhanced PDF Export with summary rows, company branding, sanitized currency ──
+   557→  const exportPDF = () => {
+   558→    try {
+   559→      const columns: ColumnDef[] = [
+   560→        { key: "transactionCode", label: "Code", type: "text" },
+   561→        { key: "bankName", label: "Bank", type: "text" },
+   562→        { key: "bankType", label: "Bank Type", type: "text" },
+   563→        { key: "ledgerAccount", label: "Ledger Account", type: "text" },
+   564→        { key: "type", label: "Type", type: "text" },
+   565→        { key: "amount", label: "Amount", type: "currency" },
+   566→        { key: "runningBalance", label: "Running Bal", type: "currency" },
+   567→        { key: "chequeNo", label: "Cheque No", type: "text" },
+   568→        { key: "depositorName", label: "Depositor", type: "text" },
+   569→        { key: "referenceNo", label: "Reference", type: "text" },
+   570→        { key: "toBankName", label: "To Bank", type: "text" },
+   571→        { key: "date", label: "Date", type: "date" },
+   572→        { key: "status", label: "Status", type: "text" },
+   573→      ];
+   574→
+   575→      const vatMaskedColumns = isVatAuditor
+   576→        ? ["amount", "runningBalance", "chequeNo", "depositorName", "referenceNo"]
+   577→        : [];
+   578→
+   579→      // CRITICAL: Use sanitizeCurrency on ALL currency values to prevent corrupted digits
+   580→      const pdfData = filtered.map((item: any) => ({
+   581→        transactionCode: item.transactionCode,
+   582→        bankName: item.bank?.bankName || "—",
+   583→        bankType: item.bank?.bankType || "—",
+   584→        ledgerAccount: item.bank?.chartOfAccount?.name || "Unmapped",
+   585→        type: item.type,
+   586→        amount: sanitizeCurrency(item.amount),
+   587→        runningBalance: sanitizeCurrency(item.runningBalance),
+   588→        chequeNo: item.chequeNo,
+   589→        depositorName: item.depositorName,
+   590→        referenceNo: item.referenceNo,
+   591→        toBankName: item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—",
+   592→        date: item.date,
+   593→        status: item.status,
+   594→      }));
+   595→
+   596→      // Build summary rows for the PDF
+   597→      const colCount = columns.length;
+   598→      const summaryRows: SummaryRow[] = [
+   599→        {
+   600→          cells: [
+   601→            "TOTAL DEPOSITS",
+   602→            ...Array(colCount - 3).fill(""),
+   603→            fmtCurrency(sanitizeCurrency(totalDeposits)),
+   604→            "",
+   605→          ],
+   606→          style: {
+   607→            fillColor: [22, 101, 52],   // green-800
+   608→            textColor: [255, 255, 255],
+   609→            fontStyle: "bold",
+   610→            fontSize: 7,
+   611→          },
+   612→        },
+   613→        {
+   614→          cells: [
+   615→            "TOTAL WITHDRAWALS",
+   616→            ...Array(colCount - 3).fill(""),
+   617→            fmtCurrency(sanitizeCurrency(totalWithdrawals)),
+   618→            "",
+   619→          ],
+   620→          style: {
+   621→            fillColor: [153, 27, 27],   // red-800
+   622→            textColor: [255, 255, 255],
+   623→            fontStyle: "bold",
+   624→            fontSize: 7,
+   625→          },
+   626→        },
+   627→        {
+   628→          cells: [
+   629→            "TOTAL TRANSFERS",
+   630→            ...Array(colCount - 3).fill(""),
+   631→            fmtCurrency(sanitizeCurrency(totalTransfers)),
+   632→            "",
+   633→          ],
+   634→          style: {
+   635→            fillColor: [7, 89, 133],    // sky-800
+   636→            textColor: [255, 255, 255],
+   637→            fontStyle: "bold",
+   638→            fontSize: 7,
+   639→          },
+   640→        },
+   641→        {
+   642→          cells: [
+   643→            "NET CASH POSITION",
+   644→            ...Array(colCount - 3).fill(""),
+   645→            fmtCurrency(sanitizeCurrency(netCashPosition)),
+   646→            "",
+   647→          ],
+   648→          style: {
+   649→            fillColor: netCashPosition >= 0 ? [22, 101, 52] : [153, 27, 27],
+   650→            textColor: [255, 255, 255],
+   651→            fontStyle: "bold",
+   652→            fontSize: 8,
+   653→          },
+   654→        },
+   655→      ];
+   656→
+   657→      exportToPDF({
+   658→        title: "Bank Transactions",
+   659→        subtitle: dateFrom || dateTo
+   660→          ? `Period: ${dateFrom ? fmtDate(dateFrom) : "Start"} — ${dateTo ? fmtDate(dateTo) : "Now"}`
+   661→          : undefined,
+   662→        orientation: "landscape",
+   663→        columns,
+   664→        data: pdfData,
+   665→        isVatAuditor,
+   666→        vatMaskedColumns,
+   667→        summaryRows,
+   668→        company: companyProfile || undefined,
+   669→        financialFooter: {
+   670→          preparedBy: user?.displayName || "System",
+   671→          checkedBy: "",
+   672→          authorizedBy: "",
+   673→          printedBy: user?.displayName || "System",
+   674→        },
+   675→      });
+   676→      toast({ title: "Exported", description: "Bank Transactions exported to PDF" });
+   677→    } catch (e: any) {
+   678→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   679→    }
+   680→  };
+   681→
+   682→  // ── Enhanced CSV Import with bulk-import endpoint and duplicate validation ──
+   683→  const handleImportCSV = () => {
+   684→    setImporting(true);
+   685→    importFromCSV({
+   686→      apiPath: "/api/bank-transactions", // Used for file parsing/dialog only
+   687→      formFields: [
+   688→        { key: "bankName", label: "Bank Name", type: "text", required: true },
+   689→        { key: "type", label: "Type", type: "select", required: true, options: [{ value: "Deposit", label: "Deposit" }, { value: "Withdraw", label: "Withdraw" }, { value: "Transfer", label: "Transfer" }] },
+   690→        { key: "amount", label: "Amount", type: "number", required: true },
+   691→        { key: "date", label: "Date", type: "date", required: true },
+   692→        { key: "toBankName", label: "To Bank Name", type: "text" },
+   693→        { key: "description", label: "Description", type: "text" },
+   694→        { key: "chequeNo", label: "Cheque No", type: "text" },
+   695→        { key: "depositorName", label: "Depositor Name", type: "text" },
+   696→        { key: "referenceNo", label: "Reference No", type: "text" },
+   697→        { key: "status", label: "Status", type: "select", options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }, { value: "Rejected", label: "Rejected" }] },
+   698→      ],
+   699→    }).then(async (result) => {
+   700→      // The importFromCSV function already attempted individual POSTs
+   701→      // But we want to show the detailed feedback from bulk-import
+   702→      // If there were no errors from the standard import, report success
+   703→      if (result.failed === 0 && result.imported > 0) {
+   704→        toast({ title: "Import Complete", description: `Imported ${result.imported} transactions successfully` });
+   705→      } else if (result.imported === 0 && result.failed === 0) {
+   706→        // No data — user cancelled or empty file
+   707→        toast({ title: "Import Cancelled", description: "No transactions were imported" });
+   708→      } else {
+   709→        // Some or all failed — show detailed error
+   710→        const errorDetails = result.errors.length > 0
+   711→          ? result.errors.slice(0, 5).join("; ")
+   712→          : "Unknown error";
+   713→        toast({
+   714→          title: "Import Issues",
+   715→          description: `Imported: ${result.imported}, Failed: ${result.failed}. ${errorDetails}`,
+   716→          variant: "destructive",
+   717→        });
+   718→      }
+   719→      load();
+   720→      loadBanks();
+   721→      setImporting(false);
+   722→    }).catch(() => {
+   723→      setImporting(false);
+   724→    });
+   725→  };
+   726→
+   727→  // Column count for table spans
+   728→  const colCount = 12;
+   729→
+   730→  // ============================================================
+   731→  // RBAC: Dealer - COMPLETELY HIDDEN
+   732→  // ============================================================
+   733→  if (isDealer) {
+   734→    return (
+   735→      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+   736→        <Card className="max-w-md w-full"><CardContent className="p-8 text-center">
+   737→          <Lock className="w-12 h-12 mx-auto mb-4 text-red-500" />
+   738→          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h3>
+   739→          <p className="text-muted-foreground">Dealers cannot view corporate bank accounts. Please contact your administrator.</p>
+   740→        </CardContent></Card>
+   741→      </div>
+   742→    );
+   743→  }
+   744→
+   745→  // ============================================================
+   746→  // RBAC: SR - STRICTLY RESTRICTED
+   747→  // ============================================================
+   748→  if (isSR) {
+   749→    return (
+   750→      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+   751→        <Card className="max-w-md w-full"><CardContent className="p-8 text-center">
+   752→          <Lock className="w-12 h-12 mx-auto mb-4 text-red-500" />
+   753→          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h3>
+   754→          <p className="text-muted-foreground">Sales Representatives cannot track raw Bank Transactions. Please contact your administrator.</p>
+   755→        </CardContent></Card>
+   756→      </div>
+   757→    );
+   758→  }
+   759→
+   760→  // ============================================================
+   761→  // MAIN RENDER (Admin / Manager / VAT Auditor)
+   762→  // ============================================================
+   763→  return (
+   764→    <div className="page-enter space-y-4">
+   765→      {/* VAT Auditor Mode Badge */}
+   766→      {isVatAuditor && (
+   767→        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+   768→          <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+   769→          <span className="text-sm text-amber-700 dark:text-amber-400">Amount, balance, cheque, depositor, reference, and bank account fields hidden — transactions mapped against legal invoicing sets and compliant VAT ledger formats only</span>
+   770→        </div>
+   771→      )}
+   772→
+   773→      {/* ── Bank Balance Cards with Ledger Account Linking ─────── */}
+   774→      {banks.length > 0 && (
+   775→        <div>
+   776→          <h3 className="text-sm font-semibold text-muted-foreground mb-2">Bank Account Balances — Ledger Fusion</h3>
+   777→          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+   778→            {banks.filter((b: any) => b.isActive !== false).map((bank: any) => {
+   779→              const bType: string = bank.bankType || "Bank";
+   780→              const borderClass = bankTypeBorder[bType] || "border-l-gray-500";
+   781→              const BIcon = bankTypeIcon[bType] || Building2;
+   782→              const badgeClass = bankTypeBadgeStyle[bType] || "bg-gray-100 text-gray-700";
+   783→              const coaName = bank.chartOfAccount?.name || "Unmapped";
+   784→              const coaCode = bank.chartOfAccount?.code || "—";
+   785→
+   786→              return (
+   787→                <Card key={bank.id} className={`border-l-4 ${borderClass}`}>
+   788→                  <CardContent className="p-4">
+   789→                    <div className="flex items-start justify-between">
+   790→                      <div className="flex-1 min-w-0">
+   791→                        <div className="flex items-center gap-2 mb-1">
+   792→                          <BIcon className="w-4 h-4 shrink-0 text-slate-600 dark:text-slate-400" />
+   793→                          <span className="font-semibold text-slate-900 dark:text-white truncate">{bank.bankName}</span>
+   794→                        </div>
+   795→                        <div className="flex items-center gap-2 mb-1">
+   796→                          <Badge className={`text-[10px] px-1.5 py-0 ${badgeClass}`}>{bankTypeLabel[bType] || bType}</Badge>
+   797→                          <span className="text-xs text-muted-foreground truncate">A/C: {isVatAuditor ? auditMask : (bank.accountNo || "—")}</span>
+   798→                        </div>
+   799→                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+   800→                          <BookOpen className="w-3 h-3 shrink-0" />
+   801→                          <span className="truncate">{coaName}</span>
+   802→                          {coaCode !== "—" && <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">({coaCode})</span>}
+   803→                        </div>
+   804→                        <p className="text-[10px] text-muted-foreground mt-0.5">
+   805→                          Opening: {isVatAuditor ? auditMask : fmt(bank.openingBalance, "currency")}
+   806→                        </p>
+   807→                      </div>
+   808→                      <div className="text-right shrink-0 ml-2">
+   809→                        <p className={`text-lg font-bold font-mono ${bank.currentBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+   810→                          {isVatAuditor ? auditMask : fmt(bank.currentBalance, "currency")}
+   811→                        </p>
+   812→                        <p className="text-xs text-muted-foreground">Current Balance</p>
+   813→                      </div>
+   814→                    </div>
+   815→                  </CardContent>
+   816→                </Card>
+   817→              );
+   818→            })}
+   819→          </div>
+   820→        </div>
+   821→      )}
+   822→
+   823→      <div className="flex items-center justify-between flex-wrap gap-2">
+   824→        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><Banknote className="w-6 h-6" />Bank Transactions</h2>
+   825→        <div className="flex gap-2 flex-wrap">
+   826→          <Button variant="outline" size="sm" onClick={handleImportCSV} disabled={importing}>
+   827→            <Upload className="w-4 h-4 mr-1" />{importing ? "Importing..." : "Import CSV"}
+   828→          </Button>
+   829→          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+   830→          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+   831→          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreate}><Plus className="w-4 h-4 mr-1" />Create Transaction</Button>
+   832→        </div>
+   833→      </div>
+   834→
+   835→      {/* ── Enhanced Stat Cards (5 cards) ──────────────────────── */}
+   836→      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+   837→        {[
+   838→          { label: "Total Transactions", value: totalTransactions, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+   839→          { label: "Total Deposits", value: isVatAuditor ? auditMask : fmt(totalDeposits, "currency"), icon: ArrowDownCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   840→          { label: "Total Withdrawals", value: isVatAuditor ? auditMask : fmt(totalWithdrawals, "currency"), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+   841→          { label: "Total Transfers", value: isVatAuditor ? auditMask : fmt(totalTransfers, "currency"), icon: ArrowLeftRight, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-900/30" },
+   842→          { label: "Net Cash Position", value: isVatAuditor ? auditMask : fmt(netCashPosition, "currency"), icon: DollarSign, color: netCashPosition >= 0 ? "text-green-600" : "text-red-600", bg: netCashPosition >= 0 ? "bg-green-50 dark:bg-green-900/30" : "bg-red-50 dark:bg-red-900/30" },
+   843→        ].map((stat, i) => (
+   844→          <Card key={i} className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
+   845→            <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+   846→            <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className={`text-lg font-bold ${i === 4 && !isVatAuditor ? (netCashPosition >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400") : "text-slate-900 dark:text-white"}`}>{stat.value}</p></div>
+   847→          </CardContent></Card>
+   848→        ))}
+   849→      </div>
+   850→
+   851→      <Card>
+   852→        <CardContent className="p-4">
+   853→          {/* ── Filter Bar ──────────────────────────────────────── */}
+   854→          <div className="flex flex-wrap items-center gap-2 mb-4">
+   855→            <div className="relative flex-1 min-w-[200px] max-w-sm">
+   856→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   857→              <Input placeholder="Search by code, bank, type, ledger account, cheque..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+   858→            </div>
+   859→            {/* Transaction Type Filter */}
+   860→            <Select value={typeFilter} onValueChange={setTypeFilter}>
+   861→              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Filter Type" /></SelectTrigger>
+   862→              <SelectContent>
+   863→                <SelectItem value="All">All Types</SelectItem>
+   864→                <SelectItem value="Deposit">Deposit</SelectItem>
+   865→                <SelectItem value="Withdraw">Withdraw</SelectItem>
+   866→                <SelectItem value="Transfer">Transfer</SelectItem>
+   867→              </SelectContent>
+   868→            </Select>
+   869→            {/* Bank Type Filter */}
+   870→            <Select value={bankTypeFilter} onValueChange={setBankTypeFilter}>
+   871→              <SelectTrigger className="w-[160px]"><SelectValue placeholder="Bank Type" /></SelectTrigger>
+   872→              <SelectContent>
+   873→                <SelectItem value="All">All Bank Types</SelectItem>
+   874→                <SelectItem value="Bank">Bank</SelectItem>
+   875→                <SelectItem value="MFS">MFS</SelectItem>
+   876→                <SelectItem value="CashDrawer">Cash Drawer</SelectItem>
+   877→              </SelectContent>
+   878→            </Select>
+   879→            {/* Date Range Filter */}
+   880→            <div className="flex items-center gap-1">
+   881→              <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+   882→              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[140px]" placeholder="From" />
+   883→              <span className="text-xs text-muted-foreground">—</span>
+   884→              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[140px]" placeholder="To" />
+   885→            </div>
+   886→            {(dateFrom || dateTo || bankTypeFilter !== "All") && (
+   887→              <Button variant="ghost" size="sm" onClick={() => { setDateFrom(""); setDateTo(""); setBankTypeFilter("All"); }} className="text-xs">
+   888→                <X className="w-3 h-3 mr-1" />Clear Filters
+   889→              </Button>
+   890→            )}
+   891→            <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4" /></Button>
+   892→          </div>
+   893→
+   894→          {/* ── Enhanced Table ──────────────────────────────────── */}
+   895→          <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border">
+   896→            <Table>
+   897→              <TableHeader>
+   898→                <TableRow className="bg-muted/50">
+   899→                  <TableHead className="w-10">+</TableHead>
+   900→                  <TableHead>Code</TableHead>
+   901→                  <TableHead>Bank</TableHead>
+   902→                  <TableHead>Bank Type</TableHead>
+   903→                  <TableHead>Ledger Account</TableHead>
+   904→                  <TableHead>Type</TableHead>
+   905→                  <TableHead>Amount</TableHead>
+   906→                  <TableHead>Running Balance</TableHead>
+   907→                  <TableHead>To Bank</TableHead>
+   908→                  <TableHead>Date</TableHead>
+   909→                  <TableHead>Status</TableHead>
+   910→                  <TableHead className="w-20 text-right">Actions</TableHead>
+   911→                </TableRow>
+   912→              </TableHeader>
+   913→              <TableBody>
+   914→                {loading ? (
+   915→                  <TableRow><TableCell colSpan={colCount} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+   916→                ) : filtered.length === 0 ? (
+   917→                  <TableRow><TableCell colSpan={colCount} className="h-24 text-center text-muted-foreground">No bank transactions found</TableCell></TableRow>
+   918→                ) : filtered.map((item: any) => {
+   919→                  const tb = typeBadge(item.type);
+   920→                  const TypeIcon = tb.icon;
+   921→                  const itemBankType = item.bank?.bankType || "Bank";
+   922→                  const itemBadgeClass = bankTypeBadgeStyle[itemBankType] || "bg-gray-100 text-gray-700";
+   923→                  const itemCoAName = item.bank?.chartOfAccount?.name || "Unmapped";
+   924→
+   925→                  return (
+   926→                    <React.Fragment key={item.id}>
+   927→                      <TableRow className="data-table-row hover:bg-muted/50">
+   928→                        <TableCell>
+   929→                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(item.id)}>
+   930→                            {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+   931→                          </Button>
+   932→                        </TableCell>
+   933→                        <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{item.transactionCode}</TableCell>
+   934→                        <TableCell>{item.bank?.bankName || "—"}</TableCell>
+   935→                        <TableCell>
+   936→                          <Badge className={`text-[10px] px-1.5 py-0 ${itemBadgeClass}`}>
+   937→                            {bankTypeLabel[itemBankType] || itemBankType}
+   938→                          </Badge>
+   939→                        </TableCell>
+   940→                        <TableCell>
+   941→                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+   942→                            <BookOpen className="w-3 h-3" />
+   943→                            {itemCoAName}
+   944→                          </span>
+   945→                        </TableCell>
+   946→                        <TableCell>
+   947→                          <Badge className={tb.className}>
+   948→                            <TypeIcon className="w-3 h-3 mr-1" />{item.type}
+   949→                          </Badge>
+   950→                        </TableCell>
+   951→                        <TableCell className="font-mono">{isVatAuditor ? <span className="text-xs text-muted-foreground italic">{auditMask}</span> : fmt(item.amount, "currency")}</TableCell>
+   952→                        <TableCell className="font-mono">{isVatAuditor ? <span className="text-xs text-muted-foreground italic">{auditMask}</span> : fmt(item.runningBalance, "currency")}</TableCell>
+   953→                        <TableCell>{item.type === "Transfer" ? (item.toBank?.bankName || "—") : "—"}</TableCell>
+   954→                        <TableCell>{fmtDate(item.date)}</TableCell>
+   955→                        <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
+   956→                        <TableCell className="text-right">
+   957→                          <div className="flex items-center justify-end gap-1">
+   958→                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="w-3.5 h-3.5" /></Button>
+   959→                            {!isAdmin ? (
+   960→                              <Tooltip>
+   961→                                <TooltipTrigger asChild>
+   962→                                  <span>
+   963→                                    <Button variant="ghost" size="sm" className="text-red-300 cursor-not-allowed" disabled>
+   964→                                      <Trash2 className="w-3.5 h-3.5" />
+   965→                                    </Button>
+   966→                                  </span>
+   967→                                </TooltipTrigger>
+   968→                                <TooltipContent>Only administrators can delete financial posts</TooltipContent>
+   969→                              </Tooltip>
+   970→                            ) : (
+   971→                              <Button variant="ghost" size="sm" className="text-red-500" onClick={() => setDeleteItem(item)}><Trash2 className="w-3.5 h-3.5" /></Button>
+   972→                            )}
+   973→                          </div>
+   974→                        </TableCell>
+   975→                      </TableRow>
+   976→                      {/* ── Expanded Row: Details + Ledger Impact ─── */}
+   977→                      {expandedRows.has(item.id) && (
+   978→                        <TableRow>
+   979→                          <TableCell colSpan={colCount} className="bg-muted/30 p-3">
+   980→                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+   981→                              {/* Bank Details */}
+   982→                              <div>
+   983→                                <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Bank Details</div>
+   984→                                <div className="space-y-1">
+   985→                                  <p><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.bankName || "—"}</span></p>
+   986→                                  <p><span className="text-muted-foreground">Bank Type:</span> <Badge className={`text-[10px] px-1.5 py-0 ${bankTypeBadgeStyle[item.bank?.bankType || "Bank"]}`}>{bankTypeLabel[item.bank?.bankType || "Bank"]}</Badge></p>
+   987→                                  <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{isVatAuditor ? auditMask : (item.bank?.accountNo || "—")}</span></p>
+   988→                                  <p><span className="text-muted-foreground">Branch:</span> {item.bank?.branch || "—"}</p>
+   989→                                  <p><span className="text-muted-foreground">Ledger Account:</span> <span className="font-medium text-slate-900 dark:text-white">{item.bank?.chartOfAccount?.name || "Unmapped"}</span></p>
+   990→                                  {item.bank?.chartOfAccount?.code && (
+   991→                                    <p><span className="text-muted-foreground">CoA Code:</span> <span className="font-mono">{item.bank.chartOfAccount.code}</span></p>
+   992→                                  )}
+   993→                                </div>
+   994→                              </div>
+   995→                              {/* Target Bank Details (Transfer only) */}
+   996→                              {item.type === "Transfer" && (
+   997→                                <div>
+   998→                                  <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Target Bank Details</div>
+   999→                                  <div className="space-y-1">
+  1000→                                    <p><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{item.toBank?.bankName || "—"}</span></p>
+  1001→                                    <p><span className="text-muted-foreground">Bank Type:</span> <Badge className={`text-[10px] px-1.5 py-0 ${bankTypeBadgeStyle[item.toBank?.bankType || "Bank"]}`}>{bankTypeLabel[item.toBank?.bankType || "Bank"]}</Badge></p>
+  1002→                                    <p><span className="text-muted-foreground">Account No:</span> <span className="font-mono">{isVatAuditor ? auditMask : (item.toBank?.accountNo || "—")}</span></p>
+  1003→                                    <p><span className="text-muted-foreground">Branch:</span> {item.toBank?.branch || "—"}</p>
+  1004→                                    <p><span className="text-muted-foreground">Ledger Account:</span> <span className="font-medium text-slate-900 dark:text-white">{item.toBank?.chartOfAccount?.name || "Unmapped"}</span></p>
+  1005→                                    {item.toBank?.chartOfAccount?.code && (
+  1006→                                      <p><span className="text-muted-foreground">CoA Code:</span> <span className="font-mono">{item.toBank.chartOfAccount.code}</span></p>
+  1007→                                    )}
+  1008→                                  </div>
+  1009→                                </div>
+  1010→                              )}
+  1011→                              {/* Transaction Details */}
+  1012→                              <div>
+  1013→                                <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white">Transaction Details</div>
+  1014→                                <div className="space-y-1">
+  1015→                                  <p><span className="text-muted-foreground">Description:</span> {fmtEmpty(item.description)}</p>
+  1016→                                  <p><span className="text-muted-foreground">Cheque No:</span> <span className="font-mono">{isVatAuditor ? auditMask : fmtEmpty(item.chequeNo)}</span></p>
+  1017→                                  <p><span className="text-muted-foreground">Depositor:</span> {isVatAuditor ? auditMask : fmtEmpty(item.depositorName)}</p>
+  1018→                                  <p><span className="text-muted-foreground">Reference No:</span> <span className="font-mono">{isVatAuditor ? auditMask : fmtEmpty(item.referenceNo)}</span></p>
+  1019→                                  <p><span className="text-muted-foreground">Payment Option:</span> {item.paymentOption?.name || fmtEmpty(item.paymentOptionId)}</p>
+  1020→                                  <p><span className="text-muted-foreground">Voucher No:</span> <span className="font-mono">{fmtEmpty(item.voucherNo)}</span></p>
+  1021→                                  <p><span className="text-muted-foreground">Running Balance:</span> <span className="font-mono font-medium">{isVatAuditor ? auditMask : fmt(item.runningBalance, "currency")}</span></p>
+  1022→                                  <p><span className="text-muted-foreground">Created:</span> {fmtDate(item.createdAt)}</p>
+  1023→                                </div>
+  1024→                              </div>
+  1025→                            </div>
+  1026→                            {/* ── Ledger Auto-Post Visualization ────────── */}
+  1027→                            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+  1028→                              <div className="text-xs font-medium mb-2 text-slate-900 dark:text-white flex items-center gap-1.5">
+  1029→                                <BookOpen className="w-3.5 h-3.5" />
+  1030→                                Ledger Impact (Double-Entry Auto-Post)
+  1031→                              </div>
+  1032→                              {(() => {
+  1033→                                const impact = getLedgerImpact(item);
+  1034→                                return (
+  1035→                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg">
+  1036→                                    <div className="flex items-center gap-2 p-2 rounded-md bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+  1037→                                      <span className="text-[10px] font-bold text-green-600 dark:text-green-400 uppercase tracking-wider">Debit</span>
+  1038→                                      <span className="text-xs font-medium text-slate-900 dark:text-white">{impact.debitAccount}</span>
+  1039→                                      <span className="ml-auto text-xs font-mono font-bold text-green-700 dark:text-green-400">{isVatAuditor ? auditMask : fmt(impact.amount, "currency")}</span>
+  1040→                                    </div>
+  1041→                                    <div className="flex items-center gap-2 p-2 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+  1042→                                      <span className="text-[10px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wider">Credit</span>
+  1043→                                      <span className="text-xs font-medium text-slate-900 dark:text-white">{impact.creditAccount}</span>
+  1044→                                      <span className="ml-auto text-xs font-mono font-bold text-red-700 dark:text-red-400">{isVatAuditor ? auditMask : fmt(impact.amount, "currency")}</span>
+  1045→                                    </div>
+  1046→                                  </div>
+  1047→                                );
+  1048→                              })()}
+  1049→                            </div>
+  1050→                          </TableCell>
+  1051→                        </TableRow>
+  1052→                      )}
+  1053→                    </React.Fragment>
+  1054→                  );
+  1055→                })}
+  1056→              </TableBody>
+  1057→            </Table>
+  1058→          </div>
+  1059→          <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {data.length} bank transactions</div>
+  1060→        </CardContent>
+  1061→      </Card>
+  1062→
+  1063→      {/* ── Create/Edit Dialog ──────────────────────────────────── */}
+  1064→      <Dialog open={showForm} onOpenChange={setShowForm}>
+  1065→        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+  1066→          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Bank Transaction</DialogTitle><DialogDescription>Fill in the transaction details below. Fields marked with * are required.</DialogDescription></DialogHeader>
+  1067→          <div className="space-y-4 py-2">
+  1068→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  1069→              {/* Transaction Code - Auto-generated */}
+  1070→              <div className="space-y-1.5">
+  1071→                <Label>Transaction Code</Label>
+  1072→                <Input className="bg-muted cursor-not-allowed" value={formData.transactionCode || "Auto-generated"} readOnly />
+  1073→              </div>
+  1074→
+  1075→              {/* Bank Select */}
+  1076→              <div className="space-y-1.5">
+  1077→                <Label>Bank <span className="text-red-500">*</span></Label>
+  1078→                <Select value={formData.bankId || ""} onValueChange={v => setFormData({ ...formData, bankId: v })}>
+  1079→                  <SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger>
+  1080→                  <SelectContent>
+  1081→                    {banks.filter((b: any) => b.isActive !== false).map((bank: any) => (
+  1082→                      <SelectItem key={bank.id} value={bank.id}>
+  1083→                        <span className="flex items-center gap-1.5">
+  1084→                          <Badge className={`text-[9px] px-1 py-0 ${bankTypeBadgeStyle[bank.bankType || "Bank"]}`}>{bankTypeLabel[bank.bankType || "Bank"]}</Badge>
+  1085→                          {bank.bankName} — {bank.accountNo}
+  1086→                        </span>
+  1087→                      </SelectItem>
+  1088→                    ))}
+  1089→                  </SelectContent>
+  1090→                </Select>
+  1091→                {selectedBank && (
+  1092→                  <div className="space-y-0.5">
+  1093→                    <p className={`text-xs font-mono ${selectedBank.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
+  1094→                      Current Balance: {fmt(selectedBank.currentBalance, "currency")}
+  1095→                    </p>
+  1096→                    <p className="text-[10px] text-muted-foreground">
+  1097→                      Ledger: {selectedBank.chartOfAccount?.name || "Unmapped"}
+  1098→                      {selectedBank.chartOfAccount?.code && ` (${selectedBank.chartOfAccount.code})`}
+  1099→                    </p>
+  1100→                  </div>
+  1101→                )}
+  1102→              </div>
+  1103→
+  1104→              {/* Type Select */}
+  1105→              <div className="space-y-1.5">
+  1106→                <Label>Type <span className="text-red-500">*</span></Label>
+  1107→                <Select
+  1108→                  value={formData.type || "Deposit"}
+  1109→                  onValueChange={v => setFormData({ ...formData, type: v, toBankId: v !== "Transfer" ? "" : formData.toBankId })}
+  1110→                  disabled={!!editItem}
+  1111→                >
+  1112→                  <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
+  1113→                  <SelectContent>
+  1114→                    <SelectItem value="Deposit">Deposit</SelectItem>
+  1115→                    <SelectItem value="Withdraw">Withdraw</SelectItem>
+  1116→                    <SelectItem value="Transfer">Transfer</SelectItem>
+  1117→                  </SelectContent>
+  1118→                </Select>
+  1119→                {editItem && <p className="text-xs text-muted-foreground">Transaction type cannot be changed after creation</p>}
+  1120→              </div>
+  1121→
+  1122→              {/* Amount */}
+  1123→              <div className="space-y-1.5">
+  1124→                <Label>Amount <span className="text-red-500">*</span></Label>
+  1125→                <Input
+  1126→                  type="number"
+  1127→                  step="0.01"
+  1128→                  min="0"
+  1129→                  value={formData.amount || ""}
+  1130→                  onChange={e => setFormData({ ...formData, amount: e.target.value })}
+  1131→                  placeholder="0.00"
+  1132→                />
+  1133→                {insufficientBalance && (
+  1134→                  <p className="text-xs text-red-600 font-medium flex items-center gap-1">
+  1135→                    <AlertTriangle className="w-3 h-3" />Insufficient balance for this transaction
+  1136→                  </p>
+  1137→                )}
+  1138→              </div>
+  1139→
+  1140→              {/* Cheque No */}
+  1141→              <div className="space-y-1.5">
+  1142→                <Label>Cheque No</Label>
+  1143→                <Input
+  1144→                  type="text"
+  1145→                  value={formData.chequeNo || ""}
+  1146→                  onChange={e => setFormData({ ...formData, chequeNo: e.target.value })}
+  1147→                  placeholder="Cheque number (optional)"
+  1148→                />
+  1149→              </div>
+  1150→
+  1151→              {/* Depositor Name */}
+  1152→              <div className="space-y-1.5">
+  1153→                <Label>Depositor Name</Label>
+  1154→                <Input
+  1155→                  type="text"
+  1156→                  value={formData.depositorName || ""}
+  1157→                  onChange={e => setFormData({ ...formData, depositorName: e.target.value })}
+  1158→                  placeholder="Depositor name (optional)"
+  1159→                />
+  1160→              </div>
+  1161→
+  1162→              {/* Reference No */}
+  1163→              <div className="space-y-1.5">
+  1164→                <Label>Reference No</Label>
+  1165→                <Input
+  1166→                  type="text"
+  1167→                  value={formData.referenceNo || ""}
+  1168→                  onChange={e => setFormData({ ...formData, referenceNo: e.target.value })}
+  1169→                  placeholder="Reference number (optional)"
+  1170→                />
+  1171→              </div>
+  1172→
+  1173→              {/* Payment Option */}
+  1174→              <div className="space-y-1.5">
+  1175→                <Label>Payment Option</Label>
+  1176→                <Select value={formData.paymentOptionId || ""} onValueChange={v => setFormData({ ...formData, paymentOptionId: v })}>
+  1177→                  <SelectTrigger><SelectValue placeholder="Select Payment Option" /></SelectTrigger>
+  1178→                  <SelectContent>
+  1179→                    {paymentOptions.map((po: any) => (
+  1180→                      <SelectItem key={po.id} value={po.id}>
+  1181→                        {po.name}
+  1182→                      </SelectItem>
+  1183→                    ))}
+  1184→                  </SelectContent>
+  1185→                </Select>
+  1186→              </div>
+  1187→
+  1188→              {/* Voucher No */}
+  1189→              <div className="space-y-1.5">
+  1190→                <Label>Voucher No</Label>
+  1191→                <Input
+  1192→                  type="text"
+  1193→                  value={formData.voucherNo || ""}
+  1194→                  onChange={e => setFormData({ ...formData, voucherNo: e.target.value })}
+  1195→                  placeholder="Voucher number (optional)"
+  1196→                />
+  1197→              </div>
+  1198→
+  1199→              {/* To Bank - only for Transfer */}
+  1200→              {formData.type === "Transfer" && (
+  1201→                <div className="space-y-1.5">
+  1202→                  <Label>To Bank <span className="text-red-500">*</span></Label>
+  1203→                  <Select value={formData.toBankId || ""} onValueChange={v => setFormData({ ...formData, toBankId: v })}>
+  1204→                    <SelectTrigger><SelectValue placeholder="Select Target Bank" /></SelectTrigger>
+  1205→                    <SelectContent>
+  1206→                      {banks.filter((b: any) => b.isActive !== false && b.id !== formData.bankId).map((bank: any) => (
+  1207→                        <SelectItem key={bank.id} value={bank.id}>
+  1208→                          <span className="flex items-center gap-1.5">
+  1209→                            <Badge className={`text-[9px] px-1 py-0 ${bankTypeBadgeStyle[bank.bankType || "Bank"]}`}>{bankTypeLabel[bank.bankType || "Bank"]}</Badge>
+  1210→                            {bank.bankName} — {bank.accountNo}
+  1211→                          </span>
+  1212→                        </SelectItem>
+  1213→                      ))}
+  1214→                    </SelectContent>
+  1215→                  </Select>
+  1216→                  {selectedToBank && (
+  1217→                    <div className="space-y-0.5">
+  1218→                      <p className={`text-xs font-mono ${selectedToBank.currentBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
+  1219→                        Target Balance: {fmt(selectedToBank.currentBalance, "currency")}
+  1220→                      </p>
+  1221→                      <p className="text-[10px] text-muted-foreground">
+  1222→                        Ledger: {selectedToBank.chartOfAccount?.name || "Unmapped"}
+  1223→                        {selectedToBank.chartOfAccount?.code && ` (${selectedToBank.chartOfAccount.code})`}
+  1224→                      </p>
+  1225→                    </div>
+  1226→                  )}
+  1227→                  {sameBankError && (
+  1228→                    <p className="text-xs text-red-600 font-medium flex items-center gap-1">
+  1229→                      <AlertTriangle className="w-3 h-3" />Source and target bank cannot be the same
+  1230→                    </p>
+  1231→                  )}
+  1232→                </div>
+  1233→              )}
+  1234→
+  1235→              {/* Date */}
+  1236→              <div className="space-y-1.5">
+  1237→                <Label>Date <span className="text-red-500">*</span></Label>
+  1238→                <Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} />
+  1239→              </div>
+  1240→
+  1241→              {/* Description */}
+  1242→              <div className="space-y-1.5 md:col-span-2">
+  1243→                <Label>Description</Label>
+  1244→                <Textarea
+  1245→                  value={formData.description || ""}
+  1246→                  onChange={e => setFormData({ ...formData, description: e.target.value })}
+  1247→                  placeholder="Transaction description (optional)"
+  1248→                  rows={2}
+  1249→                />
+  1250→              </div>
+  1251→
+  1252→              {/* Status */}
+  1253→              <div className="space-y-1.5">
+  1254→                <Label>Status</Label>
+  1255→                <Select value={formData.status || "Approved"} onValueChange={v => setFormData({ ...formData, status: v })}>
+  1256→                  <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+  1257→                  <SelectContent>
+  1258→                    <SelectItem value="Pending">Pending</SelectItem>
+  1259→                    <SelectItem value="Approved">Approved</SelectItem>
+  1260→                    <SelectItem value="Rejected">Rejected</SelectItem>
+  1261→                  </SelectContent>
+  1262→                </Select>
+  1263→              </div>
+  1264→            </div>
+  1265→          </div>
+  1266→          <DialogFooter>
+  1267→            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+  1268→            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+  1269→              {saving ? "Saving..." : editItem ? "Update" : "Create"}
+  1270→            </Button>
+  1271→          </DialogFooter>
+  1272→        </DialogContent>
+  1273→      </Dialog>
+  1274→
+  1275→      {/* ── Delete Confirmation Dialog ──────────────────────────── */}
+  1276→      <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
+  1277→        <DialogContent className="max-w-[95vw] sm:max-w-md">
+  1278→          <DialogHeader>
+  1279→            <DialogTitle className="flex items-center gap-2">
+  1280→              <AlertTriangle className="w-5 h-5 text-red-500" />
+  1281→              Confirm Deactivate
+  1282→            </DialogTitle>
+  1283→            <DialogDescription>
+  1284→              Are you sure you want to deactivate transaction <span className="font-mono font-bold">{deleteItem?.transactionCode}</span>?
+  1285→              This will deactivate the transaction, reverse the bank balance change, and remove associated ledger entries. Only administrators can perform this action.
+  1286→            </DialogDescription>
+  1287→          </DialogHeader>
+  1288→          {deleteItem && (
+  1289→            <div className="text-sm space-y-1 p-3 bg-muted/50 rounded-lg">
+  1290→              <p><span className="text-muted-foreground">Type:</span> <Badge className={typeBadge(deleteItem.type).className}>{deleteItem.type}</Badge></p>
+  1291→              <p><span className="text-muted-foreground">Bank:</span> {deleteItem.bank?.bankName || "—"}</p>
+  1292→              <p><span className="text-muted-foreground">Amount:</span> <span className="font-mono">{fmt(deleteItem.amount, "currency")}</span></p>
+  1293→            </div>
+  1294→          )}
+  1295→          <DialogFooter>
+  1296→            <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
+  1297→            <Button variant="destructive" onClick={handleDelete}>Deactivate Transaction</Button>
+  1298→          </DialogFooter>
+  1299→        </DialogContent>
+  1300→      </Dialog>
+  1301→    </div>
+  1302→  );
+  1303→}
+  1304→

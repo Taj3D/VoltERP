@@ -19,6 +19,12 @@ function sanitizeText(value: unknown): string {
   return cleaned;
 }
 
+// ── Hex Color Code Validator ──
+const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
+function isValidHexColor(code: string): boolean {
+  return HEX_COLOR_REGEX.test(code);
+}
+
 // GET /api/colors/[id] — Get single color with cross-tenant validation
 export async function GET(
   request: NextRequest,
@@ -97,6 +103,13 @@ export async function PUT(
     if (body.colorCode !== undefined && !sanitizedColorCode) {
       return NextResponse.json(
         { error: 'Color code cannot be empty after sanitization.' },
+        { status: 400 }
+      );
+    }
+
+    if (body.colorCode !== undefined && !isValidHexColor(sanitizedColorCode)) {
+      return NextResponse.json(
+        { error: 'Color code must be a valid 6-digit hex code (e.g., #FF5500).' },
         { status: 400 }
       );
     }

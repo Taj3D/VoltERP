@@ -186,6 +186,31 @@ export async function POST(request: NextRequest) {
       return account;
     });
 
+    // COA-004: When creating an account with opening balance, post a corresponding
+    // "Opening Balance Equity" contra ledger entry to keep the trial balance balanced.
+    // The trial balance already includes COA opening balances in Step 1 (seeding from coaRecords),
+    // so we only need the contra entry — NOT a duplicate debit/credit for the account itself.
+    // Dr opening on COA → need a Credit to "Opening Balance Equity"
+    // Cr opening on COA → need a Debit to "Opening Balance Equity"
+    if (safeOpeningBalance > 0) {
+      const equityEntryCode = await generateNextCode('ledgerEntry', 'LE-');
+      await db.ledgerEntry.create({
+        data: {
+          entryCode: equityEntryCode,
+          date: new Date(),
+          accountId: null,
+          account: 'Opening Balance Equity',
+          debit: openingBalanceType === 'Cr' ? safeOpeningBalance : 0,
+          credit: openingBalanceType === 'Dr' ? safeOpeningBalance : 0,
+          reference: `COA-OPENING-${result.code}`,
+          particulars: `Contra entry for ${name} (${result.code}) opening balance`,
+          referenceType: 'Manual',
+          companyId: companyId || null,
+          isActive: true,
+        },
+      });
+    }
+
     // Activity logging — module token "Acc-Chart-Of-Accounts"
     await logUserActivity({
       action: 'CREATE',

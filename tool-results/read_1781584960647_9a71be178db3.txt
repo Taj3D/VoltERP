@@ -1,0 +1,1552 @@
+     1→"use client";
+     2→// ============================================================
+     3→// VoltERP — ELECTRONICS MART IMS
+     4→// Return & Replacement Module Page: Purchase Returns, Replacements
+     5→// Theme: Deep Navy Blue (#0a1628, #132240) with accent blue (#2563eb)
+     6→// Footer: Developed & Copyright by NextGen Digital Studio
+     7→// ============================================================
+     8→
+     9→import React, { useState, useEffect, useCallback, useMemo } from "react";
+    10→import {
+    11→  Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
+    12→  FileDown, Shield, X, CheckCircle, RotateCcw, Package,
+    13→  AlertTriangle, ChevronDown, ChevronRight, Clock, DollarSign,
+    14→  ArrowRightLeft, Banknote, Warehouse, FileWarning, AlertCircle,
+    15→  Loader2, PackageCheck, ArrowDownUp, BadgeDollarSign, Copy
+    16→} from "lucide-react";
+    17→import { Button } from "@/components/ui/button";
+    18→import { Input } from "@/components/ui/input";
+    19→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    20→import {
+    21→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+    22→} from "@/components/ui/dialog";
+    23→import {
+    24→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    25→} from "@/components/ui/select";
+    26→import {
+    27→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    28→} from "@/components/ui/table";
+    29→import { Badge } from "@/components/ui/badge";
+    30→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    31→import { Textarea } from "@/components/ui/textarea";
+    32→import { Label } from "@/components/ui/label";
+    33→import { Separator } from "@/components/ui/separator";
+    34→import { useToast } from "@/hooks/use-toast";
+    35→import {
+    36→  exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys,
+    37→} from "@/lib/export-utils";
+    38→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+    39→import { apiFetch } from "@/lib/api-client";
+    40→import { copyTableToClipboard } from "@/lib/clipboard-utils";
+    41→
+    42→// ============================================================
+    43→// UTILITY FUNCTIONS
+    44→// ============================================================
+    45→
+    46→import { fmtBDT as _fmtBDT } from "@/lib/number-format";
+    47→
+    48→const fmtCurrency = (v: any) => {
+    49→  if (v === null || v === undefined) return "—";
+    50→  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
+    51→  return _fmtBDT(Number(v));
+    52→};
+    53→
+    54→const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+    55→
+    56→const safeNum = (v: any, fallback = 0) => {
+    57→  const n = Number(v);
+    58→  return isNaN(n) ? fallback : n;
+    59→};
+    60→
+    61→
+    62→function vatMask(val: any, isVatAuditor: boolean) {
+    63→  if (isVatAuditor) return "N/A (Audit Mode)";
+    64→  return val;
+    65→}
+    66→
+    67→// ============================================================
+    68→// STATUS BADGE STYLES
+    69→// ============================================================
+    70→
+    71→const STATUS_BADGE: Record<string, string> = {
+    72→  Pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    73→  Approved: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    74→  Confirmed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    75→  Rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    76→  Completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    77→  Processing: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    78→  Cancelled: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    79→  Active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    80→};
+    81→
+    82→function StatusBadge({ status }: { status: string }) {
+    83→  const cls = STATUS_BADGE[status] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+    84→  return <Badge className={`${cls} border-0 text-xs font-medium`}>{status}</Badge>;
+    85→}
+    86→
+    87→// ============================================================
+    88→// STAT CARD COMPONENT
+    89→// ============================================================
+    90→
+    91→function StatCard({ label, value, icon: Icon, color, bg }: {
+    92→  label: string; value: any; icon: React.ElementType; color: string; bg: string;
+    93→}) {
+    94→  return (
+    95→    <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+    96→      <CardContent className="p-4 flex items-center gap-3">
+    97→        <div className={`h-10 w-10 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
+    98→          <Icon className={`h-5 w-5 ${color}`} />
+    99→        </div>
+   100→        <div className="min-w-0">
+   101→          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{label}</p>
+   102→          <p className="text-lg font-bold text-slate-900 dark:text-white truncate">{value}</p>
+   103→        </div>
+   104→      </CardContent>
+   105→    </Card>
+   106→  );
+   107→}
+   108→
+   109→// ============================================================
+   110→// PROPS
+   111→// ============================================================
+   112→
+   113→interface ReturnReplacementModulePageProps {
+   114→  currentPage: string;
+   115→  userRole: string;
+   116→  isVatAuditor: boolean;
+   117→}
+   118→
+   119→// ============================================================
+   120→// MAIN COMPONENT
+   121→// ============================================================
+   122→
+   123→export default function ReturnReplacementModulePage({ currentPage, userRole, isVatAuditor }: ReturnReplacementModulePageProps) {
+   124→  const { toast } = useToast();
+   125→  const isAdmin = userRole === "admin";
+   126→  const isManager = userRole === "manager";
+   127→  const isSR = userRole === "sr";
+   128→  const isDealer = userRole === "dealer";
+   129→  const canCreate = isAdmin || isManager;
+   130→  const canDelete = isAdmin;
+   131→
+   132→  // ─── Tab Mapping ───
+   133→  const tabMap: Record<string, string> = {
+   134→    "purchase-returns": "purchase-returns",
+   135→    "replacements": "replacements",
+   136→  };
+   137→  const [activeTab, setActiveTab] = useState(tabMap[currentPage] || "purchase-returns");
+   138→
+   139→  useEffect(() => {
+   140→    const mapped = tabMap[currentPage];
+   141→    if (mapped && mapped !== activeTab) setActiveTab(mapped);
+   142→  }, [currentPage]);
+   143→
+   144→  // ─── Shared Dropdowns ───
+   145→  const [companies, setCompanies] = useState<any[]>([]);
+   146→  const [suppliers, setSuppliers] = useState<any[]>([]);
+   147→  const [customers, setCustomers] = useState<any[]>([]);
+   148→  const [products, setProducts] = useState<any[]>([]);
+   149→  const [godowns, setGodowns] = useState<any[]>([]);
+   150→  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
+   151→  const [salesOrders, setSalesOrders] = useState<any[]>([]);
+   152→
+   153→  const loadDropdowns = useCallback(async () => {
+   154→    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load companies:", e); }
+   155→    try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load suppliers:", e); }
+   156→    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load customers:", e); }
+   157→    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load products:", e); }
+   158→    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load godowns:", e); }
+   159→    try { const r = await apiFetch("/api/purchase-orders"); setPurchaseOrders(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load purchase orders:", e); }
+   160→    try { const r = await apiFetch("/api/sales-orders"); setSalesOrders(Array.isArray(r) ? r : []); } catch (e) { console.error("Failed to load sales orders:", e); }
+   161→  }, []);
+   162→
+   163→  useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
+   164→
+   165→  // ============================================================
+   166→  // PURCHASE RETURNS STATE
+   167→  // ============================================================
+   168→
+   169→  const [prData, setPrData] = useState<any[]>([]);
+   170→  const [prLoading, setPrLoading] = useState(true);
+   171→  const [prSearch, setPrSearch] = useState("");
+   172→  const [prStatusFilter, setPrStatusFilter] = useState("all");
+   173→  const [prSupplierFilter, setPrSupplierFilter] = useState("all");
+   174→  const [prDateFrom, setPrDateFrom] = useState("");
+   175→  const [prDateTo, setPrDateTo] = useState("");
+   176→  const [prDialog, setPrDialog] = useState(false);
+   177→  const [prEdit, setPrEdit] = useState<any>(null);
+   178→  const [prSaving, setPrSaving] = useState(false);
+   179→  const [prDelete, setPrDelete] = useState<any>(null);
+   180→  const [prForm, setPrForm] = useState<Record<string, any>>({
+   181→    purchaseOrderId: "", supplierId: "", godownId: "",
+   182→    date: new Date().toISOString().split("T")[0],
+   183→    debitNoteCode: "", challanRef: "", reason: "",
+   184→    discountPercent: 0, vatPercentage: 0, status: "Pending",
+   185→  });
+   186→  const [prLines, setPrLines] = useState<any[]>([]);
+   187→  const [prExpandedRows, setPrExpandedRows] = useState<Set<string>>(new Set());
+   188→  const [prSelectedPoLines, setPrSelectedPoLines] = useState<any[]>([]);
+   189→
+   190→  // ─── Purchase Return Computed Stats ───
+   191→  const prStats = useMemo(() => {
+   192→    const active = prData.filter(r => r.isActive !== false);
+   193→    return {
+   194→      total: active.length,
+   195→      returnValue: active.reduce((s, r) => s + safeNum(r.grandTotal), 0),
+   196→      cogsReversal: active.reduce((s, r) => s + safeNum(r.cogsReversal), 0),
+   197→      apAdjusted: active.filter(r => r.apAdjustmentPosted).length,
+   198→      pendingApproval: active.filter(r => r.status === "Pending").length,
+   199→      stockRealigned: active.filter(r => r.stockRealignPosted).length,
+   200→    };
+   201→  }, [prData]);
+   202→
+   203→  // ─── Purchase Return Filtered Data ───
+   204→  const prFiltered = useMemo(() => {
+   205→    let data = prData.filter(r => r.isActive !== false);
+   206→    if (prStatusFilter !== "all") data = data.filter(r => r.status === prStatusFilter);
+   207→    if (prSupplierFilter !== "all") data = data.filter(r => r.supplierId === prSupplierFilter || r.purchaseOrder?.supplierId === prSupplierFilter);
+   208→    if (prDateFrom) data = data.filter(r => new Date(r.date) >= new Date(prDateFrom));
+   209→    if (prDateTo) data = data.filter(r => new Date(r.date) <= new Date(prDateTo + "T23:59:59"));
+   210→    if (prSearch) {
+   211→      const q = prSearch.toLowerCase();
+   212→      data = data.filter(r =>
+   213→        (r.returnNo || "").toLowerCase().includes(q) ||
+   214→        (r.debitNoteCode || "").toLowerCase().includes(q) ||
+   215→        (r.reason || "").toLowerCase().includes(q)
+   216→      );
+   217→    }
+   218→    return data;
+   219→  }, [prData, prStatusFilter, prSupplierFilter, prDateFrom, prDateTo, prSearch]);
+   220→
+   221→  // ─── Purchase Return Loaders ───
+   222→  const loadPurchaseReturns = useCallback(async () => {
+   223→    setPrLoading(true);
+   224→    try {
+   225→      const params = new URLSearchParams();
+   226→      if (prStatusFilter !== "all") params.set("status", prStatusFilter);
+   227→      if (prSupplierFilter !== "all") params.set("supplierId", prSupplierFilter);
+   228→      if (prDateFrom) params.set("dateFrom", prDateFrom);
+   229→      if (prDateTo) params.set("dateTo", prDateTo);
+   230→      const qs = params.toString();
+   231→      const res = await apiFetch(`/api/purchase-returns${qs ? `?${qs}` : ""}`);
+   232→      setPrData(Array.isArray(res) ? res : []);
+   233→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   234→    finally { setPrLoading(false); }
+   235→  }, [toast, prStatusFilter, prSupplierFilter, prDateFrom, prDateTo]);
+   236→
+   237→  // ─── Purchase Return: Load PO lines when selecting a purchase order ───
+   238→  const handlePrPoChange = useCallback(async (orderId: string) => {
+   239→    if (!orderId) { setPrSelectedPoLines([]); setPrLines([]); return; }
+   240→    try {
+   241→      const order = await apiFetch(`/api/purchase-orders/${orderId}`);
+   242→      setPrForm(prev => ({
+   243→        ...prev,
+   244→        purchaseOrderId: orderId,
+   245→        supplierId: order.supplierId || order.supplier?.id || "",
+   246→        godownId: order.godownId || order.godown?.id || "",
+   247→      }));
+   248→      const orderLines = order.lines || [];
+   249→      setPrSelectedPoLines(orderLines);
+   250→      setPrLines(orderLines.map((l: any) => ({
+   251→        productId: l.productId,
+   252→        quantity: 0,
+   253→        maxQuantity: l.quantity || 0,
+   254→        rate: l.rate || 0,
+   255→        discountPercent: l.discountPercent || 0,
+   256→        costPrice: l.costPrice || l.product?.costPrice || 0,
+   257→        availableStock: 0,
+   258→      })));
+   259→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   260→  }, [toast]);
+   261→
+   262→  // ─── Purchase Return CRUD ───
+   263→  const openPrCreate = useCallback(() => {
+   264→    setPrEdit(null);
+   265→    setPrForm({
+   266→      purchaseOrderId: "", supplierId: "", godownId: "",
+   267→      date: new Date().toISOString().split("T")[0],
+   268→      debitNoteCode: "", challanRef: "", reason: "",
+   269→      discountPercent: 0, vatPercentage: 0, status: "Pending",
+   270→    });
+   271→    setPrLines([]);
+   272→    setPrSelectedPoLines([]);
+   273→    setPrDialog(true);
+   274→  }, []);
+   275→
+   276→  const openPrEdit = useCallback((item: any) => {
+   277→    setPrEdit(item);
+   278→    setPrForm({
+   279→      purchaseOrderId: item.purchaseOrderId || "",
+   280→      supplierId: item.supplierId || "",
+   281→      godownId: item.godownId || "",
+   282→      date: item.date ? new Date(item.date).toISOString().split("T")[0] : "",
+   283→      debitNoteCode: item.debitNoteCode || "",
+   284→      challanRef: item.challanRef || "",
+   285→      reason: item.reason || "",
+   286→      discountPercent: item.discountPercent || 0,
+   287→      vatPercentage: item.vatPercentage || 0,
+   288→      status: item.status || "Pending",
+   289→    });
+   290→    setPrLines(item.lines?.length > 0
+   291→      ? item.lines.map((l: any) => ({
+   292→        productId: l.productId,
+   293→        quantity: l.quantity,
+   294→        maxQuantity: l.quantity,
+   295→        rate: l.rate,
+   296→        discountPercent: l.discountPercent || 0,
+   297→        costPrice: l.costPrice || 0,
+   298→        availableStock: l.availableStock || 0,
+   299→      }))
+   300→      : []
+   301→    );
+   302→    setPrDialog(true);
+   303→  }, []);
+   304→
+   305→  const savePr = useCallback(async () => {
+   306→    if (!prForm.purchaseOrderId) { toast({ title: "Validation", description: "Purchase Order is required", variant: "destructive" }); return; }
+   307→    if (!prForm.date) { toast({ title: "Validation", description: "Date is required", variant: "destructive" }); return; }
+   308→    if (prLines.length === 0 || prLines.every(l => Number(l.quantity) === 0)) {
+   309→      toast({ title: "Validation", description: "At least one line item with quantity is required", variant: "destructive" }); return;
+   310→    }
+   311→    setPrSaving(true);
+   312→    try {
+   313→      const lineItems = prLines.filter(l => Number(l.quantity) > 0).map(l => ({
+   314→        productId: l.productId,
+   315→        quantity: Number(l.quantity) || 0,
+   316→        rate: Number(l.rate) || 0,
+   317→        discountPercent: Number(l.discountPercent) || 0,
+   318→      }));
+   319→      const payload = { ...prForm, lines: lineItems };
+   320→      if (prEdit) {
+   321→        await apiFetch(`/api/purchase-returns/${prEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   322→        toast({ title: "Updated", description: "Purchase return updated" });
+   323→      } else {
+   324→        await apiFetch("/api/purchase-returns", { method: "POST", body: JSON.stringify(payload) });
+   325→        toast({ title: "Created", description: "Purchase return created" });
+   326→      }
+   327→      setPrDialog(false);
+   328→      loadPurchaseReturns();
+   329→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   330→    finally { setPrSaving(false); }
+   331→  }, [prForm, prLines, prEdit, toast, loadPurchaseReturns]);
+   332→
+   333→  const deletePr = useCallback(async () => {
+   334→    if (!prDelete) return;
+   335→    try {
+   336→      await apiFetch(`/api/purchase-returns/${prDelete.id}`, { method: "DELETE" });
+   337→      toast({ title: "Deleted", description: "Purchase return deleted" });
+   338→      setPrDelete(null);
+   339→      loadPurchaseReturns();
+   340→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   341→  }, [prDelete, toast, loadPurchaseReturns]);
+   342→
+   343→  const togglePrExpand = useCallback((id: string) => {
+   344→    setPrExpandedRows(prev => {
+   345→      const next = new Set(prev);
+   346→      if (next.has(id)) next.delete(id); else next.add(id);
+   347→      return next;
+   348→    });
+   349→  }, []);
+   350→
+   351→  // ─── Purchase Return Line Helpers ───
+   352→  const prLineTotal = useCallback((line: any) => {
+   353→    const qty = Number(line.quantity) || 0;
+   354→    const rate = Number(line.rate) || 0;
+   355→    const disc = Number(line.discountPercent) || 0;
+   356→    return qty * rate * (1 - disc / 100);
+   357→  }, []);
+   358→
+   359→  const prComputedTotals = useMemo(() => {
+   360→    const subTotal = prLines.reduce((s, l) => s + prLineTotal(l), 0);
+   361→    const discountAmt = subTotal * (Number(prForm.discountPercent) || 0) / 100;
+   362→    const afterDiscount = subTotal - discountAmt;
+   363→    const vatAmt = afterDiscount * (Number(prForm.vatPercentage) || 0) / 100;
+   364→    const grandTotal = afterDiscount + vatAmt;
+   365→    const cogsReversal = prLines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice) || 0), 0);
+   366→    return { subTotal, discountAmt, afterDiscount, vatAmt, grandTotal, cogsReversal };
+   367→  }, [prLines, prForm.discountPercent, prForm.vatPercentage, prLineTotal]);
+   368→
+   369→  // ============================================================
+   370→  // REPLACEMENT ORDERS STATE
+   371→  // ============================================================
+   372→
+   373→  const [rplData, setRplData] = useState<any[]>([]);
+   374→  const [rplLoading, setRplLoading] = useState(true);
+   375→  const [rplSearch, setRplSearch] = useState("");
+   376→  const [rplStatusFilter, setRplStatusFilter] = useState("all");
+   377→  const [rplSupplierFilter, setRplSupplierFilter] = useState("all");
+   378→  const [rplCustomerFilter, setRplCustomerFilter] = useState("all");
+   379→  const [rplDialog, setRplDialog] = useState(false);
+   380→  const [rplEdit, setRplEdit] = useState<any>(null);
+   381→  const [rplSaving, setRplSaving] = useState(false);
+   382→  const [rplDelete, setRplDelete] = useState<any>(null);
+   383→  const [rplForm, setRplForm] = useState<Record<string, any>>({
+   384→    salesOrderId: "", supplierId: "", customerId: "",
+   385→    date: new Date().toISOString().split("T")[0],
+   386→    reason: "", notes: "", status: "Pending",
+   387→  });
+   388→  const [rplLines, setRplLines] = useState<any[]>([]);
+   389→  const [rplExpandedRows, setRplExpandedRows] = useState<Set<string>>(new Set());
+   390→
+   391→  // ─── Replacement Computed Stats ───
+   392→  const rplStats = useMemo(() => {
+   393→    const active = rplData.filter(r => r.isActive !== false);
+   394→    return {
+   395→      total: active.length,
+   396→      originalCostTotal: active.reduce((s, r) => s + safeNum(r.originalCostTotal), 0),
+   397→      replacementCostTotal: active.reduce((s, r) => s + safeNum(r.replacementCostTotal), 0),
+   398→      netAdjustment: active.reduce((s, r) => s + safeNum(r.adjustmentAmount), 0),
+   399→      stockAdjusted: active.filter(r => r.stockAdjustmentPosted).length,
+   400→      pendingApproval: active.filter(r => r.status === "Pending").length,
+   401→    };
+   402→  }, [rplData]);
+   403→
+   404→  // ─── Replacement Filtered Data ───
+   405→  const rplFiltered = useMemo(() => {
+   406→    let data = rplData.filter(r => r.isActive !== false);
+   407→    if (rplStatusFilter !== "all") data = data.filter(r => r.status === rplStatusFilter);
+   408→    if (rplSupplierFilter !== "all") data = data.filter(r => r.supplierId === rplSupplierFilter);
+   409→    if (rplCustomerFilter !== "all") data = data.filter(r => r.customerId === rplCustomerFilter);
+   410→    if (rplSearch) {
+   411→      const q = rplSearch.toLowerCase();
+   412→      data = data.filter(r =>
+   413→        (r.replacementNo || "").toLowerCase().includes(q) ||
+   414→        (r.reason || "").toLowerCase().includes(q)
+   415→      );
+   416→    }
+   417→    return data;
+   418→  }, [rplData, rplStatusFilter, rplSupplierFilter, rplCustomerFilter, rplSearch]);
+   419→
+   420→  // ─── Replacement Loaders ───
+   421→  const loadReplacements = useCallback(async () => {
+   422→    setRplLoading(true);
+   423→    try {
+   424→      const params = new URLSearchParams();
+   425→      if (rplStatusFilter !== "all") params.set("status", rplStatusFilter);
+   426→      if (rplSupplierFilter !== "all") params.set("supplierId", rplSupplierFilter);
+   427→      if (rplCustomerFilter !== "all") params.set("customerId", rplCustomerFilter);
+   428→      const qs = params.toString();
+   429→      const res = await apiFetch(`/api/replacements${qs ? `?${qs}` : ""}`);
+   430→      setRplData(Array.isArray(res) ? res : []);
+   431→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   432→    finally { setRplLoading(false); }
+   433→  }, [toast, rplStatusFilter, rplSupplierFilter, rplCustomerFilter]);
+   434→
+   435→  // ─── Replacement CRUD ───
+   436→  const openRplCreate = useCallback(() => {
+   437→    setRplEdit(null);
+   438→    setRplForm({
+   439→      salesOrderId: "", supplierId: "", customerId: "",
+   440→      date: new Date().toISOString().split("T")[0],
+   441→      reason: "", notes: "", status: "Pending",
+   442→    });
+   443→    setRplLines([{ productId: "", replacementProductId: "", quantity: 1, rate: 0, replacementRate: 0 }]);
+   444→    setRplDialog(true);
+   445→  }, []);
+   446→
+   447→  const openRplEdit = useCallback((item: any) => {
+   448→    setRplEdit(item);
+   449→    setRplForm({
+   450→      salesOrderId: item.salesOrderId || "",
+   451→      supplierId: item.supplierId || "",
+   452→      customerId: item.customerId || "",
+   453→      date: item.date ? new Date(item.date).toISOString().split("T")[0] : "",
+   454→      reason: item.reason || "",
+   455→      notes: item.notes || "",
+   456→      status: item.status || "Pending",
+   457→    });
+   458→    setRplLines(item.lines?.length > 0
+   459→      ? item.lines.map((l: any) => ({
+   460→        productId: l.productId,
+   461→        replacementProductId: l.replacementProductId || "",
+   462→        quantity: l.quantity,
+   463→        rate: l.rate || 0,
+   464→        replacementRate: l.replacementRate || 0,
+   465→        costPrice: l.costPrice || 0,
+   466→        replacementCostPrice: l.replacementCostPrice || 0,
+   467→      }))
+   468→      : [{ productId: "", replacementProductId: "", quantity: 1, rate: 0, replacementRate: 0 }]
+   469→    );
+   470→    setRplDialog(true);
+   471→  }, []);
+   472→
+   473→  const saveRpl = useCallback(async () => {
+   474→    if (!rplForm.date) { toast({ title: "Validation", description: "Date is required", variant: "destructive" }); return; }
+   475→    if (rplLines.length === 0 || rplLines.every(l => !l.productId && !l.replacementProductId)) {
+   476→      toast({ title: "Validation", description: "At least one line item with products is required", variant: "destructive" }); return;
+   477→    }
+   478→    setRplSaving(true);
+   479→    try {
+   480→      const lineItems = rplLines.filter(l => l.productId || l.replacementProductId).map(l => ({
+   481→        productId: l.productId || null,
+   482→        replacementProductId: l.replacementProductId || null,
+   483→        quantity: Number(l.quantity) || 1,
+   484→        rate: Number(l.rate) || 0,
+   485→        replacementRate: Number(l.replacementRate) || 0,
+   486→      }));
+   487→      const payload = { ...rplForm, lines: lineItems };
+   488→      if (rplEdit) {
+   489→        await apiFetch(`/api/replacements/${rplEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   490→        toast({ title: "Updated", description: "Replacement order updated" });
+   491→      } else {
+   492→        await apiFetch("/api/replacements", { method: "POST", body: JSON.stringify(payload) });
+   493→        toast({ title: "Created", description: "Replacement order created" });
+   494→      }
+   495→      setRplDialog(false);
+   496→      loadReplacements();
+   497→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   498→    finally { setRplSaving(false); }
+   499→  }, [rplForm, rplLines, rplEdit, toast, loadReplacements]);
+   500→
+   501→  const deleteRpl = useCallback(async () => {
+   502→    if (!rplDelete) return;
+   503→    try {
+   504→      await apiFetch(`/api/replacements/${rplDelete.id}`, { method: "DELETE" });
+   505→      toast({ title: "Deleted", description: "Replacement order deleted" });
+   506→      setRplDelete(null);
+   507→      loadReplacements();
+   508→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   509→  }, [rplDelete, toast, loadReplacements]);
+   510→
+   511→  const toggleRplExpand = useCallback((id: string) => {
+   512→    setRplExpandedRows(prev => {
+   513→      const next = new Set(prev);
+   514→      if (next.has(id)) next.delete(id); else next.add(id);
+   515→      return next;
+   516→    });
+   517→  }, []);
+   518→
+   519→  // ─── Replacement Line Helpers ───
+   520→  const rplComputedTotals = useMemo(() => {
+   521→    const originalCostTotal = rplLines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.rate) || 0), 0);
+   522→    const replacementCostTotal = rplLines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.replacementRate) || 0), 0);
+   523→    const netAdjustment = replacementCostTotal - originalCostTotal;
+   524→    return { originalCostTotal, replacementCostTotal, netAdjustment };
+   525→  }, [rplLines]);
+   526→
+   527→  // ============================================================
+   528→  // INIT: Load data based on active tab
+   529→  // ============================================================
+   530→
+   531→  useEffect(() => {
+   532→    if (activeTab === "purchase-returns") loadPurchaseReturns();
+   533→    if (activeTab === "replacements") loadReplacements();
+   534→  }, [activeTab, loadPurchaseReturns, loadReplacements]);
+   535→
+   536→  // ============================================================
+   537→  // EXPORT HELPERS
+   538→  // ============================================================
+   539→
+   540→  const getCompanyProfile = useCallback(async () => {
+   541→    try {
+   542→      const comps = companies;
+   543→      if (comps.length > 0) {
+   544→        return {
+   545→          name: comps[0].name || "VoltERP",
+   546→          address: comps[0].address || "",
+   547→          phone: comps[0].phone || "",
+   548→          mobile: comps[0].mobile || "",
+   549→          email: comps[0].email || "",
+   550→          vatNumber: comps[0].vatNumber || "",
+   551→          tradeLicense: comps[0].tradeLicense || "",
+   552→          logo: comps[0].logo || undefined,
+   553→        };
+   554→      }
+   555→    } catch (e) { console.warn("Failed to load company branding for PDF:", e); }
+   556→    return undefined;
+   557→  }, [companies]);
+   558→
+   559→  const doExportPR = useCallback(async (format: "pdf" | "csv") => {
+   560→    const columns: ExportColumnDef[] = [
+   561→      { key: "returnNo", label: "Return No", type: "text" },
+   562→      { key: "date", label: "Date", type: "date" },
+   563→      { key: "poNumber", label: "PO Number", type: "text" },
+   564→      { key: "supplierName", label: "Supplier", type: "text" },
+   565→      { key: "subTotal", label: "SubTotal", type: "currency" },
+   566→      { key: "discount", label: "Discount", type: "currency" },
+   567→      { key: "vatAmount", label: "VAT", type: "currency" },
+   568→      { key: "grandTotal", label: "Grand Total", type: "currency" },
+   569→      { key: "cogsReversal", label: "COGS Reversal", type: "currency" },
+   570→      { key: "apAdjustmentPosted", label: "AP Posted", type: "text" },
+   571→      { key: "status", label: "Status", type: "text" },
+   572→    ];
+   573→    const data = prFiltered.map((r: any) => ({
+   574→      ...r,
+   575→      poNumber: r.purchaseOrder?.poNumber || "—",
+   576→      supplierName: r.supplier?.name || r.purchaseOrder?.supplier?.name || "—",
+   577→      discount: r.discount || 0,
+   578→      apAdjustmentPosted: r.apAdjustmentPosted ? "Yes" : "No",
+   579→    }));
+   580→    const maskedKeys = getVatMaskedKeys(columns);
+   581→    const company = await getCompanyProfile();
+   582→    if (format === "pdf") {
+   583→      exportToPDF({
+   584→        title: "Purchase Return Registry",
+   585→        columns, data, isVatAuditor, vatMaskedColumns: maskedKeys,
+   586→        orientation: "landscape", company,
+   587→        financialFooter: { printedBy: (() => { try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); return a.user?.displayName || a.user?.name || "System"; } catch { return "System"; } })() },
+   588→        systemNotice: "This is a computer-generated document. Verify with official records.",
+   589→      });
+   590→    } else {
+   591→      exportToCSV({ title: "Purchase Return Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+   592→    }
+   593→    toast({ title: "Exported", description: `Purchase Returns ${format.toUpperCase()} exported` });
+   594→  }, [prFiltered, isVatAuditor, userRole, getCompanyProfile, toast]);
+   595→
+   596→  const doExportRPL = useCallback(async (format: "pdf" | "csv") => {
+   597→    const columns: ExportColumnDef[] = [
+   598→      { key: "replacementNo", label: "Replacement No", type: "text" },
+   599→      { key: "date", label: "Date", type: "date" },
+   600→      { key: "salesOrderNo", label: "Sales Order", type: "text" },
+   601→      { key: "supplierName", label: "Supplier", type: "text" },
+   602→      { key: "customerName", label: "Customer", type: "text" },
+   603→      { key: "originalCostTotal", label: "Original Cost", type: "currency" },
+   604→      { key: "replacementCostTotal", label: "Replacement Cost", type: "currency" },
+   605→      { key: "adjustmentAmount", label: "Net Adjustment", type: "currency" },
+   606→      { key: "stockAdjustmentPosted", label: "Stock Posted", type: "text" },
+   607→      { key: "financialAdjustmentPosted", label: "Ledger Posted", type: "text" },
+   608→      { key: "status", label: "Status", type: "text" },
+   609→    ];
+   610→    const data = rplFiltered.map((r: any) => ({
+   611→      ...r,
+   612→      salesOrderNo: r.salesOrder?.invoiceNo || "—",
+   613→      supplierName: r.supplier?.name || "—",
+   614→      customerName: r.customer?.name || "—",
+   615→      stockAdjustmentPosted: r.stockAdjustmentPosted ? "Yes" : "No",
+   616→      financialAdjustmentPosted: r.financialAdjustmentPosted ? "Yes" : "No",
+   617→    }));
+   618→    const maskedKeys = getVatMaskedKeys(columns);
+   619→    const company = await getCompanyProfile();
+   620→    if (format === "pdf") {
+   621→      exportToPDF({
+   622→        title: "Replacement Order Registry",
+   623→        columns, data, isVatAuditor, vatMaskedColumns: maskedKeys,
+   624→        orientation: "landscape", company,
+   625→        financialFooter: { printedBy: (() => { try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); return a.user?.displayName || a.user?.name || "System"; } catch { return "System"; } })() },
+   626→        systemNotice: "This is a computer-generated document. Verify with official records.",
+   627→      });
+   628→    } else {
+   629→      exportToCSV({ title: "Replacement Order Registry", columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+   630→    }
+   631→    toast({ title: "Exported", description: `Replacement Orders ${format.toUpperCase()} exported` });
+   632→  }, [rplFiltered, isVatAuditor, userRole, getCompanyProfile, toast]);
+   633→
+   634→  const doImportPR = useCallback(async () => {
+   635→    const fields: ExportFieldDef[] = [
+   636→      { key: "supplierCode", label: "Supplier Code", type: "text", required: true },
+   637→      { key: "date", label: "Date", type: "date", required: true },
+   638→      { key: "productCode", label: "Product Code", type: "text", required: true },
+   639→      { key: "quantity", label: "Quantity", type: "number", required: true },
+   640→      { key: "rate", label: "Rate", type: "number", required: true },
+   641→    ];
+   642→    try {
+   643→      const result = await importFromCSV({
+   644→        apiPath: "/api/purchase-returns?import=true",
+   645→        formFields: fields,
+   646→      });
+   647→      if (result.imported > 0) {
+   648→        toast({ title: "Import Complete", description: `${result.imported} rows imported, ${result.failed} failed` });
+   649→        loadPurchaseReturns();
+   650→      } else if (result.errors.length > 0) {
+   651→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   652→      }
+   653→    } catch (e: any) {
+   654→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   655→    }
+   656→  }, [toast, loadPurchaseReturns]);
+   657→
+   658→  const doImportRPL = useCallback(async () => {
+   659→    const fields: ExportFieldDef[] = [
+   660→      { key: "salesOrderNo", label: "Sales Order No", type: "text", required: true },
+   661→      { key: "date", label: "Date", type: "date", required: true },
+   662→      { key: "productCode", label: "Product Code", type: "text", required: true },
+   663→      { key: "quantity", label: "Quantity", type: "number", required: true },
+   664→      { key: "reason", label: "Reason", type: "text" },
+   665→    ];
+   666→    try {
+   667→      const result = await importFromCSV({
+   668→        apiPath: "/api/replacements?import=true",
+   669→        formFields: fields,
+   670→      });
+   671→      if (result.imported > 0) {
+   672→        toast({ title: "Import Complete", description: `${result.imported} rows imported, ${result.failed} failed` });
+   673→        loadReplacements();
+   674→      } else if (result.errors.length > 0) {
+   675→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   676→      }
+   677→    } catch (e: any) {
+   678→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   679→    }
+   680→  }, [toast, loadReplacements]);
+   681→
+   682→  // ============================================================
+   683→  // ACCESS DENIED COMPONENT
+   684→  // ============================================================
+   685→
+   686→  const AccessDenied = ({ message }: { message: string }) => (
+   687→    <div className="flex flex-col items-center justify-center py-20 text-center">
+   688→      <Shield className="h-12 w-12 text-red-500 mb-4" />
+   689→      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Access Denied</h3>
+   690→      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{message}</p>
+   691→    </div>
+   692→  );
+   693→
+   694→  // ============================================================
+   695→  // TAB 1: PURCHASE RETURNS REGISTRY
+   696→  // ============================================================
+   697→
+   698→  const renderPurchaseReturns = () => {
+   699→    if (isDealer) return <AccessDenied message="Dealers cannot access Purchase Returns." />;
+   700→
+   701→    return (
+   702→      <div className="space-y-4">
+   703→        {isVatAuditor && (
+   704→          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+   705→            <Shield className="h-4 w-4 text-amber-600" />
+   706→            <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — All financial columns are masked</span>
+   707→          </div>
+   708→        )}
+   709→
+   710→        {/* Stat Cards */}
+   711→        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
+   712→          <StatCard label="Total Returns" value={prStats.total} icon={RotateCcw} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+   713→          <StatCard label="Return Value" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(prStats.returnValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
+   714→          <StatCard label="COGS Reversal" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(prStats.cogsReversal)} icon={BadgeDollarSign} color="text-amber-500" bg="bg-amber-500/10" />
+   715→          <StatCard label="AP Adjusted" value={prStats.apAdjusted} icon={Banknote} color="text-purple-500" bg="bg-purple-500/10" />
+   716→          <StatCard label="Pending Approval" value={prStats.pendingApproval} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
+   717→          <StatCard label="Stock Realigned" value={prStats.stockRealigned} icon={Warehouse} color="text-emerald-500" bg="bg-emerald-500/10" />
+   718→        </div>
+   719→
+   720→        {/* Filter Bar */}
+   721→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   722→          <CardContent className="p-4">
+   723→            <div className="flex flex-wrap gap-3 items-center">
+   724→              <Select value={prStatusFilter} onValueChange={setPrStatusFilter}>
+   725→                <SelectTrigger className="w-[140px] h-9 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
+   726→                <SelectContent>
+   727→                  <SelectItem value="all">All Status</SelectItem>
+   728→                  <SelectItem value="Pending">Pending</SelectItem>
+   729→                  <SelectItem value="Approved">Approved</SelectItem>
+   730→                  <SelectItem value="Rejected">Rejected</SelectItem>
+   731→                  <SelectItem value="Completed">Completed</SelectItem>
+   732→                </SelectContent>
+   733→              </Select>
+   734→              <Select value={prSupplierFilter} onValueChange={setPrSupplierFilter}>
+   735→                <SelectTrigger className="w-[160px] h-9 text-xs"><SelectValue placeholder="Supplier" /></SelectTrigger>
+   736→                <SelectContent>
+   737→                  <SelectItem value="all">All Suppliers</SelectItem>
+   738→                  {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+   739→                </SelectContent>
+   740→              </Select>
+   741→              <Input type="date" value={prDateFrom} onChange={e => setPrDateFrom(e.target.value)} className="w-[140px] h-9 text-xs" placeholder="From" />
+   742→              <Input type="date" value={prDateTo} onChange={e => setPrDateTo(e.target.value)} className="w-[140px] h-9 text-xs" placeholder="To" />
+   743→              <div className="relative flex-1 min-w-[200px]">
+   744→                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+   745→                <Input placeholder="Search return no, debit note, reason..." value={prSearch} onChange={e => setPrSearch(e.target.value)} className="pl-9 h-9 text-xs" />
+   746→              </div>
+   747→              <Button variant="outline" size="sm" onClick={loadPurchaseReturns} disabled={prLoading} className="h-9">
+   748→                <RefreshCw className={`h-4 w-4 mr-1 ${prLoading ? "animate-spin" : ""}`} />Refresh
+   749→              </Button>
+   750→              <Button variant="outline" size="sm" onClick={() => doExportPR("csv")} className="h-9">
+   751→                <Download className="h-4 w-4 mr-1" />CSV
+   752→              </Button>
+   753→              <Button variant="outline" size="sm" onClick={() => doExportPR("pdf")} className="h-9">
+   754→                <FileDown className="h-4 w-4 mr-1" />PDF
+   755→              </Button>
+   756→              <Button variant="outline" size="sm" onClick={async () => {
+   757→                const columns: ExportColumnDef[] = [
+   758→                  { key: "returnNo", label: "Return No", type: "text" },
+   759→                  { key: "date", label: "Date", type: "date" },
+   760→                  { key: "poNumber", label: "PO Number", type: "text" },
+   761→                  { key: "supplierName", label: "Supplier", type: "text" },
+   762→                  { key: "subTotal", label: "SubTotal", type: "currency" },
+   763→                  { key: "discount", label: "Discount", type: "currency" },
+   764→                  { key: "vatAmount", label: "VAT", type: "currency" },
+   765→                  { key: "grandTotal", label: "Grand Total", type: "currency" },
+   766→                  { key: "status", label: "Status", type: "text" },
+   767→                ];
+   768→                const data = prFiltered.map((r: any) => ({ ...r, poNumber: r.purchaseOrder?.poNumber || "—", supplierName: r.supplier?.name || r.purchaseOrder?.supplier?.name || "—", discount: r.discount || 0 }));
+   769→                const result = await copyTableToClipboard({ title: "Purchase Return Registry", columns, data, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(columns) });
+   770→                if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+   771→              }} className="h-9">
+   772→                <Copy className="h-4 w-4 mr-1" />Copy
+   773→              </Button>
+   774→              {isAdmin && (
+   775→                <Button variant="outline" size="sm" onClick={doImportPR} className="h-9">
+   776→                  <Upload className="h-4 w-4 mr-1" />Import
+   777→                </Button>
+   778→              )}
+   779→              {canCreate && (
+   780→                <Button size="sm" onClick={openPrCreate} className="h-9 bg-[#2563eb] hover:bg-[#1d4ed8]">
+   781→                  <Plus className="h-4 w-4 mr-1" />Create Return
+   782→                </Button>
+   783→              )}
+   784→            </div>
+   785→          </CardContent>
+   786→        </Card>
+   787→
+   788→        {/* Table */}
+   789→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   790→          <CardContent className="p-0 overflow-hidden">
+   791→            <div className="overflow-x-auto -mx-2 sm:mx-0">
+   792→              <Table className="min-w-[600px]">
+   793→                <TableHeader>
+   794→                  <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+   795→                    <TableHead className="text-white text-xs w-8"></TableHead>
+   796→                    <TableHead className="text-white text-xs">Return No</TableHead>
+   797→                    <TableHead className="text-white text-xs">Date</TableHead>
+   798→                    <TableHead className="text-white text-xs">PO Number</TableHead>
+   799→                    <TableHead className="text-white text-xs">Supplier</TableHead>
+   800→                    <TableHead className="text-white text-xs">Godown</TableHead>
+   801→                    <TableHead className="text-white text-xs text-right">SubTotal</TableHead>
+   802→                    <TableHead className="text-white text-xs text-right">Discount</TableHead>
+   803→                    <TableHead className="text-white text-xs text-right">VAT</TableHead>
+   804→                    <TableHead className="text-white text-xs text-right">Grand Total</TableHead>
+   805→                    <TableHead className="text-white text-xs text-right">COGS Reversal</TableHead>
+   806→                    <TableHead className="text-white text-xs">AP Posted</TableHead>
+   807→                    <TableHead className="text-white text-xs">Stock Realign</TableHead>
+   808→                    <TableHead className="text-white text-xs">Status</TableHead>
+   809→                    <TableHead className="text-white text-xs">Actions</TableHead>
+   810→                  </TableRow>
+   811→                </TableHeader>
+   812→                <TableBody>
+   813→                  {prLoading ? (
+   814→                    <TableRow>
+   815→                      <TableCell colSpan={15} className="text-center py-8 text-slate-400">
+   816→                        <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
+   817→                        Loading purchase returns...
+   818→                      </TableCell>
+   819→                    </TableRow>
+   820→                  ) : prFiltered.length === 0 ? (
+   821→                    <TableRow>
+   822→                      <TableCell colSpan={15} className="text-center py-8 text-slate-400">
+   823→                        <RotateCcw className="h-8 w-8 mx-auto mb-2 opacity-50" />
+   824→                        <p className="font-medium">No purchase returns found</p>
+   825→                        <p className="text-xs">Create a new return or adjust your filters</p>
+   826→                      </TableCell>
+   827→                    </TableRow>
+   828→                  ) : prFiltered.map((item: any) => (
+   829→                    <React.Fragment key={item.id}>
+   830→                      <TableRow className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onClick={() => togglePrExpand(item.id)}>
+   831→                        <TableCell className="text-xs">
+   832→                          {prExpandedRows.has(item.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+   833→                        </TableCell>
+   834→                        <TableCell className="text-xs font-medium">{item.returnNo || `PRT-${String(item.id).padStart(5, "0")}`}</TableCell>
+   835→                        <TableCell className="text-xs">{fmtDate(item.date)}</TableCell>
+   836→                        <TableCell className="text-xs">{item.purchaseOrder?.poNumber || "—"}</TableCell>
+   837→                        <TableCell className="text-xs max-w-[120px] truncate">{item.supplier?.name || item.purchaseOrder?.supplier?.name || "—"}</TableCell>
+   838→                        <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+   839→                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.subTotal)}</TableCell>
+   840→                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.discount)}</TableCell>
+   841→                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.vatAmount)}</TableCell>
+   842→                        <TableCell className="text-xs text-right font-medium">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.grandTotal)}</TableCell>
+   843→                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.cogsReversal)}</TableCell>
+   844→                        <TableCell className="text-xs">{item.apAdjustmentPosted ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <X className="h-4 w-4 text-slate-300" />}</TableCell>
+   845→                        <TableCell className="text-xs">{item.stockRealignPosted ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <X className="h-4 w-4 text-slate-300" />}</TableCell>
+   846→                        <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
+   847→                        <TableCell className="text-xs" onClick={e => e.stopPropagation()}>
+   848→                          <div className="flex gap-1">
+   849→                            {!isSR && (
+   850→                              <Button variant="ghost" size="sm" onClick={() => openPrEdit(item)} className="h-7 w-7 p-0">
+   851→                                <Edit className="h-3 w-3" />
+   852→                              </Button>
+   853→                            )}
+   854→                            {canDelete && (
+   855→                              <Button variant="ghost" size="sm" onClick={() => setPrDelete(item)} className="h-7 w-7 p-0 text-red-500">
+   856→                                <Trash2 className="h-3 w-3" />
+   857→                              </Button>
+   858→                            )}
+   859→                          </div>
+   860→                        </TableCell>
+   861→                      </TableRow>
+   862→                      {prExpandedRows.has(item.id) && item.lines?.length > 0 && (
+   863→                        <TableRow className="bg-slate-50 dark:bg-slate-800/30">
+   864→                          <TableCell colSpan={15} className="p-3">
+   865→                            <div className="ml-6 text-xs">
+   866→                              <p className="font-semibold text-slate-700 dark:text-slate-300 mb-2">Line Items</p>
+   867→                              <div className="overflow-x-auto border rounded-lg">
+   868→                                <Table>
+   869→                                  <TableHeader>
+   870→                                    <TableRow className="bg-slate-100 dark:bg-slate-700/50">
+   871→                                      <TableHead className="text-xs">Product</TableHead>
+   872→                                      <TableHead className="text-xs text-right">Qty</TableHead>
+   873→                                      <TableHead className="text-xs text-right">Rate</TableHead>
+   874→                                      <TableHead className="text-xs text-right">Disc%</TableHead>
+   875→                                      <TableHead className="text-xs text-right">Total</TableHead>
+   876→                                      <TableHead className="text-xs text-right">Cost Price</TableHead>
+   877→                                      <TableHead className="text-xs text-right">COGS Reversal</TableHead>
+   878→                                      <TableHead className="text-xs text-right">Available Stock</TableHead>
+   879→                                    </TableRow>
+   880→                                  </TableHeader>
+   881→                                  <TableBody>
+   882→                                    {item.lines.map((line: any, idx: number) => (
+   883→                                      <TableRow key={idx}>
+   884→                                        <TableCell className="text-xs">{line.product?.name || line.productId || "—"}</TableCell>
+   885→                                        <TableCell className="text-xs text-right">{line.quantity}</TableCell>
+   886→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.rate)}</TableCell>
+   887→                                        <TableCell className="text-xs text-right">{line.discountPercent || 0}%</TableCell>
+   888→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.total)}</TableCell>
+   889→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.costPrice)}</TableCell>
+   890→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.cogsReversal)}</TableCell>
+   891→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.availableStock)}</TableCell>
+   892→                                      </TableRow>
+   893→                                    ))}
+   894→                                  </TableBody>
+   895→                                </Table>
+   896→                              </div>
+   897→                            </div>
+   898→                          </TableCell>
+   899→                        </TableRow>
+   900→                      )}
+   901→                    </React.Fragment>
+   902→                  ))}
+   903→                </TableBody>
+   904→              </Table>
+   905→            </div>
+   906→          </CardContent>
+   907→        </Card>
+   908→
+   909→        {/* Create/Edit Dialog */}
+   910→        <Dialog open={prDialog} onOpenChange={setPrDialog}>
+   911→          <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[85vh] overflow-y-auto">
+   912→            <DialogHeader>
+   913→              <DialogTitle>{prEdit ? "Edit" : "Create"} Purchase Return</DialogTitle>
+   914→              <DialogDescription>Select a purchase order and enter return details.</DialogDescription>
+   915→            </DialogHeader>
+   916→            <div className="space-y-4">
+   917→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   918→                <div>
+   919→                  <Label className="text-sm font-medium">Purchase Order <span className="text-red-500">*</span></Label>
+   920→                  <Select value={prForm.purchaseOrderId || ""} onValueChange={handlePrPoChange} disabled={!!prEdit && prEdit.status !== "Pending"}>
+   921→                    <SelectTrigger><SelectValue placeholder="Select Purchase Order" /></SelectTrigger>
+   922→                    <SelectContent>
+   923→                      {purchaseOrders.filter((p: any) => p.status !== "Cancelled" && p.status !== "Draft").map((p: any) => (
+   924→                        <SelectItem key={p.id} value={p.id}>{p.poNumber || `PO-${String(p.id).padStart(5, "0")}`}</SelectItem>
+   925→                      ))}
+   926→                    </SelectContent>
+   927→                  </Select>
+   928→                </div>
+   929→                <div>
+   930→                  <Label className="text-sm font-medium">Supplier</Label>
+   931→                  <Input value={suppliers.find((s: any) => s.id === prForm.supplierId)?.name || "—"} disabled className="bg-slate-50 dark:bg-slate-800" />
+   932→                </div>
+   933→              </div>
+   934→              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+   935→                <div>
+   936→                  <Label className="text-sm font-medium">Godown</Label>
+   937→                  <Select value={prForm.godownId || ""} onValueChange={v => setPrForm(p => ({ ...p, godownId: v }))}>
+   938→                    <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+   939→                    <SelectContent>{godowns.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+   940→                  </Select>
+   941→                </div>
+   942→                <div>
+   943→                  <Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label>
+   944→                  <Input type="date" value={prForm.date || ""} onChange={e => setPrForm(p => ({ ...p, date: e.target.value }))} />
+   945→                </div>
+   946→                <div>
+   947→                  <Label className="text-sm font-medium">Debit Note Code</Label>
+   948→                  <Input value={prForm.debitNoteCode || ""} onChange={e => setPrForm(p => ({ ...p, debitNoteCode: e.target.value }))} placeholder="Auto-generated if blank" />
+   949→                </div>
+   950→              </div>
+   951→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   952→                <div>
+   953→                  <Label className="text-sm font-medium">Challan Ref</Label>
+   954→                  <Input value={prForm.challanRef || ""} onChange={e => setPrForm(p => ({ ...p, challanRef: e.target.value }))} placeholder="Challan reference" />
+   955→                </div>
+   956→                <div>
+   957→                  <Label className="text-sm font-medium">Reason</Label>
+   958→                  <Textarea value={prForm.reason || ""} onChange={e => setPrForm(p => ({ ...p, reason: e.target.value }))} rows={2} placeholder="Return reason" />
+   959→                </div>
+   960→              </div>
+   961→              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+   962→                <div>
+   963→                  <Label className="text-sm font-medium">Discount %</Label>
+   964→                  <Input type="number" step="0.01" min="0" max="100" value={prForm.discountPercent || 0} onChange={e => setPrForm(p => ({ ...p, discountPercent: Number(e.target.value) }))} />
+   965→                </div>
+   966→                <div>
+   967→                  <Label className="text-sm font-medium">VAT %</Label>
+   968→                  <Input type="number" step="0.01" min="0" max="100" value={prForm.vatPercentage || 0} onChange={e => setPrForm(p => ({ ...p, vatPercentage: Number(e.target.value) }))} />
+   969→                </div>
+   970→                <div>
+   971→                  <Label className="text-sm font-medium">Status</Label>
+   972→                  <Select value={prForm.status || "Pending"} onValueChange={v => setPrForm(p => ({ ...p, status: v }))}>
+   973→                    <SelectTrigger><SelectValue /></SelectTrigger>
+   974→                    <SelectContent>
+   975→                      <SelectItem value="Pending">Pending</SelectItem>
+   976→                      <SelectItem value="Approved">Approved</SelectItem>
+   977→                      <SelectItem value="Rejected">Rejected</SelectItem>
+   978→                      <SelectItem value="Completed">Completed</SelectItem>
+   979→                    </SelectContent>
+   980→                  </Select>
+   981→                </div>
+   982→              </div>
+   983→
+   984→              {/* AP Adjustment Warning */}
+   985→              {prForm.supplierId && prComputedTotals.grandTotal > 0 && (
+   986→                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-start gap-2">
+   987→                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+   988→                  <div className="text-xs">
+   989→                    <p className="font-medium text-amber-700 dark:text-amber-400">AP Adjustment Impact</p>
+   990→                    <p className="text-amber-600 dark:text-amber-500">Supplier balance will be reduced by {fmtCurrency(prComputedTotals.grandTotal)}. Current supplier: {suppliers.find((s: any) => s.id === prForm.supplierId)?.name || "—"}</p>
+   991→                  </div>
+   992→                </div>
+   993→              )}
+   994→
+   995→              {/* Line Items */}
+   996→              {prLines.length > 0 && (
+   997→                <div className="space-y-2">
+   998→                  <Label className="text-sm font-semibold text-slate-900 dark:text-white">Return Items</Label>
+   999→                  <div className="overflow-x-auto border rounded-lg">
+  1000→                    <Table>
+  1001→                      <TableHeader>
+  1002→                        <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1003→                          <TableHead className="text-white text-xs">Product</TableHead>
+  1004→                          <TableHead className="text-white text-xs text-right">Max Qty</TableHead>
+  1005→                          <TableHead className="text-white text-xs text-right">Return Qty</TableHead>
+  1006→                          <TableHead className="text-white text-xs text-right">Rate</TableHead>
+  1007→                          <TableHead className="text-white text-xs text-right">Disc%</TableHead>
+  1008→                          <TableHead className="text-white text-xs text-right">Total</TableHead>
+  1009→                          <TableHead className="text-white text-xs text-right">Cost Price</TableHead>
+  1010→                        </TableRow>
+  1011→                      </TableHeader>
+  1012→                      <TableBody>
+  1013→                        {prLines.map((line: any, idx: number) => {
+  1014→                          const prod = products.find((p: any) => p.id === line.productId);
+  1015→                          const lineTotal = prLineTotal(line);
+  1016→                          const exceedsMax = Number(line.quantity) > Number(line.maxQuantity);
+  1017→                          return (
+  1018→                            <TableRow key={idx} className={exceedsMax ? "bg-red-50 dark:bg-red-900/20" : ""}>
+  1019→                              <TableCell className="text-xs">{prod?.name || line.productId || "—"}</TableCell>
+  1020→                              <TableCell className="text-xs text-right">{line.maxQuantity || "—"}</TableCell>
+  1021→                              <TableCell>
+  1022→                                <Input
+  1023→                                  type="number"
+  1024→                                  min={0}
+  1025→                                  max={line.maxQuantity || 999}
+  1026→                                  value={line.quantity || 0}
+  1027→                                  onChange={e => {
+  1028→                                    const val = Math.min(Number(e.target.value), line.maxQuantity || 999);
+  1029→                                    setPrLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity: val } : l));
+  1030→                                  }}
+  1031→                                  className="h-8 w-20 text-xs"
+  1032→                                />
+  1033→                                {exceedsMax && <p className="text-[10px] text-red-500 mt-0.5">Exceeds PO qty</p>}
+  1034→                              </TableCell>
+  1035→                              <TableCell className="text-xs text-right">{fmtCurrency(line.rate)}</TableCell>
+  1036→                              <TableCell>
+  1037→                                <Input
+  1038→                                  type="number"
+  1039→                                  step="0.01"
+  1040→                                  min="0"
+  1041→                                  max="100"
+  1042→                                  value={line.discountPercent || 0}
+  1043→                                  onChange={e => setPrLines(prev => prev.map((l, i) => i === idx ? { ...l, discountPercent: Number(e.target.value) } : l))}
+  1044→                                  className="h-8 w-16 text-xs"
+  1045→                                />
+  1046→                              </TableCell>
+  1047→                              <TableCell className="text-xs text-right font-medium">{fmtCurrency(lineTotal)}</TableCell>
+  1048→                              <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.costPrice)}</TableCell>
+  1049→                            </TableRow>
+  1050→                          );
+  1051→                        })}
+  1052→                      </TableBody>
+  1053→                    </Table>
+  1054→                  </div>
+  1055→                </div>
+  1056→              )}
+  1057→
+  1058→              {/* Computed Totals */}
+  1059→              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4">
+  1060→                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+  1061→                  <div><span className="text-slate-500 dark:text-slate-400">SubTotal:</span> <span className="font-medium">{fmtCurrency(prComputedTotals.subTotal)}</span></div>
+  1062→                  <div><span className="text-slate-500 dark:text-slate-400">Discount:</span> <span className="font-medium">{fmtCurrency(prComputedTotals.discountAmt)}</span></div>
+  1063→                  <div><span className="text-slate-500 dark:text-slate-400">VAT:</span> <span className="font-medium">{fmtCurrency(prComputedTotals.vatAmt)}</span></div>
+  1064→                  <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span> <span className="font-bold text-[#2563eb]">{fmtCurrency(prComputedTotals.grandTotal)}</span></div>
+  1065→                  <div><span className="text-slate-500 dark:text-slate-400">COGS Reversal:</span> <span className="font-medium text-amber-600">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(prComputedTotals.cogsReversal)}</span></div>
+  1066→                </div>
+  1067→              </div>
+  1068→            </div>
+  1069→            <DialogFooter>
+  1070→              <Button variant="outline" onClick={() => setPrDialog(false)}>Cancel</Button>
+  1071→              <Button onClick={savePr} disabled={prSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1072→                {prSaving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Saving...</> : "Save Return"}
+  1073→              </Button>
+  1074→            </DialogFooter>
+  1075→          </DialogContent>
+  1076→        </Dialog>
+  1077→
+  1078→        {/* Delete Confirmation */}
+  1079→        <Dialog open={!!prDelete} onOpenChange={() => setPrDelete(null)}>
+  1080→          <DialogContent>
+  1081→            <DialogHeader>
+  1082→              <DialogTitle>Delete Purchase Return</DialogTitle>
+  1083→              <DialogDescription>This action cannot be undone.</DialogDescription>
+  1084→            </DialogHeader>
+  1085→            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-2">
+  1086→              <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+  1087→              <div className="text-sm text-red-700 dark:text-red-400">
+  1088→                <p className="font-medium">Warning: Financial Impact</p>
+  1089→                <ul className="list-disc ml-4 mt-1 text-xs space-y-1">
+  1090→                  <li>Stock reversal will be triggered — items will be restocked to inventory</li>
+  1091→                  <li>AP adjustment will be reversed — supplier balance will be increased</li>
+  1092→                  {prDelete?.apAdjustmentPosted && <li className="font-semibold">This return has an AP adjustment posted that will be reversed</li>}
+  1093→                  {prDelete?.stockRealignPosted && <li className="font-semibold">This return has stock realignment posted that will be reversed</li>}
+  1094→                </ul>
+  1095→              </div>
+  1096→            </div>
+  1097→            <DialogFooter>
+  1098→              <Button variant="outline" onClick={() => setPrDelete(null)}>Cancel</Button>
+  1099→              <Button variant="destructive" onClick={deletePr}>Delete Return</Button>
+  1100→            </DialogFooter>
+  1101→          </DialogContent>
+  1102→        </Dialog>
+  1103→      </div>
+  1104→    );
+  1105→  };
+  1106→
+  1107→  // ============================================================
+  1108→  // TAB 2: REPLACEMENT ORDERS
+  1109→  // ============================================================
+  1110→
+  1111→  const renderReplacements = () => {
+  1112→    if (isDealer) return <AccessDenied message="Dealers cannot access Replacement Orders." />;
+  1113→
+  1114→    return (
+  1115→      <div className="space-y-4">
+  1116→        {isVatAuditor && (
+  1117→          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+  1118→            <Shield className="h-4 w-4 text-amber-600" />
+  1119→            <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — All financial columns are masked</span>
+  1120→          </div>
+  1121→        )}
+  1122→
+  1123→        {/* Stat Cards */}
+  1124→        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
+  1125→          <StatCard label="Total Replacements" value={rplStats.total} icon={ArrowRightLeft} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+  1126→          <StatCard label="Original Cost" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(rplStats.originalCostTotal)} icon={DollarSign} color="text-amber-500" bg="bg-amber-500/10" />
+  1127→          <StatCard label="Replacement Cost" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(rplStats.replacementCostTotal)} icon={PackageCheck} color="text-purple-500" bg="bg-purple-500/10" />
+  1128→          <StatCard label="Net Adjustment" value={isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(rplStats.netAdjustment)} icon={ArrowDownUp} color="text-emerald-500" bg="bg-emerald-500/10" />
+  1129→          <StatCard label="Stock Adjusted" value={rplStats.stockAdjusted} icon={Warehouse} color="text-emerald-500" bg="bg-emerald-500/10" />
+  1130→          <StatCard label="Pending Approval" value={rplStats.pendingApproval} icon={Clock} color="text-amber-500" bg="bg-amber-500/10" />
+  1131→        </div>
+  1132→
+  1133→        {/* Filter Bar */}
+  1134→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1135→          <CardContent className="p-4">
+  1136→            <div className="flex flex-wrap gap-3 items-center">
+  1137→              <Select value={rplStatusFilter} onValueChange={setRplStatusFilter}>
+  1138→                <SelectTrigger className="w-[140px] h-9 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
+  1139→                <SelectContent>
+  1140→                  <SelectItem value="all">All Status</SelectItem>
+  1141→                  <SelectItem value="Pending">Pending</SelectItem>
+  1142→                  <SelectItem value="Approved">Approved</SelectItem>
+  1143→                  <SelectItem value="Processing">Processing</SelectItem>
+  1144→                  <SelectItem value="Completed">Completed</SelectItem>
+  1145→                  <SelectItem value="Cancelled">Cancelled</SelectItem>
+  1146→                </SelectContent>
+  1147→              </Select>
+  1148→              <Select value={rplSupplierFilter} onValueChange={setRplSupplierFilter}>
+  1149→                <SelectTrigger className="w-[160px] h-9 text-xs"><SelectValue placeholder="Supplier" /></SelectTrigger>
+  1150→                <SelectContent>
+  1151→                  <SelectItem value="all">All Suppliers</SelectItem>
+  1152→                  {suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+  1153→                </SelectContent>
+  1154→              </Select>
+  1155→              <Select value={rplCustomerFilter} onValueChange={setRplCustomerFilter}>
+  1156→                <SelectTrigger className="w-[160px] h-9 text-xs"><SelectValue placeholder="Customer" /></SelectTrigger>
+  1157→                <SelectContent>
+  1158→                  <SelectItem value="all">All Customers</SelectItem>
+  1159→                  {customers.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+  1160→                </SelectContent>
+  1161→              </Select>
+  1162→              <div className="relative flex-1 min-w-[200px]">
+  1163→                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+  1164→                <Input placeholder="Search replacement no, reason..." value={rplSearch} onChange={e => setRplSearch(e.target.value)} className="pl-9 h-9 text-xs" />
+  1165→              </div>
+  1166→              <Button variant="outline" size="sm" onClick={loadReplacements} disabled={rplLoading} className="h-9">
+  1167→                <RefreshCw className={`h-4 w-4 mr-1 ${rplLoading ? "animate-spin" : ""}`} />Refresh
+  1168→              </Button>
+  1169→              <Button variant="outline" size="sm" onClick={() => doExportRPL("csv")} className="h-9">
+  1170→                <Download className="h-4 w-4 mr-1" />CSV
+  1171→              </Button>
+  1172→              <Button variant="outline" size="sm" onClick={() => doExportRPL("pdf")} className="h-9">
+  1173→                <FileDown className="h-4 w-4 mr-1" />PDF
+  1174→              </Button>
+  1175→              <Button variant="outline" size="sm" onClick={async () => {
+  1176→                const columns: ExportColumnDef[] = [
+  1177→                  { key: "replacementNo", label: "Replacement No", type: "text" },
+  1178→                  { key: "date", label: "Date", type: "date" },
+  1179→                  { key: "salesOrderNo", label: "Sales Order", type: "text" },
+  1180→                  { key: "supplierName", label: "Supplier", type: "text" },
+  1181→                  { key: "customerName", label: "Customer", type: "text" },
+  1182→                  { key: "originalCostTotal", label: "Original Cost", type: "currency" },
+  1183→                  { key: "replacementCostTotal", label: "Replacement Cost", type: "currency" },
+  1184→                  { key: "adjustmentAmount", label: "Net Adjustment", type: "currency" },
+  1185→                  { key: "status", label: "Status", type: "text" },
+  1186→                ];
+  1187→                const data = rplFiltered.map((r: any) => ({ ...r, salesOrderNo: r.salesOrder?.orderNo || "—", supplierName: r.supplier?.name || "—", customerName: r.customer?.name || "—" }));
+  1188→                const result = await copyTableToClipboard({ title: "Replacement Order Registry", columns, data, isVatAuditor, vatMaskedColumns: getVatMaskedKeys(columns) });
+  1189→                if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+  1190→              }} className="h-9">
+  1191→                <Copy className="h-4 w-4 mr-1" />Copy
+  1192→              </Button>
+  1193→              {isAdmin && (
+  1194→                <Button variant="outline" size="sm" onClick={doImportRPL} className="h-9">
+  1195→                  <Upload className="h-4 w-4 mr-1" />Import
+  1196→                </Button>
+  1197→              )}
+  1198→              {canCreate && (
+  1199→                <Button size="sm" onClick={openRplCreate} className="h-9 bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1200→                  <Plus className="h-4 w-4 mr-1" />Create Replacement
+  1201→                </Button>
+  1202→              )}
+  1203→            </div>
+  1204→          </CardContent>
+  1205→        </Card>
+  1206→
+  1207→        {/* Table */}
+  1208→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1209→          <CardContent className="p-0 overflow-hidden">
+  1210→            <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1211→              <Table className="min-w-[600px]">
+  1212→                <TableHeader>
+  1213→                  <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1214→                    <TableHead className="text-white text-xs w-8"></TableHead>
+  1215→                    <TableHead className="text-white text-xs">Replacement No</TableHead>
+  1216→                    <TableHead className="text-white text-xs">Date</TableHead>
+  1217→                    <TableHead className="text-white text-xs">Sales Order</TableHead>
+  1218→                    <TableHead className="text-white text-xs">Supplier</TableHead>
+  1219→                    <TableHead className="text-white text-xs">Customer</TableHead>
+  1220→                    <TableHead className="text-white text-xs text-right">Original Cost</TableHead>
+  1221→                    <TableHead className="text-white text-xs text-right">Replacement Cost</TableHead>
+  1222→                    <TableHead className="text-white text-xs text-right">Net Adjustment</TableHead>
+  1223→                    <TableHead className="text-white text-xs">Stock Posted</TableHead>
+  1224→                    <TableHead className="text-white text-xs">Ledger Posted</TableHead>
+  1225→                    <TableHead className="text-white text-xs">Status</TableHead>
+  1226→                    <TableHead className="text-white text-xs">Actions</TableHead>
+  1227→                  </TableRow>
+  1228→                </TableHeader>
+  1229→                <TableBody>
+  1230→                  {rplLoading ? (
+  1231→                    <TableRow>
+  1232→                      <TableCell colSpan={13} className="text-center py-8 text-slate-400">
+  1233→                        <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
+  1234→                        Loading replacements...
+  1235→                      </TableCell>
+  1236→                    </TableRow>
+  1237→                  ) : rplFiltered.length === 0 ? (
+  1238→                    <TableRow>
+  1239→                      <TableCell colSpan={13} className="text-center py-8 text-slate-400">
+  1240→                        <ArrowRightLeft className="h-8 w-8 mx-auto mb-2 opacity-50" />
+  1241→                        <p className="font-medium">No replacement orders found</p>
+  1242→                        <p className="text-xs">Create a new replacement or adjust your filters</p>
+  1243→                      </TableCell>
+  1244→                    </TableRow>
+  1245→                  ) : rplFiltered.map((item: any) => (
+  1246→                    <React.Fragment key={item.id}>
+  1247→                      <TableRow className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer" onClick={() => toggleRplExpand(item.id)}>
+  1248→                        <TableCell className="text-xs">
+  1249→                          {rplExpandedRows.has(item.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+  1250→                        </TableCell>
+  1251→                        <TableCell className="text-xs font-medium">{item.replacementNo || `RPL-${String(item.id).padStart(5, "0")}`}</TableCell>
+  1252→                        <TableCell className="text-xs">{fmtDate(item.date)}</TableCell>
+  1253→                        <TableCell className="text-xs">{item.salesOrder?.invoiceNo || "—"}</TableCell>
+  1254→                        <TableCell className="text-xs max-w-[120px] truncate">{item.supplier?.name || "—"}</TableCell>
+  1255→                        <TableCell className="text-xs max-w-[120px] truncate">{item.customer?.name || "—"}</TableCell>
+  1256→                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.originalCostTotal)}</TableCell>
+  1257→                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.replacementCostTotal)}</TableCell>
+  1258→                        <TableCell className="text-xs text-right font-medium">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(item.adjustmentAmount)}</TableCell>
+  1259→                        <TableCell className="text-xs">{item.stockAdjustmentPosted ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <X className="h-4 w-4 text-slate-300" />}</TableCell>
+  1260→                        <TableCell className="text-xs">{item.financialAdjustmentPosted ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <X className="h-4 w-4 text-slate-300" />}</TableCell>
+  1261→                        <TableCell className="text-xs"><StatusBadge status={item.status || "Pending"} /></TableCell>
+  1262→                        <TableCell className="text-xs" onClick={e => e.stopPropagation()}>
+  1263→                          <div className="flex gap-1">
+  1264→                            {!isSR && (
+  1265→                              <Button variant="ghost" size="sm" onClick={() => openRplEdit(item)} className="h-7 w-7 p-0">
+  1266→                                <Edit className="h-3 w-3" />
+  1267→                              </Button>
+  1268→                            )}
+  1269→                            {canDelete && (
+  1270→                              <Button variant="ghost" size="sm" onClick={() => setRplDelete(item)} className="h-7 w-7 p-0 text-red-500">
+  1271→                                <Trash2 className="h-3 w-3" />
+  1272→                              </Button>
+  1273→                            )}
+  1274→                          </div>
+  1275→                        </TableCell>
+  1276→                      </TableRow>
+  1277→                      {rplExpandedRows.has(item.id) && item.lines?.length > 0 && (
+  1278→                        <TableRow className="bg-slate-50 dark:bg-slate-800/30">
+  1279→                          <TableCell colSpan={13} className="p-3">
+  1280→                            <div className="ml-6 text-xs">
+  1281→                              <p className="font-semibold text-slate-700 dark:text-slate-300 mb-2">Line Items</p>
+  1282→                              <div className="overflow-x-auto border rounded-lg">
+  1283→                                <Table>
+  1284→                                  <TableHeader>
+  1285→                                    <TableRow className="bg-slate-100 dark:bg-slate-700/50">
+  1286→                                      <TableHead className="text-xs">Original Product</TableHead>
+  1287→                                      <TableHead className="text-xs">Replacement Product</TableHead>
+  1288→                                      <TableHead className="text-xs text-right">Qty</TableHead>
+  1289→                                      <TableHead className="text-xs text-right">Rate</TableHead>
+  1290→                                      <TableHead className="text-xs text-right">Repl. Rate</TableHead>
+  1291→                                      <TableHead className="text-xs text-right">Total</TableHead>
+  1292→                                      <TableHead className="text-xs text-right">Repl. Total</TableHead>
+  1293→                                      <TableHead className="text-xs text-right">Cost Price</TableHead>
+  1294→                                      <TableHead className="text-xs text-right">Repl. Cost</TableHead>
+  1295→                                      <TableHead className="text-xs text-right">Line Adjustment</TableHead>
+  1296→                                    </TableRow>
+  1297→                                  </TableHeader>
+  1298→                                  <TableBody>
+  1299→                                    {item.lines.map((line: any, idx: number) => (
+  1300→                                      <TableRow key={idx}>
+  1301→                                        <TableCell className="text-xs">{line.product?.name || line.productId || "—"}</TableCell>
+  1302→                                        <TableCell className="text-xs">{line.replacementProduct?.name || line.replacementProductId || "—"}</TableCell>
+  1303→                                        <TableCell className="text-xs text-right">{line.quantity}</TableCell>
+  1304→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.rate)}</TableCell>
+  1305→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.replacementRate)}</TableCell>
+  1306→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.total)}</TableCell>
+  1307→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.replacementTotal)}</TableCell>
+  1308→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.costPrice)}</TableCell>
+  1309→                                        <TableCell className="text-xs text-right">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.replacementCostPrice)}</TableCell>
+  1310→                                        <TableCell className="text-xs text-right font-medium">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(line.lineAdjustment)}</TableCell>
+  1311→                                      </TableRow>
+  1312→                                    ))}
+  1313→                                  </TableBody>
+  1314→                                </Table>
+  1315→                              </div>
+  1316→                            </div>
+  1317→                          </TableCell>
+  1318→                        </TableRow>
+  1319→                      )}
+  1320→                    </React.Fragment>
+  1321→                  ))}
+  1322→                </TableBody>
+  1323→              </Table>
+  1324→            </div>
+  1325→          </CardContent>
+  1326→        </Card>
+  1327→
+  1328→        {/* Create/Edit Dialog */}
+  1329→        <Dialog open={rplDialog} onOpenChange={setRplDialog}>
+  1330→          <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[85vh] overflow-y-auto">
+  1331→            <DialogHeader>
+  1332→              <DialogTitle>{rplEdit ? "Edit" : "Create"} Replacement Order</DialogTitle>
+  1333→              <DialogDescription>Enter replacement order details.</DialogDescription>
+  1334→            </DialogHeader>
+  1335→            <div className="space-y-4">
+  1336→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  1337→                <div>
+  1338→                  <Label className="text-sm font-medium">Sales Order (optional)</Label>
+  1339→                  <Select value={rplForm.salesOrderId || ""} onValueChange={v => setRplForm(p => ({ ...p, salesOrderId: v }))}>
+  1340→                    <SelectTrigger><SelectValue placeholder="Select Sales Order" /></SelectTrigger>
+  1341→                    <SelectContent>
+  1342→                      {salesOrders.filter((s: any) => s.status !== "Cancelled" && s.status !== "Draft").map((s: any) => (
+  1343→                        <SelectItem key={s.id} value={s.id}>{s.invoiceNo || `SO-${String(s.id).padStart(5, "0")}`}</SelectItem>
+  1344→                      ))}
+  1345→                    </SelectContent>
+  1346→                  </Select>
+  1347→                </div>
+  1348→                <div>
+  1349→                  <Label className="text-sm font-medium">Supplier (optional)</Label>
+  1350→                  <Select value={rplForm.supplierId || ""} onValueChange={v => setRplForm(p => ({ ...p, supplierId: v }))}>
+  1351→                    <SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger>
+  1352→                    <SelectContent>{suppliers.map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+  1353→                  </Select>
+  1354→                </div>
+  1355→              </div>
+  1356→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  1357→                <div>
+  1358→                  <Label className="text-sm font-medium">Customer (optional)</Label>
+  1359→                  <Select value={rplForm.customerId || ""} onValueChange={v => setRplForm(p => ({ ...p, customerId: v }))}>
+  1360→                    <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
+  1361→                    <SelectContent>{customers.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+  1362→                  </Select>
+  1363→                </div>
+  1364→                <div>
+  1365→                  <Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label>
+  1366→                  <Input type="date" value={rplForm.date || ""} onChange={e => setRplForm(p => ({ ...p, date: e.target.value }))} />
+  1367→                </div>
+  1368→              </div>
+  1369→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  1370→                <div>
+  1371→                  <Label className="text-sm font-medium">Reason</Label>
+  1372→                  <Textarea value={rplForm.reason || ""} onChange={e => setRplForm(p => ({ ...p, reason: e.target.value }))} rows={2} placeholder="Reason for replacement" />
+  1373→                </div>
+  1374→                <div>
+  1375→                  <Label className="text-sm font-medium">Notes</Label>
+  1376→                  <Textarea value={rplForm.notes || ""} onChange={e => setRplForm(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Additional notes" />
+  1377→                </div>
+  1378→              </div>
+  1379→
+  1380→              {/* Line Items */}
+  1381→              <div className="space-y-2">
+  1382→                <div className="flex items-center justify-between">
+  1383→                  <Label className="text-sm font-semibold text-slate-900 dark:text-white">Replacement Items</Label>
+  1384→                  {(!rplEdit || rplEdit.status === "Pending") && (
+  1385→                    <Button variant="outline" size="sm" onClick={() => setRplLines(prev => [...prev, { productId: "", replacementProductId: "", quantity: 1, rate: 0, replacementRate: 0 }])} className="h-8 text-xs">
+  1386→                      <Plus className="h-3 w-3 mr-1" />Add Line
+  1387→                    </Button>
+  1388→                  )}
+  1389→                </div>
+  1390→                <div className="overflow-x-auto border rounded-lg">
+  1391→                  <Table>
+  1392→                    <TableHeader>
+  1393→                      <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1394→                        <TableHead className="text-white text-xs">Original Product</TableHead>
+  1395→                        <TableHead className="text-white text-xs">Replacement Product</TableHead>
+  1396→                        <TableHead className="text-white text-xs text-right">Qty</TableHead>
+  1397→                        <TableHead className="text-white text-xs text-right">Rate</TableHead>
+  1398→                        <TableHead className="text-white text-xs text-right">Repl. Rate</TableHead>
+  1399→                        <TableHead className="text-white text-xs text-right">Total</TableHead>
+  1400→                        <TableHead className="text-white text-xs text-right">Repl. Total</TableHead>
+  1401→                        {(!rplEdit || rplEdit.status === "Pending") && <TableHead className="text-white text-xs w-10"></TableHead>}
+  1402→                      </TableRow>
+  1403→                    </TableHeader>
+  1404→                    <TableBody>
+  1405→                      {rplLines.map((line: any, idx: number) => {
+  1406→                        const lineTotal = (Number(line.quantity) || 0) * (Number(line.rate) || 0);
+  1407→                        const replTotal = (Number(line.quantity) || 0) * (Number(line.replacementRate) || 0);
+  1408→                        return (
+  1409→                          <TableRow key={idx}>
+  1410→                            <TableCell>
+  1411→                              <Select value={line.productId || ""} onValueChange={v => {
+  1412→                                const prod = products.find((p: any) => p.id === v);
+  1413→                                setRplLines(prev => prev.map((l, i) => i === idx ? { ...l, productId: v, rate: prod?.salePrice || prod?.costPrice || 0, costPrice: prod?.costPrice || 0 } : l));
+  1414→                              }}>
+  1415→                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select" /></SelectTrigger>
+  1416→                                <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+  1417→                              </Select>
+  1418→                            </TableCell>
+  1419→                            <TableCell>
+  1420→                              <Select value={line.replacementProductId || ""} onValueChange={v => {
+  1421→                                const prod = products.find((p: any) => p.id === v);
+  1422→                                setRplLines(prev => prev.map((l, i) => i === idx ? { ...l, replacementProductId: v, replacementRate: prod?.costPrice || prod?.salePrice || 0, replacementCostPrice: prod?.costPrice || 0 } : l));
+  1423→                              }}>
+  1424→                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select" /></SelectTrigger>
+  1425→                                <SelectContent>{products.map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+  1426→                              </Select>
+  1427→                            </TableCell>
+  1428→                            <TableCell>
+  1429→                              <Input type="number" min={1} value={line.quantity || 1} onChange={e => setRplLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity: Number(e.target.value) } : l))} className="h-8 w-16 text-xs" />
+  1430→                            </TableCell>
+  1431→                            <TableCell>
+  1432→                              <Input type="number" step="0.01" value={line.rate || 0} onChange={e => setRplLines(prev => prev.map((l, i) => i === idx ? { ...l, rate: Number(e.target.value) } : l))} className="h-8 w-20 text-xs" />
+  1433→                            </TableCell>
+  1434→                            <TableCell>
+  1435→                              <Input type="number" step="0.01" value={line.replacementRate || 0} onChange={e => setRplLines(prev => prev.map((l, i) => i === idx ? { ...l, replacementRate: Number(e.target.value) } : l))} className="h-8 w-20 text-xs" />
+  1436→                            </TableCell>
+  1437→                            <TableCell className="text-xs text-right font-medium">{fmtCurrency(lineTotal)}</TableCell>
+  1438→                            <TableCell className="text-xs text-right font-medium">{fmtCurrency(replTotal)}</TableCell>
+  1439→                            {(!rplEdit || rplEdit.status === "Pending") && (
+  1440→                              <TableCell>
+  1441→                                <Button variant="ghost" size="sm" onClick={() => setRplLines(prev => prev.filter((_, i) => i !== idx))} className="h-7 w-7 p-0 text-red-500" disabled={rplLines.length <= 1}>
+  1442→                                  <X className="h-3 w-3" />
+  1443→                                </Button>
+  1444→                              </TableCell>
+  1445→                            )}
+  1446→                          </TableRow>
+  1447→                        );
+  1448→                      })}
+  1449→                    </TableBody>
+  1450→                  </Table>
+  1451→                </div>
+  1452→              </div>
+  1453→
+  1454→              {/* Financial Adjustment Warning */}
+  1455→              {rplComputedTotals.netAdjustment !== 0 && (
+  1456→                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-start gap-2">
+  1457→                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+  1458→                  <div className="text-xs">
+  1459→                    <p className="font-medium text-amber-700 dark:text-amber-400">Financial Adjustment Impact</p>
+  1460→                    <p className="text-amber-600 dark:text-amber-500">
+  1461→                      {rplComputedTotals.netAdjustment > 0
+  1462→                        ? `Replacement costs more by ${fmtCurrency(rplComputedTotals.netAdjustment)}. Supplier AP will increase.`
+  1463→                        : `Replacement costs less by ${fmtCurrency(Math.abs(rplComputedTotals.netAdjustment))}. Supplier AP will decrease.`}
+  1464→                      {rplForm.customerId && " Customer AR may also be affected."}
+  1465→                    </p>
+  1466→                  </div>
+  1467→                </div>
+  1468→              )}
+  1469→
+  1470→              {/* Computed Totals */}
+  1471→              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4">
+  1472→                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+  1473→                  <div><span className="text-slate-500 dark:text-slate-400">Original Cost Total:</span> <span className="font-medium">{fmtCurrency(rplComputedTotals.originalCostTotal)}</span></div>
+  1474→                  <div><span className="text-slate-500 dark:text-slate-400">Replacement Cost Total:</span> <span className="font-medium">{fmtCurrency(rplComputedTotals.replacementCostTotal)}</span></div>
+  1475→                  <div>
+  1476→                    <span className="text-slate-500 dark:text-slate-400">Net Adjustment:</span>{" "}
+  1477→                    <span className={`font-bold ${rplComputedTotals.netAdjustment > 0 ? "text-red-500" : rplComputedTotals.netAdjustment < 0 ? "text-emerald-500" : "text-slate-700 dark:text-white"}`}>
+  1478→                      {fmtCurrency(rplComputedTotals.netAdjustment)}
+  1479→                    </span>
+  1480→                  </div>
+  1481→                </div>
+  1482→              </div>
+  1483→            </div>
+  1484→            <DialogFooter>
+  1485→              <Button variant="outline" onClick={() => setRplDialog(false)}>Cancel</Button>
+  1486→              <Button onClick={saveRpl} disabled={rplSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1487→                {rplSaving ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Saving...</> : "Save Replacement"}
+  1488→              </Button>
+  1489→            </DialogFooter>
+  1490→          </DialogContent>
+  1491→        </Dialog>
+  1492→
+  1493→        {/* Delete Confirmation */}
+  1494→        <Dialog open={!!rplDelete} onOpenChange={() => setRplDelete(null)}>
+  1495→          <DialogContent>
+  1496→            <DialogHeader>
+  1497→              <DialogTitle>Delete Replacement Order</DialogTitle>
+  1498→              <DialogDescription>This action cannot be undone.</DialogDescription>
+  1499→            </DialogHeader>
+  1500→            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-start gap-2">
+  1501→              <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+  1502→              <div className="text-sm text-red-700 dark:text-red-400">
+  1503→                <p className="font-medium">Warning: Financial Impact</p>
+  1504→                <ul className="list-disc ml-4 mt-1 text-xs space-y-1">
+  1505→                  <li>Stock adjustment will be reversed — original product restocked, replacement product removed</li>
+  1506→                  <li>Ledger adjustments (AP/AR) will be reversed</li>
+  1507→                  {rplDelete?.stockAdjustmentPosted && <li className="font-semibold">This replacement has stock adjustment posted that will be reversed</li>}
+  1508→                  {rplDelete?.financialAdjustmentPosted && <li className="font-semibold">This replacement has financial adjustment posted that will be reversed</li>}
+  1509→                </ul>
+  1510→              </div>
+  1511→            </div>
+  1512→            <DialogFooter>
+  1513→              <Button variant="outline" onClick={() => setRplDelete(null)}>Cancel</Button>
+  1514→              <Button variant="destructive" onClick={deleteRpl}>Delete Replacement</Button>
+  1515→            </DialogFooter>
+  1516→          </DialogContent>
+  1517→        </Dialog>
+  1518→      </div>
+  1519→    );
+  1520→  };
+  1521→
+  1522→  // ============================================================
+  1523→  // MAIN RENDER
+  1524→  // ============================================================
+  1525→
+  1526→  return (
+  1527→    <div className="page-enter flex flex-col bg-slate-50 dark:bg-slate-900">
+  1528→      <main className="flex-1 p-4 sm:p-6">
+  1529→        <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1530→          <TabsList className="bg-[#132240] mb-4">
+  1531→            <TabsTrigger value="purchase-returns" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-400">
+  1532→              <RotateCcw className="h-4 w-4 mr-1" />Purchase Returns
+  1533→            </TabsTrigger>
+  1534→            <TabsTrigger value="replacements" className="data-[state=active]:bg-[#2563eb] data-[state=active]:text-white text-slate-400">
+  1535→              <ArrowRightLeft className="h-4 w-4 mr-1" />Replacement Orders
+  1536→            </TabsTrigger>
+  1537→          </TabsList>
+  1538→
+  1539→          <TabsContent value="purchase-returns">
+  1540→            {renderPurchaseReturns()}
+  1541→          </TabsContent>
+  1542→
+  1543→          <TabsContent value="replacements">
+  1544→            {renderReplacements()}
+  1545→          </TabsContent>
+  1546→        </Tabs>
+  1547→      </main>
+  1548→
+  1549→    </div>
+  1550→  );
+  1551→}
+  1552→

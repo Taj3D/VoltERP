@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→// ============================================================
+     3→// VoltERP — ELECTRONICS MART IMS v2.0
+     4→// Operations Module Page — Dedicated Component
+     5→// SR Target Setup | Payment Options | Card Types | Card Type Setup
+     6→// Phase 7: Live Target Tracking, Channel Status Toggles,
+     7→// Branded PDF Framework, Transactional CSV Core
+     8→// ============================================================
+     9→
+    10→import React, { useState, useEffect, useCallback, useMemo } from "react";
+    11→import {
+    12→  Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
+    13→  FileDown, Target, CreditCard, Settings, X, Shield,
+    14→  CheckCircle, Loader2, AlertTriangle, Power, Eye,
+    15→  TrendingUp, DollarSign, BarChart3, Users, Percent,
+    16→  ArrowRight, ChevronRight, Info, Activity,
+    17→} from "lucide-react";
+    18→import { Button } from "@/components/ui/button";
+    19→import { Input } from "@/components/ui/input";
+    20→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    21→import {
+    22→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+    23→} from "@/components/ui/dialog";
+    24→import {
+    25→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    26→} from "@/components/ui/select";
+    27→import {
+    28→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    29→} from "@/components/ui/table";
+    30→import { Badge } from "@/components/ui/badge";
+    31→import { Textarea } from "@/components/ui/textarea";
+    32→import { Label } from "@/components/ui/label";
+    33→import { Separator } from "@/components/ui/separator";
+    34→import { Progress } from "@/components/ui/progress";
+    35→import { useToast } from "@/hooks/use-toast";
+    36→import {
+    37→  exportToPDF, exportToCSV, importFromCSV,
+    38→} from "@/lib/export-utils";
+    39→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
+    40→import { apiFetch, type UserRole, authState } from "@/lib/api-client";
+    41→import { useAuth } from "@/hooks/useAuth";
+    42→
+    43→// ============================================================
+    44→// CONSTANTS
+    45→// ============================================================
+    46→
+    47→const MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    48→
+    49→const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    50→
+    51→const fmtCurrency = (v: any) => {
+    52→  if (v === null || v === undefined) return "—";
+    53→  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
+    54→  return `Tk. ${bdFmt.format(Number(v))}`;
+    55→};
+    56→
+    57→const fmtPercent = (v: any) => {
+    58→  if (v === null || v === undefined) return "—";
+    59→  return `${Number(v).toFixed(2)}%`;
+    60→};
+    61→
+    62→const fmtNumber = (v: any) => {
+    63→  if (v === null || v === undefined) return "—";
+    64→  return bdFmt.format(Number(v));
+    65→};
+    66→
+    67→// ============================================================
+    68→// API FETCH HELPER
+    69→
+    70→// ============================================================
+    71→// AUTH (local pattern matching existing components)
+    72→
+    73→// ============================================================
+    74→// XSS / CSV SANITIZATION
+    75→// ============================================================
+    76→
+    77→const sanitizeInput = (input: string): string => {
+    78→  return input.replace(/<[^>]*>/g, '').replace(/\r\n/g, '\n').replace(/  +/g, ' ').trim();
+    79→};
+    80→
+    81→const sanitizeCSVInput = (input: string): string => {
+    82→  return input
+    83→    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    84→    .replace(/javascript:/gi, '')
+    85→    .replace(/on(error|load|click|mouseover|focus|blur)=/gi, '')
+    86→    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    87→    .replace(/eval\s*\(/gi, '')
+    88→    .replace(/document\.cookie/gi, '')
+    89→    .replace(/window\.location/gi, '')
+    90→    .trim();
+    91→};
+    92→
+    93→// Field length validation
+    94→const validateFieldLength = (value: string, fieldType: 'name' | 'numeric' | 'percentage'): string | null => {
+    95→  if (fieldType === 'name' && value.length > 100) return 'Name fields must be max 100 characters';
+    96→  if (fieldType === 'numeric' && value.replace(/[.,\-]/g, '').length > 15) return 'Numeric fields must be max 15 digits';
+    97→  if (fieldType === 'percentage' && value.length > 5) return 'Percentage fields must be max 5 characters';
+    98→  return null;
+    99→};
+   100→
+   101→// ============================================================
+   102→// HELPER: Get nested value from object
+   103→// ============================================================
+   104→
+   105→function getNestedValue(obj: any, path: string): any {
+   106→  return path.split(".").reduce((acc, part) => acc?.[part], obj);
+   107→}
+   108→
+   109→// ============================================================
+   110→// COLUMN / FIELD DEFINITIONS FOR EXPORT
+   111→// ============================================================
+   112→
+   113→const SR_TARGET_COLUMNS: ExportColumnDef[] = [
+   114→  { key: "employee.name", label: "Employee", type: "text" },
+   115→  { key: "month", label: "Month", type: "number" },
+   116→  { key: "year", label: "Year", type: "number" },
+   117→  { key: "targetAmount", label: "Target Amount", type: "currency" },
+   118→  { key: "minimumSalesQuota", label: "Min Sales Quota", type: "currency" },
+   119→  { key: "commissionPercentage", label: "Commission %", type: "number" },
+   120→  { key: "status", label: "Channel Status", type: "text" },
+   121→  { key: "isActive", label: "Status", type: "boolean" },
+   122→];
+   123→
+   124→const SR_TARGET_FIELDS: ExportFieldDef[] = [
+   125→  { key: "employeeId", label: "Employee (SR)", type: "select", required: true, options: [] },
+   126→  { key: "month", label: "Month", type: "number", required: true },
+   127→  { key: "year", label: "Year", type: "number", required: true },
+   128→  { key: "targetAmount", label: "Target Amount (Tk. )", type: "number", required: true, step: "0.01" },
+   129→  { key: "minimumSalesQuota", label: "Minimum Sales Quota (Tk. )", type: "number", required: true, step: "0.01" },
+   130→  { key: "commissionPercentage", label: "Commission Percentage (%)", type: "number", required: true, step: "0.01" },
+   131→];
+   132→
+   133→const PAYMENT_OPTION_COLUMNS: ExportColumnDef[] = [
+   134→  { key: "name", label: "Payment Option", type: "text" },
+   135→  { key: "status", label: "Channel Status", type: "text" },
+   136→  { key: "_count.cardTypeSetups", label: "Card Setups", type: "number" },
+   137→  { key: "isActive", label: "Status", type: "boolean" },
+   138→];
+   139→
+   140→const PAYMENT_OPTION_FIELDS: ExportFieldDef[] = [
+   141→  { key: "name", label: "Payment Option Name", type: "text", required: true },
+   142→  { key: "status", label: "Channel Status", type: "select", required: true, options: [{ value: "ACTIVE", label: "ACTIVE" }, { value: "INACTIVE", label: "INACTIVE" }] },
+   143→  { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   144→];
+   145→
+   146→const CARD_TYPE_COLUMNS: ExportColumnDef[] = [
+   147→  { key: "name", label: "Card Type", type: "text" },
+   148→  { key: "_count.cardTypeSetups", label: "Card Setups", type: "number" },
+   149→  { key: "isActive", label: "Status", type: "boolean" },
+   150→];
+   151→
+   152→const CARD_TYPE_FIELDS: ExportFieldDef[] = [
+   153→  { key: "name", label: "Card Type Name", type: "text", required: true },
+   154→  { key: "isActive", label: "Active", type: "checkbox", defaultValue: true },
+   155→];
+   156→
+   157→const CARD_TYPE_SETUP_COLUMNS: ExportColumnDef[] = [
+   158→  { key: "paymentOption.name", label: "Payment Option", type: "text" },
+   159→  { key: "cardType.name", label: "Card Type", type: "text" },
+   160→  { key: "chargePercentage", label: "Charge %", type: "number" },
+   161→  { key: "bankServiceCharge", label: "BSC %", type: "number" },
+   162→  { key: "customerConvFee", label: "Conv. Fee %", type: "number" },
+   163→  { key: "isActive", label: "Status", type: "boolean" },
+   164→];
+   165→
+   166→const CARD_TYPE_SETUP_FIELDS: ExportFieldDef[] = [
+   167→  { key: "paymentOptionId", label: "Payment Option", type: "select", required: true, options: [] },
+   168→  { key: "cardTypeId", label: "Card Type", type: "select", required: true, options: [] },
+   169→  { key: "chargePercentage", label: "Charge Percentage (%)", type: "number", defaultValue: 0, step: "0.01" },
+   170→  { key: "bankServiceCharge", label: "Bank Service Charge BSC (%)", type: "number", defaultValue: 0, step: "0.01" },
+   171→  { key: "customerConvFee", label: "Customer Conv. Fee (%)", type: "number", defaultValue: 0, step: "0.01" },
+   172→];
+   173→
+   174→// ============================================================
+   175→// SR PERFORMANCE DATA INTERFACE
+   176→// ============================================================
+   177→
+   178→interface SRPerformanceData {
+   179→  employeeId: string;
+   180→  month: number;
+   181→  year: number;
+   182→  actualSales: number;
+   183→  achievementPct: number;
+   184→  commissionProjection: number;
+   185→  remainingAmount: number;
+   186→}
+   187→
+   188→// ============================================================
+   189→// SR TARGET SETUP TAB — Live Performance Dashboard
+   190→// ============================================================
+   191→
+   192→function SRTargetSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAuditor: boolean }) {
+   193→  const { toast } = useToast();
+   194→  const [data, setData] = useState<any[]>([]);
+   195→  const [employees, setEmployees] = useState<any[]>([]);
+   196→  const [performanceData, setPerformanceData] = useState<Record<string, SRPerformanceData>>({});
+   197→  const [loading, setLoading] = useState(true);
+   198→  const [search, setSearch] = useState("");
+   199→  const [dialogOpen, setDialogOpen] = useState(false);
+   200→  const [editingItem, setEditingItem] = useState<any>(null);
+   201→  const [formData, setFormData] = useState<Record<string, any>>({});
+   202→  const [saving, setSaving] = useState(false);
+   203→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+   204→  const [companyProfile, setCompanyProfile] = useState<any>(null);
+   205→  const [snapshot, setSnapshot] = useState<any[] | null>(null);
+   206→  const [srTargetError, setSrTargetError] = useState<string | null>(null);
+   207→  const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+   208→  const [performanceDialogTarget, setPerformanceDialogTarget] = useState<any>(null);
+   209→  const [performanceDialogData, setPerformanceDialogData] = useState<any[]>([]);
+   210→
+   211→  // Filters
+   212→  const [filterMonth, setFilterMonth] = useState<string>("all");
+   213→  const [filterYear, setFilterYear] = useState<string>("all");
+   214→  const [filterEmployee, setFilterEmployee] = useState<string>("all");
+   215→
+   216→  const canMutate = userRole === "admin" || userRole === "manager";
+   217→  const maskedColumns = isVatAuditor ? ["targetAmount", "minimumSalesQuota", "commissionPercentage", "achievementPct", "remainingAmount", "commissionProjection"] : [];
+   218→
+   219→  // Load data
+   220→  const loadData = useCallback(async () => {
+   221→    setLoading(true);
+   222→    try {
+   223→      const result = await apiFetch("/api/sr-targets");
+   224→      setData(Array.isArray(result) ? result : []);
+   225→    } catch (e: any) {
+   226→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   227→    } finally {
+   228→      setLoading(false);
+   229→    }
+   230→  }, [toast]);
+   231→
+   232→  // Load employees for dropdown
+   233→  const loadEmployees = useCallback(async () => {
+   234→    try {
+   235→      const result = await apiFetch("/api/employees");
+   236→      setEmployees(Array.isArray(result) ? result : []);
+   237→    } catch (err) {
+   238→      console.error('Error loading employees:', err);
+   239→      setEmployees([]);
+   240→    }
+   241→  }, []);
+   242→
+   243→  // Load company profile
+   244→  useEffect(() => {
+   245→    const loadProfile = async () => {
+   246→      try {
+   247→        const profile = await apiFetch("/api/company-branding");
+   248→        setCompanyProfile(profile);
+   249→      } catch (err) {
+   250→        console.error('Error loading company branding:', err);
+   251→      }
+   252→    };
+   253→    loadProfile();
+   254→  }, []);
+   255→
+   256→  useEffect(() => { loadData(); }, [loadData]);
+   257→  useEffect(() => { loadEmployees(); }, [loadEmployees]);
+   258→
+   259→  // Load SR performance data — single API call fetches all periods
+   260→  useEffect(() => {
+   261→    const loadPerformance = async () => {
+   262→      const perfMap: Record<string, SRPerformanceData> = {};
+   263→      try {
+   264→        const result = await apiFetch("/api/sr-performance");
+   265→        if (result && result.periods && Array.isArray(result.periods)) {
+   266→          for (const period of result.periods) {
+   267→            const key = `${period.employeeId}-${period.month}-${period.year}`;
+   268→            perfMap[key] = {
+   269→              employeeId: period.employeeId,
+   270→              month: period.month,
+   271→              year: period.year,
+   272→              actualSales: Number(period.actualSales || 0),
+   273→              achievementPct: Number(period.achievementPercentage || 0),
+   274→              commissionProjection: Number(period.commissionProjection || 0),
+   275→              remainingAmount: Number(period.remainingAmount || 0),
+   276→            };
+   277→          }
+   278→        }
+   279→      } catch (err) {
+   280→        console.warn('Error loading SR performance data, using defaults:', err);
+   281→        // Performance API may not be available yet; set default zero values
+   282→        for (const target of data) {
+   283→          const key = `${target.employeeId}-${target.month}-${target.year}`;
+   284→          if (!perfMap[key]) {
+   285→            perfMap[key] = {
+   286→              employeeId: target.employeeId,
+   287→              month: target.month,
+   288→              year: target.year,
+   289→              actualSales: 0,
+   290→              achievementPct: 0,
+   291→              commissionProjection: 0,
+   292→              remainingAmount: Number(target.targetAmount || 0),
+   293→            };
+   294→          }
+   295→        }
+   296→      }
+   297→      setPerformanceData(perfMap);
+   298→    };
+   299→    if (data.length > 0) loadPerformance();
+   300→  }, [data]);
+   301→
+   302→  // Filtered data
+   303→  const filteredData = useMemo(() => {
+   304→    let result = data;
+   305→    if (search.trim()) {
+   306→      const q = search.toLowerCase();
+   307→      result = result.filter(item =>
+   308→        SR_TARGET_COLUMNS.some(col =>
+   309→          String(getNestedValue(item, col.key) ?? "").toLowerCase().includes(q)
+   310→        )
+   311→      );
+   312→    }
+   313→    if (filterMonth !== "all") result = result.filter(d => d.month === Number(filterMonth));
+   314→    if (filterYear !== "all") result = result.filter(d => d.year === Number(filterYear));
+   315→    if (filterEmployee !== "all") result = result.filter(d => d.employeeId === filterEmployee);
+   316→    return result;
+   317→  }, [data, search, filterMonth, filterYear, filterEmployee]);
+   318→
+   319→  // KPI stats
+   320→  const kpiStats = useMemo(() => {
+   321→    const totalTargets = data.length;
+   322→    const totalTargetAmount = data.reduce((sum, d) => sum + Number(d.targetAmount || 0), 0);
+   323→    const avgTarget = totalTargets > 0 ? totalTargetAmount / totalTargets : 0;
+   324→    const totalAchieved = Object.values(performanceData).reduce((sum, p) => sum + p.actualSales, 0);
+   325→    const totalCommissionProjection = Object.values(performanceData).reduce((sum, p) => sum + p.commissionProjection, 0);
+   326→    return { totalTargets, totalTargetAmount, avgTarget, totalAchieved, totalCommissionProjection };
+   327→  }, [data, performanceData]);
+   328→
+   329→  // Open create dialog
+   330→  const openCreate = () => {
+   331→    setEditingItem(null);
+   332→    setSrTargetError(null);
+   333→    setFormData({ employeeId: "", month: "", year: String(new Date().getFullYear()), targetAmount: "", minimumSalesQuota: "", commissionPercentage: "" });
+   334→    setDialogOpen(true);
+   335→  };
+   336→
+   337→  // Open edit dialog
+   338→  const openEdit = (item: any) => {
+   339→    setEditingItem(item);
+   340→    setSrTargetError(null);
+   341→    const values: Record<string, any> = {};
+   342→    SR_TARGET_FIELDS.forEach(f => {
+   343→      const val = getNestedValue(item, f.key);
+   344→      if (val !== undefined && val !== null) values[f.key] = val;
+   345→      else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
+   346→      else values[f.key] = f.type === "checkbox" ? true : "";
+   347→    });
+   348→    setFormData(values);
+   349→    setDialogOpen(true);
+   350→  };
+   351→
+   352→  // Save
+   353→  const handleSave = async () => {
+   354→    // Validate required fields
+   355→    for (const f of SR_TARGET_FIELDS) {
+   356→      if (f.required && !formData[f.key] && formData[f.key] !== 0) {
+   357→        toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+   358→        return;
+   359→      }
+   360→    }
+   361→
+   362→    // Financial Benchmark Shields
+   363→    const targetAmt = Number(formData.targetAmount);
+   364→    const minQuota = Number(formData.minimumSalesQuota);
+   365→    const commPct = Number(formData.commissionPercentage);
+   366→
+   367→    if (!targetAmt || targetAmt <= 0) {
+   368→      setSrTargetError("Target Amount must be greater than zero");
+   369→      toast({ title: "Financial Benchmark Shield", description: "Target Amount must be greater than zero", variant: "destructive" });
+   370→      return;
+   371→    }
+   372→    if (!minQuota || minQuota <= 0) {
+   373→      setSrTargetError("Minimum Sales Quota must be greater than zero");
+   374→      toast({ title: "Financial Benchmark Shield", description: "Minimum Sales Quota must be greater than zero", variant: "destructive" });
+   375→      return;
+   376→    }
+   377→    if (isNaN(commPct) || commPct < 0) {
+   378→      setSrTargetError("Commission Percentage must be zero or positive");
+   379→      toast({ title: "Financial Benchmark Shield", description: "Commission Percentage must be zero or positive", variant: "destructive" });
+   380→      return;
+   381→    }
+   382→    // Month validation
+   383→    const monthNum = Number(formData.month);
+   384→    if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) {
+   385→      setSrTargetError("Month must be between 1 and 12");
+   386→      toast({ title: "Validation Error", description: "Month must be between 1 and 12", variant: "destructive" });
+   387→      return;
+   388→    }
+   389→    // Year validation
+   390→    const yearNum = Number(formData.year);
+   391→    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > 2100) {
+   392→      setSrTargetError("Year must be between 2000 and 2100");
+   393→      toast({ title: "Validation Error", description: "Year must be between 2000 and 2100", variant: "destructive" });
+   394→      return;
+   395→    }
+   396→    setSrTargetError(null);
+   397→
+   398→    // Sanitize string fields
+   399→    const sanitizedData: Record<string, any> = {};
+   400→    for (const [key, value] of Object.entries(formData)) {
+   401→      if (typeof value === "string") sanitizedData[key] = sanitizeInput(value);
+   402→      else sanitizedData[key] = value;
+   403→    }
+   404→
+   405→    setSaving(true);
+   406→    setSnapshot([...data]);
+   407→
+   408→    try {
+   409→      if (editingItem) {
+   410→        const res = await apiFetch(`/api/sr-targets/${editingItem.id}`, {
+   411→          method: "PUT", body: JSON.stringify(sanitizedData),
+   412→        });
+   413→        if (res?.error) throw new Error(res.error);
+   414→        toast({ title: "Updated", description: "SR Target updated successfully" });
+   415→      } else {
+   416→        const res = await apiFetch("/api/sr-targets", {
+   417→          method: "POST", body: JSON.stringify(sanitizedData),
+   418→        });
+   419→        if (res?.error) throw new Error(res.error);
+   420→        toast({ title: "Created", description: "SR Target created successfully" });
+   421→      }
+   422→      setDialogOpen(false);
+   423→      if (editingItem) {
+   424→        setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
+   425→      }
+   426→      loadData();
+   427→    } catch (e: any) {
+   428→      const msg = e.message || "Failed to save";
+   429→      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Network request failed")) {
+   430→        setData(snapshot || []);
+   431→        toast({ title: "Connection Lost — Rollback", description: "Rolled back to pre-save state.", variant: "destructive", duration: 8000 });
+   432→      } else if (msg.includes("already exists") || msg.includes("overlap") || msg.includes("duplicate") || msg.includes("Duplicate")) {
+   433→        setSrTargetError(msg);
+   434→        toast({ title: "Duplicate Detected", description: msg, variant: "destructive" });
+   435→      } else {
+   436→        toast({ title: "Error", description: msg, variant: "destructive" });
+   437→      }
+   438→    } finally {
+   439→      setSaving(false);
+   440→    }
+   441→  };
+   442→
+   443→  // Delete
+   444→  const handleDelete = async (id: string) => {
+   445→    try {
+   446→      await apiFetch(`/api/sr-targets/${id}`, { method: "DELETE" });
+   447→      toast({ title: "Deactivated", description: "SR Target deactivated successfully" });
+   448→      setDeleteConfirm(null);
+   449→      loadData();
+   450→    } catch (e: any) {
+   451→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   452→    }
+   453→  };
+   454→
+   455→  // View Performance
+   456→  const handleViewPerformance = async (item: any) => {
+   457→    setPerformanceDialogTarget(item);
+   458→    setPerformanceDialogOpen(true);
+   459→    try {
+   460→      // Load monthly performance for the entire year
+   461→      const monthlyData: { month: number; monthName: string; actualSales: number; achievementPct: number }[] = [];
+   462→      for (let m = 1; m <= 12; m++) {
+   463→        const key = `${item.employeeId}-${m}-${item.year}`;
+   464→        const perf = performanceData[key];
+   465→        monthlyData.push({
+   466→          month: m,
+   467→          monthName: MONTH_NAMES[m],
+   468→          actualSales: perf?.actualSales || 0,
+   469→          achievementPct: perf?.achievementPct || 0,
+   470→        });
+   471→      }
+   472→      setPerformanceDialogData(monthlyData);
+   473→    } catch (err) {
+   474→      console.error('Error loading performance detail:', err);
+   475→      setPerformanceDialogData([]);
+   476→    }
+   477→  };
+   478→
+   479→  // Export PDF
+   480→  const handleExportPDF = () => {
+   481→    try {
+   482→      const exportData = filteredData.map(item => {
+   483→        const row: Record<string, any> = {};
+   484→        SR_TARGET_COLUMNS.forEach(col => {
+   485→          let val = getNestedValue(item, col.key);
+   486→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+   487→          row[col.key] = val;
+   488→        });
+   489→        // Add computed fields
+   490→        const perfKey = `${item.employeeId}-${item.month}-${item.year}`;
+   491→        const perf = performanceData[perfKey];
+   492→        row.achievementPct = perf?.achievementPct || 0;
+   493→        row.remainingAmount = perf?.remainingAmount || Number(item.targetAmount || 0);
+   494→        row.commissionProjection = perf?.commissionProjection || 0;
+   495→        return row;
+   496→      });
+   497→
+   498→      const authUser = authState.user;
+   499→      const exportColumns = [
+   500→        ...SR_TARGET_COLUMNS,
+   501→        { key: "achievementPct", label: "Achievement %", type: "number" as const },
+   502→        { key: "remainingAmount", label: "Remaining Amount", type: "currency" as const },
+   503→        { key: "commissionProjection", label: "Commission Projection", type: "currency" as const },
+   504→      ];
+   505→
+   506→      exportToPDF({
+   507→        title: "SR Target Setup",
+   508→        subtitle: `Total Records: ${filteredData.length} | ${filterYear !== "all" ? `Year: ${filterYear}` : "All Years"}`,
+   509→        orientation: "landscape",
+   510→        columns: exportColumns,
+   511→        data: exportData,
+   512→        isVatAuditor,
+   513→        vatMaskedColumns: maskedColumns,
+   514→        systemNotice: "SR Target Performance Report — Confidential",
+   515→        company: companyProfile ? {
+   516→          name: companyProfile.name, address: companyProfile.address,
+   517→          phone: companyProfile.phone, email: companyProfile.email,
+   518→          logo: companyProfile.logo || companyProfile.brandLogo,
+   519→          vatNumber: companyProfile.vatNumber,
+   520→        } : undefined,
+   521→        financialFooter: {
+   522→          preparedBy: authUser?.displayName || "System",
+   523→          checkedBy: "", authorizedBy: "", approvedBy: "",
+   524→          printedBy: authUser?.displayName || "System",
+   525→        },
+   526→      });
+   527→      toast({ title: "PDF Exported", description: "SR Target report exported with compliance footer" });
+   528→    } catch (e: any) {
+   529→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   530→    }
+   531→  };
+   532→
+   533→  // Export CSV
+   534→  const handleExportCSV = () => {
+   535→    try {
+   536→      const exportData = filteredData.map(item => {
+   537→        const row: Record<string, any> = {};
+   538→        SR_TARGET_COLUMNS.forEach(col => {
+   539→          let val = getNestedValue(item, col.key);
+   540→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+   541→          row[col.key] = val;
+   542→        });
+   543→        return row;
+   544→      });
+   545→      exportToCSV({ title: "SR Target Setup", columns: SR_TARGET_COLUMNS, data: exportData, isVatAuditor, vatMaskedColumns: maskedColumns });
+   546→      toast({ title: "CSV Exported", description: "SR Target data exported" });
+   547→    } catch (e: any) {
+   548→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+   549→    }
+   550→  };
+   551→
+   552→  // Import CSV with duplicate detection
+   553→  const handleImportCSV = () => {
+   554→    importFromCSV({
+   555→      apiPath: "/api/sr-targets",
+   556→      formFields: SR_TARGET_FIELDS,
+   557→    }).then((result) => {
+   558→      // Post-import duplicate detection for SR targets
+   559→      const duplicateErrors = (result.fieldErrors || []).filter(
+   560→        fe => fe.message.includes("already exists") || fe.message.includes("duplicate") || fe.message.includes("overlap")
+   561→      );
+   562→      if (duplicateErrors.length > 0) {
+   563→        toast({
+   564→          title: "Import: Duplicate Detection",
+   565→          description: `${duplicateErrors.length} row(s) had duplicate employee+month+year combinations`,
+   566→          variant: "destructive",
+   567→          duration: 8000,
+   568→        });
+   569→      }
+   570→      toast({
+   571→        title: "Import Complete",
+   572→        description: `${result.imported} imported, ${result.failed} failed${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`,
+   573→        variant: result.failed > 0 ? "destructive" : "default",
+   574→      });
+   575→      loadData();
+   576→    });
+   577→  };
+   578→
+   579→  // Get achievement color
+   580→  const getAchievementColor = (pct: number) => {
+   581→    if (pct >= 80) return "text-emerald-600";
+   582→    if (pct >= 50) return "text-amber-600";
+   583→    return "text-red-600";
+   584→  };
+   585→
+   586→  const getAchievementBarColor = (pct: number) => {
+   587→    if (pct >= 80) return "bg-emerald-500";
+   588→    if (pct >= 50) return "bg-amber-500";
+   589→    return "bg-red-500";
+   590→  };
+   591→
+   592→  // Year options
+   593→  const currentYear = new Date().getFullYear();
+   594→  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
+   595→
+   596→  return (
+   597→    <div className="space-y-4">
+   598→      {/* ── KPI Performance Dashboard ── */}
+   599→      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+   600→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   601→          <CardContent className="p-4 flex items-center gap-3">
+   602→            <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+   603→              <Target className="h-5 w-5 text-[#2563eb]" />
+   604→            </div>
+   605→            <div>
+   606→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Targets Set</p>
+   607→              <p className="text-xl font-bold text-slate-900 dark:text-white">{kpiStats.totalTargets}</p>
+   608→            </div>
+   609→          </CardContent>
+   610→        </Card>
+   611→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   612→          <CardContent className="p-4 flex items-center gap-3">
+   613→            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+   614→              <DollarSign className="h-5 w-5 text-emerald-500" />
+   615→            </div>
+   616→            <div>
+   617→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Target Amount</p>
+   618→              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.totalTargetAmount)}</p>
+   619→            </div>
+   620→          </CardContent>
+   621→        </Card>
+   622→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   623→          <CardContent className="p-4 flex items-center gap-3">
+   624→            <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+   625→              <BarChart3 className="h-5 w-5 text-amber-500" />
+   626→            </div>
+   627→            <div>
+   628→              <p className="text-xs text-slate-500 dark:text-slate-400">Avg Target</p>
+   629→              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.avgTarget)}</p>
+   630→            </div>
+   631→          </CardContent>
+   632→        </Card>
+   633→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   634→          <CardContent className="p-4 flex items-center gap-3">
+   635→            <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+   636→              <TrendingUp className="h-5 w-5 text-violet-500" />
+   637→            </div>
+   638→            <div>
+   639→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Achieved</p>
+   640→              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.totalAchieved)}</p>
+   641→            </div>
+   642→          </CardContent>
+   643→        </Card>
+   644→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   645→          <CardContent className="p-4 flex items-center gap-3">
+   646→            <div className="h-10 w-10 rounded-lg bg-rose-500/10 flex items-center justify-center">
+   647→              <Percent className="h-5 w-5 text-rose-500" />
+   648→            </div>
+   649→            <div>
+   650→              <p className="text-xs text-slate-500 dark:text-slate-400">Commission Projections</p>
+   651→              <p className="text-lg font-bold text-slate-900 dark:text-white">{isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(kpiStats.totalCommissionProjection)}</p>
+   652→            </div>
+   653→          </CardContent>
+   654→        </Card>
+   655→      </div>
+   656→
+   657→      {/* ── Filters ── */}
+   658→      <div className="flex flex-wrap items-center gap-2">
+   659→        <div className="relative flex-1 min-w-[200px]">
+   660→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+   661→          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search SR targets..." className="pl-8" />
+   662→        </div>
+   663→        <Select value={filterMonth} onValueChange={setFilterMonth}>
+   664→          <SelectTrigger className="w-[140px]"><SelectValue placeholder="Month" /></SelectTrigger>
+   665→          <SelectContent>
+   666→            <SelectItem value="all">All Months</SelectItem>
+   667→            {MONTH_NAMES.slice(1).map((name, i) => (
+   668→              <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+   669→            ))}
+   670→          </SelectContent>
+   671→        </Select>
+   672→        <Select value={filterYear} onValueChange={setFilterYear}>
+   673→          <SelectTrigger className="w-[120px]"><SelectValue placeholder="Year" /></SelectTrigger>
+   674→          <SelectContent>
+   675→            <SelectItem value="all">All Years</SelectItem>
+   676→            {yearOptions.map(y => (
+   677→              <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+   678→            ))}
+   679→          </SelectContent>
+   680→        </Select>
+   681→        <Select value={filterEmployee} onValueChange={setFilterEmployee}>
+   682→          <SelectTrigger className="w-[180px]"><SelectValue placeholder="Employee" /></SelectTrigger>
+   683→          <SelectContent>
+   684→            <SelectItem value="all">All Employees</SelectItem>
+   685→            {employees.map((emp: any) => (
+   686→              <SelectItem key={emp.id} value={emp.id}>{emp.name || emp.employeeCode}</SelectItem>
+   687→            ))}
+   688→          </SelectContent>
+   689→        </Select>
+   690→        {canMutate && (
+   691→          <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+   692→            <Plus className="h-4 w-4 mr-1" /> Add Target
+   693→          </Button>
+   694→        )}
+   695→        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+   696→        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+   697→        {canMutate && (
+   698→          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
+   699→        )}
+   700→        <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+   701→      </div>
+   702→
+   703→      {/* ── VAT Audit Mode Banner ── */}
+   704→      {isVatAuditor && (
+   705→        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 flex items-center gap-2">
+   706→          <Shield className="h-4 w-4 text-amber-600" />
+   707→          <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">VAT AUDIT MODE — Financial columns are masked</span>
+   708→        </div>
+   709→      )}
+   710→
+   711→      {/* ── Data Table ── */}
+   712→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   713→        <CardContent className="p-0 overflow-hidden">
+   714→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+   715→            <Table className="min-w-[600px]">
+   716→              <TableHeader>
+   717→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+   718→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+   719→                  <TableHead className="text-white font-semibold">Employee</TableHead>
+   720→                  <TableHead className="text-white font-semibold">Month</TableHead>
+   721→                  <TableHead className="text-white font-semibold">Year</TableHead>
+   722→                  <TableHead className="text-white font-semibold text-right">Target Amount</TableHead>
+   723→                  <TableHead className="text-white font-semibold text-right">Min Sales Quota</TableHead>
+   724→                  <TableHead className="text-white font-semibold text-right">Commission %</TableHead>
+   725→                  <TableHead className="text-white font-semibold">Channel Status</TableHead>
+   726→                  <TableHead className="text-white font-semibold text-right">Achievement %</TableHead>
+   727→                  <TableHead className="text-white font-semibold text-right">Remaining</TableHead>
+   728→                  <TableHead className="text-white font-semibold text-center">Performance</TableHead>
+   729→                  {canMutate && <TableHead className="text-white font-semibold w-32">Actions</TableHead>}
+   730→                </TableRow>
+   731→              </TableHeader>
+   732→              <TableBody>
+   733→                {loading ? (
+   734→                  <TableRow>
+   735→                    <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-8 text-slate-400">
+   736→                      <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+   737→                      Synchronizing Field Targets & Financial Processing Fees...
+   738→                    </TableCell>
+   739→                  </TableRow>
+   740→                ) : filteredData.length === 0 ? (
+   741→                  <TableRow>
+   742→                    <TableCell colSpan={canMutate ? 12 : 11} className="text-center py-8 text-slate-400">
+   743→                      No SR targets found
+   744→                    </TableCell>
+   745→                  </TableRow>
+   746→                ) : (
+   747→                  filteredData.map((item, idx) => {
+   748→                    const perfKey = `${item.employeeId}-${item.month}-${item.year}`;
+   749→                    const perf = performanceData[perfKey];
+   750→                    const achievementPct = perf?.achievementPct || 0;
+   751→                    const remaining = perf?.remainingAmount || Number(item.targetAmount || 0);
+   752→                    const commissionProj = perf?.commissionProjection || 0;
+   753→
+   754→                    return (
+   755→                      <TableRow key={item.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+   756→                        <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+   757→                        <TableCell className="font-medium text-slate-900 dark:text-white">
+   758→                          {item.employee?.name || item.employeeId}
+   759→                        </TableCell>
+   760→                        <TableCell>{MONTH_NAMES[item.month] || item.month}</TableCell>
+   761→                        <TableCell>{item.year}</TableCell>
+   762→                        <TableCell className="text-right font-mono">
+   763→                          {isVatAuditor && maskedColumns.includes("targetAmount") ? "N/A (Audit Mode)" : fmtCurrency(item.targetAmount)}
+   764→                        </TableCell>
+   765→                        <TableCell className="text-right font-mono">
+   766→                          {isVatAuditor && maskedColumns.includes("minimumSalesQuota") ? "N/A (Audit Mode)" : fmtCurrency(item.minimumSalesQuota)}
+   767→                        </TableCell>
+   768→                        <TableCell className="text-right font-mono">
+   769→                          {isVatAuditor && maskedColumns.includes("commissionPercentage") ? "N/A (Audit Mode)" : fmtPercent(item.commissionPercentage)}
+   770→                        </TableCell>
+   771→                        <TableCell>
+   772→                          <Badge className={
+   773→                            item.status === "ACTIVE"
+   774→                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+   775→                              : item.status === "INACTIVE"
+   776→                                ? "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+   777→                                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+   778→                          }>
+   779→                            {item.status === "SUSPENDED" && <AlertTriangle className="h-3 w-3 mr-1" />}
+   780→                            {item.status || "ACTIVE"}
+   781→                          </Badge>
+   782→                        </TableCell>
+   783→                        <TableCell className="text-right">
+   784→                          <div className="flex flex-col items-end gap-1">
+   785→                            <span className={`font-semibold ${isVatAuditor ? "text-slate-400" : getAchievementColor(achievementPct)}`}>
+   786→                              {isVatAuditor ? "N/A (Audit Mode)" : `${achievementPct.toFixed(1)}%`}
+   787→                            </span>
+   788→                            {!isVatAuditor && (
+   789→                              <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+   790→                                <div className={`h-full rounded-full ${getAchievementBarColor(achievementPct)}`} style={{ width: `${Math.min(achievementPct, 100)}%` }} />
+   791→                              </div>
+   792→                            )}
+   793→                          </div>
+   794→                        </TableCell>
+   795→                        <TableCell className="text-right font-mono">
+   796→                          {isVatAuditor ? "N/A (Audit Mode)" : fmtCurrency(remaining)}
+   797→                        </TableCell>
+   798→                        <TableCell className="text-center">
+   799→                          <Button variant="ghost" size="sm" onClick={() => handleViewPerformance(item)} title="View Performance">
+   800→                            <Eye className="h-4 w-4 text-[#2563eb]" />
+   801→                          </Button>
+   802→                        </TableCell>
+   803→                        {canMutate && (
+   804→                          <TableCell>
+   805→                            <div className="flex items-center gap-1">
+   806→                              <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="h-3.5 w-3.5" /></Button>
+   807→                              <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => setDeleteConfirm(item.id)}>
+   808→                                <Trash2 className="h-3.5 w-3.5" />
+   809→                              </Button>
+   810→                            </div>
+   811→                          </TableCell>
+   812→                        )}
+   813→                      </TableRow>
+   814→                    );
+   815→                  })
+   816→                )}
+   817→              </TableBody>
+   818→            </Table>
+   819→          </div>
+   820→        </CardContent>
+   821→      </Card>
+   822→
+   823→      {/* ── Create/Edit Dialog ── */}
+   824→      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+   825→        <DialogContent className="max-w-[95vw] sm:max-w-[500px]">
+   826→          <DialogHeader>
+   827→            <DialogTitle>{editingItem ? "Edit SR Target" : "Add SR Target"}</DialogTitle>
+   828→            <DialogDescription>{editingItem ? "Update target configuration" : "Set a new sales target for an SR"}</DialogDescription>
+   829→          </DialogHeader>
+   830→          <div className="space-y-4 py-2">
+   831→            {srTargetError && (
+   832→              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2">
+   833→                <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+   834→                <span className="text-sm text-red-700 dark:text-red-400">{srTargetError}</span>
+   835→              </div>
+   836→            )}
+   837→            <div className="space-y-2">
+   838→              <Label>Employee (SR) *</Label>
+   839→              <Select value={String(formData.employeeId || "")} onValueChange={(v) => setFormData(prev => ({ ...prev, employeeId: v }))}>
+   840→                <SelectTrigger><SelectValue placeholder="Select Employee" /></SelectTrigger>
+   841→                <SelectContent>
+   842→                  {employees.map((emp: any) => (
+   843→                    <SelectItem key={emp.id} value={emp.id}>{emp.name || emp.employeeCode}</SelectItem>
+   844→                  ))}
+   845→                </SelectContent>
+   846→              </Select>
+   847→            </div>
+   848→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   849→              <div className="space-y-2">
+   850→                <Label>Month *</Label>
+   851→                <Select value={String(formData.month || "")} onValueChange={(v) => setFormData(prev => ({ ...prev, month: Number(v) }))}>
+   852→                  <SelectTrigger><SelectValue placeholder="Select Month" /></SelectTrigger>
+   853→                  <SelectContent>
+   854→                    {MONTH_NAMES.slice(1).map((name, i) => (
+   855→                      <SelectItem key={i + 1} value={String(i + 1)}>{name}</SelectItem>
+   856→                    ))}
+   857→                  </SelectContent>
+   858→                </Select>
+   859→              </div>
+   860→              <div className="space-y-2">
+   861→                <Label>Year *</Label>
+   862→                <Input type="number" value={String(formData.year ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, year: e.target.value }))} placeholder="2024" />
+   863→              </div>
+   864→            </div>
+   865→            <div className="space-y-2">
+   866→              <Label>Target Amount (Tk. ) *</Label>
+   867→              <Input type="number" step="0.01" value={String(formData.targetAmount ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, targetAmount: e.target.value }))} placeholder="0.00" className={srTargetError && ["Target"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
+   868→            </div>
+   869→            <div className="space-y-2">
+   870→              <Label>Minimum Sales Quota (Tk. ) *</Label>
+   871→              <Input type="number" step="0.01" value={String(formData.minimumSalesQuota ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, minimumSalesQuota: e.target.value }))} placeholder="0.00" className={srTargetError && ["Quota"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
+   872→            </div>
+   873→            <div className="space-y-2">
+   874→              <Label>Commission Percentage (%) *</Label>
+   875→              <Input type="number" step="0.01" value={String(formData.commissionPercentage ?? "")} onChange={(e) => setFormData(prev => ({ ...prev, commissionPercentage: e.target.value }))} placeholder="0.00" className={srTargetError && ["Commission"].some(k => srTargetError.includes(k)) ? "border-red-500" : ""} />
+   876→            </div>
+   877→          </div>
+   878→          <DialogFooter>
+   879→            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+   880→            <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+   881→              {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+   882→              {editingItem ? "Update" : "Create"}
+   883→            </Button>
+   884→          </DialogFooter>
+   885→        </DialogContent>
+   886→      </Dialog>
+   887→
+   888→      {/* ── Delete Confirm Dialog ── */}
+   889→      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+   890→        <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
+   891→          <DialogHeader>
+   892→            <DialogTitle>Confirm Deactivate</DialogTitle>
+   893→            <DialogDescription>Are you sure you want to deactivate this SR target? It will be marked as inactive but can be restored by an admin.</DialogDescription>
+   894→          </DialogHeader>
+   895→          <DialogFooter>
+   896→            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+   897→            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
+   898→          </DialogFooter>
+   899→        </DialogContent>
+   900→      </Dialog>
+   901→
+   902→      {/* ── Performance Detail Dialog ── */}
+   903→      <Dialog open={performanceDialogOpen} onOpenChange={setPerformanceDialogOpen}>
+   904→        <DialogContent className="max-w-[95vw] sm:max-w-[700px]">
+   905→          <DialogHeader>
+   906→            <DialogTitle>SR Performance — {performanceDialogTarget?.employee?.name || "Employee"}</DialogTitle>
+   907→            <DialogDescription>
+   908→              Year {performanceDialogTarget?.year || "—"} — Monthly Performance Breakdown
+   909→            </DialogDescription>
+   910→          </DialogHeader>
+   911→          <div className="space-y-3 max-h-96 overflow-y-auto">
+   912→            {performanceDialogData.length > 0 ? performanceDialogData.map((md: any) => {
+   913→              const targetForMonth = data.find(
+   914→                (t: any) => t.employeeId === performanceDialogTarget?.employeeId && t.month === md.month && t.year === performanceDialogTarget?.year
+   915→              );
+   916→              const targetAmt = Number(targetForMonth?.targetAmount || 0);
+   917→              const commPct = Number(targetForMonth?.commissionPercentage || 0);
+   918→              const achPct = targetAmt > 0 ? (md.actualSales / targetAmt) * 100 : 0;
+   919→              const commProj = achPct * targetAmt * commPct / 10000;
+   920→
+   921→              return (
+   922→                <div key={md.month} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+   923→                  <div className="w-24 font-medium text-sm text-slate-700 dark:text-slate-300">{md.monthName}</div>
+   924→                  <div className="flex-1">
+   925→                    <div className="flex items-center justify-between text-xs mb-1">
+   926→                      <span className="text-slate-500">Target: {fmtCurrency(targetAmt)}</span>
+   927→                      <span className={`font-semibold ${getAchievementColor(achPct)}`}>{achPct.toFixed(1)}%</span>
+   928→                    </div>
+   929→                    <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+   930→                      <div className={`h-full rounded-full ${getAchievementBarColor(achPct)}`} style={{ width: `${Math.min(achPct, 100)}%` }} />
+   931→                    </div>
+   932→                    <div className="flex justify-between text-xs mt-1 text-slate-500">
+   933→                      <span>Actual: {fmtCurrency(md.actualSales)}</span>
+   934→                      <span>Commission: {fmtCurrency(commProj)}</span>
+   935→                    </div>
+   936→                  </div>
+   937→                </div>
+   938→              );
+   939→            }) : (
+   940→              <p className="text-sm text-slate-400 text-center py-4">No performance data available</p>
+   941→            )}
+   942→          </div>
+   943→          <DialogFooter>
+   944→            <Button variant="outline" onClick={() => setPerformanceDialogOpen(false)}>Close</Button>
+   945→          </DialogFooter>
+   946→        </DialogContent>
+   947→      </Dialog>
+   948→    </div>
+   949→  );
+   950→}
+   951→
+   952→// ============================================================
+   953→// PAYMENT OPTIONS TAB — Channel Config with Status Toggles
+   954→// ============================================================
+   955→
+   956→function PaymentOptionsTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAuditor: boolean }) {
+   957→  const { toast } = useToast();
+   958→  const [data, setData] = useState<any[]>([]);
+   959→  const [loading, setLoading] = useState(true);
+   960→  const [search, setSearch] = useState("");
+   961→  const [dialogOpen, setDialogOpen] = useState(false);
+   962→  const [editingItem, setEditingItem] = useState<any>(null);
+   963→  const [formData, setFormData] = useState<Record<string, any>>({});
+   964→  const [saving, setSaving] = useState(false);
+   965→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+   966→  const [companyProfile, setCompanyProfile] = useState<any>(null);
+   967→  const [snapshot, setSnapshot] = useState<any[] | null>(null);
+   968→
+   969→  const canMutate = userRole === "admin" || userRole === "manager";
+   970→
+   971→  // Load data with counts
+   972→  const loadData = useCallback(async () => {
+   973→    setLoading(true);
+   974→    try {
+   975→      const result = await apiFetch("/api/payment-options");
+   976→      setData(Array.isArray(result) ? result : []);
+   977→    } catch (e: any) {
+   978→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   979→    } finally {
+   980→      setLoading(false);
+   981→    }
+   982→  }, [toast]);
+   983→
+   984→  useEffect(() => { loadData(); }, [loadData]);
+   985→
+   986→  // Load company profile
+   987→  useEffect(() => {
+   988→    const loadProfile = async () => {
+   989→      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
+   990→    };
+   991→    loadProfile();
+   992→  }, []);
+   993→
+   994→  // Filtered data
+   995→  const filteredData = useMemo(() => {
+   996→    if (!search.trim()) return data;
+   997→    const q = search.toLowerCase();
+   998→    return data.filter(item =>
+   999→      PAYMENT_OPTION_COLUMNS.some(col =>
+  1000→        String(getNestedValue(item, col.key) ?? "").toLowerCase().includes(q)
+  1001→      )
+  1002→    );
+  1003→  }, [data, search]);
+  1004→
+  1005→  // KPI stats
+  1006→  const stats = useMemo(() => {
+  1007→    const total = data.length;
+  1008→    const active = data.filter(d => d.status === "ACTIVE").length;
+  1009→    const inactive = data.filter(d => d.status === "INACTIVE").length;
+  1010→    const totalCardSetups = data.reduce((sum, d) => sum + (d._count?.cardTypeSetups || 0), 0);
+  1011→    return { total, active, inactive, totalCardSetups };
+  1012→  }, [data]);
+  1013→
+  1014→  // Open create dialog
+  1015→  const openCreate = () => {
+  1016→    setEditingItem(null);
+  1017→    setFormData({ name: "", status: "ACTIVE", isActive: true });
+  1018→    setDialogOpen(true);
+  1019→  };
+  1020→
+  1021→  // Open edit dialog
+  1022→  const openEdit = (item: any) => {
+  1023→    setEditingItem(item);
+  1024→    const values: Record<string, any> = {};
+  1025→    PAYMENT_OPTION_FIELDS.forEach(f => {
+  1026→      const val = getNestedValue(item, f.key);
+  1027→      if (val !== undefined && val !== null) values[f.key] = val;
+  1028→      else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
+  1029→      else values[f.key] = f.type === "checkbox" ? true : "";
+  1030→    });
+  1031→    setFormData(values);
+  1032→    setDialogOpen(true);
+  1033→  };
+  1034→
+  1035→  // Status toggle with optimistic UI + snapshot rollback
+  1036→  const handleStatusToggle = async (item: any) => {
+  1037→    const newStatus = item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  1038→    setSnapshot([...data]);
+  1039→    // Optimistic update
+  1040→    setData(prev => prev.map(d => d.id === item.id ? { ...d, status: newStatus } : d));
+  1041→
+  1042→    try {
+  1043→      await apiFetch(`/api/payment-options/${item.id}`, {
+  1044→        method: "PUT",
+  1045→        body: JSON.stringify({ ...item, status: newStatus }),
+  1046→      });
+  1047→      toast({
+  1048→        title: newStatus === "ACTIVE" ? "Channel Activated" : "Channel Deactivated",
+  1049→        description: newStatus === "INACTIVE"
+  1050→          ? `${item.name} is now INACTIVE and will be filtered out from all Invoice/Collection dropdowns.`
+  1051→          : `${item.name} is now ACTIVE and available in all dropdowns.`,
+  1052→        variant: newStatus === "INACTIVE" ? "destructive" : "default",
+  1053→      });
+  1054→      loadData();
+  1055→    } catch (e: any) {
+  1056→      // Rollback on failure
+  1057→      setData(snapshot || []);
+  1058→      toast({
+  1059→        title: "Connection Lost — Rollback",
+  1060→        description: "Status change failed. Rolled back to previous state.",
+  1061→        variant: "destructive",
+  1062→        duration: 8000,
+  1063→      });
+  1064→    }
+  1065→  };
+  1066→
+  1067→  // Save
+  1068→  const handleSave = async () => {
+  1069→    for (const f of PAYMENT_OPTION_FIELDS) {
+  1070→      if (f.required && !formData[f.key] && formData[f.key] !== 0) {
+  1071→        toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+  1072→        return;
+  1073→      }
+  1074→    }
+  1075→
+  1076→    // Name length validation
+  1077→    const nameLenError = validateFieldLength(String(formData.name || ""), 'name');
+  1078→    if (nameLenError) {
+  1079→      toast({ title: "Validation Error", description: nameLenError, variant: "destructive" });
+  1080→      return;
+  1081→    }
+  1082→
+  1083→    const sanitizedData: Record<string, any> = {};
+  1084→    for (const [key, value] of Object.entries(formData)) {
+  1085→      if (typeof value === "string") sanitizedData[key] = sanitizeInput(value);
+  1086→      else sanitizedData[key] = value;
+  1087→    }
+  1088→
+  1089→    setSaving(true);
+  1090→    setSnapshot([...data]);
+  1091→
+  1092→    try {
+  1093→      if (editingItem) {
+  1094→        const res = await apiFetch(`/api/payment-options/${editingItem.id}`, {
+  1095→          method: "PUT", body: JSON.stringify(sanitizedData),
+  1096→        });
+  1097→        if (res?.error) throw new Error(res.error);
+  1098→        toast({ title: "Updated", description: "Payment Option updated successfully" });
+  1099→      } else {
+  1100→        const res = await apiFetch("/api/payment-options", {
+  1101→          method: "POST", body: JSON.stringify(sanitizedData),
+  1102→        });
+  1103→        if (res?.error) throw new Error(res.error);
+  1104→        toast({ title: "Created", description: "Payment Option created successfully" });
+  1105→      }
+  1106→      setDialogOpen(false);
+  1107→      if (editingItem) {
+  1108→        setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
+  1109→      }
+  1110→      loadData();
+  1111→    } catch (e: any) {
+  1112→      const msg = e.message || "Failed to save";
+  1113→      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+  1114→        setData(snapshot || []);
+  1115→        toast({ title: "Connection Lost — Rollback", description: "Rolled back to pre-save state.", variant: "destructive", duration: 8000 });
+  1116→      } else {
+  1117→        toast({ title: "Error", description: msg, variant: "destructive" });
+  1118→      }
+  1119→    } finally {
+  1120→      setSaving(false);
+  1121→    }
+  1122→  };
+  1123→
+  1124→  // Delete
+  1125→  const handleDelete = async (id: string) => {
+  1126→    try {
+  1127→      await apiFetch(`/api/payment-options/${id}`, { method: "DELETE" });
+  1128→      toast({ title: "Deleted", description: "Payment Option deleted successfully" });
+  1129→      setDeleteConfirm(null);
+  1130→      loadData();
+  1131→    } catch (e: any) {
+  1132→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1133→    }
+  1134→  };
+  1135→
+  1136→  // Export PDF
+  1137→  const handleExportPDF = () => {
+  1138→    try {
+  1139→      const exportData = filteredData.map(item => {
+  1140→        const row: Record<string, any> = {};
+  1141→        PAYMENT_OPTION_COLUMNS.forEach(col => { row[col.key] = getNestedValue(item, col.key); });
+  1142→        return row;
+  1143→      });
+  1144→      const authUser = authState.user;
+  1145→      exportToPDF({
+  1146→        title: "Payment Options",
+  1147→        subtitle: `Total Records: ${filteredData.length}`,
+  1148→        orientation: "landscape",
+  1149→        columns: PAYMENT_OPTION_COLUMNS,
+  1150→        data: exportData,
+  1151→        isVatAuditor: false,
+  1152→        systemNotice: "Payment Channel Configuration Report — Confidential",
+  1153→        company: companyProfile ? {
+  1154→          name: companyProfile.name, address: companyProfile.address,
+  1155→          phone: companyProfile.phone, email: companyProfile.email,
+  1156→          logo: companyProfile.logo || companyProfile.brandLogo,
+  1157→          vatNumber: companyProfile.vatNumber,
+  1158→        } : undefined,
+  1159→        financialFooter: {
+  1160→          preparedBy: authUser?.displayName || "System",
+  1161→          checkedBy: "", authorizedBy: "", approvedBy: "",
+  1162→          printedBy: authUser?.displayName || "System",
+  1163→        },
+  1164→      });
+  1165→      toast({ title: "PDF Exported", description: "Payment Options report exported with compliance footer" });
+  1166→    } catch (e: any) {
+  1167→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1168→    }
+  1169→  };
+  1170→
+  1171→  // Export CSV
+  1172→  const handleExportCSV = () => {
+  1173→    try {
+  1174→      const exportData = filteredData.map(item => {
+  1175→        const row: Record<string, any> = {};
+  1176→        PAYMENT_OPTION_COLUMNS.forEach(col => { row[col.key] = getNestedValue(item, col.key); });
+  1177→        return row;
+  1178→      });
+  1179→      exportToCSV({ title: "Payment Options", columns: PAYMENT_OPTION_COLUMNS, data: exportData });
+  1180→      toast({ title: "CSV Exported", description: "Payment Options data exported" });
+  1181→    } catch (e: any) {
+  1182→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1183→    }
+  1184→  };
+  1185→
+  1186→  // Import CSV
+  1187→  const handleImportCSV = () => {
+  1188→    importFromCSV({ apiPath: "/api/payment-options", formFields: PAYMENT_OPTION_FIELDS }).then((result) => {
+  1189→      toast({
+  1190→        title: "Import Complete",
+  1191→        description: `${result.imported} imported, ${result.failed} failed${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`,
+  1192→        variant: result.failed > 0 ? "destructive" : "default",
+  1193→      });
+  1194→      loadData();
+  1195→    });
+  1196→  };
+  1197→
+  1198→  // Inactive channel count for warning
+  1199→  const inactiveCount = data.filter(d => d.status === "INACTIVE").length;
+  1200→
+  1201→  return (
+  1202→    <div className="space-y-4">
+  1203→      {/* ── KPI Cards ── */}
+  1204→      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+  1205→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1206→          <CardContent className="p-4 flex items-center gap-3">
+  1207→            <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1208→              <CreditCard className="h-5 w-5 text-[#2563eb]" />
+  1209→            </div>
+  1210→            <div>
+  1211→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Channels</p>
+  1212→              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.total}</p>
+  1213→            </div>
+  1214→          </CardContent>
+  1215→        </Card>
+  1216→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1217→          <CardContent className="p-4 flex items-center gap-3">
+  1218→            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1219→              <CheckCircle className="h-5 w-5 text-emerald-500" />
+  1220→            </div>
+  1221→            <div>
+  1222→              <p className="text-xs text-slate-500 dark:text-slate-400">Active</p>
+  1223→              <p className="text-xl font-bold text-emerald-600">{stats.active}</p>
+  1224→            </div>
+  1225→          </CardContent>
+  1226→        </Card>
+  1227→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1228→          <CardContent className="p-4 flex items-center gap-3">
+  1229→            <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
+  1230→              <X className="h-5 w-5 text-slate-500" />
+  1231→            </div>
+  1232→            <div>
+  1233→              <p className="text-xs text-slate-500 dark:text-slate-400">Inactive</p>
+  1234→              <p className="text-xl font-bold text-slate-500">{stats.inactive}</p>
+  1235→            </div>
+  1236→          </CardContent>
+  1237→        </Card>
+  1238→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1239→          <CardContent className="p-4 flex items-center gap-3">
+  1240→            <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+  1241→              <Settings className="h-5 w-5 text-violet-500" />
+  1242→            </div>
+  1243→            <div>
+  1244→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Card Setups</p>
+  1245→              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.totalCardSetups}</p>
+  1246→            </div>
+  1247→          </CardContent>
+  1248→        </Card>
+  1249→      </div>
+  1250→
+  1251→      {/* ── Toolbar ── */}
+  1252→      <div className="flex flex-wrap items-center gap-2">
+  1253→        <div className="relative flex-1 min-w-[200px]">
+  1254→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+  1255→          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search payment options..." className="pl-8" />
+  1256→        </div>
+  1257→        {canMutate && (
+  1258→          <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add</Button>
+  1259→        )}
+  1260→        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+  1261→        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+  1262→        {canMutate && (
+  1263→          <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
+  1264→        )}
+  1265→        <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+  1266→      </div>
+  1267→
+  1268→      {/* ── Inactive Channel Warning Banner ── */}
+  1269→      {inactiveCount > 0 && (
+  1270→        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 flex items-center gap-2">
+  1271→          <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+  1272→          <span className="text-sm text-red-700 dark:text-red-400 font-medium">
+  1273→            {inactiveCount} payment channel(s) are INACTIVE — they are filtered out from all Invoice/Collection dropdowns
+  1274→          </span>
+  1275→        </div>
+  1276→      )}
+  1277→
+  1278→      {/* ── Data Table ── */}
+  1279→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1280→        <CardContent className="p-0 overflow-hidden">
+  1281→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1282→            <Table className="min-w-[600px]">
+  1283→              <TableHeader>
+  1284→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1285→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+  1286→                  <TableHead className="text-white font-semibold">Name</TableHead>
+  1287→                  <TableHead className="text-white font-semibold">Channel Status</TableHead>
+  1288→                  <TableHead className="text-white font-semibold text-right">Card Setups</TableHead>
+  1289→                  <TableHead className="text-white font-semibold text-right">Linked Expenses</TableHead>
+  1290→                  <TableHead className="text-white font-semibold text-right">Linked Sales</TableHead>
+  1291→                  <TableHead className="text-white font-semibold text-right">Linked Cash Collections</TableHead>
+  1292→                  {canMutate && <TableHead className="text-white font-semibold text-center">Toggle</TableHead>}
+  1293→                  {canMutate && <TableHead className="text-white font-semibold w-24">Actions</TableHead>}
+  1294→                </TableRow>
+  1295→              </TableHeader>
+  1296→              <TableBody>
+  1297→                {loading ? (
+  1298→                  <TableRow>
+  1299→                    <TableCell colSpan={canMutate ? 9 : 7} className="text-center py-8 text-slate-400">
+  1300→                      <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+  1301→                      Authorizing Payment Channel...
+  1302→                    </TableCell>
+  1303→                  </TableRow>
+  1304→                ) : filteredData.length === 0 ? (
+  1305→                  <TableRow>
+  1306→                    <TableCell colSpan={canMutate ? 9 : 7} className="text-center py-8 text-slate-400">No payment options found</TableCell>
+  1307→                  </TableRow>
+  1308→                ) : (
+  1309→                  filteredData.map((item, idx) => (
+  1310→                    <TableRow key={item.id || idx} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 ${item.status === "INACTIVE" ? "bg-red-50/30 dark:bg-red-900/5" : ""}`}>
+  1311→                      <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+  1312→                      <TableCell className="font-medium text-slate-900 dark:text-white">{item.name}</TableCell>
+  1313→                      <TableCell>
+  1314→                        <Badge className={
+  1315→                          item.status === "ACTIVE"
+  1316→                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+  1317→                            : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  1318→                        }>
+  1319→                          {item.status === "INACTIVE" && <AlertTriangle className="h-3 w-3 mr-1" />}
+  1320→                          {item.status || "ACTIVE"}
+  1321→                        </Badge>
+  1322→                      </TableCell>
+  1323→                      <TableCell className="text-right">{item._count?.cardTypeSetups ?? 0}</TableCell>
+  1324→                      <TableCell className="text-right">{item._count?.expenses ?? 0}</TableCell>
+  1325→                      <TableCell className="text-right">{item._count?.salesOrders ?? 0}</TableCell>
+  1326→                      <TableCell className="text-right">{item._count?.cashCollections ?? 0}</TableCell>
+  1327→                      {canMutate && (
+  1328→                        <TableCell className="text-center">
+  1329→                          <Button variant="ghost" size="sm" onClick={() => handleStatusToggle(item)} title={item.status === "ACTIVE" ? "Deactivate Channel" : "Activate Channel"}>
+  1330→                            <Power className={`h-4 w-4 ${item.status === "ACTIVE" ? "text-emerald-500" : "text-red-500"}`} />
+  1331→                          </Button>
+  1332→                        </TableCell>
+  1333→                      )}
+  1334→                      {canMutate && (
+  1335→                        <TableCell>
+  1336→                          <div className="flex items-center gap-1">
+  1337→                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="h-3.5 w-3.5" /></Button>
+  1338→                            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => setDeleteConfirm(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+  1339→                          </div>
+  1340→                        </TableCell>
+  1341→                      )}
+  1342→                    </TableRow>
+  1343→                  ))
+  1344→                )}
+  1345→              </TableBody>
+  1346→            </Table>
+  1347→          </div>
+  1348→        </CardContent>
+  1349→      </Card>
+  1350→
+  1351→      {/* ── Create/Edit Dialog ── */}
+  1352→      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+  1353→        <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
+  1354→          <DialogHeader>
+  1355→            <DialogTitle>{editingItem ? "Edit Payment Option" : "Add Payment Option"}</DialogTitle>
+  1356→            <DialogDescription>{editingItem ? "Update channel configuration" : "Create a new payment channel"}</DialogDescription>
+  1357→          </DialogHeader>
+  1358→          <div className="space-y-4 py-2">
+  1359→            <div className="space-y-2">
+  1360→              <Label>Payment Option Name *</Label>
+  1361→              <Input value={String(formData.name || "")} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Bkash, Visa, MasterCard" />
+  1362→            </div>
+  1363→            <div className="space-y-2">
+  1364→              <Label>Channel Status *</Label>
+  1365→              <Select value={String(formData.status || "ACTIVE")} onValueChange={(v) => setFormData(prev => ({ ...prev, status: v }))}>
+  1366→                <SelectTrigger><SelectValue /></SelectTrigger>
+  1367→                <SelectContent>
+  1368→                  <SelectItem value="ACTIVE">ACTIVE</SelectItem>
+  1369→                  <SelectItem value="INACTIVE">INACTIVE</SelectItem>
+  1370→                </SelectContent>
+  1371→              </Select>
+  1372→            </div>
+  1373→            <div className="flex items-center gap-2">
+  1374→              <input type="checkbox" checked={!!formData.isActive} onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.checked }))} className="h-4 w-4 rounded border-slate-300" />
+  1375→              <Label>Active</Label>
+  1376→            </div>
+  1377→          </div>
+  1378→          <DialogFooter>
+  1379→            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+  1380→            <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1381→              {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+  1382→              {editingItem ? "Update" : "Create"}
+  1383→            </Button>
+  1384→          </DialogFooter>
+  1385→        </DialogContent>
+  1386→      </Dialog>
+  1387→
+  1388→      {/* ── Delete Confirm Dialog ── */}
+  1389→      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+  1390→        <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
+  1391→          <DialogHeader>
+  1392→            <DialogTitle>Confirm Deactivate</DialogTitle>
+  1393→            <DialogDescription>Are you sure you want to deactivate this payment option? It will be marked as inactive but can be restored by an admin.</DialogDescription>
+  1394→          </DialogHeader>
+  1395→          <DialogFooter>
+  1396→            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+  1397→            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
+  1398→          </DialogFooter>
+  1399→        </DialogContent>
+  1400→      </Dialog>
+  1401→    </div>
+  1402→  );
+  1403→}
+  1404→
+  1405→// ============================================================
+  1406→// CARD TYPES TAB — Card Classification Management
+  1407→// ============================================================
+  1408→
+  1409→function CardTypesTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAuditor: boolean }) {
+  1410→  const { toast } = useToast();
+  1411→  const [data, setData] = useState<any[]>([]);
+  1412→  const [loading, setLoading] = useState(true);
+  1413→  const [search, setSearch] = useState("");
+  1414→  const [dialogOpen, setDialogOpen] = useState(false);
+  1415→  const [editingItem, setEditingItem] = useState<any>(null);
+  1416→  const [formData, setFormData] = useState<Record<string, any>>({});
+  1417→  const [saving, setSaving] = useState(false);
+  1418→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  1419→  const [companyProfile, setCompanyProfile] = useState<any>(null);
+  1420→  const [snapshot, setSnapshot] = useState<any[] | null>(null);
+  1421→
+  1422→  const canMutate = userRole === "admin" || userRole === "manager";
+  1423→
+  1424→  const loadData = useCallback(async () => {
+  1425→    setLoading(true);
+  1426→    try {
+  1427→      const result = await apiFetch("/api/card-types");
+  1428→      setData(Array.isArray(result) ? result : []);
+  1429→    } catch (e: any) {
+  1430→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1431→    } finally {
+  1432→      setLoading(false);
+  1433→    }
+  1434→  }, [toast]);
+  1435→
+  1436→  useEffect(() => { loadData(); }, [loadData]);
+  1437→
+  1438→  useEffect(() => {
+  1439→    const loadProfile = async () => {
+  1440→      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
+  1441→    };
+  1442→    loadProfile();
+  1443→  }, []);
+  1444→
+  1445→  const filteredData = useMemo(() => {
+  1446→    if (!search.trim()) return data;
+  1447→    const q = search.toLowerCase();
+  1448→    return data.filter(item =>
+  1449→      CARD_TYPE_COLUMNS.some(col =>
+  1450→        String(getNestedValue(item, col.key) ?? "").toLowerCase().includes(q)
+  1451→      )
+  1452→    );
+  1453→  }, [data, search]);
+  1454→
+  1455→  const stats = useMemo(() => {
+  1456→    const total = data.length;
+  1457→    const active = data.filter(d => d.isActive !== false).length;
+  1458→    const inactive = total - active;
+  1459→    const totalSetups = data.reduce((sum, d) => sum + (d._count?.cardTypeSetups || 0), 0);
+  1460→    return { total, active, inactive, totalSetups };
+  1461→  }, [data]);
+  1462→
+  1463→  const openCreate = () => {
+  1464→    setEditingItem(null);
+  1465→    setFormData({ name: "", isActive: true });
+  1466→    setDialogOpen(true);
+  1467→  };
+  1468→
+  1469→  const openEdit = (item: any) => {
+  1470→    setEditingItem(item);
+  1471→    const values: Record<string, any> = {};
+  1472→    CARD_TYPE_FIELDS.forEach(f => {
+  1473→      const val = getNestedValue(item, f.key);
+  1474→      if (val !== undefined && val !== null) values[f.key] = val;
+  1475→      else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
+  1476→      else values[f.key] = f.type === "checkbox" ? true : "";
+  1477→    });
+  1478→    setFormData(values);
+  1479→    setDialogOpen(true);
+  1480→  };
+  1481→
+  1482→  const handleSave = async () => {
+  1483→    for (const f of CARD_TYPE_FIELDS) {
+  1484→      if (f.required && !formData[f.key] && formData[f.key] !== 0) {
+  1485→        toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+  1486→        return;
+  1487→      }
+  1488→    }
+  1489→
+  1490→    const nameLenError = validateFieldLength(String(formData.name || ""), 'name');
+  1491→    if (nameLenError) {
+  1492→      toast({ title: "Validation Error", description: nameLenError, variant: "destructive" });
+  1493→      return;
+  1494→    }
+  1495→
+  1496→    const sanitizedData: Record<string, any> = {};
+  1497→    for (const [key, value] of Object.entries(formData)) {
+  1498→      if (typeof value === "string") sanitizedData[key] = sanitizeInput(sanitizeCSVInput(value));
+  1499→      else sanitizedData[key] = value;
+  1500→    }
+  1501→
+  1502→    setSaving(true);
+  1503→    setSnapshot([...data]);
+  1504→
+  1505→    try {
+  1506→      if (editingItem) {
+  1507→        const res = await apiFetch(`/api/card-types/${editingItem.id}`, {
+  1508→          method: "PUT", body: JSON.stringify(sanitizedData),
+  1509→        });
+  1510→        if (res?.error) throw new Error(res.error);
+  1511→        toast({ title: "Updated", description: "Card Type updated successfully" });
+  1512→      } else {
+  1513→        const res = await apiFetch("/api/card-types", {
+  1514→          method: "POST", body: JSON.stringify(sanitizedData),
+  1515→        });
+  1516→        if (res?.error) throw new Error(res.error);
+  1517→        toast({ title: "Created", description: "Card Type created successfully" });
+  1518→      }
+  1519→      setDialogOpen(false);
+  1520→      if (editingItem) {
+  1521→        setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
+  1522→      }
+  1523→      loadData();
+  1524→    } catch (e: any) {
+  1525→      const msg = e.message || "Failed to save";
+  1526→      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+  1527→        setData(snapshot || []);
+  1528→        toast({ title: "Connection Lost — Rollback", description: "Rolled back to pre-save state.", variant: "destructive", duration: 8000 });
+  1529→      } else {
+  1530→        toast({ title: "Error", description: msg, variant: "destructive" });
+  1531→      }
+  1532→    } finally {
+  1533→      setSaving(false);
+  1534→    }
+  1535→  };
+  1536→
+  1537→  const handleDelete = async (id: string) => {
+  1538→    try {
+  1539→      await apiFetch(`/api/card-types/${id}`, { method: "DELETE" });
+  1540→      toast({ title: "Deactivated", description: "Card Type deactivated successfully" });
+  1541→      setDeleteConfirm(null);
+  1542→      loadData();
+  1543→    } catch (e: any) {
+  1544→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1545→    }
+  1546→  };
+  1547→
+  1548→  const handleExportPDF = () => {
+  1549→    try {
+  1550→      const exportData = filteredData.map(item => {
+  1551→        const row: Record<string, any> = {};
+  1552→        CARD_TYPE_COLUMNS.forEach(col => { row[col.key] = getNestedValue(item, col.key); });
+  1553→        return row;
+  1554→      });
+  1555→      const authUser = authState.user;
+  1556→      exportToPDF({
+  1557→        title: "Card Types",
+  1558→        subtitle: `Total Records: ${filteredData.length}`,
+  1559→        orientation: "landscape",
+  1560→        columns: CARD_TYPE_COLUMNS,
+  1561→        data: exportData,
+  1562→        isVatAuditor: false,
+  1563→        systemNotice: "Card Classification Report — Confidential",
+  1564→        company: companyProfile ? {
+  1565→          name: companyProfile.name, address: companyProfile.address,
+  1566→          phone: companyProfile.phone, email: companyProfile.email,
+  1567→          logo: companyProfile.logo || companyProfile.brandLogo,
+  1568→          vatNumber: companyProfile.vatNumber,
+  1569→        } : undefined,
+  1570→        financialFooter: {
+  1571→          preparedBy: authUser?.displayName || "System",
+  1572→          checkedBy: "", authorizedBy: "", approvedBy: "",
+  1573→          printedBy: authUser?.displayName || "System",
+  1574→        },
+  1575→      });
+  1576→      toast({ title: "PDF Exported", description: "Card Types report exported with compliance footer" });
+  1577→    } catch (e: any) {
+  1578→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1579→    }
+  1580→  };
+  1581→
+  1582→  const handleExportCSV = () => {
+  1583→    try {
+  1584→      const exportData = filteredData.map(item => {
+  1585→        const row: Record<string, any> = {};
+  1586→        CARD_TYPE_COLUMNS.forEach(col => { row[col.key] = getNestedValue(item, col.key); });
+  1587→        return row;
+  1588→      });
+  1589→      exportToCSV({ title: "Card Types", columns: CARD_TYPE_COLUMNS, data: exportData });
+  1590→      toast({ title: "CSV Exported", description: "Card Types data exported" });
+  1591→    } catch (e: any) {
+  1592→      toast({ title: "Export Error", description: e.message, variant: "destructive" });
+  1593→    }
+  1594→  };
+  1595→
+  1596→  const handleImportCSV = () => {
+  1597→    importFromCSV({ apiPath: "/api/card-types", formFields: CARD_TYPE_FIELDS }).then((result) => {
+  1598→      toast({
+  1599→        title: "Import Complete",
+  1600→        description: `${result.imported} imported, ${result.failed} failed${result.errors.length > 0 ? ` (${result.errors.slice(0, 3).join("; ")})` : ""}`,
+  1601→        variant: result.failed > 0 ? "destructive" : "default",
+  1602→      });
+  1603→      loadData();
+  1604→    });
+  1605→  };
+  1606→
+  1607→  return (
+  1608→    <div className="space-y-4">
+  1609→      {/* KPI Cards */}
+  1610→      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+  1611→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1612→          <CardContent className="p-4 flex items-center gap-3">
+  1613→            <div className="h-10 w-10 rounded-lg bg-[#2563eb]/10 flex items-center justify-center">
+  1614→              <CreditCard className="h-5 w-5 text-[#2563eb]" />
+  1615→            </div>
+  1616→            <div>
+  1617→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Card Types</p>
+  1618→              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.total}</p>
+  1619→            </div>
+  1620→          </CardContent>
+  1621→        </Card>
+  1622→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1623→          <CardContent className="p-4 flex items-center gap-3">
+  1624→            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+  1625→              <CheckCircle className="h-5 w-5 text-emerald-500" />
+  1626→            </div>
+  1627→            <div>
+  1628→              <p className="text-xs text-slate-500 dark:text-slate-400">Active</p>
+  1629→              <p className="text-xl font-bold text-emerald-600">{stats.active}</p>
+  1630→            </div>
+  1631→          </CardContent>
+  1632→        </Card>
+  1633→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1634→          <CardContent className="p-4 flex items-center gap-3">
+  1635→            <div className="h-10 w-10 rounded-lg bg-slate-500/10 flex items-center justify-center">
+  1636→              <X className="h-5 w-5 text-slate-500" />
+  1637→            </div>
+  1638→            <div>
+  1639→              <p className="text-xs text-slate-500 dark:text-slate-400">Inactive</p>
+  1640→              <p className="text-xl font-bold text-slate-500">{stats.inactive}</p>
+  1641→            </div>
+  1642→          </CardContent>
+  1643→        </Card>
+  1644→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1645→          <CardContent className="p-4 flex items-center gap-3">
+  1646→            <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+  1647→              <Settings className="h-5 w-5 text-violet-500" />
+  1648→            </div>
+  1649→            <div>
+  1650→              <p className="text-xs text-slate-500 dark:text-slate-400">Total Card Setups</p>
+  1651→              <p className="text-xl font-bold text-slate-900 dark:text-white">{stats.totalSetups}</p>
+  1652→            </div>
+  1653→          </CardContent>
+  1654→        </Card>
+  1655→      </div>
+  1656→
+  1657→      {/* Toolbar */}
+  1658→      <div className="flex flex-wrap items-center gap-2">
+  1659→        <div className="relative flex-1 min-w-[200px]">
+  1660→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+  1661→          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search card types..." className="pl-8" />
+  1662→        </div>
+  1663→        {canMutate && <Button onClick={openCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add</Button>}
+  1664→        <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+  1665→        <Button variant="outline" size="sm" onClick={handleExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+  1666→        {canMutate && <Button variant="outline" size="sm" onClick={handleImportCSV}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>}
+  1667→        <Button variant="ghost" size="sm" onClick={loadData}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+  1668→      </div>
+  1669→
+  1670→      {/* Data Table */}
+  1671→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1672→        <CardContent className="p-0 overflow-hidden">
+  1673→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1674→            <Table className="min-w-[600px]">
+  1675→              <TableHeader>
+  1676→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1677→                  <TableHead className="text-white font-semibold w-12">#</TableHead>
+  1678→                  <TableHead className="text-white font-semibold">Card Type</TableHead>
+  1679→                  <TableHead className="text-white font-semibold text-right">Card Setups</TableHead>
+  1680→                  <TableHead className="text-white font-semibold">Status</TableHead>
+  1681→                  {canMutate && <TableHead className="text-white font-semibold w-24">Actions</TableHead>}
+  1682→                </TableRow>
+  1683→              </TableHeader>
+  1684→              <TableBody>
+  1685→                {loading ? (
+  1686→                  <TableRow>
+  1687→                    <TableCell colSpan={canMutate ? 5 : 4} className="text-center py-8 text-slate-400">
+  1688→                      <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+  1689→                      Registering Card Type Classification...
+  1690→                    </TableCell>
+  1691→                  </TableRow>
+  1692→                ) : filteredData.length === 0 ? (
+  1693→                  <TableRow>
+  1694→                    <TableCell colSpan={canMutate ? 5 : 4} className="text-center py-8 text-slate-400">No card types found</TableCell>
+  1695→                  </TableRow>
+  1696→                ) : (
+  1697→                  filteredData.map((item, idx) => (
+  1698→                    <TableRow key={item.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1699→                      <TableCell className="text-slate-500 text-xs">{idx + 1}</TableCell>
+  1700→                      <TableCell className="font-medium text-slate-900 dark:text-white">{item.name}</TableCell>
+  1701→                      <TableCell className="text-right">{item._count?.cardTypeSetups ?? 0}</TableCell>
+  1702→                      <TableCell>
+  1703→                        <Badge className={item.isActive !== false
+  1704→                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+  1705→                          : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+  1706→                        }>
+  1707→                          {item.isActive !== false ? "Active" : "Inactive"}
+  1708→                        </Badge>
+  1709→                      </TableCell>
+  1710→                      {canMutate && (
+  1711→                        <TableCell>
+  1712→                          <div className="flex items-center gap-1">
+  1713→                            <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Edit className="h-3.5 w-3.5" /></Button>
+  1714→                            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700" onClick={() => setDeleteConfirm(item.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+  1715→                          </div>
+  1716→                        </TableCell>
+  1717→                      )}
+  1718→                    </TableRow>
+  1719→                  ))
+  1720→                )}
+  1721→              </TableBody>
+  1722→            </Table>
+  1723→          </div>
+  1724→        </CardContent>
+  1725→      </Card>
+  1726→
+  1727→      {/* Create/Edit Dialog */}
+  1728→      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+  1729→        <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
+  1730→          <DialogHeader>
+  1731→            <DialogTitle>{editingItem ? "Edit Card Type" : "Add Card Type"}</DialogTitle>
+  1732→            <DialogDescription>{editingItem ? "Update card type classification" : "Create a new card type"}</DialogDescription>
+  1733→          </DialogHeader>
+  1734→          <div className="space-y-4 py-2">
+  1735→            <div className="space-y-2">
+  1736→              <Label>Card Type Name *</Label>
+  1737→              <Input value={String(formData.name || "")} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Visa Classic, MasterCard Gold" />
+  1738→            </div>
+  1739→            <div className="flex items-center gap-2">
+  1740→              <input type="checkbox" checked={!!formData.isActive} onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.checked }))} className="h-4 w-4 rounded border-slate-300" />
+  1741→              <Label>Active</Label>
+  1742→            </div>
+  1743→          </div>
+  1744→          <DialogFooter>
+  1745→            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+  1746→            <Button onClick={handleSave} disabled={saving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+  1747→              {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+  1748→              {editingItem ? "Update" : "Create"}
+  1749→            </Button>
+  1750→          </DialogFooter>
+  1751→        </DialogContent>
+  1752→      </Dialog>
+  1753→
+  1754→      {/* Delete Confirm Dialog */}
+  1755→      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+  1756→        <DialogContent className="max-w-[95vw] sm:max-w-[400px]">
+  1757→          <DialogHeader>
+  1758→            <DialogTitle>Confirm Deactivate</DialogTitle>
+  1759→            <DialogDescription>Are you sure you want to deactivate this card type? It will be marked as inactive but can be restored by an admin.</DialogDescription>
+  1760→          </DialogHeader>
+  1761→          <DialogFooter>
+  1762→            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+  1763→            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Deactivate</Button>
+  1764→          </DialogFooter>
+  1765→        </DialogContent>
+  1766→      </Dialog>
+  1767→    </div>
+  1768→  );
+  1769→}
+  1770→
+  1771→// ============================================================
+  1772→// CARD TYPE SETUP TAB — Fee Matrix with Effective Rate Calculation
+  1773→// ============================================================
+  1774→
+  1775→function CardTypeSetupTab({ userRole, isVatAuditor }: { userRole: UserRole; isVatAuditor: boolean }) {
+  1776→  const { toast } = useToast();
+  1777→  const [data, setData] = useState<any[]>([]);
+  1778→  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
+  1779→  const [cardTypes, setCardTypes] = useState<any[]>([]);
+  1780→  const [loading, setLoading] = useState(true);
+  1781→  const [search, setSearch] = useState("");
+  1782→  const [dialogOpen, setDialogOpen] = useState(false);
+  1783→  const [editingItem, setEditingItem] = useState<any>(null);
+  1784→  const [formData, setFormData] = useState<Record<string, any>>({});
+  1785→  const [saving, setSaving] = useState(false);
+  1786→  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  1787→  const [companyProfile, setCompanyProfile] = useState<any>(null);
+  1788→  const [snapshot, setSnapshot] = useState<any[] | null>(null);
+  1789→  const [cardFeeError, setCardFeeError] = useState<string | null>(null);
+  1790→
+  1791→  const canMutate = userRole === "admin" || userRole === "manager";
+  1792→  const maskedColumns = isVatAuditor ? ["chargePercentage", "bankServiceCharge", "customerConvFee"] : [];
+  1793→
+  1794→  const loadData = useCallback(async () => {
+  1795→    setLoading(true);
+  1796→    try {
+  1797→      const result = await apiFetch("/api/card-type-setup");
+  1798→      setData(Array.isArray(result) ? result : []);
+  1799→    } catch (e: any) {
+  1800→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1801→    } finally {
+  1802→      setLoading(false);
+  1803→    }
+  1804→  }, [toast]);
+  1805→
+  1806→  const loadDropdowns = useCallback(async () => {
+  1807→    try {
+  1808→      const [poResult, ctResult] = await Promise.all([
+  1809→        apiFetch("/api/payment-options?activeOnly=true"),
+  1810→        apiFetch("/api/card-types"),
+  1811→      ]);
+  1812→      setPaymentOptions(Array.isArray(poResult) ? poResult : []);
+  1813→      setCardTypes(Array.isArray(ctResult) ? ctResult : []);
+  1814→    } catch (err) {
+  1815→      console.error('Error loading payment options and card types:', err);
+  1816→      setPaymentOptions([]);
+  1817→      setCardTypes([]);
+  1818→    }
+  1819→  }, []);
+  1820→
+  1821→  useEffect(() => { loadData(); }, [loadData]);
+  1822→  useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
+  1823→
+  1824→  useEffect(() => {
+  1825→    const loadProfile = async () => {
+  1826→      try { setCompanyProfile(await apiFetch("/api/company-branding")); } catch (err) { console.error('Error loading company branding:', err); }
+  1827→    };
+  1828→    loadProfile();
+  1829→  }, []);
+  1830→
+  1831→  const filteredData = useMemo(() => {
+  1832→    if (!search.trim()) return data;
+  1833→    const q = search.toLowerCase();
+  1834→    return data.filter(item =>
+  1835→      CARD_TYPE_SETUP_COLUMNS.some(col =>
+  1836→        String(getNestedValue(item, col.key) ?? "").toLowerCase().includes(q)
+  1837→      )
+  1838→    );
+  1839→  }, [data, search]);
+  1840→
+  1841→  // KPI with effective rate stats
+  1842→  const stats = useMemo(() => {
+  1843→    const total = data.length;
+  1844→    const active = data.filter(d => d.isActive !== false).length;
+  1845→    const avgEffectiveRate = total > 0
+  1846→      ? data.reduce((sum, d) => {
+  1847→          const rate = Number(d.chargePercentage || 0) + Number(d.bankServiceCharge || 0) + Number(d.customerConvFee || 0);
+  1848→          return sum + rate;
+  1849→        }, 0) / total
+  1850→      : 0;
+  1851→    const highRateCount = data.filter(d => {
+  1852→      const rate = Number(d.chargePercentage || 0) + Number(d.bankServiceCharge || 0) + Number(d.customerConvFee || 0);
+  1853→      return rate > 5;
+  1854→    }).length;
+  1855→    return { total, active, inactive: total - active, avgEffectiveRate, highRateCount };
+  1856→  }, [data]);
+  1857→
+  1858→  const openCreate = () => {
+  1859→    setEditingItem(null);
+  1860→    setCardFeeError(null);
+  1861→    setFormData({
+  1862→      paymentOptionId: "", cardTypeId: "",
+  1863→      chargePercentage: 0, bankServiceCharge: 0, customerConvFee: 0,
+  1864→      isActive: true,
+  1865→    });
+  1866→    setDialogOpen(true);
+  1867→  };
+  1868→
+  1869→  const openEdit = (item: any) => {
+  1870→    setEditingItem(item);
+  1871→    setCardFeeError(null);
+  1872→    const values: Record<string, any> = {};
+  1873→    CARD_TYPE_SETUP_FIELDS.forEach(f => {
+  1874→      const val = getNestedValue(item, f.key);
+  1875→      if (val !== undefined && val !== null) values[f.key] = val;
+  1876→      else if (f.defaultValue !== undefined) values[f.key] = f.defaultValue;
+  1877→      else values[f.key] = f.type === "checkbox" ? true : "";
+  1878→    });
+  1879→    setFormData(values);
+  1880→    setDialogOpen(true);
+  1881→  };
+  1882→
+  1883→  const handleSave = async () => {
+  1884→    for (const f of CARD_TYPE_SETUP_FIELDS) {
+  1885→      if (f.required && !formData[f.key] && formData[f.key] !== 0) {
+  1886→        toast({ title: "Validation Error", description: `${f.label} is required`, variant: "destructive" });
+  1887→        return;
+  1888→      }
+  1889→    }
+  1890→
+  1891→    // Card Fee Architecture: rate bounds validation (0 <= rate <= 10.00)
+  1892→    const bsc = Number(formData.bankServiceCharge);
+  1893→    const convFee = Number(formData.customerConvFee);
+  1894→    const chargePct = Number(formData.chargePercentage);
+  1895→
+  1896→    if (isNaN(bsc) || bsc < 0 || bsc > 10) {
+  1897→      setCardFeeError("Bank Service Charge must be between 0% and 10%");
+  1898→      toast({ title: "Card Fee Architecture", description: "Bank Service Charge (BSC %) must be between 0% and 10%", variant: "destructive" });
+  1899→      return;
+  1900→    }
+  1901→    if (isNaN(convFee) || convFee < 0 || convFee > 10) {
+  1902→      setCardFeeError("Customer Convenience Fee must be between 0% and 10%");
+  1903→      toast({ title: "Card Fee Architecture", description: "Customer Conv. Fee (%) must be between 0% and 10%", variant: "destructive" });
+  1904→      return;
+  1905→    }
+  1906→    if (isNaN(chargePct) || chargePct < 0 || chargePct > 10) {
+  1907→      setCardFeeError("Charge Percentage must be between 0% and 10%");
+  1908→      toast({ title: "Card Fee Architecture", description: "Charge Percentage must be between 0% and 10%", variant: "destructive" });
+  1909→      return;
+  1910→    }
+  1911→    setCardFeeError(null);
+  1912→
+  1913→    // Percentage field length validation
+  1914→    for (const key of ['chargePercentage', 'bankServiceCharge', 'customerConvFee']) {
+  1915→      const lenErr = validateFieldLength(String(formData[key] || ''), 'percentage');
+  1916→      if (lenErr) {
+  1917→        toast({ title: "Validation Error", description: lenErr, variant: "destructive" });
+  1918→        return;
+  1919→      }
+  1920→    }
+  1921→
+  1922→    const sanitizedData: Record<string, any> = {};
+  1923→    for (const [key, value] of Object.entries(formData)) {
+  1924→      if (typeof value === "string") sanitizedData[key] = sanitizeInput(value);
+  1925→      else sanitizedData[key] = value;
+  1926→    }
+  1927→
+  1928→    setSaving(true);
+  1929→    setSnapshot([...data]);
+  1930→
+  1931→    try {
+  1932→      if (editingItem) {
+  1933→        const res = await apiFetch(`/api/card-type-setup/${editingItem.id}`, {
+  1934→          method: "PUT", body: JSON.stringify(sanitizedData),
+  1935→        });
+  1936→        if (res?.error) throw new Error(res.error);
+  1937→        toast({ title: "Updated", description: "Card Type Setup updated successfully" });
+  1938→      } else {
+  1939→        const res = await apiFetch("/api/card-type-setup", {
+  1940→          method: "POST", body: JSON.stringify(sanitizedData),
+  1941→        });
+  1942→        if (res?.error) throw new Error(res.error);
+  1943→        toast({ title: "Created", description: "Card Type Setup created successfully" });
+  1944→      }
+  1945→      setDialogOpen(false);
+  1946→      if (editingItem) {
+  1947→        setData(prev => prev.map(d => d.id === editingItem.id ? { ...d, ...sanitizedData } : d));
+  1948→      }
+  1949→      loadData();
+  1950→    } catch (e: any) {
+  1951→      const msg = e.message || "Failed to save";
+  1952→      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+  1953→        setData(snapshot || []);
+  1954→        toast({ title: "Connection Lost — Rollback", description: "Rolled back to pre-save state.", variant: "destructive", duration: 8000 });
+  1955→      } else {
+  1956→        toast({ title: "Error", description: msg, variant: "destructive" });
+  1957→      }
+  1958→    } finally {
+  1959→      setSaving(false);
+  1960→    }
+  1961→  };
+  1962→
+  1963→  const handleDelete = async (id: string) => {
+  1964→    try {
+  1965→      await apiFetch(`/api/card-type-setup/${id}`, { method: "DELETE" });
+  1966→      toast({ title: "Deactivated", description: "Card Type Setup deactivated successfully" });
+  1967→      setDeleteConfirm(null);
+  1968→      loadData();
+  1969→    } catch (e: any) {
+  1970→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1971→    }
+  1972→  };
+  1973→
+  1974→  // Compute effective total rate
+  1975→  const computeEffectiveRate = (item: any) => {
+  1976→    return Number(item.chargePercentage || 0) + Number(item.bankServiceCharge || 0) + Number(item.customerConvFee || 0);
+  1977→  };
+  1978→
+  1979→  const handleExportPDF = () => {
+  1980→    try {
+  1981→      // Add effective total rate column
+  1982→      const exportColumns: ExportColumnDef[] = [
+  1983→        ...CARD_TYPE_SETUP_COLUMNS,
+  1984→        { key: "effectiveTotalRate", label: "Effective Total Rate", type: "number" },
+  1985→      ];
+  1986→      const exportData = filteredData.map(item => {
+  1987→        const row: Record<string, any> = {};
+  1988→        CARD_TYPE_SETUP_COLUMNS.forEach(col => {
+  1989→          let val = getNestedValue(item, col.key);
+  1990→          if (isVatAuditor && maskedColumns.includes(col.key)) val = "N/A (Audit Mode)";
+  1991→          row[col.key] = val;
+  1992→        });
+  1993→        row.effectiveTotalRate = computeEffectiveRate(item);
+  1994→        return row;
+  1995→      });
+  1996→      const authUser = authState.user;
+  1997→      exportToPDF({
+  1998→        title: "Card Type Setup",
+  1999→        subtitle: `Total Records: ${filteredData.length}`,
+  2000→        orientation: "landscape",
+
+[showing lines 1-2000 of 2417; use offset=2001 with limit to continue reading]

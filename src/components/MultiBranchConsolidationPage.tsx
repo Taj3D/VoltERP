@@ -347,7 +347,7 @@ export default function MultiBranchConsolidationPage({
   const apiFetch = useCallback(
     async (path: string, opts?: RequestInit) => {
       const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-      if (user?.email) authHeaders["X-User-Email"] = user.email;
+      try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); if (a.accessToken) authHeaders["Authorization"] = `Bearer ${a.accessToken}`; } catch {}
       const res = await fetch(path, {
         headers: { ...authHeaders, ...opts?.headers },
         ...opts,
