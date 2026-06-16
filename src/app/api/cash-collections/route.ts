@@ -246,7 +246,11 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Error creating cash collection:', error);
     const message = error instanceof Error ? error.message : 'Failed to create cash collection';
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Validation errors should return 400, not 500
+    const isValidation = /required|must be a positive|Invalid date|Period is locked|Idempotency/i.test(message);
+    const isConflict = /Idempotency/i.test(message);
+    const statusCode = isConflict ? 409 : isValidation ? 400 : 500;
+    return NextResponse.json({ error: message }, { status: statusCode });
   }
 }
 

@@ -32,6 +32,7 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyP
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import { apiFetch, type UserRole } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -44,17 +45,17 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
-  if (type === "currency") return `Tk. ${currencyFormatter.format(Number(v))}`;
-  if (type === "date") return v ? dateFormatter.format(new Date(v)) : "—";
+  if (type === "currency") return `Tk. ${toLatinDigits(currencyFormatter.format(Number(v)))}`;
+  if (type === "date") return v ? toLatinDigits(dateFormatter.format(new Date(v))) : "—";
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return numberFormatter.format(Number(v));
+  if (type === "number") return toLatinDigits(numberFormatter.format(Number(v)));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
-  return `Tk. ${currencyFormatter.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(currencyFormatter.format(Number(v)))}`;
 };
 
 

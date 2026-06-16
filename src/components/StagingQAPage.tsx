@@ -23,19 +23,21 @@ import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-
 // UTILITY FUNCTIONS
 // ============================================================
 
+import { toLatinDigits } from "@/lib/number-format";
+
 const safeFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmt = (n: number) => safeFmt.format(n);
+const fmt = (n: number) => toLatinDigits(safeFmt.format(n));
 
 const fmtDate = (d: string | Date) => {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+  return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    });
+    }));
 };
 
 const fmtMs = (ms: number) => {
@@ -378,7 +380,7 @@ export default function StagingQAPage() {
 
       exportToPDF({
         title: "VoltERP System Quality Assurance & Integrity Compliance Certification",
-        subtitle: `Compliance Token: ${complianceToken} | Certification Date: ${now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })} | Total Test Runs: ${certificationData.length} | Assertions Verified: ${assertionRows.length}`,
+        subtitle: `Compliance Token: ${complianceToken} | Certification Date: ${toLatinDigits(now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }))} | Total Test Runs: ${certificationData.length} | Assertions Verified: ${assertionRows.length}`,
         orientation: "landscape",
         columns,
         data: assertionRows.length > 0 ? assertionRows : certificationData,

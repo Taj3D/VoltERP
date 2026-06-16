@@ -1,0 +1,831 @@
+     1→import { NextRequest, NextResponse } from 'next/server';
+     2→import { db } from '@/lib/db';
+     3→import {
+     4→  withApiSecurity,
+     5→  maskForVatAuditorFinancial,
+     6→  safeFinancialRound,
+     7→  safeFinancialAdd,
+     8→  safeFinancialSubtract,
+     9→  checkPeriodClose,
+    10→} from '@/lib/api-security';
+    11→import { logUserActivity } from '@/lib/activity-logger';
+    12→
+    13→/**
+    14→ * Strip HTML tags from a string to prevent XSS in text fields.
+    15→ */
+    16→function stripHtml(input: string): string {
+    17→  return input.replace(/<[^>]*>/g, '').trim();
+    18→}
+    19→
+    20→// ============================================================
+    21→// SHARED: Stock Validation Engine
+    22→// ============================================================
+    23→
+    24→async function validateStockAvailability(
+    25→  tx: any,
+    26→  lines: Array<{ productId: string; quantity: number }>,
+    27→  godownId?: string
+    28→) {
+    29→  const stockErrors: Array<{
+    30→    productId: string;
+    31→    productName: string;
+    32→    requested: number;
+    33→    available: number;
+    34→    deficit: number;
+    35→  }> = [];
+    36→  const stockSnapshots: Array<{
+    37→    productId: string;
+    38→    availableStock: number;
+    39→    stockStatus: string;
+    40→    allocatedQuantity: number;
+    41→  }> = [];
+    42→
+    43→  for (const line of lines) {
+    44→    const product = await tx.product.findUnique({
+    45→      where: { id: line.productId },
+    46→    });
+    47→    if (!product) {
+    48→      stockErrors.push({
+    49→        productId: line.productId,
+    50→        productName: 'Unknown Product',
+    51→        requested: line.quantity,
+    52→        available: 0,
+    53→        deficit: line.quantity,
+    54→      });
+    55→      stockSnapshots.push({
+    56→        productId: line.productId,
+    57→        availableStock: 0,
+    58→        stockStatus: 'Insufficient',
+    59→        allocatedQuantity: 0,
+    60→      });
+    61→      continue;
+    62→    }
+    63→
+    64→    const stockEntries = await tx.stockEntry.findMany({
+    65→      where: {
+    66→        productId: line.productId,
+    67→        ...(godownId ? { godownId } : {}),
+    68→      },
+    69→    });
+    70→    const currentStock =
+    71→      product.openingStock +
+    72→      stockEntries.reduce(
+    73→        (sum: number, e: any) =>
+    74→          sum + (e.type === 'IN' ? e.quantity : -e.quantity),
+    75→        0
+    76→      );
+    77→
+    78→    if (line.quantity > currentStock) {
+    79→      stockErrors.push({
+    80→        productId: line.productId,
+    81→        productName: product.name,
+    82→        requested: line.quantity,
+    83→        available: currentStock,
+    84→        deficit: safeFinancialRound(line.quantity - currentStock),
+    85→      });
+    86→      stockSnapshots.push({
+    87→        productId: line.productId,
+    88→        availableStock: currentStock,
+    89→        stockStatus: currentStock > 0 ? 'Partial' : 'Insufficient',
+    90→        allocatedQuantity: Math.min(currentStock, line.quantity),
+    91→      });
+    92→    } else {
+    93→      stockSnapshots.push({
+    94→        productId: line.productId,
+    95→        availableStock: currentStock,
+    96→        stockStatus: 'Available',
+    97→        allocatedQuantity: line.quantity,
+    98→      });
+    99→    }
+   100→  }
+   101→
+   102→  return { stockErrors, stockSnapshots };
+   103→}
+   104→
+   105→// ============================================================
+   106→// Line-level Financial Computation
+   107→// ============================================================
+   108→
+   109→interface LineInput {
+   110→  productId: string;
+   111→  quantity: number;
+   112→  rate: number;
+   113→  discountPercent?: number;
+   114→  notes?: string;
+   115→}
+   116→
+   117→function computeLineFinancials(line: LineInput, stockSnapshot?: { availableStock: number; stockStatus: string; allocatedQuantity: number }) {
+   118→  const lineTotal = safeFinancialRound(line.quantity * line.rate);
+   119→  const discountPercent = line.discountPercent ?? 0;
+   120→  const discountAmount = safeFinancialRound(lineTotal * (discountPercent / 100));
+   121→  const afterDiscount = safeFinancialSubtract(lineTotal, discountAmount);
+   122→  // Line-level VAT not applied here (VAT applied at order level)
+   123→  const vatAmount = 0;
+   124→
+   125→  return {
+   126→    productId: line.productId,
+   127→    quantity: line.quantity,
+   128→    rate: line.rate,
+   129→    discountPercent,
+   130→    discountAmount,
+   131→    vatAmount,
+   132→    total: afterDiscount,
+   133→    allocatedQuantity: stockSnapshot?.allocatedQuantity ?? 0,
+   134→    fulfilledQuantity: 0,
+   135→    availableStock: stockSnapshot?.availableStock ?? 0,
+   136→    stockStatus: stockSnapshot?.stockStatus ?? 'Available',
+   137→    notes: line.notes ? stripHtml(String(line.notes)) : null,
+   138→  };
+   139→}
+   140→
+   141→// ============================================================
+   142→// Order-level Financial Computation
+   143→// ============================================================
+   144→
+   145→function computeOrderFinancials(
+   146→  computedLines: ReturnType<typeof computeLineFinancials>[],
+   147→  discountPercent: number,
+   148→  vatPercentage: number
+   149→) {
+   150→  const subTotal = computedLines.reduce(
+   151→    (sum, l) => safeFinancialAdd(sum, l.total),
+   152→    0
+   153→  );
+   154→  const discount = safeFinancialRound(subTotal * (discountPercent / 100));
+   155→  const afterDiscount = safeFinancialSubtract(subTotal, discount);
+   156→  const vatAmount = safeFinancialRound(afterDiscount * (vatPercentage / 100));
+   157→  const grandTotal = safeFinancialAdd(afterDiscount, vatAmount);
+   158→
+   159→  return { subTotal, discount, vatAmount, grandTotal };
+   160→}
+   161→
+   162→// ============================================================
+   163→// Auto-generate sheetNo: OS-XXXXX
+   164→// ============================================================
+   165→
+   166→async function generateSheetNo(tx: any): Promise<string> {
+   167→  const allSheets = await tx.orderSheet.findMany({
+   168→    select: { sheetNo: true },
+   169→  });
+   170→
+   171→  let nextNum = 1;
+   172→  for (const s of allSheets) {
+   173→    const match = s.sheetNo?.match(/OS-(\d+)/);
+   174→    if (match) nextNum = Math.max(nextNum, parseInt(match[1], 10) + 1);
+   175→  }
+   176→  return `OS-${String(nextNum).padStart(5, '0')}`;
+   177→}
+   178→
+   179→// ============================================================
+   180→// GET /api/order-sheets — List all order sheets with relations
+   181→// ============================================================
+   182→
+   183→export async function GET(request: NextRequest) {
+   184→  const security = await withApiSecurity(request, 'OrderSheets', 'GET');
+   185→  if (!security.authorized) return security.response;
+   186→
+   187→  try {
+   188→    const { searchParams } = new URL(request.url);
+   189→    const companyId = searchParams.get('companyId');
+   190→    const customerId = searchParams.get('customerId');
+   191→    const status = searchParams.get('status');
+   192→    const fulfillmentStatus = searchParams.get('fulfillmentStatus');
+   193→    const orderType = searchParams.get('orderType');
+   194→    const godownId = searchParams.get('godownId');
+   195→
+   196→    const where: any = { isActive: true };
+   197→    if (companyId) where.companyId = companyId;
+   198→    if (customerId) where.customerId = customerId;
+   199→    if (status) where.status = status;
+   200→    if (fulfillmentStatus) where.fulfillmentStatus = fulfillmentStatus;
+   201→    if (orderType) where.orderType = orderType;
+   202→    if (godownId) where.godownId = godownId;
+   203→
+   204→    // Multi-tenant isolation for non-admin
+   205→    if (security.user.companyId && security.user.role !== 'admin') {
+   206→      where.companyId = security.user.companyId;
+   207→    }
+   208→
+   209→    const orderSheets = await db.orderSheet.findMany({
+   210→      where,
+   211→      include: {
+   212→        company: { select: { id: true, name: true, code: true } },
+   213→        customer: { select: { id: true, name: true, customerCode: true } },
+   214→        godown: { select: { id: true, name: true, code: true } },
+   215→        paymentOption: { select: { id: true, name: true } },
+   216→        lines: {
+   217→          include: {
+   218→            product: {
+   219→              select: {
+   220→                id: true,
+   221→                name: true,
+   222→                productCode: true,
+   223→                unit: true,
+   224→                salePrice: true,
+   225→              },
+   226→            },
+   227→          },
+   228→        },
+   229→      },
+   230→      orderBy: { createdAt: 'desc' },
+   231→    });
+   232→
+   233→    // Apply VAT Auditor masking for financial fields
+   234→    const maskedSheets = orderSheets.map((sheet) =>
+   235→      maskForVatAuditorFinancial(sheet as any, security.user.role)
+   236→    );
+   237→
+   238→    return NextResponse.json(maskedSheets);
+   239→  } catch (error: any) {
+   240→    console.error('[OrderSheets] GET error:', error);
+   241→    return NextResponse.json(
+   242→      { error: 'Failed to fetch order sheets', detail: error?.message || String(error) },
+   243→      { status: 500 }
+   244→    );
+   245→  }
+   246→}
+   247→
+   248→// ============================================================
+   249→// POST /api/order-sheets — Create order sheet with stock validation
+   250→// POST /api/order-sheets?import=true — CSV Import
+   251→// ============================================================
+   252→
+   253→export async function POST(request: NextRequest) {
+   254→  const security = await withApiSecurity(request, 'OrderSheets', 'POST');
+   255→  if (!security.authorized) return security.response;
+   256→
+   257→  try {
+   258→    const { searchParams } = new URL(request.url);
+   259→    const isImport = searchParams.get('import') === 'true';
+   260→
+   261→    if (isImport) {
+   262→      return handleCsvImport(request, security);
+   263→    }
+   264→
+   265→    return handleCreate(request, security);
+   266→  } catch (error) {
+   267→    console.error('[OrderSheets] POST error:', error);
+   268→    return NextResponse.json(
+   269→      { error: 'Failed to process order sheet request' },
+   270→      { status: 500 }
+   271→    );
+   272→  }
+   273→}
+   274→
+   275→// ============================================================
+   276→// Create Handler — Single order sheet with full stock validation
+   277→// ============================================================
+   278→
+   279→async function handleCreate(
+   280→  request: NextRequest,
+   281→  security: any
+   282→): Promise<NextResponse> {
+   283→  const body = await request.json();
+   284→  const {
+   285→    orderType = 'Company',
+   286→    companyId,
+   287→    customerId,
+   288→    godownId,
+   289→    date,
+   290→    discountPercent = 0,
+   291→    vatPercentage = 0,
+   292→    paymentOptionId,
+   293→    notes,
+   294→    referenceKey,
+   295→    lines,
+   296→  } = body;
+   297→
+   298→  // ── Validation ──
+   299→  if (!date) {
+   300→    return NextResponse.json(
+   301→      { error: 'Date is required' },
+   302→      { status: 400 }
+   303→    );
+   304→  }
+   305→  if (!lines || !Array.isArray(lines) || lines.length === 0) {
+   306→    return NextResponse.json(
+   307→      { error: 'At least one line item is required' },
+   308→      { status: 400 }
+   309→    );
+   310→  }
+   311→  if (orderType === 'Company' && !companyId) {
+   312→    return NextResponse.json(
+   313→      { error: 'companyId is required when orderType is "Company"' },
+   314→      { status: 400 }
+   315→    );
+   316→  }
+   317→  if (orderType === 'Customer' && !customerId) {
+   318→    return NextResponse.json(
+   319→      { error: 'customerId is required when orderType is "Customer"' },
+   320→      { status: 400 }
+   321→    );
+   322→  }
+   323→
+   324→  // Validate each line has a rate (required for financial calculations)
+   325→  for (let i = 0; i < lines.length; i++) {
+   326→    if (lines[i].rate === undefined || lines[i].rate === null || isNaN(lines[i].rate)) {
+   327→      return NextResponse.json(
+   328→        { error: `Line item at index ${i} is missing a valid "rate" (unit price). All line items must have a rate.` },
+   329→        { status: 400 }
+   330→      );
+   331→    }
+   332→    if (lines[i].productId === undefined || lines[i].productId === null) {
+   333→      return NextResponse.json(
+   334→        { error: `Line item at index ${i} is missing a "productId".` },
+   335→        { status: 400 }
+   336→      );
+   337→    }
+   338→    if (!lines[i].quantity || lines[i].quantity <= 0) {
+   339→      return NextResponse.json(
+   340→        { error: `Line item at index ${i} has invalid quantity (must be > 0).` },
+   341→        { status: 400 }
+   342→      );
+   343→    }
+   344→  }
+   345→
+   346→  // Period close guard
+   347→  const periodLock = await checkPeriodClose(new Date(date));
+   348→  if (periodLock) return periodLock;
+   349→
+   350→  // Idempotency check via referenceKey
+   351→  if (referenceKey) {
+   352→    const existing = await db.orderSheet.findFirst({
+   353→      where: { referenceKey },
+   354→    });
+   355→    if (existing) {
+   356→      return NextResponse.json(
+   357→        { error: 'Duplicate submission detected. This order has already been created.', referenceKey, existingId: existing.id },
+   358→        { status: 409 }
+   359→      );
+   360→    }
+   361→  }
+   362→
+   363→  // ── Transaction: create with stock validation ──
+   364→  const result = await db.$transaction(async (tx) => {
+   365→    // Validate stock for all lines
+   366→    const { stockErrors, stockSnapshots } = await validateStockAvailability(
+   367→      tx,
+   368→      lines.map((l: LineInput) => ({ productId: l.productId, quantity: l.quantity })),
+   369→      godownId || undefined
+   370→    );
+   371→
+   372→    // If ANY line has insufficient stock, abort with 409
+   373→    if (stockErrors.length > 0) {
+   374→      throw Object.assign(new Error('STOCK_INSUFFICIENT'), {
+   375→        stockErrors,
+   376→        stockSnapshots,
+   377→      });
+   378→    }
+   379→
+   380→    // Compute line-level financials
+   381→    const snapshotMap = new Map(stockSnapshots.map((s) => [s.productId, s]));
+   382→    const computedLines = lines.map((line: LineInput) => {
+   383→      const snap = snapshotMap.get(line.productId);
+   384→      return computeLineFinancials(line, snap);
+   385→    });
+   386→
+   387→    // Compute order-level financials
+   388→    const orderDiscountPercent = discountPercent ?? 0;
+   389→    const orderVatPercentage = vatPercentage ?? 0;
+   390→    const { subTotal, discount, vatAmount, grandTotal } = computeOrderFinancials(
+   391→      computedLines,
+   392→      orderDiscountPercent,
+   393→      orderVatPercentage
+   394→    );
+   395→
+   396→    // Determine initial fulfillment status
+   397→    const allAvailable = computedLines.every(
+   398→      (l) => l.stockStatus === 'Available'
+   399→    );
+   400→    const anyPartial = computedLines.some(
+   401→      (l) => l.stockStatus === 'Partial'
+   402→    );
+   403→    const fulfillmentStatus = allAvailable
+   404→      ? 'Unfulfilled'
+   405→      : anyPartial
+   406→        ? 'Partial'
+   407→        : 'Unfulfilled';
+   408→
+   409→    // Auto-generate sheetNo
+   410→    const sheetNo = await generateSheetNo(tx);
+   411→
+   412→    const orderSheet = await tx.orderSheet.create({
+   413→      data: {
+   414→        sheetNo,
+   415→        orderType,
+   416→        companyId: orderType === 'Company' ? companyId : null,
+   417→        customerId: orderType === 'Customer' ? customerId : null,
+   418→        godownId: godownId || null,
+   419→        date: new Date(date),
+   420→        subTotal,
+   421→        discount,
+   422→        discountPercent: orderDiscountPercent,
+   423→        vatPercentage: orderVatPercentage,
+   424→        vatAmount,
+   425→        grandTotal,
+   426→        fulfillmentStatus,
+   427→        paymentOptionId: paymentOptionId || null,
+   428→        notes: notes ? stripHtml(String(notes)) : null,
+   429→        referenceKey: referenceKey || null,
+   430→        lines: {
+   431→          create: computedLines.map((cl) => ({
+   432→            productId: cl.productId,
+   433→            quantity: cl.quantity,
+   434→            allocatedQuantity: cl.allocatedQuantity,
+   435→            fulfilledQuantity: cl.fulfilledQuantity,
+   436→            rate: cl.rate,
+   437→            discountPercent: cl.discountPercent,
+   438→            discountAmount: cl.discountAmount,
+   439→            vatAmount: cl.vatAmount,
+   440→            total: cl.total,
+   441→            availableStock: cl.availableStock,
+   442→            stockStatus: cl.stockStatus,
+   443→            notes: cl.notes,
+   444→          })),
+   445→        },
+   446→      },
+   447→      include: {
+   448→        company: true,
+   449→        customer: true,
+   450→        godown: true,
+   451→        paymentOption: true,
+   452→        lines: { include: { product: true } },
+   453→      },
+   454→    });
+   455→
+   456→    // Audit log
+   457→    await tx.auditLog.create({
+   458→      data: {
+   459→        action: 'CREATE',
+   460→        module: 'OrderSheets',
+   461→        recordId: orderSheet.id,
+   462→        recordLabel: orderSheet.sheetNo,
+   463→        userId: security.user?.id || 'system',
+   464→        userName: security.user?.name || 'System',
+   465→        details: JSON.stringify({
+   466→          sheetNo,
+   467→          orderType,
+   468→          subTotal,
+   469→          discount,
+   470→          vatAmount,
+   471→          grandTotal,
+   472→          lineCount: lines.length,
+   473→          fulfillmentStatus,
+   474→        }),
+   475→      },
+   476→    });
+   477→
+   478→    // Activity log
+   479→    await logUserActivity({
+   480→          tx: tx,
+   481→      action: 'CREATE',
+   482→      module: 'Inv-OrderSheet-Pipeline',
+   483→      recordId: orderSheet.id,
+   484→      recordLabel: orderSheet.sheetNo,
+   485→      userId: security.user?.id,
+   486→      userName: security.user?.name,
+   487→      details: `Created order sheet ${sheetNo} with ${lines.length} lines, grandTotal=${grandTotal}`,
+   488→    });
+   489→
+   490→    return orderSheet;
+   491→  }).catch((error: any) => {
+   492→    // Re-throw stock errors as a special case
+   493→    if (error?.message === 'STOCK_INSUFFICIENT') {
+   494→      return { _stockError: true, stockErrors: error.stockErrors, stockSnapshots: error.stockSnapshots };
+   495→    }
+   496→    throw error;
+   497→  });
+   498→
+   499→  // Handle stock validation failure
+   500→  if (result && typeof result === 'object' && '_stockError' in result) {
+   501→    return NextResponse.json(
+   502→      {
+   503→        error: 'Insufficient stock for one or more products',
+   504→        stockErrors: result.stockErrors,
+   505→        stockSnapshots: result.stockSnapshots,
+   506→      },
+   507→      { status: 409 }
+   508→    );
+   509→  }
+   510→
+   511→  return NextResponse.json(result, { status: 201 });
+   512→}
+   513→
+   514→// ============================================================
+   515→// CSV Import Handler
+   516→// ============================================================
+   517→
+   518→async function handleCsvImport(
+   519→  request: NextRequest,
+   520→  security: any
+   521→): Promise<NextResponse> {
+   522→  const contentType = request.headers.get('content-type') || '';
+   523→  let csvText: string;
+   524→
+   525→  if (contentType.includes('text/csv')) {
+   526→    csvText = await request.text();
+   527→  } else {
+   528→    // Also accept JSON with a csvData field
+   529→    const body = await request.json();
+   530→    csvText = body.csvData || body.csv || '';
+   531→  }
+   532→
+   533→  if (!csvText.trim()) {
+   534→    return NextResponse.json(
+   535→      { error: 'No CSV data provided' },
+   536→      { status: 400 }
+   537→    );
+   538→  }
+   539→
+   540→  // Parse CSV
+   541→  const lines = csvText.trim().split('\n');
+   542→  if (lines.length < 2) {
+   543→    return NextResponse.json(
+   544→      { error: 'CSV must have a header row and at least one data row' },
+   545→      { status: 400 }
+   546→    );
+   547→  }
+   548→
+   549→  const headers = lines[0].split(',').map((h) => h.trim().replace(/"/g, ''));
+   550→  const requiredHeaders = ['orderType', 'date', 'productId', 'quantity', 'rate'];
+   551→  const missingHeaders = requiredHeaders.filter((h) => !headers.includes(h));
+   552→  if (missingHeaders.length > 0) {
+   553→    return NextResponse.json(
+   554→      { error: `Missing required CSV headers: ${missingHeaders.join(', ')}` },
+   555→      { status: 400 }
+   556→    );
+   557→  }
+   558→
+   559→  const headerIndex: Record<string, number> = {};
+   560→  headers.forEach((h, i) => {
+   561→    headerIndex[h] = i;
+   562→  });
+   563→
+   564→  interface CsvRow {
+   565→    orderType: string;
+   566→    companyId?: string;
+   567→    customerId?: string;
+   568→    date: string;
+   569→    productId: string;
+   570→    quantity: number;
+   571→    rate: number;
+   572→    discountPercent?: number;
+   573→  }
+   574→
+   575→  const parsedRows: CsvRow[] = [];
+   576→  const errors: Array<{ row: number; message: string }> = [];
+   577→  const fieldErrors: Array<{ row: number; field: string; message: string }> = [];
+   578→
+   579→  for (let i = 1; i < lines.length; i++) {
+   580→    const row = lines[i].split(',').map((c) => c.trim().replace(/"/g, ''));
+   581→    const rowNum = i + 1; // 1-based row number for user readability
+   582→
+   583→    const orderType = row[headerIndex['orderType']] || '';
+   584→    const date = row[headerIndex['date']] || '';
+   585→    const productId = row[headerIndex['productId']] || '';
+   586→    const quantityStr = row[headerIndex['quantity']] || '';
+   587→    const rateStr = row[headerIndex['rate']] || '';
+   588→    const companyId = headerIndex['companyId'] !== undefined ? row[headerIndex['companyId']] : '';
+   589→    const customerId = headerIndex['customerId'] !== undefined ? row[headerIndex['customerId']] : '';
+   590→    const discountPercentStr = headerIndex['discountPercent'] !== undefined ? row[headerIndex['discountPercent']] : '';
+   591→
+   592→    // Validate orderType
+   593→    if (orderType !== 'Company' && orderType !== 'Customer') {
+   594→      fieldErrors.push({ row: rowNum, field: 'orderType', message: `Invalid orderType "${orderType}". Must be "Company" or "Customer".` });
+   595→      errors.push({ row: rowNum, message: `Invalid orderType "${orderType}"` });
+   596→      continue;
+   597→    }
+   598→
+   599→    // Validate date
+   600→    if (!date || isNaN(Date.parse(date))) {
+   601→      fieldErrors.push({ row: rowNum, field: 'date', message: `Invalid date "${date}"` });
+   602→      errors.push({ row: rowNum, message: `Invalid date "${date}"` });
+   603→      continue;
+   604→    }
+   605→
+   606→    // Validate productId
+   607→    if (!productId) {
+   608→      fieldErrors.push({ row: rowNum, field: 'productId', message: 'productId is required' });
+   609→      errors.push({ row: rowNum, message: 'Missing productId' });
+   610→      continue;
+   611→    }
+   612→
+   613→    // Validate quantity
+   614→    const quantity = parseFloat(quantityStr);
+   615→    if (isNaN(quantity) || quantity <= 0) {
+   616→      fieldErrors.push({ row: rowNum, field: 'quantity', message: `Invalid quantity "${quantityStr}". Must be a positive number.` });
+   617→      errors.push({ row: rowNum, message: `Invalid quantity "${quantityStr}"` });
+   618→      continue;
+   619→    }
+   620→
+   621→    // Validate rate
+   622→    const rate = parseFloat(rateStr);
+   623→    if (isNaN(rate) || rate < 0) {
+   624→      fieldErrors.push({ row: rowNum, field: 'rate', message: `Invalid rate "${rateStr}". Must be a non-negative number.` });
+   625→      errors.push({ row: rowNum, message: `Invalid rate "${rateStr}"` });
+   626→      continue;
+   627→    }
+   628→
+   629→    const discountPercent = discountPercentStr ? parseFloat(discountPercentStr) : 0;
+   630→    if (discountPercentStr && (isNaN(discountPercent) || discountPercent < 0 || discountPercent > 100)) {
+   631→      fieldErrors.push({ row: rowNum, field: 'discountPercent', message: `Invalid discountPercent "${discountPercentStr}". Must be between 0 and 100.` });
+   632→      errors.push({ row: rowNum, message: `Invalid discountPercent "${discountPercentStr}"` });
+   633→      continue;
+   634→    }
+   635→
+   636→    parsedRows.push({
+   637→      orderType,
+   638→      date,
+   639→      productId,
+   640→      quantity,
+   641→      rate,
+   642→      companyId: companyId || undefined,
+   643→      customerId: customerId || undefined,
+   644→      discountPercent,
+   645→    });
+   646→  }
+   647→
+   648→  // ── Validate all productIds exist in database ──
+   649→  const productIds = [...new Set(parsedRows.map((r) => r.productId))];
+   650→  const existingProducts = await db.product.findMany({
+   651→    where: { id: { in: productIds } },
+   652→    select: { id: true, name: true },
+   653→  });
+   654→  const existingProductIds = new Set(existingProducts.map((p) => p.id));
+   655→
+   656→  // Filter rows with invalid product IDs
+   657→  const validRows: CsvRow[] = [];
+   658→  for (let i = 0; i < parsedRows.length; i++) {
+   659→    const row = parsedRows[i];
+   660→    const rowNum = i + 2; // +2 because: +1 for 0-index, +1 for header row
+   661→    if (!existingProductIds.has(row.productId)) {
+   662→      fieldErrors.push({
+   663→        row: rowNum,
+   664→        field: 'productId',
+   665→        message: `Product ID "${row.productId}" does not exist in the Product table. Row rejected.`,
+   666→      });
+   667→      errors.push({
+   668→        row: rowNum,
+   669→        message: `Product ID "${row.productId}" not found`,
+   670→      });
+   671→    } else {
+   672→      validRows.push(row);
+   673→    }
+   674→  }
+   675→
+   676→  if (validRows.length === 0) {
+   677→    return NextResponse.json(
+   678→      {
+   679→        imported: 0,
+   680→        failed: errors.length,
+   681→        errors,
+   682→        fieldErrors,
+   683→        message: 'No valid rows to import. All rows had errors.',
+   684→      },
+   685→      { status: 400 }
+   686→    );
+   687→  }
+   688→
+   689→  // ── Group rows by orderType + companyId/customerId + date to create order sheets ──
+   690→  const orderGroups = new Map<string, CsvRow[]>();
+   691→  for (const row of validRows) {
+   692→    const groupKey = `${row.orderType}|${row.companyId || ''}|${row.customerId || ''}|${row.date}`;
+   693→    if (!orderGroups.has(groupKey)) {
+   694→      orderGroups.set(groupKey, []);
+   695→    }
+   696→    orderGroups.get(groupKey)!.push(row);
+   697→  }
+   698→
+   699→  let imported = 0;
+   700→  const importErrors: Array<{ row: number; message: string }> = [];
+   701→
+   702→  for (const [groupKey, groupRows] of orderGroups) {
+   703→    const [orderType, companyId, customerId, date] = groupKey.split('|');
+   704→
+   705→    try {
+   706→      await db.$transaction(async (tx) => {
+   707→        // Period close check
+   708→        const periodLock = await checkPeriodClose(new Date(date));
+   709→        if (periodLock) {
+   710→          throw new Error(`Period locked for date ${date}`);
+   711→        }
+   712→
+   713→        // Validate stock
+   714→        const { stockErrors: sErrors, stockSnapshots } =
+   715→          await validateStockAvailability(
+   716→            tx,
+   717→            groupRows.map((r) => ({ productId: r.productId, quantity: r.quantity })),
+   718→            undefined
+   719→          );
+   720→
+   721→        // For CSV import, we don't abort on insufficient stock — we still create the order
+   722→        // but mark the lines with Partial/Insufficient status
+   723→        const snapshotMap = new Map(
+   724→          stockSnapshots.map((s) => [s.productId, s])
+   725→        );
+   726→
+   727→        const computedLines = groupRows.map((row) => {
+   728→          const snap = snapshotMap.get(row.productId);
+   729→          return computeLineFinancials(
+   730→            {
+   731→              productId: row.productId,
+   732→              quantity: row.quantity,
+   733→              rate: row.rate,
+   734→              discountPercent: row.discountPercent,
+   735→            },
+   736→            snap
+   737→          );
+   738→        });
+   739→
+   740→        const { subTotal, discount, vatAmount, grandTotal } =
+   741→          computeOrderFinancials(computedLines, 0, 0);
+   742→
+   743→        const allAvailable = computedLines.every(
+   744→          (l) => l.stockStatus === 'Available'
+   745→        );
+   746→        const fulfillmentStatus = allAvailable ? 'Unfulfilled' : 'Partial';
+   747→
+   748→        const sheetNo = await generateSheetNo(tx);
+   749→
+   750→        const orderSheet = await tx.orderSheet.create({
+   751→          data: {
+   752→            sheetNo,
+   753→            orderType,
+   754→            companyId: orderType === 'Company' ? companyId || null : null,
+   755→            customerId:
+   756→              orderType === 'Customer' ? customerId || null : null,
+   757→            date: new Date(date),
+   758→            subTotal,
+   759→            discount,
+   760→            discountPercent: 0,
+   761→            vatPercentage: 0,
+   762→            vatAmount,
+   763→            grandTotal,
+   764→            fulfillmentStatus,
+   765→            lines: {
+   766→              create: computedLines.map((cl) => ({
+   767→                productId: cl.productId,
+   768→                quantity: cl.quantity,
+   769→                allocatedQuantity: cl.allocatedQuantity,
+   770→                fulfilledQuantity: cl.fulfilledQuantity,
+   771→                rate: cl.rate,
+   772→                discountPercent: cl.discountPercent,
+   773→                discountAmount: cl.discountAmount,
+   774→                vatAmount: cl.vatAmount,
+   775→                total: cl.total,
+   776→                availableStock: cl.availableStock,
+   777→                stockStatus: cl.stockStatus,
+   778→              })),
+   779→            },
+   780→          },
+   781→        });
+   782→
+   783→        await tx.auditLog.create({
+   784→          data: {
+   785→            action: 'IMPORT',
+   786→            module: 'OrderSheets',
+   787→            recordId: orderSheet.id,
+   788→            recordLabel: orderSheet.sheetNo,
+   789→            userId: security.user?.id || 'system',
+   790→            userName: security.user?.name || 'System',
+   791→            details: JSON.stringify({
+   792→              sheetNo,
+   793→              orderType,
+   794→              importedFrom: 'CSV',
+   795→              lineCount: groupRows.length,
+   796→              grandTotal,
+   797→            }),
+   798→          },
+   799→        });
+   800→
+   801→        await logUserActivity({
+   802→          tx: tx,
+   803→          action: 'IMPORT',
+   804→          module: 'Inv-OrderSheet-Pipeline',
+   805→          recordId: orderSheet.id,
+   806→          recordLabel: orderSheet.sheetNo,
+   807→          userId: security.user?.id,
+   808→          userName: security.user?.name,
+   809→          details: `CSV import created order sheet ${sheetNo} with ${groupRows.length} lines`,
+   810→        });
+   811→
+   812→        imported += groupRows.length;
+   813→      });
+   814→    } catch (txError: any) {
+   815→      importErrors.push({
+   816→        row: 0,
+   817→        message: `Failed to import group ${groupKey}: ${txError.message}`,
+   818→      });
+   819→    }
+   820→  }
+   821→
+   822→  const allErrors = [...errors, ...importErrors];
+   823→
+   824→  return NextResponse.json({
+   825→    imported,
+   826→    failed: allErrors.length,
+   827→    errors: allErrors,
+   828→    fieldErrors,
+   829→  });
+   830→}
+   831→

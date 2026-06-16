@@ -185,8 +185,8 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Error creating expense:', error);
     const message = error instanceof Error ? error.message : 'Failed to create expense';
-    const isBadRequest = message.includes('Invalid headId') || message.includes('Invalid date') || message.includes('positive number');
-    const isConflict = message.includes('Insufficient') || message.includes('Period') || message.includes('Idempotency');
+    const isBadRequest = /required|must be a positive|Invalid headId|Invalid date|positive number/i.test(message);
+    const isConflict = /Insufficient|Period|Idempotency|already exists/i.test(message);
     const statusCode = isConflict ? 409 : isBadRequest ? 400 : 500;
     return NextResponse.json({ error: message }, { status: statusCode < 500 ? statusCode : 500 });
   }

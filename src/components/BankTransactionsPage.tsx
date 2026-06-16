@@ -32,57 +32,9 @@ import {
 // LOCAL UTILITY FUNCTIONS (self-contained)
 // ============================================================
 
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-function useAuth() {
-  const getStoredAuth = (): { user: AuthUser | null; isAuthenticated: boolean } => {
-    if (typeof window === "undefined") return { user: null, isAuthenticated: false };
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        return { user: parsed.user, isAuthenticated: parsed.isAuthenticated };
-      } catch { /* ignore */ }
-    }
-    return { user: null, isAuthenticated: false };
-  };
-
-  const [authState, setAuthState] = useState(getStoredAuth);
-  const [, forceUpdate] = useState({});
-
-  useEffect(() => {
-    const listener = () => {
-      const s = localStorage.getItem("ems_auth");
-      if (s) {
-        try {
-          const p = JSON.parse(s);
-          setAuthState({ user: p.user, isAuthenticated: p.isAuthenticated });
-        } catch { /* ignore */ }
-      }
-      forceUpdate({});
-    };
-    window.addEventListener("storage", listener);
-    window.addEventListener("auth-change", listener);
-    return () => {
-      window.removeEventListener("storage", listener);
-      window.removeEventListener("auth-change", listener);
-    };
-  }, []);
-
-  const isVatAuditor = authState.user?.role === "vat_auditor";
-  const isDealer = authState.user?.role === "dealer";
-  const isSR = authState.user?.role === "sr";
-  const isAdmin = authState.user?.role === "admin";
-
-  return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR, isAdmin };
-}
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ── Intl.NumberFormat('en-US') for ALL financial/numeric figures ──
 const bdCurrencyFormatter = new Intl.NumberFormat("en-US", {
@@ -94,18 +46,18 @@ const fmtCurrency = (v: any): string => {
   if (v === null || v === undefined) return "—";
   const num = Number(v);
   if (isNaN(num)) return "—";
-  return `৳${bdCurrencyFormatter.format(num)}`;
+  return `৳${toLatinDigits(bdCurrencyFormatter.format(num))}`;
 };
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return fmtCurrency(v);
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 // Empty field default — returns "—" if null/empty
 const fmtEmpty = (v: any): string => {
@@ -125,26 +77,7 @@ function sanitizeCurrency(val: any): number {
   return Math.round(num * 100) / 100;
 }
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`;
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+// apiFetch now imported from @/lib/api-client (includes CSRF + auto-refresh)
 
 // ── Bank Type Helpers ───────────────────────────────────────────
 const bankTypeBorder: Record<string, string> = {

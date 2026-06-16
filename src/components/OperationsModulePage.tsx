@@ -39,6 +39,7 @@ import {
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
 import { apiFetch, type UserRole, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // CONSTANTS
@@ -51,7 +52,7 @@ const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximum
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
-  return `Tk. ${bdFmt.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(bdFmt.format(Number(v)))}`;
 };
 
 const fmtPercent = (v: any) => {
@@ -61,7 +62,7 @@ const fmtPercent = (v: any) => {
 
 const fmtNumber = (v: any) => {
   if (v === null || v === undefined) return "—";
-  return bdFmt.format(Number(v));
+  return toLatinDigits(bdFmt.format(Number(v)));
 };
 
 // ============================================================

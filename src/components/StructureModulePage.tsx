@@ -31,6 +31,7 @@ import {
 } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyProfile as ExportCompanyProfile } from "@/lib/export-utils";
 import { apiFetch, type UserRole, authState } from "@/lib/api-client";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -41,10 +42,10 @@ const bdFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximum
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
-  if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(bdFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return bdFmt.format(Number(v));
+  if (type === "number") return toLatinDigits(bdFmt.format(Number(v)));
   return String(v);
 };
 

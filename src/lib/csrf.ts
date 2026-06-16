@@ -12,10 +12,10 @@
 // - Frontend includes token in X-CSRF-Token header for POST/PUT/DELETE
 // - withApiSecurity() verifies the token for state-changing requests
 //
-// ENFORCEMENT MODE (transitional):
+// ENFORCEMENT MODE (strict — default):
 // - If X-CSRF-Token header is present → verified strictly (block if invalid)
-// - If X-CSRF-Token header is absent → allowed with warning log (transitional)
-// - Set CSRF_ENFORCE=true env var to block requests without tokens
+// - If X-CSRF-Token header is absent → BLOCKED (returns 403)
+// - Set CSRF_ENFORCE=false env var to enable transitional mode (warning-only)
 // ============================================================
 
 import { randomBytes } from 'crypto';
@@ -94,11 +94,14 @@ export function verifyCsrfToken(sessionId: string, token: string): boolean {
 
 /**
  * isCsrfEnforced — Checks if strict CSRF enforcement is enabled.
- * When true, requests without a valid CSRF token are blocked.
- * When false (default), missing tokens are allowed with a warning log.
+ * When true (default), requests without a valid CSRF token are blocked.
+ * When false (transitional mode), missing tokens are allowed with a warning log.
  *
- * Controlled by CSRF_ENFORCE environment variable.
+ * Controlled by CSRF_ENFORCE environment variable:
+ * - CSRF_ENFORCE not set  → true (enforced, secure default)
+ * - CSRF_ENFORCE=true     → true (enforced)
+ * - CSRF_ENFORCE=false    → false (transitional, warning-only)
  */
 export function isCsrfEnforced(): boolean {
-  return process.env.CSRF_ENFORCE === 'true';
+  return process.env.CSRF_ENFORCE !== 'false';
 }

@@ -34,6 +34,7 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef, CompanyP
 import ImageUploadField from "@/components/erp/ui/ImageUploadField";
 import { apiFetch, type UserRole, authState } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -44,17 +45,17 @@ const bdFmtInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
-  if (type === "currency") return `Tk. ${bdFmt.format(Number(v))}`;
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(bdFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return bdFmtInt.format(Number(v));
+  if (type === "number") return toLatinDigits(bdFmtInt.format(Number(v)));
   return String(v);
 };
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
-  return `Tk. ${bdFmt.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(bdFmt.format(Number(v)))}`;
 };
 
 

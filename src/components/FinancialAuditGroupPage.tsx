@@ -51,12 +51,12 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
-import { fmtCurrency as _fmtCurrency, fmtNumber as _fmtNumber, fmtBDT as _fmtBDT } from "@/lib/number-format";
+import { fmtCurrency as _fmtCurrency, fmtNumber as _fmtNumber, fmtBDT as _fmtBDT, toLatinDigits } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   if (type === "number") return _fmtNumber(Number(v));
@@ -71,7 +71,7 @@ const fmtCurrency = (v: any) => {
 
 const AUDIT_MASK = "N/A (Audit Mode)";
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 
 // ============================================================

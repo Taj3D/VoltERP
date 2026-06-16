@@ -11,7 +11,7 @@ import { db } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   try {
-    const security = await withApiSecurity(request, "Auth", "GET");
+    const security = await withApiSecurity(request, "UserProfile", "GET");
     if (!security.authorized) return security.response;
 
     // Only admin can list all users

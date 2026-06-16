@@ -151,6 +151,9 @@ export async function POST(request: NextRequest) {
               nidBackImage: nullIfEmpty(row.nidBackImage),
               referenceBy: nullIfEmpty(row.referenceBy),
               address: nullIfEmpty(row.address),
+              examDate: row.examDate ? new Date(row.examDate) : null,
+              examTime: nullIfEmpty(row.examTime),
+              examVenue: nullIfEmpty(row.examVenue),
               isActive: row.isActive ?? true,
             },
             include: {
@@ -307,6 +310,9 @@ export async function POST(request: NextRequest) {
           nidBackImage: nullIfEmpty(body.nidBackImage),
           referenceBy: body.referenceBy ? stripHtml(String(body.referenceBy)) : null,
           address: body.address ? stripHtml(String(body.address)) : null,
+          examDate: body.examDate ? new Date(body.examDate) : null,
+          examTime: nullIfEmpty(body.examTime),
+          examVenue: nullIfEmpty(body.examVenue),
           isActive: body.isActive ?? true,
         },
         include: {
@@ -370,6 +376,24 @@ export async function POST(request: NextRequest) {
       });
     } catch (smsError) {
       console.error('[Employees] EmployeeJoined SMS trigger failed (non-blocking):', smsError);
+    }
+
+    // NEW: Auto SMS on Employee Exam (autoSmsOnEmployeeExam toggle)
+    if (item.examDate && item.examTime) {
+      try {
+        const { triggerEmployeeExamDateSms } = await import('@/lib/sms-event-hooks');
+        await triggerEmployeeExamDateSms({
+          id: item.id,
+          name: item.name,
+          phone: item.phone || undefined,
+          examDate: new Date(item.examDate).toLocaleDateString('en-GB'),
+          examTime: item.examTime || '',
+          venue: item.examVenue || undefined,
+          companyId: item.companyId || undefined,
+        });
+      } catch (smsError) {
+        console.error('[Employees] EmployeeExam SMS trigger failed (non-blocking):', smsError);
+      }
     }
 
     return NextResponse.json(item, { status: 201 });

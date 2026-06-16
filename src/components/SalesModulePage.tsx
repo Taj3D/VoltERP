@@ -50,7 +50,7 @@ import { exportInvoicePDF, type InvoiceCompanyProfile, type InvoiceTemplateConfi
 // UTILITY FUNCTIONS
 // ============================================================
 
-import { fmtBDT as _fmtBDT } from "@/lib/number-format";
+import { fmtBDT as _fmtBDT, toLatinDigits } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
   if (v === null || v === undefined) return "—";
@@ -58,7 +58,7 @@ const fmtCurrency = (v: any) => {
   return _fmtBDT(Number(v));
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 const fmtPercent = (v: any) => {
   if (v === null || v === undefined) return "—";

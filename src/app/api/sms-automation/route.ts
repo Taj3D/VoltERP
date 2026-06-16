@@ -109,6 +109,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
+
+    // Validate: at least one toggle must be specified
+    const hasAnyToggle = [
+      body.autoSmsOnPurchase, body.autoSmsOnReceipt, body.autoSmsOnStockReceive,
+      body.autoSmsOnEmployeeEvent, body.autoSmsOnPaymentReceive, body.autoSmsOnGodownReceive,
+      body.autoSmsOnEmployeeJoin, body.autoSmsOnEmployeeExam,
+    ].some(v => v !== undefined && v !== null);
+    if (!hasAnyToggle) {
+      return NextResponse.json({ error: 'At least one SMS automation toggle must be specified' }, { status: 400 });
+    }
+
     const companyId = security.user.companyId;
 
     // Extract boolean toggles with safe defaults

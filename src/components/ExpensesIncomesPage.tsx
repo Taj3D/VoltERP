@@ -20,6 +20,9 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import type { CompanyProfile } from "@/lib/export-utils";
+import { toLatinDigits } from "@/lib/number-format";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS (local copies for standalone component)
@@ -32,79 +35,14 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "\u2014";
-  if (type === "currency") return `\u09F3${bdCurrencyFmt.format(Number(v))}`;
-  if (type === "date") { if (!v) return "\u2014"; const dt = new Date(v); return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(bdCurrencyFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "\u2014"; const dt = new Date(v); return isNaN(dt.getTime()) ? "\u2014" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
-  if (type === "number") return bdCurrencyFmt.format(Number(v));
+  if (type === "number") return toLatinDigits(bdCurrencyFmt.format(Number(v)));
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "\u2014"; const dt = new Date(d); return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`;
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
-
-// ============================================================
-// Auth Hook (local copy for standalone component)
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-let authState = {
-  isAuthenticated: false,
-  user: null as AuthUser | null,
-};
-
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => { authListeners = authListeners.filter(l => l !== listener); };
-  }, []);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach(l => l());
-      } catch {}
-    }
-  }, []);
-
-  const isVatAuditor = authState.user?.role === "vat_auditor";
-
-  return { ...authState, isVatAuditor, user: authState.user };
-}
+const fmtDate = (d: string | Date) => { if (!d) return "\u2014"; const dt = new Date(d); return isNaN(dt.getTime()) ? "\u2014" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 // ============================================================
 // ExpensesIncomesPage Component
@@ -112,7 +50,7 @@ function useAuth() {
 
 export default function ExpensesIncomesPage() {
   const { toast } = useToast();
-  const { isVatAuditor, user } = useAuth();
+  const { isVatAuditor, user, isAdmin, isSR, isDealer } = useAuth();
   const [activeTab, setActiveTab] = useState<"heads" | "expenses" | "incomes">("heads");
 
   // Expenses state
@@ -163,10 +101,8 @@ export default function ExpensesIncomesPage() {
     status: "Approved",
   });
 
-  // RBAC
-  const isDealer = user?.role === "dealer";
-  const isSR = user?.role === "sr";
-  const isAdmin = user?.role === "admin";
+  // RBAC (from shared useAuth hook)
+  // isDealer, isSR, isAdmin already destructured from useAuth() above
 
   // Current data based on tab
   const currentData = activeTab === "expenses" ? expenses : incomes;

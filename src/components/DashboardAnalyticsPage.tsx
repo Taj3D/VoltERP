@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiFetch } from "@/lib/api-client";
 import { exportToPDFSimple, exportToCSVSimple } from "@/lib/export-utils";
 import { ROLES, ROLE_COLORS_WITH_TEXT, ROLE_LABELS, type Role } from "@/lib/constants";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // SAFE CURRENCY FORMATTER (prevents Bengali digit output)
@@ -31,13 +32,13 @@ const safeIntFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits:
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (typeof v === "string" && (v === "N/A (Audit Mode)" || v === "N/A (Restricted)")) return v;
-  if (type === "currency") return `Tk. ${safeNumberFormatter.format(Number(v))}`;
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(safeNumberFormatter.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -550,7 +551,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
       inst.currentStatus || '—',
     ]);
     exportToPDFSimple(
-      `Today's Installment Payments — ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+      `Today's Installment Payments — ${toLatinDigits(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }))}`,
       headers,
       body,
       'landscape',
@@ -770,8 +771,8 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
             <CardContent className="p-3 px-5 flex items-center gap-3">
               <Calendar className="w-5 h-5 text-blue-300" />
               <div>
-                <p className="text-xs text-blue-200">{clock.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
-                <p className="text-lg font-bold font-mono tabular-nums">{clock.toLocaleTimeString()}</p>
+                <p className="text-xs text-blue-200">{toLatinDigits(clock.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}</p>
+                <p className="text-lg font-bold font-mono tabular-nums">{toLatinDigits(clock.toLocaleTimeString())}</p>
               </div>
             </CardContent>
           </Card>
@@ -783,7 +784,7 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
         {lastUpdated && (
           <p className="text-xs text-muted-foreground flex items-center gap-1">
             <Clock className="w-3 h-3" />
-            Last updated: {lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            Last updated: {toLatinDigits(lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }))}
           </p>
         )}
         {Object.keys(sectionErrors).length > 0 && (

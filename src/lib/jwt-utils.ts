@@ -6,17 +6,56 @@
 // - HS256 algorithm (HMAC-SHA256)
 // - Configurable expiry (default: 8h for access, 7d for refresh)
 // - Secret from JWT_SECRET env var (FAILS in production if not set)
+// - Development: auto-generated random secret (cached per process)
 // - Token blacklisting via database (RevokedToken model)
 // - No x-user-email fallback — JWT only
 // ============================================================
 
 import jwt from "jsonwebtoken";
+import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 
 // ── Configuration ──
 
-/** JWT secret key — MUST be set via environment variable in production */
-const JWT_SECRET = process.env.JWT_SECRET || "emart-dev-jwt-secret-change-in-production-2024";
+/**
+ * JWT secret key resolution:
+ * 1. JWT_SECRET env var (required in production)
+ * 2. Random generated secret (development only — cached per process)
+ *
+ * In production, if JWT_SECRET is not set, the server will NOT start.
+ * In development, a random secret is generated on first startup and cached
+ * in the global scope so it persists across Next.js hot reloads.
+ */
+const globalForJwt = globalThis as unknown as {
+  __devJwtSecret: string | undefined;
+};
+
+function resolveJwtSecret(): string {
+  // 1. Explicit env var always wins
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+
+  // 2. Production without JWT_SECRET → fatal error
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "FATAL: JWT_SECRET environment variable must be set in production. " +
+      "Set it before starting the application."
+    );
+  }
+
+  // 3. Development: generate and cache a random secret
+  if (!globalForJwt.__devJwtSecret) {
+    globalForJwt.__devJwtSecret = randomBytes(48).toString("hex");
+    console.warn(
+      "[JWT] WARNING: JWT_SECRET not set. Using auto-generated dev secret. " +
+      "Set JWT_SECRET env var for consistent tokens across restarts."
+    );
+  }
+  return globalForJwt.__devJwtSecret;
+}
+
+const JWT_SECRET = resolveJwtSecret();
 /** Access token expiry */
 const ACCESS_TOKEN_EXPIRY = "8h";
 /** Refresh token expiry (longer-lived) */
@@ -25,14 +64,6 @@ const REFRESH_TOKEN_EXPIRY = "7d";
 const JWT_ISSUER = "volt-erp";
 /** JWT audience */
 const JWT_AUDIENCE = "volt-erp-users";
-
-// ── Production Check ──
-if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
-  throw new Error(
-    "FATAL: JWT_SECRET environment variable must be set in production. " +
-    "Set it before starting the application."
-  );
-}
 
 // ── Types ──
 

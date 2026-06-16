@@ -7,7 +7,7 @@ import {
   FileBarChart, Receipt, DollarSign, RotateCcw, ArrowLeftRight,
   Package, BarChart3, Truck, AlertTriangle, Ban, PackageCheck,
   Calculator, ArrowRightLeft, Eye, TrendingUp, Clock, Printer,
-  Inbox, CheckSquare, Copy,
+  Inbox, CheckSquare, Copy, Check, Send, PackagePlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,18 +35,19 @@ import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@
 import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
 import { apiFetch, type UserRole } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { getCachedCompanyProfile } from "@/lib/company-branding-cache";
 
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
 // Safe formatters — centralized utility guarantees Latin digits
-import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT } from "@/lib/number-format";
+import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT, toLatinDigits } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
   if (type === "currency") return _fmtBDT(Number(v));
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") return _fmtNumberVal(Number(v));
   return String(v);
@@ -554,7 +555,8 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     try {
       const maskedKeys = [...getVatMaskedKeys(columns), ...(extraMasked || [])];
       const userName = auth.user?.displayName || auth.user?.name || "System";
-      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation: "landscape", financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" }, systemNotice: "This is a computer-generated document. Verify with official records." });
+      const company = getCachedCompanyProfile() || undefined;
+      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation: "landscape", company, financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" }, systemNotice: "This is a computer-generated document. Verify with official records." });
       toast({ title: "PDF Exported", description: `${title} data exported` });
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
@@ -945,7 +947,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
             exportToPDF({
               title: "Company Ordersheet Report",
-              subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+              subtitle: `Generated: ${toLatinDigits(new Date().toLocaleDateString("en-GB"))}`,
               columns: coColumns,
               data: reportData,
               isVatAuditor,
@@ -1376,7 +1378,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
               const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
               exportToPDF({
                 title: "Customer Ordersheet Report",
-                subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+                subtitle: `Generated: ${toLatinDigits(new Date().toLocaleDateString("en-GB"))}`,
                 columns: custOColumns,
                 data: reportData,
                 isVatAuditor,
@@ -1781,7 +1783,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
                 exportToPDF({
                   title: "Ordersheet Report",
-                  subtitle: osReportFrom && osReportTo ? `Period: ${fmt(osReportFrom, "date")} to ${fmt(osReportTo, "date")}` : `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+                  subtitle: osReportFrom && osReportTo ? `Period: ${fmt(osReportFrom, "date")} to ${fmt(osReportTo, "date")}` : `Generated: ${toLatinDigits(new Date().toLocaleDateString("en-GB"))}`,
                   columns: osReportColumns,
                   data: reportData,
                   isVatAuditor,
@@ -3835,6 +3837,20 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     </div>
   );
 
+  // ─── Transfer Status Transition Handler ───
+  const handleTransferStatusTransition = async (transferId: string, newStatus: string) => {
+    try {
+      await apiFetch(`/api/transfers/${transferId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      toast({ title: `Transfer ${newStatus === "Approved" ? "Approved" : newStatus === "In-Transit" ? "Shipped" : newStatus === "Delivered" ? "Received" : newStatus}`, description: `Status updated to ${newStatus}` });
+      loadTransfers();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const renderTransfers = () => (
     <div className="space-y-4">
       <Toolbar search={trnSearch} setSearch={setTrnSearch} onRefresh={loadTransfers} loading={trnLoading}
@@ -3852,10 +3868,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
             <TableHead className="text-white text-xs">To</TableHead>
             <TableHead className="text-white text-xs">Items</TableHead>
             <TableHead className="text-white text-xs">Status</TableHead>
+            <TableHead className="text-white text-xs">Transition</TableHead>
             {isAdmin && <TableHead className="text-white text-xs">Actions</TableHead>}
           </TableRow></TableHeader>
           <TableBody>
-            {trnLoading ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
+            {trnLoading ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-slate-400">Loading...</TableCell></TableRow> :
             trnData.filter((t: any) => { if (!trnSearch) return true; const q = trnSearch.toLowerCase(); return (t.fromGodown?.name || "").toLowerCase().includes(q) || (t.toGodown?.name || "").toLowerCase().includes(q) || (t.status || "").toLowerCase().includes(q); }).map((t: any) => (
               <TableRow key={t.id}>
                 <TableCell className="text-xs">{fmt(t.date, "date")}</TableCell>
@@ -3863,7 +3880,23 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                 <TableCell className="text-xs">{t.toGodown?.name || "—"}</TableCell>
                 <TableCell className="text-xs">{t.lines?.length || 0}</TableCell>
                 <TableCell className="text-xs"><StatusBadge status={t.status} /></TableCell>
-                {isAdmin && <TableCell className="text-xs"><Button variant="ghost" size="sm" onClick={() => { setTrnEdit(t); setTrnForm({ fromGodownId: t.fromGodownId || "", toGodownId: t.toGodownId || "", date: t.date?.split("T")[0] || "", status: t.status || "Pending", notes: t.notes || "" }); setTrnLines(t.lines?.length > 0 ? t.lines : [{ productId: "", quantity: 1 }]); setTrnDialog(true); }}><Edit className="h-3 w-3" /></Button></TableCell>}
+                <TableCell className="text-xs">
+                  <div className="flex gap-1">
+                    {t.status === "Pending" && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/30" onClick={() => handleTransferStatusTransition(t.id, "Approved")}><Check className="h-3 w-3 mr-1" />Approve</Button>
+                    )}
+                    {t.status === "Approved" && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 dark:hover:bg-blue-900/30" onClick={() => handleTransferStatusTransition(t.id, "In-Transit")}><Truck className="h-3 w-3 mr-1" />Ship</Button>
+                    )}
+                    {t.status === "In-Transit" && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400 dark:border-purple-800 dark:hover:bg-purple-900/30" onClick={() => handleTransferStatusTransition(t.id, "Delivered")}><PackageCheck className="h-3 w-3 mr-1" />Receive</Button>
+                    )}
+                    {(t.status === "Delivered" || t.status === "Cancelled") && (
+                      <span className="text-xs text-slate-400 italic">{t.status === "Delivered" ? "Completed" : "Cancelled"}</span>
+                    )}
+                  </div>
+                </TableCell>
+                {isAdmin && <TableCell className="text-xs"><div className="flex gap-1"><Button variant="ghost" size="sm" onClick={() => { setTrnEdit(t); setTrnForm({ fromGodownId: t.fromGodownId || "", toGodownId: t.toGodownId || "", date: t.date?.split("T")[0] || "", status: t.status || "Pending", notes: t.notes || "" }); setTrnLines(t.lines?.length > 0 ? t.lines : [{ productId: "", quantity: 1 }]); setTrnDialog(true); }}><Edit className="h-3 w-3" /></Button>{(t.status === "Pending" || t.status === "Approved") && <Button variant="ghost" size="sm" onClick={() => handleTransferStatusTransition(t.id, "Cancelled")} className="text-red-500 hover:text-red-700"><Ban className="h-3 w-3" /></Button>}</div></TableCell>}
               </TableRow>
             ))}
           </TableBody>

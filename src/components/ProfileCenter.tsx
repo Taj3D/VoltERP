@@ -52,6 +52,7 @@ import {
   ResponsiveContainer, Cell
 } from "recharts";
 import { ROLES, ROLE_COLORS as SHARED_ROLE_COLORS, ROLE_LABELS_FULL, ROLE_BADGE_COLORS, type Role } from "@/lib/constants";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -1136,10 +1137,10 @@ export default function ProfileCenter() {
   const formatTimestamp = (dateStr: string): string => {
     try {
       const date = new Date(dateStr);
-      return date.toLocaleDateString("en-GB", {
+      return toLatinDigits(date.toLocaleDateString("en-GB", {
         day: "2-digit", month: "short", year: "numeric",
         hour: "2-digit", minute: "2-digit",
-      });
+      }));
     } catch {
       return "—";
     }

@@ -33,6 +33,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell,
 } from "recharts";
+import { toLatinDigits } from "@/lib/number-format";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -48,16 +51,16 @@ const bdFmt = new Intl.NumberFormat("en-US", {
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK) return AUDIT_MASK;
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${bdFmt.format(Number(v))}`;
-  if (type === "number") return bdFmt.format(Number(v));
+  if (type === "currency") return `Tk. ${toLatinDigits(bdFmt.format(Number(v)))}`;
+  if (type === "number") return toLatinDigits(bdFmt.format(Number(v)));
   if (type === "date") {
     if (!v) return "—";
     const dt = new Date(v);
-    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
-      });
+      }));
   }
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -66,81 +69,16 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) => {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+  return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
-    });
+    }));
   };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`;
-    }
-  } catch {}
-  const res = await fetch(path, {
-    headers: { ...authHeaders, ...opts?.headers },
-    ...opts,
-  });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+// apiFetch now imported from @/lib/api-client (includes CSRF + auto-refresh)
 
-// ============================================================
-// Auth Hook
-// ============================================================
-
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-let authState = { isAuthenticated: false, user: null as AuthUser | null };
-let authListeners: Array<() => void> = [];
-
-function useAuth() {
-  const [, forceUpdate] = useState({});
-  useEffect(() => {
-    const listener = () => forceUpdate({});
-    authListeners.push(listener);
-    return () => {
-      authListeners = authListeners.filter((l) => l !== listener);
-    };
-  }, []);
-  useEffect(() => {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        authState = parsed;
-        authListeners.forEach((l) => l());
-      } catch {}
-    }
-  }, []);
-  return {
-    ...authState,
-    isVatAuditor: authState.user?.role === "vat_auditor",
-    isSR: authState.user?.role === "sr",
-    isDealer: authState.user?.role === "dealer",
-    isAdmin: authState.user?.role === "admin",
-    user: authState.user,
-  };
-}
+// useAuth now imported from @/hooks/useAuth (includes CSRF + auto-refresh)
 
 const PIE_COLORS = [
   "#3b82f6", "#10b981", "#f59e0b", "#ef4444",
@@ -784,7 +722,7 @@ export default function FinancialStatementsPage({
       setYecResult(res);
       toast({
         title: "Year-End Close Complete",
-        description: `Fiscal year closed. Net Profit Transferred: ৳${bdFmt.format(res.fiscalYear?.netProfitClosed || 0)}`,
+        description: `Fiscal year closed. Net Profit Transferred: Tk. ${toLatinDigits(bdFmt.format(res.fiscalYear?.netProfitClosed || 0))}`,
       });
       loadFiscalYears();
       setYecPreClose(null);

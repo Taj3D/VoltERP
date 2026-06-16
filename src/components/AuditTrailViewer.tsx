@@ -44,36 +44,38 @@ import { useAuth } from "@/hooks/useAuth";
 // UTILITY FUNCTIONS
 // ============================================================
 
+import { toLatinDigits } from "@/lib/number-format";
+
 const fmtDate = (d: string | Date) => {
   if (!d) return "\u2014";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", {
+  return isNaN(dt.getTime()) ? "\u2014" : toLatinDigits(dt.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    });
+    }));
 };
 
 const fmtDateShort = (d: string | Date) => {
   if (!d) return "\u2014";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleDateString("en-GB", {
+  return isNaN(dt.getTime()) ? "\u2014" : toLatinDigits(dt.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
-    });
+    }));
 };
 
 const fmtTime = (d: string | Date) => {
   if (!d) return "\u2014";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "\u2014" : dt.toLocaleTimeString("en-GB", {
+  return isNaN(dt.getTime()) ? "\u2014" : toLatinDigits(dt.toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-    });
+    }));
 };
 
 

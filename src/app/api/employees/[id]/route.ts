@@ -189,6 +189,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           nidBackImage: nullIfEmpty(body.nidBackImage),
           referenceBy: body.referenceBy !== undefined ? (body.referenceBy ? stripHtml(String(body.referenceBy)) : null) : undefined,
           address: body.address !== undefined ? (body.address ? stripHtml(String(body.address)) : null) : undefined,
+          examDate: body.examDate !== undefined ? (body.examDate ? new Date(body.examDate) : null) : undefined,
+          examTime: body.examTime !== undefined ? nullIfEmpty(body.examTime) : undefined,
+          examVenue: body.examVenue !== undefined ? nullIfEmpty(body.examVenue) : undefined,
           isActive: body.isActive ?? true,
         },
         include: {
@@ -212,6 +215,26 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
       return record;
     });
+
+    // NEW: Auto SMS on Employee Exam (autoSmsOnEmployeeExam toggle)
+    // Trigger when exam date/time is being set or changed on an existing employee
+    if (body.examDate && body.examTime && item.examDate) {
+      try {
+        const { triggerEmployeeExamDateSms } = await import('@/lib/sms-event-hooks');
+        await triggerEmployeeExamDateSms({
+          id: item.id,
+          name: item.name,
+          phone: item.phone || undefined,
+          examDate: new Date(item.examDate).toLocaleDateString('en-GB'),
+          examTime: item.examTime || '',
+          venue: item.examVenue || undefined,
+          companyId: item.companyId || undefined,
+        });
+      } catch (smsError) {
+        console.error('[Employees PUT] EmployeeExam SMS trigger failed (non-blocking):', smsError);
+      }
+    }
+
     return NextResponse.json(item);
   } catch (error: any) {
     if (error?.message === 'Not found') {

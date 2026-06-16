@@ -39,7 +39,7 @@ const AUDIT_MASK = "N/A (Audit Mode)";
 
 const RESTRICTED_MASK = "N/A (Restricted)";
 
-import { fmtBDT as _fmtBDT } from "@/lib/number-format";
+import { fmtBDT as _fmtBDT, toLatinDigits } from "@/lib/number-format";
 
 const fmt = (v: any, type?: string) => {
   if (String(v) === AUDIT_MASK || String(v) === RESTRICTED_MASK) return String(v);
@@ -48,7 +48,7 @@ const fmt = (v: any, type?: string) => {
   if (type === "date") {
     if (!v) return "—";
     const dt = new Date(v);
-    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
   }
   if (type === "percent") return `${Number(v).toFixed(2)}%`;
   return String(v);
@@ -57,7 +57,7 @@ const fmt = (v: any, type?: string) => {
 const fmtDate = (d: string | Date) => {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
 };
 
 

@@ -378,17 +378,16 @@ export async function withApiSecurity(
     // Since JWT is sent via Authorization header (not cookies), CSRF is already
     // inherently mitigated. This adds defense-in-depth for browser-based sessions.
     //
-    // IMPORTANT: On serverless platforms (Vercel), in-memory CSRF token stores
+    // NOTE: On serverless platforms (Vercel), in-memory CSRF token stores
     // are NOT shared across function instances. A token generated on Instance A
     // during login won't exist on Instance B when a write request arrives.
-    // Therefore, CSRF validation failures on serverless are expected and should
-    // NOT block requests — JWT Bearer auth already provides CSRF protection.
+    // If deploying to serverless, set CSRF_ENFORCE=false to use transitional mode
+    // until a persistent (database-backed) CSRF token store is implemented.
     //
     // Enforcement mode (controlled by CSRF_ENFORCE env var):
-    // - Transitional (default): Never block on CSRF — log warnings only.
-    //   JWT auth provides sufficient CSRF protection for API-based apps.
-    // - Strict (CSRF_ENFORCE=true): Block if token is missing or invalid.
-    //   Only use this with a persistent (database-backed) CSRF token store.
+    // - Strict (default): Block if token is missing or invalid.
+    // - Transitional (CSRF_ENFORCE=false): Never block on CSRF — log warnings only.
+    //   Use this on serverless until a persistent CSRF store is available.
     if (method !== 'GET') {
       const csrfHeader = request.headers.get('x-csrf-token');
 
@@ -428,7 +427,7 @@ export async function withApiSecurity(
           };
         }
         // Transitional mode: log warning but allow request
-        console.warn(`[CSRF] No X-CSRF-Token header for ${method} ${module} by user ${user.email}. Set CSRF_ENFORCE=true to enforce.`);
+        console.warn(`[CSRF] No X-CSRF-Token header for ${method} ${module} by user ${user.email}. CSRF_ENFORCE=false — transitional mode.`);
       }
     }
 

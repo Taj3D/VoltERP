@@ -21,6 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, exportToCSV, importFromCSV, type ColumnDef, type CompanyProfile } from "@/lib/export-utils";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // TYPES
@@ -166,22 +167,22 @@ const bdFmt = new Intl.NumberFormat("en-US", {
 
 const fmtCurrency = (v: any): string => {
   if (v === null || v === undefined) return "—";
-  return `৳${bdFmt.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(bdFmt.format(Number(v)))}`;
 };
 
 const fmtNumber = (v: any): string => {
   if (v === null || v === undefined) return "—";
-  return bdFmt.format(Number(v));
+  return toLatinDigits(bdFmt.format(Number(v)));
 };
 
 const fmtDate = (d: string | Date | null | undefined): string => {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+  return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
-  });
+  }));
 };
 
 const fmtEmpty = (v: any): string => {
@@ -1744,7 +1745,7 @@ export default function MultiBranchConsolidationPage({
                       <div>
                         <p className="text-slate-300 text-xs">Elimination Amount</p>
                         <p className="text-amber-400 font-bold text-lg">
-                          ({maskIfVat(consolidationResult.consolidated.eliminationAmount, isVatAuditor).replace("৳", "৳-")})
+                          ({maskIfVat(consolidationResult.consolidated.eliminationAmount, isVatAuditor).replace("Tk.", "Tk.-")})
                         </p>
                       </div>
                       <div>

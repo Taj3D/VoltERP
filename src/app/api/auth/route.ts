@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    // ── Secure password verification (supports both hashed & legacy plain-text) ──
+    // ── Secure password verification (bcrypt only) ──
     const passwordValid = await verifyPassword(password, user.password);
 
     if (!passwordValid) {
@@ -82,8 +82,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    // ── Auto-migration: Re-hash plain-text passwords on successful login ──
-    // This gradually migrates all passwords to bcrypt without any disruption
+    // ── Auto-migration: Re-hash passwords that need upgrading ──
+    // This handles edge cases like different bcrypt cost factors.
+    // For plaintext passwords, use the /api/auth/migrate-passwords admin endpoint.
     if (needsRehash(user.password)) {
       try {
         const hashedPassword = await hashPassword(password);

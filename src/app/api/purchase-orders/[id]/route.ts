@@ -467,73 +467,13 @@ export async function PUT(
         newReceivingStatus = undefined;
       }
 
-      // When status changes to "Confirmed": create StockEntry (IN) for each line
-      // if not already created
-      if (
-        status === 'Confirmed' &&
-        existing.status === 'Draft'
-      ) {
-        const linesToStock = computedLines || existing.lines;
-        for (const line of linesToStock) {
-          // Check if stock entry already exists for this line
-          const existingEntry = await tx.stockEntry.findFirst({
-            where: {
-              productId: line.productId,
-              reference: existing.poNumber,
-              referenceType: 'PurchaseOrder',
-              type: 'IN',
-            },
-          });
-
-          if (!existingEntry) {
-            await tx.stockEntry.create({
-              data: {
-                productId: line.productId,
-                godownId: (godownId !== undefined ? godownId : existing.godownId) || null,
-                type: 'IN',
-                quantity: line.quantity,
-                reference: existing.poNumber,
-                referenceType: 'PurchaseOrder',
-                date: effectiveDate,
-              },
-            });
-          }
-        }
-      }
-
-      // When status changes to "Received": ensure stock entries exist
-      // and update line received quantities
-      if (
-        status === 'Received' &&
-        (existing.status === 'Confirmed' || existing.status === 'Partially Received')
-      ) {
-        const linesToStock = computedLines || existing.lines;
-        for (const line of linesToStock) {
-          // Check if stock entry already exists for this line
-          const existingEntry = await tx.stockEntry.findFirst({
-            where: {
-              productId: line.productId,
-              reference: existing.poNumber,
-              referenceType: 'PurchaseOrder',
-              type: 'IN',
-            },
-          });
-
-          if (!existingEntry) {
-            await tx.stockEntry.create({
-              data: {
-                productId: line.productId,
-                godownId: (godownId !== undefined ? godownId : existing.godownId) || null,
-                type: 'IN',
-                quantity: line.quantity,
-                reference: existing.poNumber,
-                referenceType: 'PurchaseOrder',
-                date: effectiveDate,
-              },
-            });
-          }
-        }
-      }
+      // NOTE: Stock entry creation on status transitions has been removed.
+      // Stock entries are ONLY created by the /api/purchase-orders/receive
+      // endpoint when goods are physically received. Previously, changing
+      // status to "Confirmed" or "Received" via PUT would also create stock
+      // entries, causing double-entry when the receive endpoint was also used.
+      // Now the flow is: Create PO → Confirm PO → Receive PO (receive endpoint
+      // creates stock entries) → Stock updated.
 
       // Build update data object
       const updateData: Record<string, unknown> = {};

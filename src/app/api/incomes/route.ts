@@ -179,8 +179,10 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error('Error creating income:', error);
     const message = error instanceof Error ? error.message : 'Failed to create income';
-    const isBadRequest = message.includes('Invalid headId') || message.includes('Invalid date') || message.includes('positive number');
-    const statusCode = isBadRequest ? 400 : 500;
+    // Validation errors should return 400, not 500
+    const isValidation = /required|must be a positive|Invalid headId|Invalid date|positive number|Insufficient|Period is locked/i.test(message);
+    const isConflict = /Idempotency|already exists/i.test(message);
+    const statusCode = isConflict ? 409 : isValidation ? 400 : 500;
     return NextResponse.json({ error: message }, { status: statusCode });
   }
 }

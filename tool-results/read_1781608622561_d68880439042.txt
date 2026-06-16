@@ -1,0 +1,901 @@
+     1→// ============================================================
+     2→// LEDGER AUTO-POST API — Automated Ledger Posting from Transactions
+     3→// Group 5: Financial Auditing, Automated Ledgers & Data Integrity
+     4→// STAGE 13: Full multi-tenant companyId isolation, safe financial
+     5→// arithmetic, RBAC via checkAutoPostAdminPermission, logUserActivity
+     6→// with Audit-AutoPost-Engine module token, VAT Auditor masking.
+     7→// ============================================================
+     8→
+     9→import { NextRequest, NextResponse } from 'next/server';
+    10→import {
+    11→  withApiSecurity,
+    12→  safeFinancialAdd,
+    13→  safeFinancialSubtract,
+    14→  safeFinancialRound,
+    15→  checkAutoPostAdminPermission,
+    16→  maskForVatAuditor,
+    17→  type UserRole,
+    18→} from '@/lib/api-security';
+    19→import { logUserActivity } from '@/lib/activity-logger';
+    20→import { db } from '@/lib/db';
+    21→import { generateNextCode } from '@/lib/accounting-utils';
+    22→
+    23→// Inline code generator for LedgerAutoPost
+    24→async function generateAutoPostCode(): Promise<string> {
+    25→  const latest = await db.ledgerAutoPost.findFirst({
+    26→    where: { code: { startsWith: 'LAP-' } },
+    27→    orderBy: { code: 'desc' },
+    28→    select: { code: true },
+    29→  });
+    30→  if (!latest) return 'LAP-00001';
+    31→  const num = parseInt(latest.code.replace('LAP-', ''), 10) || 0;
+    32→  return `LAP-${String(num + 1).padStart(5, '0')}`;
+    33→}
+    34→
+    35→// Helper: Find or create a ChartOfAccount by classification and name (company-scoped)
+    36→async function findOrCreateAccount(
+    37→  classification: string,
+    38→  accountName: string,
+    39→  securityUser: { id: string; name: string },
+    40→  companyId: string | null
+    41→): Promise<string> {
+    42→  // Try to find existing account — scoped by companyId
+    43→  const companyFilter = companyId ? { companyId } : {};
+    44→
+    45→  let account = await db.chartOfAccount.findFirst({
+    46→    where: {
+    47→      classification,
+    48→      name: { contains: accountName },
+    49→      isActive: true,
+    50→      ...companyFilter,
+    51→    },
+    52→  });
+    53→
+    54→  if (!account) {
+    55→    // Try exact match by classification only (fallback within company)
+    56→    account = await db.chartOfAccount.findFirst({
+    57→      where: {
+    58→        classification,
+    59→        isActive: true,
+    60→        ...companyFilter,
+    61→      },
+    62→    });
+    63→  }
+    64→
+    65→  if (account) return account.id;
+    66→
+    67→  // Create the account if it doesn't exist — inherit companyId from security context
+    68→  const code = await generateNextCode('chartOfAccount', 'COA-');
+    69→  const newAccount = await db.chartOfAccount.create({
+    70→    data: {
+    71→      code,
+    72→      name: accountName,
+    73→      classification,
+    74→      openingBalance: 0,
+    75→      openingBalanceType: classification === 'Asset' || classification === 'Expense' ? 'Dr' : 'Cr',
+    76→      companyId: companyId,
+    77→      isActive: true,
+    78→    },
+    79→  });
+    80→
+    81→  // Audit log for auto-created COA
+    82→  await logUserActivity({
+    83→    action: 'CREATE',
+    84→    module: 'Audit-AutoPost-Engine',
+    85→    recordId: newAccount.id,
+    86→    recordLabel: newAccount.code,
+    87→    userId: securityUser.id,
+    88→    userName: securityUser.name,
+    89→    details: JSON.stringify({ autoCreated: true, name: accountName, classification, companyId }),
+    90→  });
+    91→
+    92→  return newAccount.id;
+    93→}
+    94→
+    95→// GET /api/ledger-auto-post — List auto-post records with filters
+    96→export async function GET(request: NextRequest) {
+    97→  const security = await withApiSecurity(request, 'LedgerAutoPost', 'GET');
+    98→  if (!security.authorized) return security.response;
+    99→
+   100→  try {
+   101→    const { searchParams } = new URL(request.url);
+   102→    const userRole = security.user.role as UserRole;
+   103→
+   104→    // SR and Dealer blocked via MODULE_DENY (enforced by withApiSecurity)
+   105→    // Additional explicit check for safety
+   106→    if (userRole === 'sr' || userRole === 'dealer') {
+   107→      return NextResponse.json(
+   108→        { error: 'Access denied. SR and Dealer roles cannot access ledger auto-post records.' },
+   109→        { status: 403 }
+   110→      );
+   111→    }
+   112→
+   113→    const companyId = security.user.companyId;
+   114→
+   115→    const where: Record<string, unknown> = {};
+   116→
+   117→    // Multi-tenant isolation: filter by companyId
+   118→    if (companyId) {
+   119→      where.companyId = companyId;
+   120→    }
+   121→
+   122→    const sourceType = searchParams.get('sourceType');
+   123→    const status = searchParams.get('status');
+   124→    const dateFrom = searchParams.get('dateFrom');
+   125→    const dateTo = searchParams.get('dateTo');
+   126→    const limit = parseInt(searchParams.get('limit') || '50', 10);
+   127→    const offset = parseInt(searchParams.get('offset') || '0', 10);
+   128→
+   129→    if (sourceType) where.sourceType = sourceType;
+   130→    if (status) where.status = status;
+   131→
+   132→    if (dateFrom || dateTo) {
+   133→      const dateFilter: Record<string, Date> = {};
+   134→      if (dateFrom) dateFilter.gte = new Date(dateFrom);
+   135→      if (dateTo) dateFilter.lte = new Date(dateTo + 'T23:59:59.999Z');
+   136→      where.postingDate = dateFilter;
+   137→    }
+   138→
+   139→    const [records, total] = await Promise.all([
+   140→      db.ledgerAutoPost.findMany({
+   141→        where,
+   142→        orderBy: { postedAt: 'desc' },
+   143→        take: limit,
+   144→        skip: offset,
+   145→      }),
+   146→      db.ledgerAutoPost.count({ where }),
+   147→    ]);
+   148→
+   149→    // VAT Auditor masking — mask `amount` field on all returned records
+   150→    const masked = records.map((record: Record<string, unknown>) =>
+   151→      maskForVatAuditor(record, userRole, ['amount'])
+   152→    );
+   153→
+   154→    return NextResponse.json({ records: masked, total, limit, offset });
+   155→  } catch (error) {
+   156→    console.error('Ledger auto-post GET error:', error);
+   157→    return NextResponse.json({ error: 'Failed to fetch auto-post records' }, { status: 500 });
+   158→  }
+   159→}
+   160→
+   161→// POST /api/ledger-auto-post — Various auto-posting actions
+   162→export async function POST(request: NextRequest) {
+   163→  const security = await withApiSecurity(request, 'LedgerAutoPost', 'POST');
+   164→  if (!security.authorized) return security.response;
+   165→
+   166→  try {
+   167→    const userRole = security.user.role as UserRole;
+   168→
+   169→    // RBAC: Only admin can trigger auto-post actions
+   170→    const permCheck = checkAutoPostAdminPermission(userRole);
+   171→    if (permCheck) return permCheck;
+   172→
+   173→    const { searchParams } = new URL(request.url);
+   174→    const action = searchParams.get('action');
+   175→
+   176→    switch (action) {
+   177→      case 'post-sales':
+   178→        return await postSalesOrder(request, security);
+   179→      case 'post-purchase':
+   180→        return await postPurchaseOrder(request, security);
+   181→      case 'reverse':
+   182→        return await reverseAutoPost(request, security);
+   183→      case 'run-all-pending':
+   184→        return await runAllPending(security);
+   185→      default:
+   186→        return NextResponse.json(
+   187→          { error: 'Invalid action. Use: post-sales, post-purchase, reverse, or run-all-pending' },
+   188→          { status: 400 }
+   189→        );
+   190→    }
+   191→  } catch (error) {
+   192→    console.error('Ledger auto-post POST error:', error);
+   193→    return NextResponse.json({ error: 'Failed to process auto-post action' }, { status: 500 });
+   194→  }
+   195→}
+   196→
+   197→// Post a Sales Order to the ledger
+   198→async function postSalesOrder(
+   199→  request: NextRequest,
+   200→  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+   201→) {
+   202→  const { searchParams } = new URL(request.url);
+   203→  const salesOrderId = searchParams.get('salesOrderId');
+   204→  const companyId = security.user.companyId;
+   205→
+   206→  if (!salesOrderId) {
+   207→    return NextResponse.json(
+   208→      { error: 'Missing required parameter: salesOrderId' },
+   209→      { status: 400 }
+   210→    );
+   211→  }
+   212→
+   213→  // Check if already posted — scoped by companyId
+   214→  const existingPostWhere: Record<string, unknown> = { sourceType: 'SalesOrder', sourceId: salesOrderId, status: 'Posted' };
+   215→  if (companyId) existingPostWhere.companyId = companyId;
+   216→
+   217→  const existingPost = await db.ledgerAutoPost.findFirst({ where: existingPostWhere });
+   218→  if (existingPost) {
+   219→    return NextResponse.json(
+   220→      { error: 'This sales order has already been posted to the ledger.', autoPost: existingPost },
+   221→      { status: 409 }
+   222→    );
+   223→  }
+   224→
+   225→  // Fetch the sales order
+   226→  const salesOrder = await db.salesOrder.findUnique({
+   227→    where: { id: salesOrderId },
+   228→    include: { lines: true, customer: true },
+   229→  });
+   230→
+   231→  if (!salesOrder) {
+   232→    return NextResponse.json({ error: 'Sales order not found' }, { status: 404 });
+   233→  }
+   234→
+   235→  if (salesOrder.status !== 'Confirmed' && salesOrder.status !== 'Delivered') {
+   236→    return NextResponse.json(
+   237→      { error: `Sales order must be Confirmed or Delivered to post. Current status: ${salesOrder.status}` },
+   238→      { status: 400 }
+   239→    );
+   240→  }
+   241→
+   242→  const lapCode = await generateAutoPostCode();
+   243→  const now = new Date();
+   244→
+   245→  // STAGE 13: Use safeFinancialRound on all amounts
+   246→  const salesAmount = safeFinancialRound(salesOrder.grandTotal);
+   247→  const costOfGoods = safeFinancialRound(
+   248→    salesOrder.lines.reduce(
+   249→      (sum: number, line: { quantity: number; rate: number | null }) =>
+   250→        safeFinancialAdd(sum, (line.quantity * (line.rate || 0))),
+   251→      0
+   252→    )
+   253→  );
+   254→
+   255→  // Find or create accounts — company-scoped
+   256→  const accountsReceivableId = await findOrCreateAccount('Asset', 'Accounts Receivable', security.user, companyId);
+   257→  const salesRevenueId = await findOrCreateAccount('Income', 'Sales Revenue', security.user, companyId);
+   258→  const cogsAccountId = await findOrCreateAccount('Expense', 'Cost of Goods Sold', security.user, companyId);
+   259→  const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
+   260→
+   261→  // Use transaction for atomicity
+   262→  const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
+   263→    // 1. Dr: Accounts Receivable | Cr: Sales Revenue
+   264→    const debitEntry1 = await tx.ledgerEntry.create({
+   265→      data: {
+   266→        entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   267→        date: salesOrder.date,
+   268→        accountId: accountsReceivableId,
+   269→        account: 'Accounts Receivable',
+   270→        particulars: `Sales Order ${salesOrder.invoiceNo} - ${salesOrder.customer?.name || 'Customer'}`,
+   271→        debit: salesAmount,
+   272→        credit: 0,
+   273→        reference: salesOrder.invoiceNo,
+   274→        referenceType: 'SalesOrder',
+   275→        companyId: companyId,
+   276→        isActive: true,
+   277→      },
+   278→    });
+   279→
+   280→    const creditEntry1 = await tx.ledgerEntry.create({
+   281→      data: {
+   282→        entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   283→        date: salesOrder.date,
+   284→        accountId: salesRevenueId,
+   285→        account: 'Sales Revenue',
+   286→        particulars: `Sales Order ${salesOrder.invoiceNo} - ${salesOrder.customer?.name || 'Customer'}`,
+   287→        debit: 0,
+   288→        credit: salesAmount,
+   289→        reference: salesOrder.invoiceNo,
+   290→        referenceType: 'SalesOrder',
+   291→        companyId: companyId,
+   292→        isActive: true,
+   293→      },
+   294→    });
+   295→
+   296→    // 2. Dr: Cost of Goods Sold | Cr: Inventory
+   297→    const debitEntry2 = await tx.ledgerEntry.create({
+   298→      data: {
+   299→        entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   300→        date: salesOrder.date,
+   301→        accountId: cogsAccountId,
+   302→        account: 'Cost of Goods Sold',
+   303→        particulars: `COGS for Sales Order ${salesOrder.invoiceNo}`,
+   304→        debit: costOfGoods,
+   305→        credit: 0,
+   306→        reference: salesOrder.invoiceNo,
+   307→        referenceType: 'SalesOrder',
+   308→        companyId: companyId,
+   309→        isActive: true,
+   310→      },
+   311→    });
+   312→
+   313→    const creditEntry2 = await tx.ledgerEntry.create({
+   314→      data: {
+   315→        entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   316→        date: salesOrder.date,
+   317→        accountId: inventoryAccountId,
+   318→        account: 'Inventory',
+   319→        particulars: `Inventory reduction for Sales Order ${salesOrder.invoiceNo}`,
+   320→        debit: 0,
+   321→        credit: costOfGoods,
+   322→        reference: salesOrder.invoiceNo,
+   323→        referenceType: 'SalesOrder',
+   324→        companyId: companyId,
+   325→        isActive: true,
+   326→      },
+   327→    });
+   328→
+   329→    // 3. Create LedgerAutoPost tracking record — inherit companyId
+   330→    const autoPost = await tx.ledgerAutoPost.create({
+   331→      data: {
+   332→        code: lapCode,
+   333→        sourceType: 'SalesOrder',
+   334→        sourceId: salesOrderId,
+   335→        sourceCode: salesOrder.invoiceNo,
+   336→        debitEntryId: debitEntry1.entryCode,
+   337→        creditEntryId: creditEntry1.entryCode,
+   338→        debitAccount: 'Accounts Receivable',
+   339→        creditAccount: 'Sales Revenue',
+   340→        amount: salesAmount,
+   341→        postingDate: salesOrder.date,
+   342→        status: 'Posted',
+   343→        companyId: companyId,
+   344→        postedBy: security.user.name,
+   345→      },
+   346→    });
+   347→
+   348→    return { autoPost, entries: [debitEntry1, creditEntry1, debitEntry2, creditEntry2] };
+   349→  });
+   350→
+   351→  // Activity log with Audit-AutoPost-Engine module token
+   352→  await logUserActivity({
+   353→    action: 'CREATE',
+   354→    module: 'Audit-AutoPost-Engine',
+   355→    recordId: result.autoPost.id,
+   356→    recordLabel: result.autoPost.code,
+   357→    userId: security.user.id,
+   358→    userName: security.user.name,
+   359→    details: JSON.stringify({
+   360→      action: 'post-sales',
+   361→      salesOrder: salesOrder.invoiceNo,
+   362→      amount: salesAmount,
+   363→      cogs: costOfGoods,
+   364→      entriesCreated: result.entries.length,
+   365→    }),
+   366→  });
+   367→
+   368→  return NextResponse.json({ autoPost: result.autoPost, entries: result.entries }, { status: 201 });
+   369→}
+   370→
+   371→// Post a Purchase Order to the ledger
+   372→async function postPurchaseOrder(
+   373→  request: NextRequest,
+   374→  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+   375→) {
+   376→  const { searchParams } = new URL(request.url);
+   377→  const purchaseOrderId = searchParams.get('purchaseOrderId');
+   378→  const companyId = security.user.companyId;
+   379→
+   380→  if (!purchaseOrderId) {
+   381→    return NextResponse.json(
+   382→      { error: 'Missing required parameter: purchaseOrderId' },
+   383→      { status: 400 }
+   384→    );
+   385→  }
+   386→
+   387→  // Check if already posted — scoped by companyId
+   388→  const existingPostWhere: Record<string, unknown> = { sourceType: 'PurchaseOrder', sourceId: purchaseOrderId, status: 'Posted' };
+   389→  if (companyId) existingPostWhere.companyId = companyId;
+   390→
+   391→  const existingPost = await db.ledgerAutoPost.findFirst({ where: existingPostWhere });
+   392→  if (existingPost) {
+   393→    return NextResponse.json(
+   394→      { error: 'This purchase order has already been posted to the ledger.', autoPost: existingPost },
+   395→      { status: 409 }
+   396→    );
+   397→  }
+   398→
+   399→  // Fetch the purchase order
+   400→  const purchaseOrder = await db.purchaseOrder.findUnique({
+   401→    where: { id: purchaseOrderId },
+   402→    include: { lines: true, supplier: true },
+   403→  });
+   404→
+   405→  if (!purchaseOrder) {
+   406→    return NextResponse.json({ error: 'Purchase order not found' }, { status: 404 });
+   407→  }
+   408→
+   409→  if (purchaseOrder.status !== 'Confirmed' && purchaseOrder.status !== 'Received') {
+   410→    return NextResponse.json(
+   411→      { error: `Purchase order must be Confirmed or Received to post. Current status: ${purchaseOrder.status}` },
+   412→      { status: 400 }
+   413→    );
+   414→  }
+   415→
+   416→  const lapCode = await generateAutoPostCode();
+   417→
+   418→  // STAGE 13: Use safeFinancialRound on all amounts
+   419→  const purchaseAmount = safeFinancialRound(purchaseOrder.grandTotal);
+   420→
+   421→  // Find or create accounts — company-scoped
+   422→  const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
+   423→  const accountsPayableId = await findOrCreateAccount('Liability', 'Accounts Payable', security.user, companyId);
+   424→
+   425→  // Use transaction for atomicity
+   426→  const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
+   427→    // Dr: Inventory/Purchases (Asset) | Cr: Accounts Payable (Liability)
+   428→    const debitEntry = await tx.ledgerEntry.create({
+   429→      data: {
+   430→        entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   431→        date: purchaseOrder.date,
+   432→        accountId: inventoryAccountId,
+   433→        account: 'Inventory',
+   434→        particulars: `Purchase Order ${purchaseOrder.poNumber} - ${purchaseOrder.supplier?.name || 'Supplier'}`,
+   435→        debit: purchaseAmount,
+   436→        credit: 0,
+   437→        reference: purchaseOrder.poNumber,
+   438→        referenceType: 'PurchaseOrder',
+   439→        companyId: companyId,
+   440→        isActive: true,
+   441→      },
+   442→    });
+   443→
+   444→    const creditEntry = await tx.ledgerEntry.create({
+   445→      data: {
+   446→        entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   447→        date: purchaseOrder.date,
+   448→        accountId: accountsPayableId,
+   449→        account: 'Accounts Payable',
+   450→        particulars: `Purchase Order ${purchaseOrder.poNumber} - ${purchaseOrder.supplier?.name || 'Supplier'}`,
+   451→        debit: 0,
+   452→        credit: purchaseAmount,
+   453→        reference: purchaseOrder.poNumber,
+   454→        referenceType: 'PurchaseOrder',
+   455→        companyId: companyId,
+   456→        isActive: true,
+   457→      },
+   458→    });
+   459→
+   460→    // Create LedgerAutoPost tracking record — inherit companyId
+   461→    const autoPost = await tx.ledgerAutoPost.create({
+   462→      data: {
+   463→        code: lapCode,
+   464→        sourceType: 'PurchaseOrder',
+   465→        sourceId: purchaseOrderId,
+   466→        sourceCode: purchaseOrder.poNumber,
+   467→        debitEntryId: debitEntry.entryCode,
+   468→        creditEntryId: creditEntry.entryCode,
+   469→        debitAccount: 'Inventory',
+   470→        creditAccount: 'Accounts Payable',
+   471→        amount: purchaseAmount,
+   472→        postingDate: purchaseOrder.date,
+   473→        status: 'Posted',
+   474→        companyId: companyId,
+   475→        postedBy: security.user.name,
+   476→      },
+   477→    });
+   478→
+   479→    return { autoPost, entries: [debitEntry, creditEntry] };
+   480→  });
+   481→
+   482→  // Activity log with Audit-AutoPost-Engine module token
+   483→  await logUserActivity({
+   484→    action: 'CREATE',
+   485→    module: 'Audit-AutoPost-Engine',
+   486→    recordId: result.autoPost.id,
+   487→    recordLabel: result.autoPost.code,
+   488→    userId: security.user.id,
+   489→    userName: security.user.name,
+   490→    details: JSON.stringify({
+   491→      action: 'post-purchase',
+   492→      purchaseOrder: purchaseOrder.poNumber,
+   493→      amount: purchaseAmount,
+   494→      entriesCreated: result.entries.length,
+   495→    }),
+   496→  });
+   497→
+   498→  return NextResponse.json({ autoPost: result.autoPost, entries: result.entries }, { status: 201 });
+   499→}
+   500→
+   501→// Reverse a previous auto-post
+   502→async function reverseAutoPost(
+   503→  request: NextRequest,
+   504→  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+   505→) {
+   506→  const { searchParams } = new URL(request.url);
+   507→  const autoPostId = searchParams.get('autoPostId');
+   508→  const companyId = security.user.companyId;
+   509→
+   510→  if (!autoPostId) {
+   511→    return NextResponse.json(
+   512→      { error: 'Missing required parameter: autoPostId' },
+   513→      { status: 400 }
+   514→    );
+   515→  }
+   516→
+   517→  const autoPostWhere: Record<string, unknown> = { id: autoPostId };
+   518→  if (companyId) autoPostWhere.companyId = companyId;
+   519→
+   520→  const autoPost = await db.ledgerAutoPost.findFirst({ where: autoPostWhere });
+   521→
+   522→  if (!autoPost) {
+   523→    return NextResponse.json({ error: 'Auto-post record not found' }, { status: 404 });
+   524→  }
+   525→
+   526→  if (autoPost.status === 'Reversed') {
+   527→    return NextResponse.json(
+   528→      { error: 'This auto-post has already been reversed.' },
+   529→      { status: 409 }
+   530→    );
+   531→  }
+   532→
+   533→  const body = await request.json().catch(() => ({}));
+   534→  const reversalReason = (body as { reason?: string }).reason || 'Manual reversal';
+   535→
+   536→  // Use transaction for atomicity
+   537→  const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
+   538→    // Find original entries by reference — scoped by companyId
+   539→    const entryWhere: Record<string, unknown> = {
+   540→      reference: autoPost.sourceCode,
+   541→      referenceType: autoPost.sourceType,
+   542→      isActive: true,
+   543→    };
+   544→    if (companyId) entryWhere.companyId = companyId;
+   545→
+   546→    const originalEntries = await tx.ledgerEntry.findMany({ where: entryWhere });
+   547→
+   548→    // Create reversing entries (swap debit/credit) — inherit companyId
+   549→    const reversingEntries = [];
+   550→    for (const entry of originalEntries) {
+   551→      const reversingEntry = await tx.ledgerEntry.create({
+   552→        data: {
+   553→          entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   554→          date: new Date(),
+   555→          accountId: entry.accountId,
+   556→          account: entry.account,
+   557→          particulars: `REVERSAL: ${entry.particulars || ''}`,
+   558→          debit: entry.credit, // Swap
+   559→          credit: entry.debit, // Swap
+   560→          reference: `REV-${autoPost.sourceCode}`,
+   561→          referenceType: 'Reversal',
+   562→          companyId: companyId,
+   563→          isActive: true,
+   564→        },
+   565→      });
+   566→      reversingEntries.push(reversingEntry);
+   567→    }
+   568→
+   569→    // Update auto-post status
+   570→    const updatedAutoPost = await tx.ledgerAutoPost.update({
+   571→      where: { id: autoPostId },
+   572→      data: {
+   573→        status: 'Reversed',
+   574→        reversalReason,
+   575→      },
+   576→    });
+   577→
+   578→    return { autoPost: updatedAutoPost, reversingEntries };
+   579→  });
+   580→
+   581→  // Activity log with Audit-AutoPost-Engine module token
+   582→  await logUserActivity({
+   583→    action: 'UPDATE',
+   584→    module: 'Audit-AutoPost-Engine',
+   585→    recordId: result.autoPost.id,
+   586→    recordLabel: result.autoPost.code,
+   587→    userId: security.user.id,
+   588→    userName: security.user.name,
+   589→    details: JSON.stringify({
+   590→      action: 'reverse',
+   591→      originalSourceCode: autoPost.sourceCode,
+   592→      originalSourceType: autoPost.sourceType,
+   593→      originalAmount: autoPost.amount,
+   594→      reversalReason,
+   595→      reversingEntriesCreated: result.reversingEntries.length,
+   596→    }),
+   597→  });
+   598→
+   599→  return NextResponse.json({
+   600→    autoPost: result.autoPost,
+   601→    reversingEntries: result.reversingEntries,
+   602→  });
+   603→}
+   604→
+   605→// Run all pending auto-posts
+   606→// STAGE 13: Each individual order posting is wrapped in its own try/catch
+   607→// with rollback so one failure doesn't corrupt the rest.
+   608→async function runAllPending(
+   609→  security: { authorized: true; user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+   610→) {
+   611→  const companyId = security.user.companyId;
+   612→  const companyFilter = companyId ? { companyId } : {};
+   613→
+   614→  const results: Record<string, unknown>[] = [];
+   615→  const errors: Record<string, unknown>[] = [];
+   616→
+   617→  // Find all confirmed SalesOrders without a LedgerAutoPost record — scoped by companyId
+   618→  const postedSalesWhere: Record<string, unknown> = { sourceType: 'SalesOrder', status: 'Posted' };
+   619→  if (companyId) postedSalesWhere.companyId = companyId;
+   620→
+   621→  const postedSalesIds = await db.ledgerAutoPost.findMany({
+   622→    where: postedSalesWhere,
+   623→    select: { sourceId: true },
+   624→  });
+   625→  const postedSalesIdSet = new Set(postedSalesIds.map((p: { sourceId: string }) => p.sourceId));
+   626→
+   627→  const pendingSalesOrders = await db.salesOrder.findMany({
+   628→    where: {
+   629→      status: { in: ['Confirmed', 'Delivered'] },
+   630→      isActive: true,
+   631→    },
+   632→  });
+   633→
+   634→  const unpostedSales = pendingSalesOrders.filter(
+   635→    (so: { id: string }) => !postedSalesIdSet.has(so.id)
+   636→  );
+   637→
+   638→  // Find all confirmed PurchaseOrders without a LedgerAutoPost record — scoped by companyId
+   639→  const postedPurchaseWhere: Record<string, unknown> = { sourceType: 'PurchaseOrder', status: 'Posted' };
+   640→  if (companyId) postedPurchaseWhere.companyId = companyId;
+   641→
+   642→  const postedPurchaseIds = await db.ledgerAutoPost.findMany({
+   643→    where: postedPurchaseWhere,
+   644→    select: { sourceId: true },
+   645→  });
+   646→  const postedPurchaseIdSet = new Set(postedPurchaseIds.map((p: { sourceId: string }) => p.sourceId));
+   647→
+   648→  const pendingPurchaseOrders = await db.purchaseOrder.findMany({
+   649→    where: {
+   650→      status: { in: ['Confirmed', 'Received'] },
+   651→      isActive: true,
+   652→    },
+   653→  });
+   654→
+   655→  const unpostedPurchases = pendingPurchaseOrders.filter(
+   656→    (po: { id: string }) => !postedPurchaseIdSet.has(po.id)
+   657→  );
+   658→
+   659→  // Post each pending sales order — EACH wrapped in individual try/catch for defensive fallback
+   660→  for (const so of unpostedSales) {
+   661→    try {
+   662→      // STAGE 13: Use safeFinancialRound on amounts
+   663→      const salesAmount = safeFinancialRound(so.grandTotal);
+   664→
+   665→      // Check if already posted (double-check)
+   666→      const existingWhere: Record<string, unknown> = { sourceType: 'SalesOrder', sourceId: so.id, status: 'Posted' };
+   667→      if (companyId) existingWhere.companyId = companyId;
+   668→      const existing = await db.ledgerAutoPost.findFirst({ where: existingWhere });
+   669→      if (existing) continue;
+   670→
+   671→      const lapCode = await generateAutoPostCode();
+   672→
+   673→      // Get sales order details
+   674→      const fullSO = await db.salesOrder.findUnique({
+   675→        where: { id: so.id },
+   676→        include: { lines: true, customer: true },
+   677→      });
+   678→
+   679→      if (!fullSO) continue;
+   680→
+   681→      const costOfGoods = safeFinancialRound(
+   682→        fullSO.lines.reduce(
+   683→          (sum: number, line: { quantity: number; rate: number | null }) =>
+   684→            safeFinancialAdd(sum, (line.quantity * (line.rate || 0))),
+   685→          0
+   686→        )
+   687→      );
+   688→
+   689→      const accountsReceivableId = await findOrCreateAccount('Asset', 'Accounts Receivable', security.user, companyId);
+   690→      const salesRevenueId = await findOrCreateAccount('Income', 'Sales Revenue', security.user, companyId);
+   691→      const cogsAccountId = await findOrCreateAccount('Expense', 'Cost of Goods Sold', security.user, companyId);
+   692→      const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
+   693→
+   694→      // STAGE 13: Individual transaction per order — one failure doesn't corrupt the rest
+   695→      const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
+   696→        const d1 = await tx.ledgerEntry.create({
+   697→          data: {
+   698→            entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   699→            date: fullSO.date,
+   700→            accountId: accountsReceivableId,
+   701→            account: 'Accounts Receivable',
+   702→            particulars: `Sales Order ${fullSO.invoiceNo} - ${fullSO.customer?.name || 'Customer'}`,
+   703→            debit: salesAmount,
+   704→            credit: 0,
+   705→            reference: fullSO.invoiceNo,
+   706→            referenceType: 'SalesOrder',
+   707→            companyId: companyId,
+   708→            isActive: true,
+   709→          },
+   710→        });
+   711→        const c1 = await tx.ledgerEntry.create({
+   712→          data: {
+   713→            entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   714→            date: fullSO.date,
+   715→            accountId: salesRevenueId,
+   716→            account: 'Sales Revenue',
+   717→            particulars: `Sales Order ${fullSO.invoiceNo} - ${fullSO.customer?.name || 'Customer'}`,
+   718→            debit: 0,
+   719→            credit: salesAmount,
+   720→            reference: fullSO.invoiceNo,
+   721→            referenceType: 'SalesOrder',
+   722→            companyId: companyId,
+   723→            isActive: true,
+   724→          },
+   725→        });
+   726→        const d2 = await tx.ledgerEntry.create({
+   727→          data: {
+   728→            entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   729→            date: fullSO.date,
+   730→            accountId: cogsAccountId,
+   731→            account: 'Cost of Goods Sold',
+   732→            particulars: `COGS for Sales Order ${fullSO.invoiceNo}`,
+   733→            debit: costOfGoods,
+   734→            credit: 0,
+   735→            reference: fullSO.invoiceNo,
+   736→            referenceType: 'SalesOrder',
+   737→            companyId: companyId,
+   738→            isActive: true,
+   739→          },
+   740→        });
+   741→        const c2 = await tx.ledgerEntry.create({
+   742→          data: {
+   743→            entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   744→            date: fullSO.date,
+   745→            accountId: inventoryAccountId,
+   746→            account: 'Inventory',
+   747→            particulars: `Inventory reduction for Sales Order ${fullSO.invoiceNo}`,
+   748→            debit: 0,
+   749→            credit: costOfGoods,
+   750→            reference: fullSO.invoiceNo,
+   751→            referenceType: 'SalesOrder',
+   752→            companyId: companyId,
+   753→            isActive: true,
+   754→          },
+   755→        });
+   756→
+   757→        const autoPost = await tx.ledgerAutoPost.create({
+   758→          data: {
+   759→            code: lapCode,
+   760→            sourceType: 'SalesOrder',
+   761→            sourceId: so.id,
+   762→            sourceCode: fullSO.invoiceNo,
+   763→            debitEntryId: d1.entryCode,
+   764→            creditEntryId: c1.entryCode,
+   765→            debitAccount: 'Accounts Receivable',
+   766→            creditAccount: 'Sales Revenue',
+   767→            amount: salesAmount,
+   768→            postingDate: fullSO.date,
+   769→            status: 'Posted',
+   770→            companyId: companyId,
+   771→            postedBy: security.user.name,
+   772→          },
+   773→        });
+   774→
+   775→        return autoPost;
+   776→      });
+   777→
+   778→      results.push({ type: 'SalesOrder', code: fullSO.invoiceNo, autoPostCode: result.code, amount: salesAmount });
+   779→    } catch (error: unknown) {
+   780→      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+   781→      errors.push({ type: 'SalesOrder', id: so.id, code: so.invoiceNo, error: errorMessage });
+   782→    }
+   783→  }
+   784→
+   785→  // Post each pending purchase order — EACH wrapped in individual try/catch for defensive fallback
+   786→  for (const po of unpostedPurchases) {
+   787→    try {
+   788→      const existingWhere: Record<string, unknown> = { sourceType: 'PurchaseOrder', sourceId: po.id, status: 'Posted' };
+   789→      if (companyId) existingWhere.companyId = companyId;
+   790→      const existing = await db.ledgerAutoPost.findFirst({ where: existingWhere });
+   791→      if (existing) continue;
+   792→
+   793→      const lapCode = await generateAutoPostCode();
+   794→      const purchaseAmount = safeFinancialRound(po.grandTotal);
+   795→
+   796→      const fullPO = await db.purchaseOrder.findUnique({
+   797→        where: { id: po.id },
+   798→        include: { supplier: true },
+   799→      });
+   800→
+   801→      if (!fullPO) continue;
+   802→
+   803→      const inventoryAccountId = await findOrCreateAccount('Asset', 'Inventory', security.user, companyId);
+   804→      const accountsPayableId = await findOrCreateAccount('Liability', 'Accounts Payable', security.user, companyId);
+   805→
+   806→      // STAGE 13: Individual transaction per order — one failure doesn't corrupt the rest
+   807→      const result = await db.$transaction(async (tx: Parameters<Parameters<typeof tx.$transaction>[0]>[0]) => {
+   808→        const d1 = await tx.ledgerEntry.create({
+   809→          data: {
+   810→            entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   811→            date: fullPO.date,
+   812→            accountId: inventoryAccountId,
+   813→            account: 'Inventory',
+   814→            particulars: `Purchase Order ${fullPO.poNumber} - ${fullPO.supplier?.name || 'Supplier'}`,
+   815→            debit: purchaseAmount,
+   816→            credit: 0,
+   817→            reference: fullPO.poNumber,
+   818→            referenceType: 'PurchaseOrder',
+   819→            companyId: companyId,
+   820→            isActive: true,
+   821→          },
+   822→        });
+   823→        const c1 = await tx.ledgerEntry.create({
+   824→          data: {
+   825→            entryCode: await generateNextCode('ledgerEntry', 'LED-'),
+   826→            date: fullPO.date,
+   827→            accountId: accountsPayableId,
+   828→            account: 'Accounts Payable',
+   829→            particulars: `Purchase Order ${fullPO.poNumber} - ${fullPO.supplier?.name || 'Supplier'}`,
+   830→            debit: 0,
+   831→            credit: purchaseAmount,
+   832→            reference: fullPO.poNumber,
+   833→            referenceType: 'PurchaseOrder',
+   834→            companyId: companyId,
+   835→            isActive: true,
+   836→          },
+   837→        });
+   838→
+   839→        const autoPost = await tx.ledgerAutoPost.create({
+   840→          data: {
+   841→            code: lapCode,
+   842→            sourceType: 'PurchaseOrder',
+   843→            sourceId: po.id,
+   844→            sourceCode: fullPO.poNumber,
+   845→            debitEntryId: d1.entryCode,
+   846→            creditEntryId: c1.entryCode,
+   847→            debitAccount: 'Inventory',
+   848→            creditAccount: 'Accounts Payable',
+   849→            amount: purchaseAmount,
+   850→            postingDate: fullPO.date,
+   851→            status: 'Posted',
+   852→            companyId: companyId,
+   853→            postedBy: security.user.name,
+   854→          },
+   855→        });
+   856→
+   857→        return autoPost;
+   858→      });
+   859→
+   860→      results.push({ type: 'PurchaseOrder', code: fullPO.poNumber, autoPostCode: result.code, amount: purchaseAmount });
+   861→    } catch (error: unknown) {
+   862→      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+   863→      errors.push({ type: 'PurchaseOrder', id: po.id, code: po.poNumber, error: errorMessage });
+   864→    }
+   865→  }
+   866→
+   867→  // STAGE 13: Use safeFinancialAdd for total accumulations
+   868→  const totalPostedAmount = results.reduce(
+   869→    (sum: number, r: Record<string, unknown>) => safeFinancialAdd(sum, (r.amount as number) || 0),
+   870→    0
+   871→  );
+   872→
+   873→  // Activity log with Audit-AutoPost-Engine module token
+   874→  await logUserActivity({
+   875→    action: 'CREATE',
+   876→    module: 'Audit-AutoPost-Engine',
+   877→    recordLabel: 'Run All Pending',
+   878→    userId: security.user.id,
+   879→    userName: security.user.name,
+   880→    details: JSON.stringify({
+   881→      action: 'run-all-pending',
+   882→      salesPosted: results.filter(r => r.type === 'SalesOrder').length,
+   883→      purchasesPosted: results.filter(r => r.type === 'PurchaseOrder').length,
+   884→      errors: errors.length,
+   885→      totalPostedAmount,
+   886→    }),
+   887→  });
+   888→
+   889→  return NextResponse.json({
+   890→    posted: results,
+   891→    errors,
+   892→    summary: {
+   893→      totalPosted: results.length,
+   894→      totalErrors: errors.length,
+   895→      salesPosted: results.filter(r => r.type === 'SalesOrder').length,
+   896→      purchasesPosted: results.filter(r => r.type === 'PurchaseOrder').length,
+   897→      totalPostedAmount,
+   898→    },
+   899→  });
+   900→}
+   901→

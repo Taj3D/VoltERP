@@ -1124,7 +1124,11 @@ export async function POST(request: NextRequest) {
 // GET HANDLER: Fetch all GoldenHandoverLog records
 // Returns handover logs ordered by startedAt desc for the history tab
 // ════════════════════════════════════════════════════════════════
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Auth check: Only admin can view handover logs
+  const security = await withApiSecurity(request, 'SystemConfig', 'GET');
+  if (!security.authorized) return security.response;
+
   try {
     const logs = await db.goldenHandoverLog.findMany({
       orderBy: { startedAt: 'desc' },

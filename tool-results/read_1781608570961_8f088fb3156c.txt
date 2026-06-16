@@ -1,0 +1,1199 @@
+     1→import { NextRequest, NextResponse } from 'next/server';
+     2→import { db } from '@/lib/db';
+     3→import {
+     4→  withApiSecurity,
+     5→  checkPeriodClose,
+     6→  maskForVatAuditorFinancial,
+     7→  safeFinancialRound,
+     8→  safeFinancialAdd,
+     9→  safeFinancialSubtract,
+    10→} from '@/lib/api-security';
+    11→import { logUserActivity } from '@/lib/activity-logger';
+    12→import Papa from 'papaparse';
+    13→
+    14→/**
+    15→ * Strip HTML tags from a string to prevent XSS in text fields.
+    16→ */
+    17→function stripHtml(input: string): string {
+    18→  return input.replace(/<[^>]*>/g, '').trim();
+    19→}
+    20→
+    21→// ============================================================
+    22→// SHARED: Line-level Financial Computation for Sales Return
+    23→// ============================================================
+    24→
+    25→interface SRLineInput {
+    26→  productId: string;
+    27→  quantity: number;
+    28→  rate: number;
+    29→  discountPercent?: number;
+    30→  discountAmount?: number;
+    31→  vatAmount?: number;
+    32→}
+    33→
+    34→interface ComputedSRLine {
+    35→  productId: string;
+    36→  quantity: number;
+    37→  rate: number;
+    38→  discountPercent: number;
+    39→  discountAmount: number;
+    40→  vatAmount: number;
+    41→  total: number;
+    42→  costPrice: number;
+    43→  cogsReversal: number;
+    44→}
+    45→
+    46→function computeSRLineFinancials(
+    47→  line: SRLineInput,
+    48→  costPrice: number
+    49→): ComputedSRLine {
+    50→  const lineGross = safeFinancialRound(line.quantity * line.rate);
+    51→  const discountPercent = line.discountPercent ?? 0;
+    52→  const discountAmount =
+    53→    line.discountAmount ?? safeFinancialRound(lineGross * (discountPercent / 100));
+    54→  const afterDiscount = safeFinancialSubtract(lineGross, discountAmount);
+    55→  const vatAmount = line.vatAmount ?? 0;
+    56→  const total = safeFinancialAdd(afterDiscount, vatAmount);
+    57→
+    58→  // COGS Reversal: quantity * costPrice (from original order or product fallback)
+    59→  const cogsReversal = safeFinancialRound(line.quantity * costPrice);
+    60→
+    61→  return {
+    62→    productId: line.productId,
+    63→    quantity: line.quantity,
+    64→    rate: line.rate,
+    65→    discountPercent,
+    66→    discountAmount,
+    67→    vatAmount,
+    68→    total,
+    69→    costPrice,
+    70→    cogsReversal,
+    71→  };
+    72→}
+    73→
+    74→// ============================================================
+    75→// SHARED: Auto-generate returnNo: SRT-XXXXX
+    76→// ============================================================
+    77→
+    78→async function generateReturnNo(tx: any): Promise<string> {
+    79→  const allSRs = await tx.salesReturn.findMany({
+    80→    select: { returnNo: true },
+    81→  });
+    82→
+    83→  let maxNum = 0;
+    84→  for (const sr of allSRs) {
+    85→    if (sr.returnNo) {
+    86→      const match = sr.returnNo.match(/SRT-(\d+)/);
+    87→      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    88→    }
+    89→  }
+    90→  return `SRT-${String(maxNum + 1).padStart(5, '0')}`;
+    91→}
+    92→
+    93→// ============================================================
+    94→// SHARED: AR Adjustment — reduce Customer.currentBalance by grandTotal
+    95→// Customer is owed money (Cr side), so:
+    96→//   If currentBalanceType === 'Dr': currentBalance -= grandTotal;
+    97→//     if goes negative, flip to Cr
+    98→//   If currentBalanceType === 'Cr': currentBalance += grandTotal
+    99→// After adjustment, check if balance normalized below creditLimit,
+   100→// toggle from OverLimit to Active
+   101→// ============================================================
+   102→
+   103→async function applyArAdjustment(
+   104→  tx: any,
+   105→  customerId: string,
+   106→  grandTotal: number
+   107→): Promise<void> {
+   108→  const customer = await tx.customer.findUnique({
+   109→    where: { id: customerId },
+   110→    select: {
+   111→      id: true,
+   112→      currentBalance: true,
+   113→      currentBalanceType: true,
+   114→      creditLimit: true,
+   115→      creditStatus: true,
+   116→    },
+   117→  });
+   118→  if (!customer) return;
+   119→
+   120→  let newBalance = customer.currentBalance;
+   121→  let newBalanceType = customer.currentBalanceType;
+   122→
+   123→  if (customer.currentBalanceType === 'Dr') {
+   124→    // Customer owes us less; subtract from Dr balance
+   125→    newBalance = safeFinancialSubtract(customer.currentBalance, grandTotal);
+   126→    if (newBalance < 0) {
+   127→      // Flipped to Cr — customer is now owed money
+   128→      newBalance = Math.abs(newBalance);
+   129→      newBalanceType = 'Cr';
+   130→    }
+   131→  } else {
+   132→    // Customer already has Cr balance (we owe them); add to Cr
+   133→    newBalance = safeFinancialAdd(customer.currentBalance, grandTotal);
+   134→    newBalanceType = 'Cr';
+   135→  }
+   136→
+   137→  // Normalize: if balance rounds to 0, default to Dr
+   138→  if (safeFinancialRound(newBalance) === 0) {
+   139→    newBalance = 0;
+   140→    newBalanceType = 'Dr';
+   141→  }
+   142→
+   143→  // Check credit status toggle: OverLimit → Active if balance normalized below creditLimit
+   144→  let newCreditStatus = customer.creditStatus;
+   145→  if (customer.creditStatus === 'OverLimit' && customer.creditLimit > 0) {
+   146→    if (newBalanceType === 'Dr' && newBalance <= customer.creditLimit) {
+   147→      newCreditStatus = 'Active';
+   148→    } else if (newBalanceType === 'Cr') {
+   149→      // Cr balance means customer is owed — definitely within credit limit
+   150→      newCreditStatus = 'Active';
+   151→    }
+   152→  }
+   153→
+   154→  await tx.customer.update({
+   155→    where: { id: customerId },
+   156→    data: {
+   157→      currentBalance: newBalance,
+   158→      currentBalanceType: newBalanceType,
+   159→      ...(newCreditStatus !== customer.creditStatus && {
+   160→        creditStatus: newCreditStatus,
+   161→      }),
+   162→    },
+   163→  });
+   164→}
+   165→
+   166→// ============================================================
+   167→// SHARED: Reverse AR Adjustment — add grandTotal back to
+   168→// Customer.currentBalance (undo the credit)
+   169→// ============================================================
+   170→
+   171→async function reverseArAdjustment(
+   172→  tx: any,
+   173→  customerId: string,
+   174→  grandTotal: number
+   175→): Promise<void> {
+   176→  const customer = await tx.customer.findUnique({
+   177→    where: { id: customerId },
+   178→    select: {
+   179→      id: true,
+   180→      currentBalance: true,
+   181→      currentBalanceType: true,
+   182→      creditLimit: true,
+   183→      creditStatus: true,
+   184→    },
+   185→  });
+   186→  if (!customer) return;
+   187→
+   188→  let newBalance = customer.currentBalance;
+   189→  let newBalanceType = customer.currentBalanceType;
+   190→
+   191→  // Reverse: we previously reduced Dr or increased Cr.
+   192→  // Now we need to increase Dr or reduce Cr by grandTotal.
+   193→  if (customer.currentBalanceType === 'Cr') {
+   194→    // Customer was Cr (owed money); reduce Cr balance
+   195→    newBalance = safeFinancialSubtract(customer.currentBalance, grandTotal);
+   196→    if (newBalance < 0) {
+   197→      // Flipped to Dr — customer now owes us
+   198→      newBalance = Math.abs(newBalance);
+   199→      newBalanceType = 'Dr';
+   200→    }
+   201→  } else {
+   202→    // Customer was Dr (owes us); add back to Dr balance
+   203→    newBalance = safeFinancialAdd(customer.currentBalance, grandTotal);
+   204→    newBalanceType = 'Dr';
+   205→  }
+   206→
+   207→  // Normalize: if balance rounds to 0, default to Dr
+   208→  if (safeFinancialRound(newBalance) === 0) {
+   209→    newBalance = 0;
+   210→    newBalanceType = 'Dr';
+   211→  }
+   212→
+   213→  // Check if reversal pushes customer back OverLimit
+   214→  let newCreditStatus = customer.creditStatus;
+   215→  if (customer.creditLimit > 0 && newBalanceType === 'Dr' && newBalance > customer.creditLimit) {
+   216→    newCreditStatus = 'OverLimit';
+   217→  }
+   218→
+   219→  await tx.customer.update({
+   220→    where: { id: customerId },
+   221→    data: {
+   222→      currentBalance: newBalance,
+   223→      currentBalanceType: newBalanceType,
+   224→      ...(newCreditStatus !== customer.creditStatus && {
+   225→        creditStatus: newCreditStatus,
+   226→      }),
+   227→    },
+   228→  });
+   229→}
+   230→
+   231→// ============================================================
+   232→// GET /api/sales-returns — List all sales returns with relations
+   233→// ============================================================
+   234→
+   235→export async function GET(request: NextRequest) {
+   236→  const security = await withApiSecurity(request, 'SalesReturns', 'GET');
+   237→  if (!security.authorized) return security.response;
+   238→
+   239→  try {
+   240→    const { searchParams } = new URL(request.url);
+   241→    const status = searchParams.get('status');
+   242→    const customerId = searchParams.get('customerId');
+   243→    const dateFrom = searchParams.get('dateFrom');
+   244→    const dateTo = searchParams.get('dateTo');
+   245→
+   246→    const where: Record<string, unknown> = { isActive: true };
+   247→
+   248→    if (status) where.status = status;
+   249→    if (customerId) where.customerId = customerId;
+   250→
+   251→    // Date range filter
+   252→    if (dateFrom || dateTo) {
+   253→      const dateFilter: Record<string, Date> = {};
+   254→      if (dateFrom) dateFilter.gte = new Date(dateFrom);
+   255→      if (dateTo) dateFilter.lte = new Date(dateTo);
+   256→      where.date = dateFilter;
+   257→    }
+   258→
+   259→    // Company isolation for non-admin users
+   260→    if (security.user.companyId && security.user.role !== 'admin') {
+   261→      where.companyId = security.user.companyId;
+   262→    }
+   263→
+   264→    const salesReturns = await db.salesReturn.findMany({
+   265→      where,
+   266→      include: {
+   267→        salesOrder: {
+   268→          include: {
+   269→            customer: true,
+   270→          },
+   271→        },
+   272→        customer: true,
+   273→        godown: true,
+   274→        company: true,
+   275→        lines: {
+   276→          include: {
+   277→            product: true,
+   278→          },
+   279→        },
+   280→      },
+   281→      orderBy: { createdAt: 'desc' },
+   282→    });
+   283→
+   284→    // Apply VAT Auditor masking for financial fields
+   285→    const maskedReturns = salesReturns.map((ret) =>
+   286→      maskForVatAuditorFinancial(ret as Record<string, unknown>, security.user.role)
+   287→    );
+   288→
+   289→    return NextResponse.json(maskedReturns);
+   290→  } catch (error) {
+   291→    console.error('[SalesReturns] GET error:', error);
+   292→    return NextResponse.json(
+   293→      { error: 'Failed to fetch sales returns' },
+   294→      { status: 500 }
+   295→    );
+   296→  }
+   297→}
+   298→
+   299→// ============================================================
+   300→// POST /api/sales-returns — Create sales return with full validation
+   301→// POST /api/sales-returns?import=true — CSV Import
+   302→// ============================================================
+   303→
+   304→export async function POST(request: NextRequest) {
+   305→  const security = await withApiSecurity(request, 'SalesReturns', 'POST');
+   306→  if (!security.authorized) return security.response;
+   307→
+   308→  try {
+   309→    const { searchParams } = new URL(request.url);
+   310→    const isImport = searchParams.get('import') === 'true';
+   311→
+   312→    if (isImport) {
+   313→      return handleCsvImport(request, security);
+   314→    }
+   315→
+   316→    return handleCreate(request, security);
+   317→  } catch (error) {
+   318→    console.error('[SalesReturns] POST error:', error);
+   319→    return NextResponse.json(
+   320→      { error: 'Failed to process sales return request' },
+   321→      { status: 500 }
+   322→    );
+   323→  }
+   324→}
+   325→
+   326→// ============================================================
+   327→// Create Handler — Single sales return with COGS reversal & AR adjustment
+   328→// ============================================================
+   329→
+   330→async function handleCreate(
+   331→  request: NextRequest,
+   332→  security: { user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+   333→): Promise<NextResponse> {
+   334→  const body = await request.json();
+   335→  const {
+   336→    salesOrderId,
+   337→    customerId,
+   338→    godownId,
+   339→    date,
+   340→    discount,
+   341→    vatPercentage,
+   342→    reason,
+   343→    creditMemoCode,
+   344→    lines,
+   345→    referenceKey,
+   346→  } = body;
+   347→
+   348→  // ── Validation ──
+   349→  if (!salesOrderId) {
+   350→    return NextResponse.json(
+   351→      { error: 'salesOrderId is required' },
+   352→      { status: 400 }
+   353→    );
+   354→  }
+   355→  if (!customerId) {
+   356→    return NextResponse.json(
+   357→      { error: 'customerId is required' },
+   358→      { status: 400 }
+   359→    );
+   360→  }
+   361→  if (!date) {
+   362→    return NextResponse.json(
+   363→      { error: 'date is required' },
+   364→      { status: 400 }
+   365→    );
+   366→  }
+   367→  if (!lines || !Array.isArray(lines) || lines.length === 0) {
+   368→    return NextResponse.json(
+   369→      { error: 'At least one line item is required' },
+   370→      { status: 400 }
+   371→    );
+   372→  }
+   373→
+   374→  // Period close guard
+   375→  const periodLock = await checkPeriodClose(new Date(date));
+   376→  if (periodLock) return periodLock;
+   377→
+   378→  // Idempotency check via referenceKey
+   379→  if (referenceKey) {
+   380→    const existing = await db.salesReturn.findFirst({
+   381→      where: { referenceKey },
+   382→    });
+   383→    if (existing) {
+   384→      return NextResponse.json(
+   385→        {
+   386→          error: 'Duplicate submission detected. This sales return has already been created.',
+   387→          referenceKey,
+   388→          existingId: existing.id,
+   389→        },
+   390→        { status: 409 }
+   391→      );
+   392→    }
+   393→  }
+   394→
+   395→  // Validate sales order exists
+   396→  const salesOrder = await db.salesOrder.findUnique({
+   397→    where: { id: salesOrderId },
+   398→    include: { lines: true, customer: true },
+   399→  });
+   400→  if (!salesOrder) {
+   401→    return NextResponse.json(
+   402→      { error: 'Sales order not found' },
+   403→      { status: 400 }
+   404→    );
+   405→  }
+   406→
+   407→  // Validate customer exists
+   408→  const customer = await db.customer.findUnique({
+   409→    where: { id: customerId },
+   410→  });
+   411→  if (!customer) {
+   412→    return NextResponse.json(
+   413→      { error: 'Customer not found' },
+   414→      { status: 400 }
+   415→    );
+   416→  }
+   417→
+   418→  // Godown SUSPENDED status check
+   419→  if (godownId) {
+   420→    const targetGodown = await db.godown.findUnique({
+   421→      where: { id: godownId },
+   422→      select: { id: true, name: true, status: true, isActive: true },
+   423→    });
+   424→    if (!targetGodown || !targetGodown.isActive) {
+   425→      return NextResponse.json(
+   426→        { error: 'Destination warehouse not found or is inactive' },
+   427→        { status: 400 }
+   428→      );
+   429→    }
+   430→    if (targetGodown.status === 'SUSPENDED') {
+   431→      return NextResponse.json(
+   432→        {
+   433→          error: `EMERGENCY CLOSURE: Warehouse "${targetGodown.name}" is SUSPENDED. All receipt orders to this location are blocked until reactivated.`,
+   434→        },
+   435→        { status: 403 }
+   436→      );
+   437→    }
+   438→  }
+   439→
+   440→  // ── Transaction: create with full validation ──
+   441→  const result = await db.$transaction(async (tx) => {
+   442→    // Process lines with COGS reversal calculation
+   443→    const computedLines: ComputedSRLine[] = [];
+   444→
+   445→    for (const line of lines) {
+   446→      if (!line.productId) {
+   447→        throw Object.assign(new Error('VALIDATION_ERROR'), {
+   448→          validationError: 'Each line must have a productId',
+   449→        });
+   450→      }
+   451→
+   452→      // Find the original sales order line for this product
+   453→      const salesOrderLine = await tx.salesOrderLine.findFirst({
+   454→        where: {
+   455→          salesOrderId,
+   456→          productId: line.productId,
+   457→        },
+   458→      });
+   459→
+   460→      if (!salesOrderLine) {
+   461→        throw Object.assign(new Error('VALIDATION_ERROR'), {
+   462→          validationError: `Product not found in Sales Order. Cannot return items that were not part of the original order.`,
+   463→        });
+   464→      }
+   465→
+   466→      // ── Cumulative Return Validation ──
+   467→      const existingReturns = await tx.salesReturn.findMany({
+   468→        where: {
+   469→          salesOrderId,
+   470→          isActive: true,
+   471→          status: { not: 'Rejected' },
+   472→        },
+   473→        include: { lines: { where: { productId: line.productId } } },
+   474→      });
+   475→      const totalAlreadyReturned = existingReturns.reduce(
+   476→        (sum, ret) => sum + ret.lines.reduce((lineSum, l) => lineSum + l.quantity, 0),
+   477→        0
+   478→      );
+   479→      const requestedQty = Number(line.quantity) || 0;
+   480→
+   481→      if (totalAlreadyReturned + requestedQty > salesOrderLine.quantity) {
+   482→        const fmtBD = (v: number) =>
+   483→          new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+   484→        throw Object.assign(new Error('CUMULATIVE_EXCEEDED'), {
+   485→          validationError: `Cumulative return quantity (${fmtBD(totalAlreadyReturned + requestedQty)}) exceeds original order quantity (${fmtBD(salesOrderLine.quantity)}) for this product. Already returned: ${fmtBD(totalAlreadyReturned)}, Attempting: ${fmtBD(requestedQty)}`,
+   486→        });
+   487→      }
+   488→
+   489→      // ── COGS Reversal Calculation ──
+   490→      // Use the original order line's costPrice; fallback to Product.costPrice
+   491→      let costPrice = salesOrderLine.costPrice || 0;
+   492→
+   493→      if (!costPrice) {
+   494→        // Fallback: look up current Product.costPrice
+   495→        const product = await tx.product.findUnique({
+   496→          where: { id: line.productId },
+   497→          select: { costPrice: true },
+   498→        });
+   499→        costPrice = product?.costPrice || 0;
+   500→      }
+   501→
+   502→      const computed = computeSRLineFinancials(
+   503→        {
+   504→          productId: line.productId,
+   505→          quantity: requestedQty,
+   506→          rate: Number(line.rate) || 0,
+   507→          discountPercent: Number(line.discountPercent) || 0,
+   508→          discountAmount: line.discountAmount ? Number(line.discountAmount) : undefined,
+   509→          vatAmount: line.vatAmount ? Number(line.vatAmount) : undefined,
+   510→        },
+   511→        costPrice
+   512→      );
+   513→
+   514→      computedLines.push(computed);
+   515→    }
+   516→
+   517→    // Compute order-level financials
+   518→    const subTotal = computedLines.reduce(
+   519→      (sum, l) => safeFinancialAdd(sum, l.total),
+   520→      0
+   521→    );
+   522→    const headerDiscount = Number(discount) || 0;
+   523→    const vatPct = Number(vatPercentage) || 0;
+   524→    const afterDiscount = safeFinancialSubtract(subTotal, headerDiscount);
+   525→    const vatAmount = safeFinancialRound(afterDiscount * (vatPct / 100));
+   526→    const grandTotal = safeFinancialAdd(afterDiscount, vatAmount);
+   527→
+   528→    // Compute order-level COGS reversal
+   529→    const cogsReversalTotal = computedLines.reduce(
+   530→      (sum, l) => safeFinancialAdd(sum, l.cogsReversal),
+   531→      0
+   532→    );
+   533→
+   534→    // Auto-generate returnNo
+   535→    const returnNo = await generateReturnNo(tx);
+   536→
+   537→    // Determine company ID
+   538→    const companyId = security.user.companyId || salesOrder.companyId || null;
+   539→
+   540→    // Create sales return with lines
+   541→    const salesReturn = await tx.salesReturn.create({
+   542→      data: {
+   543→        returnNo,
+   544→        salesOrderId,
+   545→        customerId,
+   546→        godownId: godownId || null,
+   547→        date: new Date(date),
+   548→        subTotal,
+   549→        discount: headerDiscount,
+   550→        vatPercentage: vatPct,
+   551→        vatAmount,
+   552→        reason: reason ? stripHtml(String(reason)) : null,
+   553→        grandTotal,
+   554→        creditMemoCode: creditMemoCode || null,
+   555→        status: 'Pending',
+   556→        cogsReversal: cogsReversalTotal,
+   557→        arAdjustmentPosted: true,
+   558→        referenceKey: referenceKey || null,
+   559→        companyId,
+   560→        lines: {
+   561→          create: computedLines.map((cl) => ({
+   562→            productId: cl.productId,
+   563→            quantity: cl.quantity,
+   564→            rate: cl.rate,
+   565→            discountPercent: cl.discountPercent,
+   566→            discountAmount: cl.discountAmount,
+   567→            vatAmount: cl.vatAmount,
+   568→            total: cl.total,
+   569→            costPrice: cl.costPrice,
+   570→            cogsReversal: cl.cogsReversal,
+   571→          })),
+   572→        },
+   573→      },
+   574→      include: {
+   575→        salesOrder: { include: { customer: true } },
+   576→        customer: true,
+   577→        godown: true,
+   578→        company: true,
+   579→        lines: { include: { product: true } },
+   580→      },
+   581→    });
+   582→
+   583→    // Create StockEntry (type="IN") for each line — items restocked
+   584→    for (const line of computedLines) {
+   585→      await tx.stockEntry.create({
+   586→        data: {
+   587→          productId: line.productId,
+   588→          godownId: godownId || null,
+   589→          type: 'IN',
+   590→          quantity: line.quantity,
+   591→          reference: returnNo,
+   592→          referenceType: 'SalesReturn',
+   593→          date: new Date(date),
+   594→        },
+   595→      });
+   596→    }
+   597→
+   598→    // ── AR Adjustment: Reduce Customer.currentBalance by grandTotal ──
+   599→    await applyArAdjustment(tx, customerId, grandTotal);
+   600→
+   601→    // Audit log
+   602→    await tx.auditLog.create({
+   603→      data: {
+   604→        action: 'CREATE',
+   605→        module: 'SalesReturns',
+   606→        recordId: salesReturn.id,
+   607→        recordLabel: returnNo,
+   608→        userId: security.user.id,
+   609→        userName: security.user.name,
+   610→        details: JSON.stringify({
+   611→          returnNo,
+   612→          salesOrderId,
+   613→          customerId,
+   614→          subTotal,
+   615→          discount: headerDiscount,
+   616→          vatPercentage: vatPct,
+   617→          vatAmount,
+   618→          grandTotal,
+   619→          cogsReversal: cogsReversalTotal,
+   620→          arAdjustmentPosted: true,
+   621→          lineCount: computedLines.length,
+   622→        }),
+   623→      },
+   624→    });
+   625→
+   626→    // Activity log
+   627→    await logUserActivity({
+   628→          tx: tx,
+   629→      action: 'CREATE',
+   630→      module: 'Inv-SalesReturn-Pipeline',
+   631→      recordId: salesReturn.id,
+   632→      recordLabel: returnNo,
+   633→      userId: security.user.id,
+   634→      userName: security.user.name,
+   635→      details: `Created sales return ${returnNo} for customer ${customer.name} against order ${salesOrder.invoiceNo} with ${computedLines.length} lines, grandTotal=${grandTotal}, cogsReversal=${cogsReversalTotal}`,
+   636→    });
+   637→
+   638→    return salesReturn;
+   639→  }).catch((error: any) => {
+   640→    // Re-throw validation errors
+   641→    if (error?.message === 'VALIDATION_ERROR') {
+   642→      return { _validationError: true, message: error.validationError };
+   643→    }
+   644→    if (error?.message === 'CUMULATIVE_EXCEEDED') {
+   645→      return { _cumulativeError: true, message: error.validationError };
+   646→    }
+   647→    throw error;
+   648→  });
+   649→
+   650→  // Handle validation failure
+   651→  if (result && typeof result === 'object' && '_validationError' in result) {
+   652→    return NextResponse.json(
+   653→      { error: result.message },
+   654→      { status: 400 }
+   655→    );
+   656→  }
+   657→
+   658→  // Handle cumulative exceeded failure
+   659→  if (result && typeof result === 'object' && '_cumulativeError' in result) {
+   660→    return NextResponse.json(
+   661→      { error: result.message },
+   662→      { status: 400 }
+   663→    );
+   664→  }
+   665→
+   666→  return NextResponse.json(result, { status: 201 });
+   667→}
+   668→
+   669→// ============================================================
+   670→// CSV Import Handler
+   671→// Headers: salesOrderId (or invoiceNo), customerCode, date, productCode,
+   672→//          quantity, rate, discountPercent, vatAmount, godownCode, reason
+   673→// ============================================================
+   674→
+   675→async function handleCsvImport(
+   676→  request: NextRequest,
+   677→  security: { user: { id: string; email: string; name: string; role: string; companyId: string | null } }
+   678→): Promise<NextResponse> {
+   679→  const contentType = request.headers.get('content-type') || '';
+   680→  let csvText: string;
+   681→
+   682→  if (contentType.includes('text/csv')) {
+   683→    csvText = await request.text();
+   684→  } else {
+   685→    // Also accept JSON with a csvData field
+   686→    const body = await request.json();
+   687→    csvText = body.csvData || body.csv || '';
+   688→  }
+   689→
+   690→  if (!csvText.trim()) {
+   691→    return NextResponse.json(
+   692→      { error: 'No CSV data provided' },
+   693→      { status: 400 }
+   694→    );
+   695→  }
+   696→
+   697→  // Parse CSV with PapaParse
+   698→  const parseResult = Papa.parse(csvText.trim(), {
+   699→    header: true,
+   700→    skipEmptyLines: true,
+   701→    transformHeader: (h: string) => h.trim().replace(/"/g, ''),
+   702→  });
+   703→
+   704→  if (parseResult.errors.length > 0) {
+   705→    const fieldErrors = parseResult.errors.map((e) => ({
+   706→      row: e.row !== undefined ? e.row + 2 : 0,
+   707→      message: e.message,
+   708→    }));
+   709→    return NextResponse.json(
+   710→      {
+   711→        error: 'CSV parsing failed',
+   712→        imported: 0,
+   713→        failed: fieldErrors.length,
+   714→        fieldErrors,
+   715→      },
+   716→      { status: 400 }
+   717→    );
+   718→  }
+   719→
+   720→  const requiredHeaders = ['customerCode', 'date', 'productCode', 'quantity', 'rate'];
+   721→  const headers = parseResult.meta.fields || [];
+   722→  const missingHeaders = requiredHeaders.filter((h) => !headers.includes(h));
+   723→  if (missingHeaders.length > 0) {
+   724→    return NextResponse.json(
+   725→      { error: `Missing required CSV headers: ${missingHeaders.join(', ')}` },
+   726→      { status: 400 }
+   727→    );
+   728→  }
+   729→
+   730→  interface CsvRow {
+   731→    salesOrderId?: string;
+   732→    invoiceNo?: string;
+   733→    customerCode: string;
+   734→    date: string;
+   735→    productCode: string;
+   736→    quantity: string;
+   737→    rate: string;
+   738→    discountPercent?: string;
+   739→    vatAmount?: string;
+   740→    godownCode?: string;
+   741→    reason?: string;
+   742→  }
+   743→
+   744→  const parsedRows = parseResult.data as CsvRow[];
+   745→  const errors: Array<{ row: number; message: string }> = [];
+   746→  const fieldErrors: Array<{ row: number; field: string; message: string }> = [];
+   747→
+   748→  // ── Cross-reference customerCode against Customer.customerCode ──
+   749→  const customerCodes = [...new Set(parsedRows.map((r) => r.customerCode?.trim()).filter(Boolean))];
+   750→  const existingCustomers = await db.customer.findMany({
+   751→    where: { customerCode: { in: customerCodes } },
+   752→    select: { id: true, customerCode: true, name: true, creditStatus: true, companyId: true },
+   753→  });
+   754→  const customerMap = new Map(existingCustomers.map((c) => [c.customerCode, c]));
+   755→
+   756→  // ── Cross-reference productCode against Product.productCode ──
+   757→  const productCodes = [...new Set(parsedRows.map((r) => r.productCode?.trim()).filter(Boolean))];
+   758→  const existingProducts = await db.product.findMany({
+   759→    where: { productCode: { in: productCodes } },
+   760→    select: { id: true, productCode: true, name: true, costPrice: true },
+   761→  });
+   762→  const productMap = new Map(existingProducts.map((p) => [p.productCode, p]));
+   763→
+   764→  // ── Cross-reference godownCode against Godown.code ──
+   765→  const godownCodes = [...new Set(parsedRows.map((r) => r.godownCode?.trim()).filter(Boolean))];
+   766→  let godownMap = new Map<string, { id: string; code: string; name: string; status: string }>();
+   767→  if (godownCodes.length > 0) {
+   768→    const existingGodowns = await db.godown.findMany({
+   769→      where: { code: { in: godownCodes } },
+   770→      select: { id: true, code: true, name: true, status: true },
+   771→    });
+   772→    godownMap = new Map(existingGodowns.map((g) => [g.code, g]));
+   773→  }
+   774→
+   775→  // Validate each row
+   776→  interface ValidRow {
+   777→    rowNum: number;
+   778→    salesOrderId: string | null;
+   779→    invoiceNo: string | null;
+   780→    customerId: string;
+   781→    customerCode: string;
+   782→    date: string;
+   783→    productId: string;
+   784→    productCode: string;
+   785→    quantity: number;
+   786→    rate: number;
+   787→    discountPercent: number;
+   788→    vatAmount: number;
+   789→    godownId: string | null;
+   790→    reason: string;
+   791→  }
+   792→
+   793→  const validRows: ValidRow[] = [];
+   794→
+   795→  for (let i = 0; i < parsedRows.length; i++) {
+   796→    const row = parsedRows[i];
+   797→    const rowNum = i + 2; // +2: 1-indexed + header row
+   798→
+   799→    const salesOrderIdVal = (row.salesOrderId || '').trim();
+   800→    const invoiceNoVal = (row.invoiceNo || '').trim();
+   801→    const customerCode = (row.customerCode || '').trim();
+   802→    const dateVal = (row.date || '').trim();
+   803→    const productCode = (row.productCode || '').trim();
+   804→    const quantityStr = (row.quantity || '').trim();
+   805→    const rateStr = (row.rate || '').trim();
+   806→    const discountPercentStr = (row.discountPercent || '').trim();
+   807→    const vatAmountStr = (row.vatAmount || '').trim();
+   808→    const godownCode = (row.godownCode || '').trim();
+   809→    const reasonVal = (row.reason || '').trim();
+   810→
+   811→    // ── Incomplete Transaction ID Rejection ──
+   812→    // Reject rows where both salesOrderId and invoiceNo are missing or empty
+   813→    if (!salesOrderIdVal && !invoiceNoVal) {
+   814→      errors.push({
+   815→        row: rowNum,
+   816→        message: 'Incomplete transaction ID: Either salesOrderId or invoiceNo must be provided. Row rejected.',
+   817→      });
+   818→      fieldErrors.push({
+   819→        row: rowNum,
+   820→        field: 'salesOrderId/invoiceNo',
+   821→        message: 'Either salesOrderId or invoiceNo must be provided',
+   822→      });
+   823→      continue;
+   824→    }
+   825→
+   826→    // Validate customerCode
+   827→    if (!customerCode) {
+   828→      errors.push({ row: rowNum, message: 'customerCode is required' });
+   829→      continue;
+   830→    }
+   831→
+   832→    // ── Client Limit Validation: Check customer exists and creditStatus is not Frozen ──
+   833→    const csvCustomer = customerMap.get(customerCode);
+   834→    if (!csvCustomer) {
+   835→      errors.push({
+   836→        row: rowNum,
+   837→        message: `Customer code "${customerCode}" does not exist. Row rejected.`,
+   838→      });
+   839→      continue;
+   840→    }
+   841→    if (csvCustomer.creditStatus === 'Frozen') {
+   842→      errors.push({
+   843→        row: rowNum,
+   844→        message: `Customer "${csvCustomer.name}" (${customerCode}) account is FROZEN. Cannot create sales return for frozen accounts. Row rejected.`,
+   845→      });
+   846→      continue;
+   847→    }
+   848→
+   849→    // Validate date
+   850→    if (!dateVal || isNaN(Date.parse(dateVal))) {
+   851→      errors.push({ row: rowNum, message: `Invalid date "${dateVal}"` });
+   852→      continue;
+   853→    }
+   854→
+   855→    // Validate productCode
+   856→    if (!productCode) {
+   857→      errors.push({ row: rowNum, message: 'productCode is required' });
+   858→      continue;
+   859→    }
+   860→
+   861→    const csvProduct = productMap.get(productCode);
+   862→    if (!csvProduct) {
+   863→      errors.push({
+   864→        row: rowNum,
+   865→        message: `Product code "${productCode}" does not exist. Row rejected.`,
+   866→      });
+   867→      continue;
+   868→    }
+   869→
+   870→    // Validate quantity
+   871→    const quantity = parseFloat(quantityStr);
+   872→    if (isNaN(quantity) || quantity <= 0) {
+   873→      errors.push({
+   874→        row: rowNum,
+   875→        message: `Invalid quantity "${quantityStr}". Must be a positive number.`,
+   876→      });
+   877→      continue;
+   878→    }
+   879→
+   880→    // Validate rate
+   881→    const rate = parseFloat(rateStr);
+   882→    if (isNaN(rate) || rate < 0) {
+   883→      errors.push({
+   884→        row: rowNum,
+   885→        message: `Invalid rate "${rateStr}". Must be a non-negative number.`,
+   886→      });
+   887→      continue;
+   888→    }
+   889→
+   890→    const discountPercent = discountPercentStr ? parseFloat(discountPercentStr) : 0;
+   891→    if (discountPercentStr && (isNaN(discountPercent) || discountPercent < 0 || discountPercent > 100)) {
+   892→      errors.push({
+   893→        row: rowNum,
+   894→        message: `Invalid discountPercent "${discountPercentStr}". Must be between 0 and 100.`,
+   895→      });
+   896→      continue;
+   897→    }
+   898→
+   899→    const vatAmount = vatAmountStr ? parseFloat(vatAmountStr) : 0;
+   900→    if (vatAmountStr && (isNaN(vatAmount) || vatAmount < 0)) {
+   901→      errors.push({
+   902→        row: rowNum,
+   903→        message: `Invalid vatAmount "${vatAmountStr}". Must be a non-negative number.`,
+   904→      });
+   905→      continue;
+   906→    }
+   907→
+   908→    // Resolve godown
+   909→    let godownId: string | null = null;
+   910→    if (godownCode) {
+   911→      const godown = godownMap.get(godownCode);
+   912→      if (!godown) {
+   913→        errors.push({
+   914→          row: rowNum,
+   915→          message: `Godown code "${godownCode}" does not exist. Row rejected.`,
+   916→        });
+   917→        continue;
+   918→      }
+   919→      if (godown.status === 'SUSPENDED') {
+   920→        errors.push({
+   921→          row: rowNum,
+   922→          message: `Godown "${godown.name}" (${godownCode}) is SUSPENDED. Row rejected.`,
+   923→        });
+   924→        continue;
+   925→      }
+   926→      godownId = godown.id;
+   927→    }
+   928→
+   929→    validRows.push({
+   930→      rowNum,
+   931→      salesOrderId: salesOrderIdVal || null,
+   932→      invoiceNo: invoiceNoVal || null,
+   933→      customerId: csvCustomer.id,
+   934→      customerCode,
+   935→      date: dateVal,
+   936→      productId: csvProduct.id,
+   937→      productCode,
+   938→      quantity,
+   939→      rate,
+   940→      discountPercent,
+   941→      vatAmount,
+   942→      godownId,
+   943→      reason: reasonVal,
+   944→    });
+   945→  }
+   946→
+   947→  if (validRows.length === 0) {
+   948→    return NextResponse.json(
+   949→      {
+   950→        imported: 0,
+   951→        failed: errors.length,
+   952→        errors,
+   953→        fieldErrors,
+   954→        message: 'No valid rows to import. All rows had errors.',
+   955→      },
+   956→      { status: 400 }
+   957→    );
+   958→  }
+   959→
+   960→  // ── Resolve salesOrderId for each row ──
+   961→  // If invoiceNo is provided instead of salesOrderId, resolve it
+   962→  for (const row of validRows) {
+   963→    if (!row.salesOrderId && row.invoiceNo) {
+   964→      const so = await db.salesOrder.findFirst({
+   965→        where: { invoiceNo: row.invoiceNo },
+   966→        select: { id: true, customerId: true },
+   967→      });
+   968→      if (!so) {
+   969→        errors.push({
+   970→          row: row.rowNum,
+   971→          message: `Sales order with invoiceNo "${row.invoiceNo}" does not exist. Row rejected.`,
+   972→        });
+   973→        continue;
+   974→      }
+   975→      row.salesOrderId = so.id;
+   976→    }
+   977→  }
+   978→
+   979→  // Filter out rows that still don't have a salesOrderId
+   980→  const resolvedRows = validRows.filter((r) => r.salesOrderId !== null);
+   981→
+   982→  // ── Group valid rows by salesOrderId to create separate returns per order ──
+   983→  const returnGroups = new Map<string, typeof resolvedRows>();
+   984→  for (const row of resolvedRows) {
+   985→    const groupKey = `${row.salesOrderId}|${row.date}`;
+   986→    if (!returnGroups.has(groupKey)) {
+   987→      returnGroups.set(groupKey, []);
+   988→    }
+   989→    returnGroups.get(groupKey)!.push(row);
+   990→  }
+   991→
+   992→  let imported = 0;
+   993→  const importErrors: Array<{ row: number; message: string }> = [];
+   994→
+   995→  for (const [groupKey, groupRows] of returnGroups) {
+   996→    const [salesOrderIdStr, dateStr] = groupKey.split('|');
+   997→
+   998→    try {
+   999→      await db.$transaction(async (tx) => {
+  1000→        // Period close check
+  1001→        const periodLock = await checkPeriodClose(new Date(dateStr));
+  1002→        if (periodLock) {
+  1003→          throw new Error(`Period locked for date ${dateStr}`);
+  1004→        }
+  1005→
+  1006→        // Fetch the sales order with lines for COGS calculation
+  1007→        const salesOrder = await tx.salesOrder.findUnique({
+  1008→          where: { id: salesOrderIdStr },
+  1009→          include: { lines: true, customer: true },
+  1010→        });
+  1011→        if (!salesOrder) {
+  1012→          throw new Error(`Sales order ${salesOrderIdStr} not found`);
+  1013→        }
+  1014→
+  1015→        const customerId = groupRows[0].customerId;
+  1016→        const godownId = groupRows[0].godownId;
+  1017→
+  1018→        // Compute line financials with COGS reversal
+  1019→        const computedLines: ComputedSRLine[] = [];
+  1020→
+  1021→        for (const row of groupRows) {
+  1022→          // Find the original sales order line for this product
+  1023→          const salesOrderLine = salesOrder.lines.find(
+  1024→            (l) => l.productId === row.productId
+  1025→          );
+  1026→
+  1027→          if (!salesOrderLine) {
+  1028→            throw new Error(
+  1029→              `Product code "${row.productCode}" not found in Sales Order ${salesOrder.invoiceNo}. Row rejected.`
+  1030→            );
+  1031→          }
+  1032→
+  1033→          // Cumulative return validation
+  1034→          const existingReturns = await tx.salesReturn.findMany({
+  1035→            where: {
+  1036→              salesOrderId: salesOrderIdStr,
+  1037→              isActive: true,
+  1038→              status: { not: 'Rejected' },
+  1039→            },
+  1040→            include: { lines: { where: { productId: row.productId } } },
+  1041→          });
+  1042→          const totalAlreadyReturned = existingReturns.reduce(
+  1043→            (sum, ret) => sum + ret.lines.reduce((lineSum, l) => lineSum + l.quantity, 0),
+  1044→            0
+  1045→          );
+  1046→
+  1047→          if (totalAlreadyReturned + row.quantity > salesOrderLine.quantity) {
+  1048→            throw new Error(
+  1049→              `Cumulative return quantity exceeds original order quantity for product "${row.productCode}". Already returned: ${totalAlreadyReturned}, Attempting: ${row.quantity}`
+  1050→            );
+  1051→          }
+  1052→
+  1053→          // COGS Reversal Calculation
+  1054→          let costPrice = salesOrderLine.costPrice || 0;
+  1055→          if (!costPrice) {
+  1056→            const product = await tx.product.findUnique({
+  1057→              where: { id: row.productId },
+  1058→              select: { costPrice: true },
+  1059→            });
+  1060→            costPrice = product?.costPrice || 0;
+  1061→          }
+  1062→
+  1063→          const computed = computeSRLineFinancials(
+  1064→            {
+  1065→              productId: row.productId,
+  1066→              quantity: row.quantity,
+  1067→              rate: row.rate,
+  1068→              discountPercent: row.discountPercent,
+  1069→              vatAmount: row.vatAmount,
+  1070→            },
+  1071→            costPrice
+  1072→          );
+  1073→          computedLines.push(computed);
+  1074→        }
+  1075→
+  1076→        // Compute order-level financials
+  1077→        const subTotal = computedLines.reduce(
+  1078→          (sum, l) => safeFinancialAdd(sum, l.total),
+  1079→          0
+  1080→        );
+  1081→        const afterDiscount = subTotal;
+  1082→        const vatAmount = safeFinancialRound(0);
+  1083→        const grandTotal = safeFinancialAdd(afterDiscount, vatAmount);
+  1084→        const cogsReversalTotal = computedLines.reduce(
+  1085→          (sum, l) => safeFinancialAdd(sum, l.cogsReversal),
+  1086→          0
+  1087→        );
+  1088→
+  1089→        // Auto-generate returnNo
+  1090→        const returnNo = await generateReturnNo(tx);
+  1091→
+  1092→        // Determine company ID
+  1093→        const companyId = security.user.companyId || salesOrder.companyId || null;
+  1094→
+  1095→        const salesReturn = await tx.salesReturn.create({
+  1096→          data: {
+  1097→            returnNo,
+  1098→            salesOrderId: salesOrderIdStr,
+  1099→            customerId,
+  1100→            godownId,
+  1101→            date: new Date(dateStr),
+  1102→            subTotal,
+  1103→            discount: 0,
+  1104→            vatPercentage: 0,
+  1105→            vatAmount,
+  1106→            reason: groupRows[0].reason || `Imported from CSV. Order: ${salesOrder.invoiceNo}`,
+  1107→            grandTotal,
+  1108→            status: 'Pending',
+  1109→            cogsReversal: cogsReversalTotal,
+  1110→            arAdjustmentPosted: true,
+  1111→            referenceKey: null,
+  1112→            companyId,
+  1113→            lines: {
+  1114→              create: computedLines.map((cl) => ({
+  1115→                productId: cl.productId,
+  1116→                quantity: cl.quantity,
+  1117→                rate: cl.rate,
+  1118→                discountPercent: cl.discountPercent,
+  1119→                discountAmount: cl.discountAmount,
+  1120→                vatAmount: cl.vatAmount,
+  1121→                total: cl.total,
+  1122→                costPrice: cl.costPrice,
+  1123→                cogsReversal: cl.cogsReversal,
+  1124→              })),
+  1125→            },
+  1126→          },
+  1127→        });
+  1128→
+  1129→        // Create StockEntry (type="IN") for each line
+  1130→        for (const line of computedLines) {
+  1131→          await tx.stockEntry.create({
+  1132→            data: {
+  1133→              productId: line.productId,
+  1134→              godownId,
+  1135→              type: 'IN',
+  1136→              quantity: line.quantity,
+  1137→              reference: returnNo,
+  1138→              referenceType: 'SalesReturn',
+  1139→              date: new Date(dateStr),
+  1140→            },
+  1141→          });
+  1142→        }
+  1143→
+  1144→        // AR Adjustment
+  1145→        await applyArAdjustment(tx, customerId, grandTotal);
+  1146→
+  1147→        // Audit log
+  1148→        await tx.auditLog.create({
+  1149→          data: {
+  1150→            action: 'IMPORT',
+  1151→            module: 'SalesReturns',
+  1152→            recordId: salesReturn.id,
+  1153→            recordLabel: returnNo,
+  1154→            userId: security.user.id,
+  1155→            userName: security.user.name,
+  1156→            details: JSON.stringify({
+  1157→              returnNo,
+  1158→              salesOrderId: salesOrderIdStr,
+  1159→              customerId,
+  1160→              importedFrom: 'CSV',
+  1161→              lineCount: groupRows.length,
+  1162→              grandTotal,
+  1163→              cogsReversal: cogsReversalTotal,
+  1164→            }),
+  1165→          },
+  1166→        });
+  1167→
+  1168→        // Activity log
+  1169→        await logUserActivity({
+  1170→          tx: tx,
+  1171→          action: 'IMPORT',
+  1172→          module: 'Inv-SalesReturn-Pipeline',
+  1173→          recordId: salesReturn.id,
+  1174→          recordLabel: returnNo,
+  1175→          userId: security.user.id,
+  1176→          userName: security.user.name,
+  1177→          details: `CSV import created sales return ${returnNo} for customer against order ${salesOrder.invoiceNo} with ${groupRows.length} lines`,
+  1178→        });
+  1179→
+  1180→        imported += groupRows.length;
+  1181→      });
+  1182→    } catch (txError: any) {
+  1183→      importErrors.push({
+  1184→        row: 0,
+  1185→        message: `Failed to import sales return group for order ${salesOrderIdStr}: ${txError.message}`,
+  1186→      });
+  1187→    }
+  1188→  }
+  1189→
+  1190→  const allErrors = [...errors, ...importErrors];
+  1191→
+  1192→  return NextResponse.json({
+  1193→    imported,
+  1194→    failed: allErrors.length,
+  1195→    errors: allErrors,
+  1196→    fieldErrors,
+  1197→  });
+  1198→}
+  1199→

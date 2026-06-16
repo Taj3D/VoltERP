@@ -98,7 +98,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error creating expense/income head:', error);
     const message = error instanceof Error ? error.message : 'Failed to create expense/income head';
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Validation errors should return 400, not 500
+    const isValidation = /required|must be|already exists|duplicate/i.test(message);
+    const statusCode = isValidation ? 400 : 500;
+    return NextResponse.json({ error: message }, { status: statusCode });
   }
 }
 

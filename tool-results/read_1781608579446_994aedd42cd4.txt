@@ -1,0 +1,809 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo } from "react";
+     4→import {
+     5→  DollarSign, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark,
+     6→  Plus, Edit, Trash2, Download, Upload, RefreshCw, Search, Lock,
+     7→  FileDown, CheckCircle, AlertTriangle, ChevronDown, ChevronRight,
+     8→  FileText, Building2, Wallet, X, Shield, BookOpen, Copy
+     9→} from "lucide-react";
+    10→import { Button } from "@/components/ui/button";
+    11→import { Input } from "@/components/ui/input";
+    12→import { Card, CardContent } from "@/components/ui/card";
+    13→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+    14→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    15→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    16→import { Badge } from "@/components/ui/badge";
+    17→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    18→import { Textarea } from "@/components/ui/textarea";
+    19→import { Label } from "@/components/ui/label";
+    20→import { useToast } from "@/hooks/use-toast";
+    21→import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+    22→import { copyTableToClipboard } from "@/lib/clipboard-utils";
+    23→import type { CompanyProfile, ColumnDef } from "@/lib/export-utils";
+    24→import { apiFetch } from "@/lib/api-client";
+    25→import { useAuth } from "@/hooks/useAuth";
+    26→
+    27→// ── Utility Functions ──────────────────────────────────────────────
+    28→
+    29→import { fmtBDT as _fmtBDT, fmtCurrency as _fmtCurrencyVal, toLatinDigits } from "@/lib/number-format";
+    30→
+    31→const fmtCurrency = (v: any): string => { if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v; if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return _fmtBDT(n); };
+    32→const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
+    33→const fmtEmpty = (v: any) => (v === null || v === undefined || v === "") ? "—" : String(v);
+    34→const sanitizeCurrency = (val: any): number => { const num = Number(val); if (isNaN(num)) return 0; return Math.round(num * 100) / 100; };
+    35→const auditMask = "N/A (Audit Mode)";
+    36→
+    37→const statusColor = (status: string) => {
+    38→  switch (status) {
+    39→    case "Pending": return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+    40→    case "Approved": return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+    41→    case "Rejected": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+    42→    default: return "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400";
+    43→  }
+    44→};
+    45→
+    46→const typeBadge = (type: string) => {
+    47→  switch (type) {
+    48→    case "Deposit": return { className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", icon: ArrowDownCircle };
+    49→    case "Withdraw": return { className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", icon: ArrowUpCircle };
+    50→    case "Transfer": return { className: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400", icon: Banknote };
+    51→    default: return { className: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400", icon: DollarSign };
+    52→  }
+    53→};
+    54→
+    55→
+    56→// ── Stat Card Component ────────────────────────────────────────────
+    57→function StatCard({ label, value, icon: Icon, color, bg }: { label: string; value: any; icon: any; color: string; bg: string }) {
+    58→  return (
+    59→    <Card className="stat-mini-card"><CardContent className="p-3 flex items-center gap-2">
+    60→      <div className={`p-1.5 rounded-lg ${bg} ${color}`}><Icon className="w-4 h-4" /></div>
+    61→      <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{value}</p></div>
+    62→    </CardContent></Card>
+    63→  );
+    64→}
+    65→
+    66→// ============================================================
+    67→// MAIN COMPONENT
+    68→// ============================================================
+    69→// Map sidebar keys to internal tab keys
+    70→const mapInitialTab = (tab?: string): string => {
+    71→  if (!tab) return "heads";
+    72→  if (tab === "expense-income-heads") return "heads";
+    73→  if (tab === "expenses") return "expenses";
+    74→  if (tab === "incomes") return "incomes";
+    75→  if (tab === "cash-collections") return "collections";
+    76→  if (tab === "cash-deliveries") return "deliveries";
+    77→  if (tab === "bank-transactions") return "bank";
+    78→  return tab;
+    79→};
+    80→
+    81→export default function AccountManagementPage({ initialTab }: { initialTab?: string } = {}) {
+    82→  const { toast } = useToast();
+    83→  const { user, isVatAuditor, isDealer, isSR, isAdmin } = useAuth();
+    84→  const [activeTab, setActiveTab] = useState(mapInitialTab(initialTab));
+    85→
+    86→  // ── Data states ──────────────────────────────────────────────
+    87→  const [heads, setHeads] = useState<any[]>([]);
+    88→  const [expenses, setExpenses] = useState<any[]>([]);
+    89→  const [incomes, setIncomes] = useState<any[]>([]);
+    90→  const [collections, setCollections] = useState<any[]>([]);
+    91→  const [deliveries, setDeliveries] = useState<any[]>([]);
+    92→  const [bankTxns, setBankTxns] = useState<any[]>([]);
+    93→  const [banks, setBanks] = useState<any[]>([]);
+    94→  const [chartOfAccounts, setChartOfAccounts] = useState<any[]>([]);
+    95→  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
+    96→  const [customers, setCustomers] = useState<any[]>([]);
+    97→  const [suppliers, setSuppliers] = useState<any[]>([]);
+    98→  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | undefined>();
+    99→
+   100→  const [loading, setLoading] = useState(true);
+   101→  const [search, setSearch] = useState("");
+   102→  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+   103→
+   104→  // ── Form/Dialog states ───────────────────────────────────────
+   105→  const [showForm, setShowForm] = useState(false);
+   106→  const [editItem, setEditItem] = useState<any>(null);
+   107→  const [deleteItem, setDeleteItem] = useState<any>(null);
+   108→  const [saving, setSaving] = useState(false);
+   109→  const [formContext, setFormContext] = useState<string>("");
+   110→  const [formData, setFormData] = useState<Record<string, any>>({});
+   111→
+   112→  // ── Balance validation ───────────────────────────────────────
+   113→  const [balanceCheck, setBalanceCheck] = useState<any>(null);
+   114→
+   115→  // ── Load functions ───────────────────────────────────────────
+   116→  const loadAll = useCallback(async () => {
+   117→    setLoading(true);
+   118→    try {
+   119→      const [h, e, i, c, d, bt, b, coa, po, cust, supp, cp, bv] = await Promise.all([
+   120→        apiFetch("/api/expense-income-heads").catch(() => []),
+   121→        apiFetch("/api/expenses").catch(() => []),
+   122→        apiFetch("/api/incomes").catch(() => []),
+   123→        apiFetch("/api/cash-collections").catch(() => []),
+   124→        apiFetch("/api/cash-deliveries").catch(() => []),
+   125→        apiFetch("/api/bank-transactions").catch(() => []),
+   126→        apiFetch("/api/banks").catch(() => []),
+   127→        apiFetch("/api/chart-of-accounts").catch(() => []),
+   128→        apiFetch("/api/payment-options").catch(() => []),
+   129→        apiFetch("/api/customers").catch(() => []),
+   130→        apiFetch("/api/suppliers").catch(() => []),
+   131→        apiFetch("/api/company-branding").catch(() => ({ company: undefined })),
+   132→        apiFetch("/api/account-balance-validation").catch(() => null),
+   133→      ]);
+   134→      setHeads(Array.isArray(h) ? h : h?.data || []);
+   135→      setExpenses(Array.isArray(e) ? e : e?.data || []);
+   136→      setIncomes(Array.isArray(i) ? i : i?.data || []);
+   137→      setCollections(Array.isArray(c) ? c : c?.data || []);
+   138→      setDeliveries(Array.isArray(d) ? d : d?.data || []);
+   139→      setBankTxns(Array.isArray(bt) ? bt : bt?.data || []);
+   140→      setBanks(Array.isArray(b) ? b : b?.data || []);
+   141→      setChartOfAccounts(Array.isArray(coa) ? coa : coa?.data || []);
+   142→      setPaymentOptions(Array.isArray(po) ? po : po?.data || []);
+   143→      setCustomers(Array.isArray(cust) ? cust : cust?.data || []);
+   144→      setSuppliers(Array.isArray(supp) ? supp : supp?.data || []);
+   145→      setCompanyProfile((cp as any)?.company);
+   146→      setBalanceCheck(bv);
+   147→    } catch (e: any) {
+   148→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   149→    } finally { setLoading(false); }
+   150→  }, [toast]);
+   151→
+   152→  useEffect(() => { loadAll(); }, [loadAll]);
+   153→
+   154→  // ── Date range filter ───────────────────────────────────────
+   155→  const [dateFrom, setDateFrom] = useState("");
+   156→  const [dateTo, setDateTo] = useState("");
+   157→
+   158→  // ── Current tab data ─────────────────────────────────────────
+   159→  const currentData = useMemo(() => {
+   160→    switch (activeTab) {
+   161→      case "heads": return heads;
+   162→      case "expenses": return expenses;
+   163→      case "incomes": return incomes;
+   164→      case "collections": return collections;
+   165→      case "deliveries": return deliveries;
+   166→      case "bank-transactions": return bankTxns;
+   167→      default: return [];
+   168→    }
+   169→  }, [activeTab, heads, expenses, incomes, collections, deliveries, bankTxns]);
+   170→
+   171→  const filtered = useMemo(() => {
+   172→    let result = currentData;
+   173→    // Date range filter
+   174→    if (dateFrom || dateTo) {
+   175→      result = result.filter((item: any) => {
+   176→        if (!item.date) return false;
+   177→        const d = new Date(item.date);
+   178→        if (dateFrom && d < new Date(dateFrom)) return false;
+   179→        if (dateTo) { const to = new Date(dateTo); to.setHours(23, 59, 59, 999); if (d > to) return false; }
+   180→        return true;
+   181→      });
+   182→    }
+   183→    // Text search
+   184→    if (!search) return result;
+   185→    const s = search.toLowerCase();
+   186→    return result.filter((item: any) => {
+   187→      const searchable = [
+   188→        item.expenseCode, item.incomeCode, item.collectionCode, item.deliveryCode, item.transactionCode,
+   189→        item.head?.name, item.customer?.name, item.supplier?.name, item.bank?.bankName,
+   190→        item.name, item.type, item.status, item.description, item.chequeNo, item.voucherNo
+   191→      ].filter(Boolean).join(" ").toLowerCase();
+   192→      return searchable.includes(s);
+   193→    });
+   194→  }, [currentData, search, dateFrom, dateTo]);
+   195→
+   196→  // ── Stats per tab ────────────────────────────────────────────
+   197→  const stats = useMemo(() => {
+   198→    switch (activeTab) {
+   199→      case "heads": return [
+   200→        { label: "Total Heads", value: heads.length, icon: FileText, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+   201→        { label: "Expense Heads", value: heads.filter((h: any) => h.type === "Expense").length, icon: ArrowDownCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+   202→        { label: "Income Heads", value: heads.filter((h: any) => h.type === "Income").length, icon: ArrowUpCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   203→        { label: "CoA Linked", value: heads.filter((h: any) => h.chartOfAccountId).length, icon: BookOpen, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30" },
+   204→      ];
+   205→      case "expenses": return [
+   206→        { label: "Total Expenses", value: expenses.length, icon: ArrowDownCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+   207→        { label: "Total Amount", value: isVatAuditor ? auditMask : fmtCurrency(expenses.reduce((s: number, d: any) => s + (d.amount || 0), 0)), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   208→        { label: "Pending", value: expenses.filter((d: any) => d.status === "Pending").length, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+   209→        { label: "Ledger Posted", value: expenses.filter((d: any) => d.ledgerPosted).length, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+   210→      ];
+   211→      case "incomes": return [
+   212→        { label: "Total Incomes", value: incomes.length, icon: ArrowUpCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   213→        { label: "Total Amount", value: isVatAuditor ? auditMask : fmtCurrency(incomes.reduce((s: number, d: any) => s + (d.amount || 0), 0)), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   214→        { label: "Pending", value: incomes.filter((d: any) => d.status === "Pending").length, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+   215→        { label: "Ledger Posted", value: incomes.filter((d: any) => d.ledgerPosted).length, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+   216→      ];
+   217→      case "collections": return [
+   218→        { label: "Total Collections", value: collections.length, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+   219→        { label: "Total Amount", value: isVatAuditor ? auditMask : fmtCurrency(collections.reduce((s: number, d: any) => s + (d.amount || 0), 0)), icon: DollarSign, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   220→        { label: "Pending", value: collections.filter((d: any) => d.status === "Pending").length, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+   221→        { label: "Ledger Posted", value: collections.filter((d: any) => d.ledgerPosted).length, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+   222→      ];
+   223→      case "deliveries": return [
+   224→        { label: "Total Deliveries", value: deliveries.length, icon: ArrowDownCircle, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+   225→        { label: "Total Amount", value: isVatAuditor ? auditMask : fmtCurrency(deliveries.reduce((s: number, d: any) => s + (d.amount || 0), 0)), icon: DollarSign, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+   226→        { label: "Pending", value: deliveries.filter((d: any) => d.status === "Pending").length, icon: FileText, color: "text-yellow-600", bg: "bg-yellow-50 dark:bg-yellow-900/30" },
+   227→        { label: "Ledger Posted", value: deliveries.filter((d: any) => d.ledgerPosted).length, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+   228→      ];
+   229→      case "bank-transactions": {
+   230→        const dep = bankTxns.filter((d: any) => d.type === "Deposit").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+   231→        const wit = bankTxns.filter((d: any) => d.type === "Withdraw").reduce((s: number, d: any) => s + (d.amount || 0), 0);
+   232→        const net = dep - wit;
+   233→        return [
+   234→          { label: "Total Transactions", value: bankTxns.length, icon: Banknote, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30" },
+   235→          { label: "Total Deposits", value: isVatAuditor ? auditMask : fmtCurrency(dep), icon: ArrowDownCircle, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30" },
+   236→          { label: "Total Withdrawals", value: isVatAuditor ? auditMask : fmtCurrency(wit), icon: ArrowUpCircle, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30" },
+   237→          { label: "Net Position", value: isVatAuditor ? auditMask : fmtCurrency(net), icon: DollarSign, color: net >= 0 ? "text-green-600" : "text-red-600", bg: net >= 0 ? "bg-green-50 dark:bg-green-900/30" : "bg-red-50 dark:bg-red-900/30" },
+   238→          { label: "Ledger Posted", value: bankTxns.filter((d: any) => d.ledgerPosted).length, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
+   239→        ];
+   240→      }
+   241→      default: return [];
+   242→    }
+   243→  }, [activeTab, heads, expenses, incomes, collections, deliveries, bankTxns, isVatAuditor]);
+   244→
+   245→  // ── Toggle expand ────────────────────────────────────────────
+   246→  const toggleExpand = (id: string) => setExpandedRows(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+   247→
+   248→  // ── Form open/close ──────────────────────────────────────────
+   249→  const openCreate = (context: string) => {
+   250→    setFormContext(context);
+   251→    setEditItem(null);
+   252→    const defaultType = context === "heads" ? "Expense" : "Deposit";
+   253→    setFormData({
+   254→      date: new Date().toISOString().split("T")[0],
+   255→      status: "Approved",
+   256→      amount: "",
+   257→      headId: "",
+   258→      bankId: "",
+   259→      paymentOptionId: "",
+   260→      chequeNo: "",
+   261→      voucherNo: "",
+   262→      description: "",
+   263→      type: defaultType,
+   264→      type_head: defaultType,
+   265→      name: "",
+   266→      chartOfAccountId: "",
+   267→      customerId: "",
+   268→      supplierId: "",
+   269→      toBankId: "",
+   270→      depositorName: "",
+   271→      referenceNo: "",
+   272→    });
+   273→    setShowForm(true);
+   274→  };
+   275→
+   276→  const openEdit = (item: any, context: string) => {
+   277→    setFormContext(context);
+   278→    setEditItem(item);
+   279→    const codeField = context === "expenses" ? "expenseCode" : context === "incomes" ? "incomeCode" : context === "collections" ? "collectionCode" : context === "deliveries" ? "deliveryCode" : "transactionCode";
+   280→    setFormData({
+   281→      code: item[codeField] || "",
+   282→      date: item.date ? item.date.split("T")[0] : "",
+   283→      headId: item.headId || "",
+   284→      amount: item.amount || "",
+   285→      bankId: item.bankId || "",
+   286→      paymentOptionId: item.paymentOptionId || "",
+   287→      chequeNo: item.chequeNo || "",
+   288→      voucherNo: item.voucherNo || "",
+   289→      description: item.description || "",
+   290→      status: item.status || "Approved",
+   291→      type: item.type || "Deposit",
+   292→      toBankId: item.toBankId || "",
+   293→      customerId: item.customerId || "",
+   294→      supplierId: item.supplierId || "",
+   295→      depositorName: item.depositorName || "",
+   296→      referenceNo: item.referenceNo || "",
+   297→      name: item.name || "",
+   298→      chartOfAccountId: item.chartOfAccountId || "",
+   299→      type_head: item.type || "Expense",
+   300→    });
+   301→    setShowForm(true);
+   302→  };
+   303→
+   304→  // ── Save handler ─────────────────────────────────────────────
+   305→  const handleSave = async () => {
+   306→    // ── Form validation ──────────────────────────────────────
+   307→    const errors: string[] = [];
+   308→    switch (formContext) {
+   309→      case "heads":
+   310→        if (!formData.name?.trim()) errors.push("Name is required");
+   311→        if (!formData.type_head && !formData.type) errors.push("Type is required");
+   312→        break;
+   313→      case "expenses":
+   314→      case "incomes":
+   315→        if (!formData.date) errors.push("Date is required");
+   316→        if (!formData.headId) errors.push("Head is required");
+   317→        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+   318→        break;
+   319→      case "collections":
+   320→        if (!formData.customerId) errors.push("Customer is required");
+   321→        if (!formData.date) errors.push("Date is required");
+   322→        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+   323→        break;
+   324→      case "deliveries":
+   325→        if (!formData.supplierId) errors.push("Supplier is required");
+   326→        if (!formData.date) errors.push("Date is required");
+   327→        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+   328→        break;
+   329→      case "bank-transactions":
+   330→        if (!formData.bankId) errors.push("Bank is required");
+   331→        if (!formData.type) errors.push("Type is required");
+   332→        if (!formData.date) errors.push("Date is required");
+   333→        if (!formData.amount || Number(formData.amount) <= 0) errors.push("Amount must be greater than 0");
+   334→        if (formData.type === "Transfer" && !formData.toBankId) errors.push("Target bank is required for Transfer");
+   335→        break;
+   336→    }
+   337→    if (errors.length > 0) {
+   338→      toast({ title: "Validation Error", description: errors.join("; "), variant: "destructive" });
+   339→      return;
+   340→    }
+   341→
+   342→    setSaving(true);
+   343→    try {
+   344→      const apiBaseMap: Record<string, string> = {
+   345→        heads: "/api/expense-income-heads",
+   346→        expenses: "/api/expenses",
+   347→        incomes: "/api/incomes",
+   348→        collections: "/api/cash-collections",
+   349→        deliveries: "/api/cash-deliveries",
+   350→        "bank-transactions": "/api/bank-transactions",
+   351→      };
+   352→      const apiBase = apiBaseMap[formContext];
+   353→      const payload: Record<string, any> = { ...formData, amount: formData.amount ? Number(formData.amount) : undefined };
+   354→      // Remove UI-only field that should not be sent to API
+   355→      delete payload.type_head;
+   356→      // Clean null fields
+   357→      for (const key of ["chequeNo", "voucherNo", "description", "paymentOptionId", "bankId", "toBankId", "chartOfAccountId", "referenceNo", "depositorName"]) {
+   358→        if (!payload[key]) payload[key] = null;
+   359→      }
+   360→      if (editItem) {
+   361→        await apiFetch(`${apiBase}/${editItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   362→        toast({ title: "Updated", description: "Record updated successfully" });
+   363→      } else {
+   364→        await apiFetch(apiBase, { method: "POST", body: JSON.stringify(payload) });
+   365→        toast({ title: "Created", description: "Record created successfully" });
+   366→      }
+   367→      setShowForm(false);
+   368→      loadAll();
+   369→    } catch (e: any) {
+   370→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   371→    } finally { setSaving(false); }
+   372→  };
+   373→
+   374→  // ── Delete handler ───────────────────────────────────────────
+   375→  const handleDelete = async () => {
+   376→    if (!deleteItem) return;
+   377→    if (!isAdmin) { toast({ title: "Access Denied", description: "Only administrators can deactivate financial posts", variant: "destructive" }); setDeleteItem(null); return; }
+   378→    try {
+   379→      const apiBaseMap: Record<string, string> = { heads: "/api/expense-income-heads", expenses: "/api/expenses", incomes: "/api/incomes", collections: "/api/cash-collections", deliveries: "/api/cash-deliveries", "bank-transactions": "/api/bank-transactions" };
+   380→      await apiFetch(`${apiBaseMap[formContext]}/${deleteItem.id}`, { method: "DELETE" });
+   381→      toast({ title: "Deactivated", description: "Record deactivated successfully" });
+   382→      setDeleteItem(null);
+   383→      loadAll();
+   384→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   385→  };
+   386→
+   387→  // ── Export PDF ───────────────────────────────────────────────
+   388→  const exportPDF = () => {
+   389→    try {
+   390→      const columns: ColumnDef[] = [
+   391→        { key: "code", label: "Code", type: "text" },
+   392→        { key: "name", label: "Name/Head", type: "text" },
+   393→        { key: "date", label: "Date", type: "date" },
+   394→        { key: "amount", label: "Amount", type: "currency" },
+   395→        { key: "status", label: "Status", type: "text" },
+   396→      ];
+   397→      const data = filtered.map((item: any) => ({
+   398→        code: item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || "—",
+   399→        name: item.head?.name || item.customer?.name || item.supplier?.name || item.bank?.bankName || item.name || "—",
+   400→        date: item.date, amount: isVatAuditor ? auditMask : sanitizeCurrency(item.amount || 0), status: item.status,
+   401→      }));
+   402→      exportToPDF({
+   403→        title: `Account Management — ${activeTab}`,
+   404→        columns, data, isVatAuditor, vatMaskedColumns: isVatAuditor ? ["amount"] : [],
+   405→        company: companyProfile,
+   406→        financialFooter: { preparedBy: user?.displayName || "System", checkedBy: "", authorizedBy: "", printedBy: user?.displayName || "System" },
+   407→      });
+   408→      toast({ title: "Exported", description: "PDF exported successfully" });
+   409→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   410→  };
+   411→
+   412→  // ── Export CSV ───────────────────────────────────────────────
+   413→  const exportCSV = () => {
+   414→    try {
+   415→      const headers = ["Code", "Name/Head", "Date", "Amount", "Status"];
+   416→      const rows = filtered.map((item: any) => [
+   417→        item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || "—",
+   418→        item.head?.name || item.customer?.name || item.supplier?.name || item.bank?.bankName || item.name || "—",
+   419→        fmtDate(item.date), isVatAuditor ? auditMask : _fmtCurrencyVal(sanitizeCurrency(item.amount || 0)), item.status
+   420→      ]);
+   421→      exportToCSVSimple(`Account_${activeTab}`, headers, rows);
+   422→      toast({ title: "Exported", description: "CSV exported successfully" });
+   423→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   424→  };
+   425→
+   426→  // ── Copy to Clipboard ────────────────────────────────────────
+   427→  const copyToClipboard = useCallback(async () => {
+   428→    try {
+   429→      const columns: ColumnDef[] = [
+   430→        { key: "code", label: "Code", type: "text" },
+   431→        { key: "name", label: "Name/Head", type: "text" },
+   432→        { key: "date", label: "Date", type: "date" },
+   433→        { key: "amount", label: "Amount", type: "currency" },
+   434→        { key: "status", label: "Status", type: "text" },
+   435→      ];
+   436→      const data = filtered.map((item: any) => ({
+   437→        code: item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || "—",
+   438→        name: item.head?.name || item.customer?.name || item.supplier?.name || item.bank?.bankName || item.name || "—",
+   439→        date: item.date, amount: sanitizeCurrency(item.amount || 0), status: item.status,
+   440→      }));
+   441→      const result = await copyTableToClipboard({
+   442→        title: `Account Management — ${activeTab}`,
+   443→        columns,
+   444→        data,
+   445→        isVatAuditor,
+   446→        vatMaskedColumns: isVatAuditor ? ["amount"] : [],
+   447→      });
+   448→      toast({ title: result.success ? "Copied" : "Error", description: result.message, variant: result.success ? "default" : "destructive" });
+   449→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   450→  }, [filtered, activeTab, isVatAuditor, toast]);
+   451→
+   452→  // ── Import CSV ───────────────────────────────────────────────
+   453→  const importCSV = () => {
+   454→    if (isVatAuditor) { toast({ title: "Access Denied", description: "VAT Auditors cannot import data", variant: "destructive" }); return; }
+   455→    const apiBaseMap: Record<string, string> = { heads: "/api/expense-income-heads", expenses: "/api/expenses", incomes: "/api/incomes", collections: "/api/cash-collections", deliveries: "/api/cash-deliveries", "bank-transactions": "/api/bank-transactions" };
+   456→    // Per-tab form fields for import
+   457→    const formFieldsMap: Record<string, any[]> = {
+   458→      heads: [
+   459→        { key: "name", label: "Head Name", type: "text" as const, required: true },
+   460→        { key: "type", label: "Type", type: "select" as const, required: true, options: [{ value: "Expense", label: "Expense" }, { value: "Income", label: "Income" }] },
+   461→      ],
+   462→      expenses: [
+   463→        { key: "headName", label: "Expense Head Name", type: "text" as const, required: true },
+   464→        { key: "amount", label: "Amount", type: "number" as const, required: true },
+   465→        { key: "date", label: "Date", type: "date" as const, required: true },
+   466→        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+   467→      ],
+   468→      incomes: [
+   469→        { key: "headName", label: "Income Head Name", type: "text" as const, required: true },
+   470→        { key: "amount", label: "Amount", type: "number" as const, required: true },
+   471→        { key: "date", label: "Date", type: "date" as const, required: true },
+   472→        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+   473→      ],
+   474→      collections: [
+   475→        { key: "customerName", label: "Customer Name", type: "text" as const, required: true },
+   476→        { key: "amount", label: "Amount", type: "number" as const, required: true },
+   477→        { key: "date", label: "Date", type: "date" as const, required: true },
+   478→        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+   479→      ],
+   480→      deliveries: [
+   481→        { key: "supplierName", label: "Supplier Name", type: "text" as const, required: true },
+   482→        { key: "amount", label: "Amount", type: "number" as const, required: true },
+   483→        { key: "date", label: "Date", type: "date" as const, required: true },
+   484→        { key: "status", label: "Status", type: "select" as const, options: [{ value: "Pending", label: "Pending" }, { value: "Approved", label: "Approved" }] },
+   485→      ],
+   486→      "bank-transactions": [
+   487→        { key: "bankName", label: "Bank Name", type: "text" as const, required: true },
+   488→        { key: "type", label: "Type", type: "select" as const, required: true, options: [{ value: "Deposit", label: "Deposit" }, { value: "Withdraw", label: "Withdraw" }, { value: "Transfer", label: "Transfer" }] },
+   489→        { key: "amount", label: "Amount", type: "number" as const, required: true },
+   490→        { key: "date", label: "Date", type: "date" as const, required: true },
+   491→      ],
+   492→    };
+   493→    importFromCSV({
+   494→      apiPath: apiBaseMap[activeTab] || "/api/expenses",
+   495→      formFields: formFieldsMap[activeTab] || formFieldsMap.expenses,
+   496→    }).then(result => {
+   497→      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+   498→      loadAll();
+   499→    });
+   500→  };
+   501→
+   502→  // ── RBAC ─────────────────────────────────────────────────────
+   503→  const canMutate = !isVatAuditor && !isDealer && !isSR; // SR cannot create/edit/import in Account Management
+   504→  const canCreate = canMutate;
+   505→  const canDelete = isAdmin;
+   506→
+   507→  // ── Dealer restriction ───────────────────────────────────────
+   508→  if (isDealer) {
+   509→    return (
+   510→      <div className="page-enter flex items-center justify-center min-h-[60vh]">
+   511→        <Card className="max-w-md w-full"><CardContent className="p-8 text-center">
+   512→          <Lock className="w-12 h-12 mx-auto mb-4 text-red-500" />
+   513→          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h3>
+   514→          <p className="text-muted-foreground">Dealers cannot access Account Management. Please contact your administrator.</p>
+   515→        </CardContent></Card>
+   516→      </div>
+   517→    );
+   518→  }
+   519→
+   520→  // ── Render Table Rows ───────────────────────────────────────
+   521→  const renderRows = () => {
+   522→    if (loading) return <TableRow><TableCell colSpan={10} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>;
+   523→    if (filtered.length === 0) return <TableRow><TableCell colSpan={10} className="h-24 text-center text-muted-foreground">No records found</TableCell></TableRow>;
+   524→
+   525→    return filtered.map((item: any) => {
+   526→      const code = item.expenseCode || item.incomeCode || item.collectionCode || item.deliveryCode || item.transactionCode || item.code || item.id?.slice(0, 8);
+   527→      const name = item.head?.name || item.customer?.name || item.supplier?.name || item.name || "—";
+   528→      const amount = isVatAuditor ? <span className="text-amber-600 dark:text-amber-400 text-xs italic">{auditMask}</span> : fmtCurrency(item.amount || 0);
+   529→      const coaName = item.chartOfAccount?.name || item.head?.chartOfAccount?.name || "—";
+   530→      const bankName = isVatAuditor ? (item.bank?.bankName ? `${item.bank.bankName.split(" - ")[0]} (Audit)` : "—") : (item.bank?.bankName || "—");
+   531→
+   532→      return (
+   533→        <React.Fragment key={item.id}>
+   534→          <TableRow className="data-table-row hover:bg-muted/50">
+   535→            <TableCell>
+   536→              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => toggleExpand(item.id)}>
+   537→                {expandedRows.has(item.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+   538→              </Button>
+   539→            </TableCell>
+   540→            <TableCell className="font-mono font-medium text-slate-900 dark:text-white text-xs">{code}</TableCell>
+   541→            <TableCell className="text-sm">{name}</TableCell>
+   542→            <TableCell className="text-sm text-muted-foreground">{fmtDate(item.date)}</TableCell>
+   543→            {activeTab !== "heads" && <TableCell className="font-mono text-sm">{amount}</TableCell>}
+   544→            {activeTab !== "heads" && <TableCell className="text-sm">{item.type === "Deposit" || item.type === "Withdraw" || item.type === "Transfer" ? <Badge className={typeBadge(item.type).className}>{item.type}</Badge> : (item.paymentOption?.name || "—")}</TableCell>}
+   545→            {activeTab === "bank-transactions" && <TableCell className="font-mono text-sm">{isVatAuditor ? auditMask : fmtCurrency(item.runningBalance)}</TableCell>}
+   546→            <TableCell><Badge className={statusColor(item.status)}>{item.status}</Badge></TableCell>
+   547→            {activeTab !== "heads" && <TableCell className="text-xs">{item.ledgerPosted ? <CheckCircle className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-gray-400" />}</TableCell>}
+   548→            <TableCell className="text-right">
+   549→              <div className="flex items-center justify-end gap-1">
+   550→                {canCreate && <Button variant="ghost" size="sm" onClick={() => openEdit(item, activeTab)}><Edit className="w-3.5 h-3.5" /></Button>}
+   551→                {canDelete && <Button variant="ghost" size="sm" className="text-red-500" onClick={() => { setFormContext(activeTab); setDeleteItem(item); }}><Trash2 className="w-3.5 h-3.5" /></Button>}
+   552→              </div>
+   553→            </TableCell>
+   554→          </TableRow>
+   555→          {expandedRows.has(item.id) && (
+   556→            <TableRow>
+   557→              <TableCell colSpan={activeTab === "bank-transactions" ? 9 : 8} className="bg-muted/30 p-3">
+   558→                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+   559→                  <div><span className="text-muted-foreground">CoA Account:</span> <span className="font-medium text-slate-900 dark:text-white">{coaName}</span></div>
+   560→                  <div><span className="text-muted-foreground">Bank:</span> <span className="font-medium text-slate-900 dark:text-white">{bankName}</span></div>
+   561→                  <div><span className="text-muted-foreground">Cheque No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? auditMask : fmtEmpty(item.chequeNo)}</span></div>
+   562→                  <div><span className="text-muted-foreground">Voucher No:</span> <span className="font-medium text-slate-900 dark:text-white">{isVatAuditor ? auditMask : fmtEmpty(item.voucherNo)}</span></div>
+   563→                  <div><span className="text-muted-foreground">Description:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtEmpty(item.description)}</span></div>
+   564→                  <div><span className="text-muted-foreground">Debit Entry:</span> <span className="font-mono font-medium text-slate-900 dark:text-white">{item.debitEntryCode || "—"}</span></div>
+   565→                  <div><span className="text-muted-foreground">Credit Entry:</span> <span className="font-mono font-medium text-slate-900 dark:text-white">{item.creditEntryCode || "—"}</span></div>
+   566→                  <div><span className="text-muted-foreground">Created:</span> <span className="font-medium text-slate-900 dark:text-white">{fmtDate(item.createdAt)}</span></div>
+   567→                </div>
+   568→              </TableCell>
+   569→            </TableRow>
+   570→          )}
+   571→        </React.Fragment>
+   572→      );
+   573→    });
+   574→  };
+   575→
+   576→  // ── Form fields per context ──────────────────────────────────
+   577→  const renderFormFields = () => {
+   578→    const filteredCoA = chartOfAccounts.filter((c: any) => c.isActive);
+   579→    const expenseCoA = filteredCoA.filter((c: any) => c.classification === "Expense");
+   580→    const incomeCoA = filteredCoA.filter((c: any) => c.classification === "Income");
+   581→
+   582→    switch (formContext) {
+   583→      case "heads":
+   584→        return (
+   585→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   586→            <div className="space-y-1.5"><Label>Name <span className="text-red-500">*</span></Label><Input value={formData.name || ""} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Head name" /></div>
+   587→            <div className="space-y-1.5"><Label>Type</Label><Select value={formData.type_head || "Expense"} onValueChange={v => setFormData({ ...formData, type_head: v, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Expense">Expense</SelectItem><SelectItem value="Income">Income</SelectItem></SelectContent></Select></div>
+   588→            <div className="space-y-1.5"><Label>Chart of Account</Label><Select value={formData.chartOfAccountId || ""} onValueChange={v => setFormData({ ...formData, chartOfAccountId: v })}><SelectTrigger><SelectValue placeholder="Select CoA Account" /></SelectTrigger><SelectContent>{(formData.type_head === "Expense" ? expenseCoA : incomeCoA).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.code} — {c.name}</SelectItem>)}</SelectContent></Select></div>
+   589→          </div>
+   590→        );
+   591→      case "expenses":
+   592→      case "incomes": {
+   593→        const headType = formContext === "expenses" ? "Expense" : "Income";
+   594→        const filteredHeads = heads.filter((h: any) => h.type === headType);
+   595→        return (
+   596→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   597→            <div className="space-y-1.5"><Label>Date <span className="text-red-500">*</span></Label><Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
+   598→            <div className="space-y-1.5"><Label>Head <span className="text-red-500">*</span></Label><Select value={formData.headId || ""} onValueChange={v => setFormData({ ...formData, headId: v })}><SelectTrigger><SelectValue placeholder={`Select ${headType} Head`} /></SelectTrigger><SelectContent>{filteredHeads.map((h: any) => <SelectItem key={h.id} value={h.id}>{h.name} {h.code ? `(${h.code})` : ""}</SelectItem>)}</SelectContent></Select></div>
+   599→            <div className="space-y-1.5"><Label>Amount <span className="text-red-500">*</span></Label>{isVatAuditor ? <Input className="bg-muted cursor-not-allowed" value={auditMask} readOnly /> : <Input type="number" step="0.01" value={formData.amount || ""} onChange={e => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" />}</div>
+   600→            <div className="space-y-1.5"><Label>Payment Option</Label><Select value={formData.paymentOptionId || ""} onValueChange={v => setFormData({ ...formData, paymentOptionId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{paymentOptions.filter((p: any) => p.status === "ACTIVE").map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+   601→            <div className="space-y-1.5"><Label>Bank</Label><Select value={formData.bankId || ""} onValueChange={v => setFormData({ ...formData, bankId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{banks.filter((b: any) => b.isActive).map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}</SelectContent></Select></div>
+   602→            <div className="space-y-1.5"><Label>Cheque No</Label><Input value={formData.chequeNo || ""} onChange={e => setFormData({ ...formData, chequeNo: e.target.value })} /></div>
+   603→            <div className="space-y-1.5"><Label>Voucher No</Label><Input value={formData.voucherNo || ""} onChange={e => setFormData({ ...formData, voucherNo: e.target.value })} /></div>
+   604→            <div className="space-y-1.5 md:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={2} /></div>
+   605→          </div>
+   606→        );
+   607→      }
+   608→      case "collections":
+   609→        return (
+   610→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   611→            <div className="space-y-1.5"><Label>Customer <span className="text-red-500">*</span></Label><Select value={formData.customerId || ""} onValueChange={v => setFormData({ ...formData, customerId: v })}><SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger><SelectContent>{customers.filter((c: any) => c.isActive).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name} ({c.customerCode})</SelectItem>)}</SelectContent></Select></div>
+   612→            <div className="space-y-1.5"><Label>Date <span className="text-red-500">*</span></Label><Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
+   613→            <div className="space-y-1.5"><Label>Amount <span className="text-red-500">*</span></Label><Input type="number" step="0.01" value={formData.amount || ""} onChange={e => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" /></div>
+   614→            <div className="space-y-1.5"><Label>Payment Option</Label><Select value={formData.paymentOptionId || ""} onValueChange={v => setFormData({ ...formData, paymentOptionId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{paymentOptions.filter((p: any) => p.status === "ACTIVE").map((p: any) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+   615→            <div className="space-y-1.5"><Label>Bank</Label><Select value={formData.bankId || ""} onValueChange={v => setFormData({ ...formData, bankId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{banks.filter((b: any) => b.isActive).map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}</SelectContent></Select></div>
+   616→            <div className="space-y-1.5"><Label>Cheque No</Label><Input value={formData.chequeNo || ""} onChange={e => setFormData({ ...formData, chequeNo: e.target.value })} /></div>
+   617→            <div className="space-y-1.5 md:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={2} /></div>
+   618→          </div>
+   619→        );
+   620→      case "deliveries":
+   621→        return (
+   622→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   623→            <div className="space-y-1.5"><Label>Supplier <span className="text-red-500">*</span></Label><Select value={formData.supplierId || ""} onValueChange={v => setFormData({ ...formData, supplierId: v })}><SelectTrigger><SelectValue placeholder="Select Supplier" /></SelectTrigger><SelectContent>{suppliers.filter((s: any) => s.isActive).map((s: any) => <SelectItem key={s.id} value={s.id}>{s.name} ({s.supplierCode})</SelectItem>)}</SelectContent></Select></div>
+   624→            <div className="space-y-1.5"><Label>Date <span className="text-red-500">*</span></Label><Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
+   625→            <div className="space-y-1.5"><Label>Amount <span className="text-red-500">*</span></Label><Input type="number" step="0.01" value={formData.amount || ""} onChange={e => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" /></div>
+   626→            <div className="space-y-1.5"><Label>Bank</Label><Select value={formData.bankId || ""} onValueChange={v => setFormData({ ...formData, bankId: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="none">None</SelectItem>{banks.filter((b: any) => b.isActive).map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}</SelectContent></Select></div>
+   627→            <div className="space-y-1.5"><Label>Cheque No</Label><Input value={formData.chequeNo || ""} onChange={e => setFormData({ ...formData, chequeNo: e.target.value })} /></div>
+   628→            <div className="space-y-1.5 md:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={2} /></div>
+   629→          </div>
+   630→        );
+   631→      case "bank-transactions":
+   632→        return (
+   633→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   634→            <div className="space-y-1.5"><Label>Bank <span className="text-red-500">*</span></Label><Select value={formData.bankId || ""} onValueChange={v => setFormData({ ...formData, bankId: v })}><SelectTrigger><SelectValue placeholder="Select Bank" /></SelectTrigger><SelectContent>{banks.filter((b: any) => b.isActive).map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}</SelectContent></Select></div>
+   635→            <div className="space-y-1.5"><Label>Type <span className="text-red-500">*</span></Label><Select value={formData.type || "Deposit"} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Deposit">Deposit</SelectItem><SelectItem value="Withdraw">Withdraw</SelectItem><SelectItem value="Transfer">Transfer</SelectItem></SelectContent></Select></div>
+   636→            <div className="space-y-1.5"><Label>Amount <span className="text-red-500">*</span></Label><Input type="number" step="0.01" value={formData.amount || ""} onChange={e => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" /></div>
+   637→            {formData.type === "Transfer" && <div className="space-y-1.5"><Label>To Bank <span className="text-red-500">*</span></Label><Select value={formData.toBankId || ""} onValueChange={v => setFormData({ ...formData, toBankId: v })}><SelectTrigger><SelectValue placeholder="Select Target Bank" /></SelectTrigger><SelectContent>{banks.filter((b: any) => b.isActive && b.id !== formData.bankId).map((b: any) => <SelectItem key={b.id} value={b.id}>{b.bankName}</SelectItem>)}</SelectContent></Select></div>}
+   638→            <div className="space-y-1.5"><Label>Date <span className="text-red-500">*</span></Label><Input type="date" value={formData.date || ""} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
+   639→            <div className="space-y-1.5"><Label>Cheque No</Label><Input value={formData.chequeNo || ""} onChange={e => setFormData({ ...formData, chequeNo: e.target.value })} /></div>
+   640→            <div className="space-y-1.5"><Label>Depositor Name</Label><Input value={formData.depositorName || ""} onChange={e => setFormData({ ...formData, depositorName: e.target.value })} /></div>
+   641→            <div className="space-y-1.5"><Label>Reference No</Label><Input value={formData.referenceNo || ""} onChange={e => setFormData({ ...formData, referenceNo: e.target.value })} /></div>
+   642→            <div className="space-y-1.5 md:col-span-2"><Label>Description</Label><Textarea value={formData.description || ""} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={2} /></div>
+   643→          </div>
+   644→        );
+   645→      default: return null;
+   646→    }
+   647→  };
+   648→
+   649→  // ── MAIN RENDER ──────────────────────────────────────────────
+   650→  return (
+   651→    <div className="page-enter flex flex-col">
+   652→      <div className="flex-1 space-y-4">
+   653→        {/* VAT Auditor Badge */}
+   654→        {isVatAuditor && (
+   655→          <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+   656→            <Badge className="bg-amber-500 text-white">VAT AUDIT MODE</Badge>
+   657→            <span className="text-sm text-amber-700 dark:text-amber-400">Financial amounts masked for audit compliance</span>
+   658→          </div>
+   659→        )}
+   660→
+   661→        {/* Balance Validation Badge */}
+   662→        {balanceCheck && (
+   663→          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${balanceCheck.isBalanced ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"}`}>
+   664→            <Shield className={`w-4 h-4 ${balanceCheck.isBalanced ? "text-green-600" : "text-red-600"}`} />
+   665→            <span className={`text-sm font-medium ${balanceCheck.isBalanced ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}`}>
+   666→              {balanceCheck.isBalanced ? "Ledger Balanced ✓" : `Imbalance Detected: ${fmtCurrency(balanceCheck.difference)}`}
+   667→            </span>
+   668→            <span className="text-xs text-muted-foreground ml-2">{balanceCheck.entryCount} entries checked</span>
+   669→          </div>
+   670→        )}
+   671→
+   672→        {/* Header */}
+   673→        <div className="flex items-center justify-between flex-wrap gap-2">
+   674→          <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+   675→            <DollarSign className="w-6 h-6" />
+   676→            Account Management
+   677→          </h2>
+   678→          <div className="flex gap-2 flex-wrap">
+   679→            {canMutate && <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>}
+   680→            <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+   681→            <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+   682→            <Button variant="outline" size="sm" onClick={copyToClipboard}><Copy className="w-4 h-4 mr-1" />Copy</Button>
+   683→            {canCreate && <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openCreate(activeTab)}><Plus className="w-4 h-4 mr-1" />Create</Button>}
+   684→          </div>
+   685→        </div>
+   686→
+   687→        {/* Tabs */}
+   688→        <Tabs value={activeTab} onValueChange={v => { setActiveTab(v); setSearch(""); setExpandedRows(new Set()); }}>
+   689→          <TabsList className="flex overflow-x-auto h-auto gap-1 pb-1 scrollbar-none w-full">
+   690→            <TabsTrigger value="heads" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0"><FileText className="w-4 h-4" />Heads</TabsTrigger>
+   691→            <TabsTrigger value="expenses" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0" disabled={isSR}><ArrowDownCircle className="w-4 h-4" />Expenses</TabsTrigger>
+   692→            <TabsTrigger value="incomes" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0"><ArrowUpCircle className="w-4 h-4" />Incomes</TabsTrigger>
+   693→            <TabsTrigger value="collections" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0"><Banknote className="w-4 h-4" />Collections</TabsTrigger>
+   694→            <TabsTrigger value="deliveries" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0" disabled={isSR}><ArrowDownCircle className="w-4 h-4" />Deliveries</TabsTrigger>
+   695→            <TabsTrigger value="bank-transactions" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0" disabled={isSR}><Landmark className="w-4 h-4" />Bank Txns</TabsTrigger>
+   696→          </TabsList>
+   697→
+   698→          {/* Stat Cards */}
+   699→          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3 mt-4">
+   700→            {stats.map((stat, i) => <StatCard key={i} {...stat} />)}
+   701→          </div>
+   702→
+   703→          {/* Bank Balance Cards (only for bank-transactions tab) */}
+   704→          {activeTab === "bank-transactions" && banks.length > 0 && (
+   705→            <div className="mt-2">
+   706→              <h3 className="text-sm font-semibold text-muted-foreground mb-2">Bank Account Balances — Ledger Fusion</h3>
+   707→              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+   708→                {banks.filter((b: any) => b.isActive !== false).map((bank: any) => {
+   709→                  const bType = bank.bankType || "Bank";
+   710→                  const borderClass = bType === "MFS" ? "border-l-green-600" : bType === "CashDrawer" ? "border-l-amber-600" : "border-l-blue-600";
+   711→                  const coaName = bank.chartOfAccount?.name || "Unmapped";
+   712→                  return (
+   713→                    <Card key={bank.id} className={`border-l-4 ${borderClass}`}>
+   714→                      <CardContent className="p-4">
+   715→                        <div className="flex items-start justify-between">
+   716→                          <div className="flex-1 min-w-0">
+   717→                            <div className="flex items-center gap-2 mb-1">
+   718→                              <Landmark className="w-4 h-4 shrink-0 text-slate-600 dark:text-slate-400" />
+   719→                              <span className="font-semibold text-slate-900 dark:text-white truncate">{bank.bankName}</span>
+   720→                            </div>
+   721→                            <Badge className={`text-[10px] px-1.5 py-0 ${bType === "MFS" ? "bg-green-100 text-green-700" : bType === "CashDrawer" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}>{bType}</Badge>
+   722→                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+   723→                              <BookOpen className="w-3 h-3 shrink-0" /><span className="truncate">{coaName}</span>
+   724→                            </div>
+   725→                          </div>
+   726→                          <div className="text-right shrink-0 ml-2">
+   727→                            <p className={`text-lg font-bold font-mono ${bank.currentBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+   728→                              {isVatAuditor ? auditMask : fmtCurrency(bank.currentBalance)}
+   729→                            </p>
+   730→                            <p className="text-xs text-muted-foreground">Current Balance</p>
+   731→                          </div>
+   732→                        </div>
+   733→                      </CardContent>
+   734→                    </Card>
+   735→                  );
+   736→                })}
+   737→              </div>
+   738→            </div>
+   739→          )}
+   740→
+   741→          {/* Data Table */}
+   742→          <Card className="mt-2">
+   743→            <CardContent className="p-4">
+   744→              <div className="flex flex-wrap items-center gap-2 mb-4">
+   745→                <div className="relative flex-1 min-w-[200px] max-w-sm">
+   746→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   747→                  <Input placeholder="Search records..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+   748→                </div>
+   749→                <Button variant="outline" size="sm" onClick={loadAll}><RefreshCw className="w-4 h-4" /></Button>
+   750→              </div>
+   751→              <div className="table-container overflow-x-auto overflow-y-auto max-h-[60vh] rounded-md border -mx-2 sm:mx-0">
+   752→                <Table className="min-w-[600px]">
+   753→                  <TableHeader>
+   754→                    <TableRow className="bg-muted/50">
+   755→                      <TableHead className="w-10">+</TableHead>
+   756→                      <TableHead>Code</TableHead>
+   757→                      <TableHead>Name/Head</TableHead>
+   758→                      <TableHead>Date</TableHead>
+   759→                      {activeTab !== "heads" && <TableHead>Amount</TableHead>}
+   760→                      {activeTab !== "heads" && <TableHead>Type/Option</TableHead>}
+   761→                      {activeTab === "bank-transactions" && <TableHead>Running Bal</TableHead>}
+   762→                      <TableHead>Status</TableHead>
+   763→                      {activeTab !== "heads" && <TableHead>Ledger</TableHead>}
+   764→                      <TableHead className="w-20 text-right">Actions</TableHead>
+   765→                    </TableRow>
+   766→                  </TableHeader>
+   767→                  <TableBody>
+   768→                    {renderRows()}
+   769→                  </TableBody>
+   770→                </Table>
+   771→              </div>
+   772→              <div className="mt-2 text-xs text-muted-foreground">Showing {filtered.length} of {currentData.length} records</div>
+   773→            </CardContent>
+   774→          </Card>
+   775→        </Tabs>
+   776→      </div>
+   777→
+   778→      {/* Create/Edit Dialog */}
+   779→      <Dialog open={showForm} onOpenChange={setShowForm}>
+   780→        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+   781→          <DialogHeader><DialogTitle>{editItem ? "Edit" : "Create"} Record</DialogTitle></DialogHeader>
+   782→          {renderFormFields()}
+   783→          <DialogFooter className="mt-4">
+   784→            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+   785→            <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSave} disabled={saving}>
+   786→              {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
+   787→              {editItem ? "Update" : "Create"}
+   788→            </Button>
+   789→          </DialogFooter>
+   790→        </DialogContent>
+   791→      </Dialog>
+   792→
+   793→      {/* Deactivate Confirmation */}
+   794→      <Dialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
+   795→        <DialogContent className="max-w-[95vw] sm:max-w-md">
+   796→          <DialogHeader><DialogTitle className="text-red-600">Confirm Deactivation</DialogTitle>
+   797→            <DialogDescription>This will deactivate the record and reverse all ledger entries and bank balance changes. This action requires administrator privileges.</DialogDescription>
+   798→          </DialogHeader>
+   799→          <DialogFooter>
+   800→            <Button variant="outline" onClick={() => setDeleteItem(null)}>Cancel</Button>
+   801→            <Button variant="destructive" onClick={handleDelete}><Trash2 className="w-4 h-4 mr-1" />Deactivate</Button>
+   802→          </DialogFooter>
+   803→        </DialogContent>
+   804→      </Dialog>
+   805→
+   806→    </div>
+   807→  );
+   808→}
+   809→

@@ -531,23 +531,12 @@ async function handleCreate(
       },
     });
 
-    // Create StockEntry (type=IN, referenceType='PurchaseOrder') ONLY when
-    // status is "Confirmed" or "Received", NOT for "Draft"
-    if (status === 'Confirmed' || status === 'Received') {
-      for (const line of computedLines) {
-        await tx.stockEntry.create({
-          data: {
-            productId: line.productId,
-            godownId: godownId || null,
-            type: 'IN',
-            quantity: line.quantity,
-            reference: poNumber,
-            referenceType: 'PurchaseOrder',
-            date: new Date(date),
-          },
-        });
-      }
-    }
+    // NOTE: StockEntry creation is intentionally NOT done here on PO creation.
+    // Stock entries are created ONLY when goods are physically received via
+    // the /api/purchase-orders/receive endpoint. This prevents double-entry
+    // bugs where confirming a PO and then receiving it creates duplicate stock.
+    // Previously, creating a PO with status "Confirmed" or "Received" would
+    // create stock entries here AND again on receive, doubling the stock.
 
     // Audit log
     await tx.auditLog.create({

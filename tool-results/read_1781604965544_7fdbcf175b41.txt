@@ -1,0 +1,1455 @@
+     1→// ============================================================
+     2→// SERVER-SIDE API SECURITY - RBAC ENFORCEMENT
+     3→// Eliminates the "frontend-only RBAC" vulnerability
+     4→// All API routes MUST use withApiSecurity() to enforce role-based access
+     5→// ============================================================
+     6→
+     7→import { NextRequest, NextResponse } from 'next/server';
+     8→import { db } from '@/lib/db';
+     9→import { checkApiRateLimit, getClientIp } from '@/lib/rate-limiter';
+    10→import { verifyToken, extractBearerToken } from '@/lib/jwt-utils';
+    11→import { sanitizeObject } from '@/lib/sanitize';
+    12→import { verifyCsrfToken, isCsrfEnforced } from '@/lib/csrf';
+    13→
+    14→// ── User Lookup Cache (5-minute TTL) ──
+    15→// Avoids db.user.findUnique on every API request (saves 100-200ms on Vercel)
+    16→const userCache = new Map<string, { user: any; expiresAt: number }>();
+    17→const USER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    18→const MAX_USER_CACHE_SIZE = 200;
+    19→
+    20→function getCachedUser(userId: string): any | null {
+    21→  const entry = userCache.get(userId);
+    22→  if (entry && Date.now() < entry.expiresAt) {
+    23→    return entry.user;
+    24→  }
+    25→  if (entry) userCache.delete(userId); // expired
+    26→  return null;
+    27→}
+    28→
+    29→function setCachedUser(userId: string, user: any): void {
+    30→  // Evict oldest entries if cache is full
+    31→  if (userCache.size >= MAX_USER_CACHE_SIZE) {
+    32→    const oldestKey = userCache.keys().next().value;
+    33→    if (oldestKey) userCache.delete(oldestKey);
+    34→  }
+    35→  userCache.set(userId, { user, expiresAt: Date.now() + USER_CACHE_TTL });
+    36→}
+    37→
+    38→/**
+    39→ * invalidateUserCache — Remove a user from the lookup cache.
+    40→ * Call this whenever user data changes (password reset, profile update, deactivation, etc.)
+    41→ * so the next request fetches fresh data from the database.
+    42→ */
+    43→export function invalidateUserCache(userId: string): void {
+    44→  userCache.delete(userId);
+    45→}
+    46→
+    47→/**
+    48→ * getCacheHeaders — Returns Cache-Control headers for API responses.
+    49→ * Use on read-heavy, rarely-changing endpoints to enable browser caching.
+    50→ * `private` ensures responses are not cached by shared/CDN proxies (user-specific data).
+    51→ */
+    52→export function getCacheHeaders(maxAge: number = 30, staleWhileRevalidate: number = 60): Record<string, string> {
+    53→  return {
+    54→    'Cache-Control': `private, max-age=${maxAge}, stale-while-revalidate=${staleWhileRevalidate}`,
+    55→  };
+    56→}
+    57→
+    58→export type UserRole = 'admin' | 'manager' | 'sr' | 'dealer' | 'vat_auditor';
+    59→
+    60→// Module → Sidebar Group mapping (mirrors frontend ROLE_ACCESS)
+    61→const MODULE_GROUP_MAP: Record<string, string> = {
+    62→  // Investment
+    63→  InvestmentHeads: 'investment',
+    64→  Assets: 'investment',
+    65→  Liabilities: 'investment',
+    66→  // Basic Modules
+    67→  Companies: 'basic-modules',
+    68→  Categories: 'basic-modules',
+    69→  Colors: 'basic-modules',
+    70→  Products: 'basic-modules',
+    71→  Banks: 'basic-modules',
+    72→  Departments: 'basic-modules',
+    73→  Godowns: 'basic-modules',
+    74→  InterestPercentages: 'basic-modules',
+    75→  Segments: 'basic-modules',
+    76→  Capacities: 'basic-modules',
+    77→  SRTargets: 'basic-modules',
+    78→  PaymentOptions: 'basic-modules',
+    79→  CardTypes: 'basic-modules',
+    80→  CardTypeSetups: 'basic-modules',
+    81→  // Staff
+    82→  Designations: 'staff',
+    83→  Employees: 'staff',
+    84→  EmployeeLeaves: 'staff',
+    85→  // Customers & Suppliers
+    86→  Customers: 'customers-suppliers',
+    87→  Suppliers: 'customers-suppliers',
+    88→  // Inventory
+    89→  OrderSheets: 'inventory',
+    90→  PurchaseOrders: 'inventory',
+    91→  AutoPO: 'inventory',
+    92→  SalesOrders: 'inventory',
+    93→  HireSales: 'inventory',
+    94→  SalesReturns: 'inventory',
+    95→  PurchaseReturns: 'inventory',
+    96→  Replacements: 'inventory',
+    97→  Stock: 'inventory',
+    98→  StockEntries: 'inventory',
+    99→  StockTransfers: 'inventory',
+   100→  Batches: 'inventory',
+   101→  BatchMaster: 'inventory',
+   102→  Branches: 'basic-modules',
+   103→  BranchTransfers: 'inventory',
+   104→  DamageLogs: 'inventory',
+   105→  ProductStock: 'inventory',
+   106→  // Account Management
+   107→  ExpenseIncomeHeads: 'account',
+   108→  Expenses: 'account',
+   109→  Incomes: 'account',
+   110→  CashCollections: 'account',
+   111→  CashDeliveries: 'account',
+   112→  BankTransactions: 'account',
+   113→  JournalVouchers: 'account',
+   114→  Cheques: 'account',
+   115→  FiscalYears: 'account',
+   116→  // SMS
+   117→  SmsSettings: 'sms',
+   118→  SmsLogs: 'sms',
+   119→  SmsBills: 'sms',
+   120→  SmsBillPayments: 'sms',
+   121→  SmsGateway: 'sms',
+   122→  SmsAutomation: 'sms',
+   123→  SmsNotificationTriggers: 'sms',
+   124→  SmsCampaigns: 'sms',
+   125→  SmsInbox: 'sms',
+   126→  // Accounting Reports
+   127→  ChartOfAccounts: 'accounting-report',
+   128→  LedgerEntries: 'accounting-report',
+   129→  LedgerReports: 'accounting-report',
+   130→  PeriodClose: 'accounting-report',
+   131→  TrialBalance: 'accounting-report',
+   132→  ProfitLoss: 'accounting-report',
+   133→  BalanceSheet: 'accounting-report',
+   134→  CashInHand: 'accounting-report',
+   135→  // MIS Reports
+   136→  MISReports: 'mis-report',
+   137→  // Dashboard
+   138→  Dashboard: 'dashboard',
+   139→  DashboardAnalytics: 'dashboard',
+   140→  // Audit & Integrity (Stage 13)
+   141→  AuditDashboard: 'audit-integrity',
+   142→  LedgerAutoPost: 'audit-integrity',
+   143→  InventoryAging: 'audit-integrity',
+   144→  DataIntegrityLog: 'audit-integrity',
+   145→  Notifications: 'audit-integrity',
+   146→  ProductLifecycle: 'audit-integrity',
+   147→  // System Configuration (Group 6)
+   148→  SystemConfig: 'system-config',
+   149→  InvoiceTemplates: 'system-config',
+   150→  NumberFormats: 'system-config',
+   151→  // Auth & Profile
+   152→  Auth: 'auth',
+   153→  UserProfile: 'user-profile', // Profile + password change — all authenticated roles
+   154→  AuditLogs: 'audit',
+   155→  AuditTrail: 'audit',
+   156→  Reports: 'report',
+   157→  Seed: 'seed',
+   158→};
+   159→
+   160→// Group-level access per role (mirrors frontend ROLE_ACCESS)
+   161→// Internal-only groups ('dashboard', 'report', 'user-profile') are allowed for all authenticated roles
+   162→// as they are needed for basic navigation and auth.
+   163→// Frontend "financial-audit" maps to backend 'audit-integrity' + 'audit' group keys.
+   164→// Frontend "system-settings" maps to backend 'system-config' group key.
+   165→const ROLE_GROUP_ACCESS: Record<UserRole, string[]> = {
+   166→  admin: ['*'],
+   167→  manager: ['investment', 'basic-modules', 'staff', 'customers-suppliers', 'inventory', 'account', 'sms', 'accounting-report', 'financial-audit', 'mis-report', 'system-settings', 'dashboard', 'audit-integrity', 'audit', 'system-config', 'report', 'user-profile'],
+   168→  sr: ['basic-modules', 'staff', 'customers-suppliers', 'inventory', 'sms', 'dashboard', 'report', 'user-profile'],
+   169→  dealer: ['basic-modules', 'customers-suppliers', 'inventory', 'dashboard', 'report', 'user-profile'],
+   170→  vat_auditor: ['basic-modules', 'customers-suppliers', 'inventory', 'account', 'accounting-report', 'financial-audit', 'mis-report', 'system-settings', 'investment', 'dashboard', 'audit-integrity', 'audit', 'system-config', 'report', 'user-profile'],
+   171→};
+   172→
+   173→// Module-level deny list per role (mirrors frontend ITEM_ACCESS_DENIED)
+   174→const MODULE_DENY: Record<UserRole, string[]> = {
+   175→  admin: [],
+   176→  manager: [],
+   177→  sr: ['PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'SmsSettings'],
+   178→  dealer: ['PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'LedgerEntries', 'PeriodClose', 'TrialBalance', 'ProfitLoss', 'BalanceSheet', 'CashInHand', 'Designations', 'Employees', 'EmployeeLeaves', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'LedgerAutoPost', 'DataIntegrityLog', 'AuditDashboard', 'InventoryAging', 'Notifications', 'JournalVouchers', 'Cheques', 'FiscalYears', 'DamageLogs'],
+   179→  vat_auditor: ['SmsSettings', 'SmsLogs', 'SmsBills', 'SmsBillPayments'],
+   180→};
+   181→
+   182→// Write (POST/PUT/DELETE) deny per role
+   183→const WRITE_DENY: Record<UserRole, string[]> = {
+   184→  admin: [],
+   185→  manager: [], // Manager can create/update but NOT delete financial posts (enforced per-route)
+   186→  sr: ['Companies', 'Categories', 'Colors', 'Brands', 'Units', 'Banks', 'Departments', 'Godowns', 'Segments', 'Capacities', 'InterestPercentages', 'PaymentOptions', 'CardTypes', 'CardTypeSetup', 'PurchaseOrders', 'PurchaseReturns', 'Expenses', 'CashDeliveries', 'BankTransactions', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'Suppliers', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'Designations', 'Employees', 'EmployeeLeaves'],
+   187→  dealer: ['Companies', 'Categories', 'Colors', 'Brands', 'Units', 'Banks', 'Departments', 'Godowns', 'Segments', 'Capacities', 'InterestPercentages', 'PaymentOptions', 'CardTypes', 'CardTypeSetup', 'PurchaseOrders', 'PurchaseReturns', 'SalesReturns', 'Replacements', 'Expenses', 'Incomes', 'CashCollections', 'CashDeliveries', 'BankTransactions', 'ExpenseIncomeHeads', 'ChartOfAccounts', 'PeriodClose', 'MISReports', 'InvestmentHeads', 'Assets', 'Liabilities', 'StockTransfers', 'SRTargets', 'Employees', 'EmployeeLeaves', 'SystemConfig', 'InvoiceTemplates', 'NumberFormats', 'AuditTrail', 'SmsSettings', 'SmsBills', 'SmsBillPayments', 'SmsLogs', 'StockEntries', 'Stock', 'Batches', 'BatchMaster', 'Branches', 'BranchTransfers', 'DamageLogs', 'ProductStock'],
+   188→  vat_auditor: [], // VAT Auditor is completely read-only (all writes denied)
+   189→};
+   190→
+   191→// Modules exempt from auth (public endpoints)
+   192→const AUTH_EXEMPT_MODULES = ['Auth', 'Seed'];
+   193→
+   194→export interface ApiSecurityResult {
+   195→  authorized: true;
+   196→  user: { id: string; email: string; name: string; role: UserRole; companyId: string | null; displayName: string };
+   197→}
+   198→
+   199→export interface ApiSecurityError {
+   200→  authorized: false;
+   201→  response: NextResponse;
+   202→}
+   203→
+   204→/**
+   205→ * withApiSecurity - Universal server-side RBAC enforcement wrapper
+   206→ *
+   207→ * Usage in API route:
+   208→ * ```ts
+   209→ * export async function POST(request: NextRequest) {
+   210→ *   const security = await withApiSecurity(request, 'SalesOrders', 'POST');
+   211→ *   if (!security.authorized) return security.response;
+   212→ *   // ... handler logic ...
+   213→ * }
+   214→ * ```
+   215→ */
+   216→export async function withApiSecurity(
+   217→  request: NextRequest,
+   218→  module: string,
+   219→  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+   220→): Promise<ApiSecurityResult | ApiSecurityError> {
+   221→  // ── Input Sanitization: Strip XSS from POST/PUT request bodies ──
+   222→  // Sanitize user input before any processing to prevent XSS attacks.
+   223→  // This is done early so all downstream logic works with clean data.
+   224→  if (method === 'POST' || method === 'PUT') {
+   225→    try {
+   226→      const clonedRequest = request.clone();
+   227→      const contentType = request.headers.get('content-type') || '';
+   228→      if (contentType.includes('application/json')) {
+   229→        const body = await clonedRequest.json().catch(() => null);
+   230→        if (body && typeof body === 'object') {
+   231→          const sanitized = sanitizeObject(body as Record<string, unknown>);
+   232→          // Store sanitized body on the request for downstream handlers
+   233→          // Note: NextRequest body can't be mutated, but the sanitized data
+   234→          // is available via the __sanitizedBody property convention.
+   235→          // Individual handlers should use getSanitizedBody() helper.
+   236→          (request as unknown as Record<string, unknown>).__sanitizedBody = sanitized;
+   237→        }
+   238→      }
+   239→    } catch {
+   240→      // Sanitization failed — continue with original request body
+   241→      // This is non-blocking; sanitization is defense-in-depth
+   242→    }
+   243→  }
+   244→
+   245→  // Exempt modules from auth
+   246→  if (AUTH_EXEMPT_MODULES.includes(module)) {
+   247→    return {
+   248→      authorized: true,
+   249→      user: { id: 'system', email: 'system@ems.local', name: 'System', role: 'admin', companyId: null, displayName: 'System' },
+   250→    };
+   251→  }
+   252→
+   253→  // ── Rate Limiting: Check before any processing ──
+   254→  const clientIp = getClientIp(request);
+   255→  const rateLimitResult = checkApiRateLimit(clientIp, method);
+   256→
+   257→  if (!rateLimitResult.allowed) {
+   258→    return {
+   259→      authorized: false,
+   260→      response: NextResponse.json(
+   261→        {
+   262→          error: `Rate limit exceeded. Please try again in ${rateLimitResult.retryAfterSeconds} seconds.`,
+   263→          retryAfter: rateLimitResult.retryAfterSeconds,
+   264→        },
+   265→        {
+   266→          status: 429,
+   267→          headers: {
+   268→            'Retry-After': String(rateLimitResult.retryAfterSeconds),
+   269→            'X-RateLimit-Limit': String(rateLimitResult.limit),
+   270→            'X-RateLimit-Remaining': '0',
+   271→          },
+   272→        }
+   273→      ),
+   274→    };
+   275→  }
+   276→
+   277→  // ── JWT Authentication: Verify Bearer token from Authorization header ──
+   278→  // Falls back to x-user-email header for backward compatibility during migration
+   279→  const authHeader = request.headers.get('authorization');
+   280→  const bearerToken = extractBearerToken(authHeader);
+   281→
+   282→  if (bearerToken) {
+   283→    // JWT path: Verify the token and extract user info from claims
+   284→    const tokenResult = await verifyToken(bearerToken, 'access');
+   285→
+   286→    if (!tokenResult.valid) {
+   287→      return {
+   288→        authorized: false,
+   289→        response: NextResponse.json(
+   290→          {
+   291→            error: tokenResult.error,
+   292→            errorCode: 'TOKEN_INVALID',
+   293→            expired: tokenResult.expired || false,
+   294→          },
+   295→          { status: tokenResult.expired ? 401 : 403 }
+   296→        ),
+   297→      };
+   298→    }
+   299→
+   300→    // Verify user still exists and is active in the database (cache first)
+   301→    let user = getCachedUser(tokenResult.payload.userId);
+   302→    if (!user) {
+   303→      user = await db.user.findUnique({
+   304→        where: { id: tokenResult.payload.userId },
+   305→        select: { id: true, email: true, name: true, role: true, isActive: true, companyId: true },
+   306→      });
+   307→      if (user) setCachedUser(tokenResult.payload.userId, user);
+   308→    }
+   309→
+   310→    if (!user || !user.isActive) {
+   311→      return {
+   312→        authorized: false,
+   313→        response: NextResponse.json(
+   314→          { error: 'User account is inactive or has been deactivated.' },
+   315→          { status: 401 }
+   316→        ),
+   317→      };
+   318→    }
+   319→
+   320→    // Use the database user (source of truth) but verify role matches token
+   321→    const role = user.role as UserRole;
+   322→
+   323→    // Step 1: Group-level access check
+   324→    const group = MODULE_GROUP_MAP[module];
+   325→    const groupAccess = ROLE_GROUP_ACCESS[role] || [];
+   326→
+   327→    if (!groupAccess.includes('*') && group && !groupAccess.includes(group)) {
+   328→      return {
+   329→        authorized: false,
+   330→        response: NextResponse.json(
+   331→          { error: `Access denied. Your role (${role}) does not have access to ${module}.` },
+   332→          { status: 403 }
+   333→        ),
+   334→      };
+   335→    }
+   336→
+   337→    // Step 2: Module-level deny check
+   338→    const moduleDenied = MODULE_DENY[role] || [];
+   339→    if (moduleDenied.includes(module)) {
+   340→      return {
+   341→        authorized: false,
+   342→        response: NextResponse.json(
+   343→          { error: `Access denied. Your role (${role}) is restricted from ${module}.` },
+   344→          { status: 403 }
+   345→        ),
+   346→      };
+   347→    }
+   348→
+   349→    // Step 3: Write operation check (POST/PUT/DELETE)
+   350→    if (method !== 'GET') {
+   351→      // VAT Auditor: ALL writes are denied (read-only role)
+   352→      if (role === 'vat_auditor') {
+   353→        return {
+   354→          authorized: false,
+   355→          response: NextResponse.json(
+   356→            { error: 'Write access denied. VAT Auditor has read-only access to all modules.' },
+   357→            { status: 403 }
+   358→          ),
+   359→        };
+   360→      }
+   361→
+   362→      const writeDenied = WRITE_DENY[role] || [];
+   363→      if (writeDenied.includes(module)) {
+   364→        return {
+   365→          authorized: false,
+   366→          response: NextResponse.json(
+   367→            { error: `Write access denied. Your role (${role}) cannot create, update, or delete records in ${module}.` },
+   368→            { status: 403 }
+   369→          ),
+   370→        };
+   371→      }
+   372→    }
+   373→
+   374→    // All checks passed — JWT authenticated
+   375→
+   376→    // ── CSRF Token Verification (defense-in-depth for state-changing requests) ──
+   377→    // CSRF tokens protect against cross-site request forgery in browser sessions.
+   378→    // Since JWT is sent via Authorization header (not cookies), CSRF is already
+   379→    // inherently mitigated. This adds defense-in-depth for browser-based sessions.
+   380→    //
+   381→    // IMPORTANT: On serverless platforms (Vercel), in-memory CSRF token stores
+   382→    // are NOT shared across function instances. A token generated on Instance A
+   383→    // during login won't exist on Instance B when a write request arrives.
+   384→    // Therefore, CSRF validation failures on serverless are expected and should
+   385→    // NOT block requests — JWT Bearer auth already provides CSRF protection.
+   386→    //
+   387→    // Enforcement mode (controlled by CSRF_ENFORCE env var):
+   388→    // - Transitional (default): Never block on CSRF — log warnings only.
+   389→    //   JWT auth provides sufficient CSRF protection for API-based apps.
+   390→    // - Strict (CSRF_ENFORCE=true): Block if token is missing or invalid.
+   391→    //   Only use this with a persistent (database-backed) CSRF token store.
+   392→    if (method !== 'GET') {
+   393→      const csrfHeader = request.headers.get('x-csrf-token');
+   394→
+   395→      if (csrfHeader) {
+   396→        // Token present — attempt verification
+   397→        const csrfValid = verifyCsrfToken(user.id, csrfHeader);
+   398→        if (!csrfValid) {
+   399→          // CSRF token not found in in-memory store.
+   400→          // On serverless (Vercel), this is expected because each request
+   401→          // may hit a different function instance with a fresh in-memory store.
+   402→          // Since JWT Bearer auth already prevents CSRF, we only block
+   403→          // when strict enforcement is explicitly enabled.
+   404→          if (isCsrfEnforced()) {
+   405→            return {
+   406→              authorized: false,
+   407→              response: NextResponse.json(
+   408→                { error: 'CSRF token validation failed. Please refresh the page and try again.', errorCode: 'CSRF_INVALID' },
+   409→                { status: 403 }
+   410→              ),
+   411→            };
+   412→          }
+   413→          // Transitional mode: log warning but allow request
+   414→          // This handles serverless environments where in-memory tokens
+   415→          // are not shared across instances
+   416→          console.warn(`[CSRF] Token validation failed for ${method} ${module} by user ${user.email}. Likely serverless instance mismatch. JWT auth provides CSRF protection.`);
+   417→        }
+   418→        // Token valid or transitional mode — proceed
+   419→      } else {
+   420→        // Token absent — transitional mode: warn but allow; strict mode: block
+   421→        if (isCsrfEnforced()) {
+   422→          return {
+   423→            authorized: false,
+   424→            response: NextResponse.json(
+   425→              { error: 'CSRF token is required for state-changing requests.', errorCode: 'CSRF_MISSING' },
+   426→              { status: 403 }
+   427→            ),
+   428→          };
+   429→        }
+   430→        // Transitional mode: log warning but allow request
+   431→        console.warn(`[CSRF] No X-CSRF-Token header for ${method} ${module} by user ${user.email}. Set CSRF_ENFORCE=true to enforce.`);
+   432→      }
+   433→    }
+   434→
+   435→    return {
+   436→      authorized: true,
+   437→      user: { id: user.id, email: user.email, name: user.name, role, companyId: user.companyId, displayName: user.name },
+   438→    };
+   439→  }
+   440→
+   441→  // ── No JWT token found — reject with 401 ──
+   442→  return {
+   443→    authorized: false,
+   444→    response: NextResponse.json(
+   445→      { error: 'Authentication required. Please log in.', errorCode: 'AUTH_REQUIRED' },
+   446→      { status: 401 }
+   447→    ),
+   448→  };
+   449→}
+   450→
+   451→/**
+   452→ * getSanitizedBody — Retrieves the XSS-sanitized request body set by withApiSecurity().
+   453→ * Falls back to parsing the request body normally if sanitization was skipped.
+   454→ *
+   455→ * Usage in API route:
+   456→ * ```ts
+   457→ * const security = await withApiSecurity(request, 'Products', 'POST');
+   458→ * if (!security.authorized) return security.response;
+   459→ * const body = await getSanitizedBody(request);
+   460→ * // body is now sanitized — safe to use in database queries and responses
+   461→ * ```
+   462→ */
+   463→export async function getSanitizedBody<T = Record<string, unknown>>(request: NextRequest): Promise<T> {
+   464→  const sanitized = (request as unknown as Record<string, unknown>).__sanitizedBody;
+   465→  if (sanitized) {
+   466→    return sanitized as T;
+   467→  }
+   468→  // Fallback: parse and sanitize the body directly
+   469→  try {
+   470→    const body = await request.json();
+   471→    if (body && typeof body === 'object') {
+   472→      return sanitizeObject(body as Record<string, unknown>) as T;
+   473→    }
+   474→    return body as T;
+   475→  } catch {
+   476→    return {} as T;
+   477→  }
+   478→}
+   479→
+   480→/**
+   481→ * checkPeriodClose - Rejects mutations within locked months
+   482→ * Call this BEFORE any POST/PUT/DELETE that modifies financial data
+   483→ */
+   484→export async function checkPeriodClose(
+   485→  date: Date | string
+   486→): Promise<NextResponse | null> {
+   487→  const d = typeof date === 'string' ? new Date(date) : date;
+   488→  const month = d.getMonth() + 1; // 1-based
+   489→  const year = d.getFullYear();
+   490→
+   491→  const lockedPeriod = await db.periodClose.findFirst({
+   492→    where: { periodMonth: month, periodYear: year, isLocked: true },
+   493→  });
+   494→
+   495→  if (lockedPeriod) {
+   496→    return NextResponse.json(
+   497→      {
+   498→        error: `Period locked. The month ${month}/${year} has been closed and locked. No modifications are allowed. Contact an administrator to unlock.`,
+   499→        periodCode: lockedPeriod.code,
+   500→        lockedMonth: month,
+   501→        lockedYear: year,
+   502→      },
+   503→      { status: 403 }
+   504→    );
+   505→  }
+   506→
+   507→  return null; // No lock found, proceed
+   508→}
+   509→
+   510→/**
+   511→ * VAT Auditor masking helper - replaces cost/margin values with "N/A (Audit Mode)"
+   512→ */
+   513→// Default sensitive fields for VAT Auditor masking
+   514→const DEFAULT_VAT_MASKED_FIELDS = ['costPrice', 'wholesalePrice', 'dealerPrice', 'discount', 'discountPercent', 'discountAmount', 'margin', 'profit'];
+   515→
+   516→export function maskForVatAuditor<T extends Record<string, unknown>>(
+   517→  data: T,
+   518→  role: UserRole,
+   519→  sensitiveFields: string[] = DEFAULT_VAT_MASKED_FIELDS,
+   520→  /** Optional per-field role restrictions: { creditLimit: ['sr', 'dealer'] } means
+   521→   *  creditLimit is masked ONLY for sr and dealer roles, not for admin/manager/vat_auditor.
+   522→   *  If not provided, the field is masked for ALL non-admin roles. */
+   523→  fieldRoleRestrictions?: Record<string, UserRole[]>
+   524→): T {
+   525→  // Admin and manager roles are NEVER masked — they have full visibility
+   526→  if (role === 'admin' || role === 'manager') {
+   527→    return data;
+   528→  }
+   529→
+   530→  const masked = { ...data };
+   531→
+   532→  for (const field of sensitiveFields) {
+   533→    if (!(field in masked)) continue;
+   534→
+   535→    // Check if this field has specific role restrictions
+   536→    if (fieldRoleRestrictions && fieldRoleRestrictions[field]) {
+   537→      // Only mask if the current role is in the restriction list
+   538→      if (fieldRoleRestrictions[field].includes(role)) {
+   539→        (masked as Record<string, unknown>)[field] = 'N/A (Restricted)';
+   540→      }
+   541→    } else if (role === 'vat_auditor') {
+   542→      // VAT Auditor: mask ALL passed sensitive fields
+   543→      (masked as Record<string, unknown>)[field] = 'N/A (Audit Mode)';
+   544→    } else {
+   545→      // Other roles (sr, dealer): mask custom (non-default) fields only
+   546→      // Default fields (costPrice, etc.) are only masked for vat_auditor
+   547→      const isDefaultField = DEFAULT_VAT_MASKED_FIELDS.includes(field);
+   548→      if (!isDefaultField) {
+   549→        (masked as Record<string, unknown>)[field] = 'N/A (Restricted)';
+   550→      }
+   551→    }
+   552→  }
+   553→
+   554→  return masked;
+   555→}
+   556→
+   557→/**
+   558→ * Validate vatMode parameter — only vat_auditor role is allowed to trigger masking.
+   559→ * Non-auditor users requesting vatMode=true will have the flag ignored.
+   560→ * Returns the effective vatMode (true only if user is vat_auditor AND vatMode was requested).
+   561→ */
+   562→export function validateVatMode(
+   563→  requestedVatMode: boolean,
+   564→  userRole: UserRole
+   565→): boolean {
+   566→  // SECURITY: VAT Auditor role ALWAYS gets masked data, regardless of client param.
+   567→  // Non-VAT-Auditor users cannot activate VAT mode (prevents data snooping).
+   568→  if (userRole === 'vat_auditor') {
+   569→    return true; // Always mask for VAT Auditor — defense in depth
+   570→  }
+   571→  if (requestedVatMode) {
+   572→    return false; // Non-VAT-Auditor cannot activate VAT mode
+   573→  }
+   574→  return false;
+   575→}
+   576→
+   577→/**
+   578→ * validateImageFields - Server-side validation for base64 image data
+   579→ * Prevents oversized base64 payloads that could cause 500 errors or bloat the database.
+   580→ * Matches the client-side 5MB limit per file, with ~33% base64 overhead = 7MB string limit.
+   581→ */
+   582→const MAX_BASE64_IMAGE_SIZE = 7 * 1024 * 1024; // 7MB base64 string (≈5MB original file)
+   583→
+   584→export function validateImageFields(
+   585→  body: Record<string, unknown>,
+   586→  imageFields: string[]
+   587→): string | null {
+   588→  for (const field of imageFields) {
+   589→    const value = body[field];
+   590→    if (typeof value === 'string' && value.length > MAX_BASE64_IMAGE_SIZE) {
+   591→      return `Image "${field}" exceeds maximum allowed size (5MB). Please compress the image and try again.`;
+   592→    }
+   593→    // Also validate it looks like a data URL if present
+   594→    if (typeof value === 'string' && !value.startsWith('data:') && value.length > 0) {
+   595→      return `Image "${field}" has invalid format. Expected base64 data URL.`;
+   596→    }
+   597→  }
+   598→  return null;
+   599→}
+   600→
+   601→// ============================================================
+   602→// STAGE 10: FINANCIAL MODULE SECURITY UTILITIES
+   603→// ============================================================
+   604→
+   605→/**
+   606→ * Financial module fields that VAT Auditor must NOT see values for.
+   607→ * Covers all liquid monetary fields: actual expense amounts, invoiced income,
+   608→ * cash-in-hand totals, bank account numbers, and transaction vouchers.
+   609→ */
+   610→export const FINANCIAL_VAT_MASKED_FIELDS = [
+   611→  'amount',
+   612→  'runningBalance',
+   613→  'openingBalance',
+   614→  'currentBalance',
+   615→  'accountNo',
+   616→  'chequeNo',
+   617→  'voucherNo',
+   618→  'referenceNo',
+   619→  'depositorName',
+   620→  'grandTotal',
+   621→  'subTotal',
+   622→  'vatAmount',
+   623→  'discount',
+   624→  'discountAmount',
+   625→  'creditLimit',
+   626→  'openingBalanceType',
+   627→  // Balance aggregation totals (AR/AP)
+   628→  'totalSalesOrders',
+   629→  'totalCashCollections',
+   630→  'totalHireSales',
+   631→  'totalSalesReturns',
+   632→  'totalPurchaseOrders',
+   633→  'totalCashDeliveries',
+   634→  'totalPurchaseReturns',
+   635→  'totalInvoices',
+   636→  'totalPayments',
+   637→  'totalCredit',
+   638→  'totalDebit',
+   639→  // Balance metadata
+   640→  'currentBalanceType',
+   641→  'creditUtilization',
+   642→  'creditStatus',
+   643→  // Additional monetary fields
+   644→  'balance',
+   645→  'totalAmount',
+   646→  'paidAmount',
+   647→  'dueAmount',
+   648→];
+   649→
+   650→/**
+   651→ * maskForVatAuditorFinancial - Convenience wrapper for financial module masking.
+   652→ * Applies FINANCIAL_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+   653→ * Also recursively masks nested objects (e.g., bank.accountNo, customer.creditLimit).
+   654→ */
+   655→export function maskForVatAuditorFinancial<T extends Record<string, unknown>>(
+   656→  data: T,
+   657→  role: UserRole
+   658→): T {
+   659→  if (role !== 'vat_auditor') return data;
+   660→  return maskForVatAuditor(data, role, FINANCIAL_VAT_MASKED_FIELDS);
+   661→}
+   662→
+   663→/**
+   664→ * Line-item monetary fields that VAT Auditor must NOT see on PO/SO line items.
+   665→ * Covers per-unit pricing, discounts, VAT, totals, COGS, and profit margins.
+   666→ */
+   667→const ORDER_LINE_VAT_MASKED_FIELDS = [
+   668→  'rate',
+   669→  'unitPrice',
+   670→  'discount',
+   671→  'discountAmount',
+   672→  'vatAmount',
+   673→  'total',
+   674→  'netAmount',
+   675→  'costPrice',
+   676→  'cogsAmount',
+   677→  'grossProfit',
+   678→  'profitMargin',
+   679→  'availableStock',
+   680→];
+   681→
+   682→/**
+   683→ * maskOrderWithLinesForVatAuditor - Masks a PO/SO record AND its nested `lines`
+   684→ * array for the VAT Auditor role. The standard `maskForVatAuditorFinancial` only
+   685→ * does shallow masking, so line-item pricing fields remain visible.
+   686→ * This function applies deep masking to every line item's monetary fields.
+   687→ */
+   688→export function maskOrderWithLinesForVatAuditor<T extends Record<string, unknown>>(
+   689→  order: T,
+   690→  role: UserRole
+   691→): T {
+   692→  if (role !== 'vat_auditor') return order;
+   693→
+   694→  // First apply standard top-level financial masking
+   695→  let masked = maskForVatAuditorFinancial(order, role);
+   696→
+   697→  // Then mask each line item in the `lines` array
+   698→  const lines = (masked as Record<string, unknown>).lines;
+   699→  if (Array.isArray(lines)) {
+   700→    const maskedLines = lines.map((line: unknown) => {
+   701→      if (line && typeof line === 'object') {
+   702→        return maskForVatAuditor(
+   703→          line as Record<string, unknown>,
+   704→          role,
+   705→          ORDER_LINE_VAT_MASKED_FIELDS
+   706→        );
+   707→      }
+   708→      return line;
+   709→    });
+   710→    masked = { ...masked, lines: maskedLines };
+   711→  }
+   712→
+   713→  return masked;
+   714→}
+   715→
+   716→/**
+   717→ * maskFinancialArray - Apply VAT Auditor masking to an array of financial records,
+   718→ * including nested relation objects (bank, customer, supplier).
+   719→ */
+   720→export function maskFinancialArray<T extends Record<string, unknown>>(
+   721→  items: T[],
+   722→  role: UserRole,
+   723→  extraFields?: string[]
+   724→): T[] {
+   725→  if (role !== 'vat_auditor') return items;
+   726→  const fields = extraFields
+   727→    ? [...FINANCIAL_VAT_MASKED_FIELDS, ...extraFields]
+   728→    : FINANCIAL_VAT_MASKED_FIELDS;
+   729→  return items.map((item) => {
+   730→    let masked = maskForVatAuditor(item, role, fields);
+   731→    // Mask nested bank object
+   732→    if (masked.bank && typeof masked.bank === 'object') {
+   733→      masked = {
+   734→        ...masked,
+   735→        bank: maskForVatAuditor(masked.bank as Record<string, unknown>, role, ['accountNo', 'currentBalance', 'openingBalance']),
+   736→      };
+   737→    }
+   738→    // Mask nested toBank object
+   739→    if (masked.toBank && typeof masked.toBank === 'object') {
+   740→      masked = {
+   741→        ...masked,
+   742→        toBank: maskForVatAuditor(masked.toBank as Record<string, unknown>, role, ['accountNo', 'currentBalance', 'openingBalance']),
+   743→      };
+   744→    }
+   745→    // Mask nested customer object
+   746→    if (masked.customer && typeof masked.customer === 'object') {
+   747→      masked = {
+   748→        ...masked,
+   749→        customer: maskForVatAuditor(
+   750→          masked.customer as Record<string, unknown>,
+   751→          role,
+   752→          ['creditLimit', 'openingBalance'],
+   753→          { creditLimit: ['sr', 'dealer'], openingBalance: ['sr', 'dealer'] }
+   754→        ),
+   755→      };
+   756→    }
+   757→    // Mask nested supplier object
+   758→    if (masked.supplier && typeof masked.supplier === 'object') {
+   759→      masked = {
+   760→        ...masked,
+   761→        supplier: maskForVatAuditor(
+   762→          masked.supplier as Record<string, unknown>,
+   763→          role,
+   764→          ['creditLimit', 'openingBalance'],
+   765→          { creditLimit: ['sr', 'dealer'], openingBalance: ['sr', 'dealer'] }
+   766→        ),
+   767→      };
+   768→    }
+   769→    return masked;
+   770→  });
+   771→}
+   772→
+   773→/**
+   774→ * checkFinancialDeletePermission - Only Administrators (admin) have the authority
+   775→ * to modify or soft-delete posted Expense or Income vouchers.
+   776→ * Managers can create and update but CANNOT delete final financial posts.
+   777→ * SR and Dealer are already blocked by WRITE_DENY.
+   778→ *
+   779→ * Returns a 403 response if the role is not admin, or null if allowed.
+   780→ */
+   781→export function checkFinancialDeletePermission(role: UserRole): NextResponse | null {
+   782→  if (role !== 'admin') {
+   783→    return NextResponse.json(
+   784→      {
+   785→        error: `Delete access denied. Only Administrators can delete final financial posts. Your role (${role}) can create and update but cannot delete.`,
+   786→      },
+   787→      { status: 403 }
+   788→    );
+   789→  }
+   790→  return null;
+   791→}
+   792→
+   793→/**
+   794→ * safeFinancialRound - Prevents JavaScript float rounding traps during
+   795→ * multiple ledger aggregations. All financial accumulation must run through
+   796→ * this uniform scaling logic.
+   797→ *
+   798→ * Multiplies by 100, rounds to nearest integer, then divides by 100.
+   799→ * This ensures 0.1 + 0.2 = 0.30 (not 0.30000000000000004).
+   800→ */
+   801→export function safeFinancialRound(value: number): number {
+   802→  return Math.round(value * 100) / 100;
+   803→}
+   804→
+   805→/**
+   806→ * safeFinancialAdd - Safely add two financial values without floating-point errors.
+   807→ */
+   808→export function safeFinancialAdd(a: number, b: number): number {
+   809→  return safeFinancialRound(a + b);
+   810→}
+   811→
+   812→/**
+   813→ * safeFinancialSubtract - Safely subtract two financial values without floating-point errors.
+   814→ */
+   815→export function safeFinancialSubtract(a: number, b: number): number {
+   816→  return safeFinancialRound(a - b);
+   817→}
+   818→
+   819→/**
+   820→ * formatFinancialField - Clean null/undefined/empty optional string fields
+   821→ * to "-" or "N/A" to prevent column alignment shifting in table matrix arrays
+   822→ * or document exports.
+   823→ *
+   824→ * Usage: formatFinancialField(record.chequeNo) → "—" if null/undefined/empty
+   825→ */
+   826→export function formatFinancialField(value: unknown): string {
+   827→  if (value === null || value === undefined || value === '') return '—';
+   828→  if (typeof value === 'string' && value.trim() === '') return '—';
+   829→  return String(value);
+   830→}
+   831→
+   832→// ============================================================
+   833→// STAGE 12: CORE ACCOUNTING REPORTS SECURITY UTILITIES
+   834→// ============================================================
+   835→
+   836→/**
+   837→ * Accounting module fields that VAT Auditor must NOT see values for.
+   838→ * Covers all monetary ledger balances, revenue lines, gross profit margins,
+   839→ * asset statements, and capital metrics.
+   840→ */
+   841→export const ACCOUNTING_VAT_MASKED_FIELDS = [
+   842→  // Core monetary amounts
+   843→  'amount',
+   844→  'debit',
+   845→  'credit',
+   846→  'openingBalance',
+   847→  'currentBalance',
+   848→  'runningBalance',
+   849→  'grandTotal',
+   850→  'subTotal',
+   851→  'vatAmount',
+   852→  'discount',
+   853→  'discountAmount',
+   854→  'netBalance',
+   855→  'balance',
+   856→  // Revenue / Cost / Profit
+   857→  'revenue',
+   858→  'salesRevenue',
+   859→  'otherIncome',
+   860→  'costOfGoods',
+   861→  'cogs',
+   862→  'grossProfit',
+   863→  'grossProfitMargin',
+   864→  'operatingExpenses',
+   865→  'netProfit',
+   866→  'netProfitMargin',
+   867→  'profit',
+   868→  'profitMargin',
+   869→  'returnOnSales',
+   870→  // Asset / Liability / Equity
+   871→  'equity',
+   872→  'totalAssets',
+   873→  'totalLiabilities',
+   874→  'totalEquity',
+   875→  'retainedEarnings',
+   876→  'totalCashInHand',
+   877→  'cashInHand',
+   878→  'stock',
+   879→  'stockValue',
+   880→  'bankBalance',
+   881→  'receivables',
+   882→  'payables',
+   883→  'creditLimit',
+   884→  'supplierAdvances',
+   885→  'inventoryValue',
+   886→  'workingCapital',
+   887→  'currentAssets',
+   888→  'currentLiabilities',
+   889→  // Totals and aggregates
+   890→  'totalDebit',
+   891→  'totalCredit',
+   892→  'totalNet',
+   893→  'totalRevenue',
+   894→  'totalPurchases',
+   895→  'totalExpenses',
+   896→  'totalIncomes',
+   897→  'totalBankBalance',
+   898→  'totalReceivables',
+   899→  'totalPayables',
+   900→  'totalOutstanding',
+   901→  'totalPurchaseValue',
+   902→  'totalPurchase',
+   903→  // Cash flow
+   904→  'deposits',
+   905→  'withdrawals',
+   906→  'income',
+   907→  'expense',
+   908→  'collections',
+   909→  'deliveries',
+   910→  // Opening balances
+   911→  'openingDebit',
+   912→  'openingCredit',
+   913→  'opening',
+   914→  // Time-based aggregates
+   915→  'todaysSales',
+   916→  'todaysPurchases',
+   917→  'todaysCollections',
+   918→  'monthToDateSales',
+   919→  'monthToDatePurchases',
+   920→  'lastYearRevenue',
+   921→  'lastYearPurchases',
+   922→  // Product pricing
+   923→  'costPrice',
+   924→  'salePrice',
+   925→  'wholesalePrice',
+   926→  'dealerPrice',
+   927→  // Payment / Outstanding
+   928→  'amountPaid',
+   929→  'amountDue',
+   930→  'paidAmount',
+   931→  'outstanding',
+   932→  'targetAmount',
+   933→  // Ratios
+   934→  'assetTurnoverRatio',
+   935→  'turnoverRatio',
+   936→  // Group subtotals (COA)
+   937→  'ownDebit',
+   938→  'ownCredit',
+   939→  'ownNet',
+   940→  'childDebit',
+   941→  'childCredit',
+   942→  'childNet',
+   943→  // Sales-specific
+   944→  'totalSalesValue',
+   945→  'lineTotal',
+   946→  'deficit',
+   947→  // Cash flow daily
+   948→  'inflow',
+   949→  'outflow',
+   950→  'net',
+   951→  'netCash',
+   952→  'netFlow',
+   953→  // Cash In Hand specific
+   954→  'totalCollections',
+   955→  'totalDeliveries',
+   956→  'totalIncome',
+   957→  'totalExpense',
+   958→  'totalDeposits',
+   959→  'totalWithdrawals',
+   960→  'openingCash',
+   961→  'closingCash',
+   962→  // Recent transactions
+   963→  'transactionAmount',
+   964→  'cashIn',
+   965→  'cashOut',
+   966→  'bankIn',
+   967→  'bankOut',
+   968→  // Balance Sheet specific (additional)
+   969→  'customerAdvances',
+   970→  'debtToEquity',
+   971→  'value', // Chart composition arrays
+   972→  'totalSales',
+   973→  'totalHireSales',
+   974→  'totalReturns',
+   975→  'totalDeliveries',
+   976→  'netWorth',
+   977→  // Cash In Hand totals keys
+   978→  'cashCollections',
+   979→  'cashDeliveries',
+   980→  'cashIncome',
+   981→  'cashExpense',
+   982→  // Collection Matrix specific
+   983→  'totalInvoiced',
+   984→  'totalCollected',
+   985→  'totalReturned',
+   986→  'collectionRate',
+   987→  'overallCollectionRate',
+   988→  'invoiced',
+   989→  'collected',
+   990→  'returned',
+   991→  'days1to30', // Aging bucket amount
+   992→  // Fraud Detection specific
+   993→  'totalBookValue',
+   994→  'totalMarketValue',
+   995→  'valuationGap',
+   996→  'bookValue',
+   997→  'marketValue',
+   998→  'totalPayable',
+   999→  'totalPaid',
+  1000→  'overdueAmount',
+  1001→  'excessAmount',
+  1002→  'concentrationPercent',
+  1003→  'marginPercent',
+  1004→  'discrepancyPercent',
+  1005→  'totalLossValue',
+  1006→  'lossCostPrice',
+  1007→  'totalCost',
+  1008→  // Ledger integrity / unbalanced amounts
+  1009→  'difference',
+  1010→  // Commission & Hire Purchase report fields
+  1011→  'totalOverdue',
+  1012→  'totalHirePayable',
+  1013→  'outstandingBalance',
+  1014→  'downPayment',
+  1015→  'earnedCommission',
+  1016→  'totalCommissions',
+  1017→];
+  1018→
+  1019→/**
+  1020→ * maskForVatAuditorAccounting - Convenience wrapper for accounting module masking.
+  1021→ * Applies ACCOUNTING_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+  1022→ * Masks all monetary ledger balances, revenue lines, gross profit margins,
+  1023→ * asset statements, and capital metrics to "N/A (Audit Mode)".
+  1024→ */
+  1025→export function maskForVatAuditorAccounting<T extends Record<string, unknown>>(
+  1026→  data: T,
+  1027→  role: UserRole
+  1028→): T {
+  1029→  if (role !== 'vat_auditor') return data;
+  1030→  return maskForVatAuditor(data, role, ACCOUNTING_VAT_MASKED_FIELDS);
+  1031→}
+  1032→
+  1033→/**
+  1034→ * maskAccountingArray - Apply VAT Auditor masking to an array of accounting records,
+  1035→ * including nested relation objects.
+  1036→ */
+  1037→export function maskAccountingArray<T extends Record<string, unknown>>(
+  1038→  items: T[],
+  1039→  role: UserRole,
+  1040→  extraFields?: string[]
+  1041→): T[] {
+  1042→  if (role !== 'vat_auditor') return items;
+  1043→  const fields = extraFields
+  1044→    ? [...ACCOUNTING_VAT_MASKED_FIELDS, ...extraFields]
+  1045→    : ACCOUNTING_VAT_MASKED_FIELDS;
+  1046→  return items.map((item) => maskForVatAuditor(item, role, fields));
+  1047→}
+  1048→
+  1049→/**
+  1050→ * checkPeriodClosePermission - Only Administrators (admin) can trigger the
+  1051→ * "Period Close" action, which freezes the active ledger parameters.
+  1052→ * Managers can generate all reports but CANNOT perform period closing operations.
+  1053→ * SR and Dealer are already blocked by MODULE_DENY.
+  1054→ *
+  1055→ * Returns a 403 response if the role is not admin, or null if allowed.
+  1056→ */
+  1057→export function checkPeriodClosePermission(role: UserRole): NextResponse | null {
+  1058→  if (role !== 'admin') {
+  1059→    return NextResponse.json(
+  1060→      {
+  1061→        error: `Period Close access denied. Only Administrators can close accounting periods. Your role (${role}) can generate reports but cannot lock periods.`,
+  1062→      },
+  1063→      { status: 403 }
+  1064→    );
+  1065→  }
+  1066→  return null;
+  1067→}
+  1068→
+  1069→/**
+  1070→ * maskAccountingReportForVatAuditor - Deep masking function for accounting report
+  1071→ * responses. Walks through the response object and masks all monetary fields
+  1072→ * at every nesting level.
+  1073→ */
+  1074→export function maskAccountingReportForVatAuditor(
+  1075→  data: Record<string, unknown>,
+  1076→  role: UserRole
+  1077→): Record<string, unknown> {
+  1078→  if (role !== 'vat_auditor') return data;
+  1079→
+  1080→  const masked = { ...data };
+  1081→  // Use combined field set for comprehensive coverage (same as maskDashboardForVatAuditor)
+  1082→  const monetaryKeys = new Set(ACCOUNTING_VAT_MASKED_FIELDS);
+  1083→  AUDIT_INTEGRITY_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+  1084→  FINANCIAL_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+  1085→
+  1086→  function maskRecursive(obj: unknown): unknown {
+  1087→    if (obj === null || obj === undefined) return obj;
+  1088→    if (typeof obj === 'number') return 'N/A (Audit Mode)';
+  1089→    if (typeof obj === 'string') return obj; // string values stay
+  1090→    if (Array.isArray(obj)) return obj.map(maskRecursive);
+  1091→    if (typeof obj === 'object') {
+  1092→      const result: Record<string, unknown> = {};
+  1093→      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+  1094→        if (monetaryKeys.has(key) && (typeof value === 'number' || value === null)) {
+  1095→          result[key] = 'N/A (Audit Mode)';
+  1096→        } else if (typeof value === 'object' && value !== null) {
+  1097→          result[key] = maskRecursive(value);
+  1098→        } else {
+  1099→          result[key] = value;
+  1100→        }
+  1101→      }
+  1102→      return result;
+  1103→    }
+  1104→    return obj;
+  1105→  }
+  1106→
+  1107→  // Mask top-level monetary keys
+  1108→  for (const key of Object.keys(masked)) {
+  1109→    if (monetaryKeys.has(key) && (typeof masked[key] === 'number' || masked[key] === null)) {
+  1110→      masked[key] = 'N/A (Audit Mode)';
+  1111→    } else if (typeof masked[key] === 'object' && masked[key] !== null && !Array.isArray(masked[key])) {
+  1112→      masked[key] = maskRecursive(masked[key]);
+  1113→    } else if (Array.isArray(masked[key])) {
+  1114→      masked[key] = (masked[key] as unknown[]).map(maskRecursive);
+  1115→    }
+  1116→  }
+  1117→
+  1118→  masked['vatAuditMode'] = true;
+  1119→  return masked;
+  1120→}
+  1121→
+  1122→// ============================================================
+  1123→// STAGE 11: SMS MODULE SECURITY UTILITIES
+  1124→// ============================================================
+  1125→
+  1126→/**
+  1127→ * SMS module fields that VAT Auditor must NOT see values for.
+  1128→ * Covers carrier costs, balance top-up rates, API token characters,
+  1129→ * billing statements, and gateway credentials.
+  1130→ */
+  1131→export const SMS_VAT_MASKED_FIELDS = [
+  1132→  'cost',
+  1133→  'ratePerSms',
+  1134→  'unicodeRate',
+  1135→  'setupCost',
+  1136→  'apiKey',
+  1137→  'totalCost',
+  1138→  'paidAmount',
+  1139→  'outstanding',
+  1140→  'amount',
+  1141→];
+  1142→
+  1143→/**
+  1144→ * maskForVatAuditorSms - Convenience wrapper for SMS module masking.
+  1145→ * Applies SMS_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+  1146→ * Masks carrier costs, balance top-up rates, API token characters,
+  1147→ * and billing statements to "N/A (Audit Mode)".
+  1148→ */
+  1149→export function maskForVatAuditorSms<T extends Record<string, unknown>>(
+  1150→  data: T,
+  1151→  role: UserRole
+  1152→): T {
+  1153→  if (role !== 'vat_auditor') return data;
+  1154→  return maskForVatAuditor(data, role, SMS_VAT_MASKED_FIELDS);
+  1155→}
+  1156→
+  1157→/**
+  1158→ * maskSmsArray - Apply VAT Auditor masking to an array of SMS records,
+  1159→ * including nested relation objects (smsBill, etc.).
+  1160→ */
+  1161→export function maskSmsArray<T extends Record<string, unknown>>(
+  1162→  items: T[],
+  1163→  role: UserRole,
+  1164→  extraFields?: string[]
+  1165→): T[] {
+  1166→  if (role !== 'vat_auditor') return items;
+  1167→  const fields = extraFields
+  1168→    ? [...SMS_VAT_MASKED_FIELDS, ...extraFields]
+  1169→    : SMS_VAT_MASKED_FIELDS;
+  1170→  return items.map((item) => {
+  1171→    let masked = maskForVatAuditor(item, role, fields);
+  1172→    // Mask nested smsBill object
+  1173→    if (masked.smsBill && typeof masked.smsBill === 'object') {
+  1174→      masked = {
+  1175→        ...masked,
+  1176→        smsBill: maskForVatAuditor(
+  1177→          masked.smsBill as Record<string, unknown>,
+  1178→          role,
+  1179→          ['totalCost', 'paidAmount', 'outstanding']
+  1180→        ),
+  1181→      };
+  1182→    }
+  1183→    // Mask nested payments array
+  1184→    if (Array.isArray(masked.payments)) {
+  1185→      masked = {
+  1186→        ...masked,
+  1187→        payments: (masked.payments as Record<string, unknown>[]).map((p) =>
+  1188→          maskForVatAuditor(p, role, ['amount'])
+  1189→        ),
+  1190→      };
+  1191→    }
+  1192→    return masked;
+  1193→  });
+  1194→}
+  1195→
+  1196→/**
+  1197→ * checkSmsSettingsWritePermission - Only Administrators (admin) can update
+  1198→ * sensitive Gateway API Keys, Secret tokens, and carrier configurations.
+  1199→ * Managers can review summaries but cannot modify gateway settings.
+  1200→ * SR and Dealer are already blocked by WRITE_DENY.
+  1201→ *
+  1202→ * Returns a 403 response if the role is not admin for SmsSettings mutations, or null if allowed.
+  1203→ */
+  1204→export function checkSmsSettingsWritePermission(role: UserRole): NextResponse | null {
+  1205→  if (role !== 'admin') {
+  1206→    return NextResponse.json(
+  1207→      {
+  1208→        error: `Access denied. Only Administrators can modify SMS Gateway API Keys, Secret tokens, and carrier configurations. Your role (${role}) can review but cannot edit settings.`,
+  1209→      },
+  1210→      { status: 403 }
+  1211→    );
+  1212→  }
+  1213→  return null;
+  1214→}
+  1215→
+  1216→/**
+  1217→ * computeSmsSegments - Safely computes the number of SMS segments based on
+  1218→ * character count and Unicode detection.
+  1219→ * Standard SMS: 160 characters per segment
+  1220→ * Unicode SMS: 70 characters per segment (for Bangla/emoji text)
+  1221→ */
+  1222→export function computeSmsSegments(message: string): {
+  1223→  charCount: number;
+  1224→  isUnicode: boolean;
+  1225→  segmentCount: number;
+  1226→  charsPerSegment: number;
+  1227→} {
+  1228→  const charCount = message.length;
+  1229→  // Detect Unicode: Bangla Unicode range (U+0980–U+09FF), CJK, emoji, etc.
+  1230→  const unicodeRegex = /[^\x00-\x7F]/;
+  1231→  const isUnicode = unicodeRegex.test(message);
+  1232→  const charsPerSegment = isUnicode ? 70 : 160;
+  1233→  const segmentCount = charCount > 0 ? Math.ceil(charCount / charsPerSegment) : 1;
+  1234→  return { charCount, isUnicode, segmentCount, charsPerSegment };
+  1235→}
+  1236→
+  1237→// ============================================================
+  1238→// STAGE 13: AUDIT & INTEGRITY LAYER SECURITY UTILITIES
+  1239→// ============================================================
+  1240→
+  1241→/**
+  1242→ * Audit & Intelligence module fields that VAT Auditor must NOT see values for.
+  1243→ * Covers all dashboard KPI values, revenue charts, stock ledger value projections,
+  1244→ * aging capital costs, and operational ratio metrics.
+  1245→ */
+  1246→export const AUDIT_INTEGRITY_VAT_MASKED_FIELDS = [
+  1247→  'totalRevenue',
+  1248→  'totalExpenses',
+  1249→  'totalIncome',
+  1250→  'totalPurchases',
+  1251→  'netProfit',
+  1252→  'cogs',
+  1253→  'grossProfit',
+  1254→  'totalReceivables',
+  1255→  'totalPayables',
+  1256→  'stockValue',
+  1257→  'cashBalance',
+  1258→  'totalBankBalance',
+  1259→  'totalInventoryValue',
+  1260→  'totalAssets',
+  1261→  'totalLiabilities',
+  1262→  'totalEquity',
+  1263→  'workingCapital',
+  1264→  'assetTurnoverRatio',
+  1265→  'returnOnSales',
+  1266→  'currentRatio',
+  1267→  'debtToEquityRatio',
+  1268→  'grossProfitMargin',
+  1269→  'netProfitMargin',
+  1270→  'receivablesTurnover',
+  1271→  'payablesTurnover',
+  1272→  'inventoryTurnover',
+  1273→  'assetTurnover',
+  1274→  'quickRatio',
+  1275→  'totalOutstanding',
+  1276→  'current',
+  1277→  'days31to60',
+  1278→  'days61to90',
+  1279→  'days90plus',
+  1280→  'totalValue',
+  1281→  'averageAge',
+  1282→  'costPrice',
+  1283→  'salePrice',
+  1284→  'hireRate',
+  1285→  'installmentAmount',
+  1286→  'totalPaid',
+  1287→  'grandTotal',
+  1288→  'balanceAmount',
+  1289→  'totalRevenue',
+  1290→  'todaysSales',
+  1291→  'todaysPurchases',
+  1292→  'todaysCollections',
+  1293→  'monthToDateSales',
+  1294→  'monthToDatePurchases',
+  1295→  'amount',
+  1296→  'discrepancy',
+  1297→  'expectedValue',
+  1298→  'actualValue',
+  1299→];
+  1300→
+  1301→/**
+  1302→ * maskForVatAuditorAuditIntelligence - Convenience wrapper for audit & intelligence masking.
+  1303→ * Applies AUDIT_INTEGRITY_VAT_MASKED_FIELDS to a record when the role is vat_auditor.
+  1304→ * Masks all dashboard KPI values, revenue charts, stock ledger value projections,
+  1305→ * and aging capital costs to "N/A (Audit Mode)".
+  1306→ */
+  1307→export function maskForVatAuditorAuditIntelligence<T extends Record<string, unknown>>(
+  1308→  data: T,
+  1309→  role: UserRole
+  1310→): T {
+  1311→  if (role !== 'vat_auditor') return data;
+  1312→  return maskForVatAuditor(data, role, AUDIT_INTEGRITY_VAT_MASKED_FIELDS);
+  1313→}
+  1314→
+  1315→/**
+  1316→ * maskAuditIntelligenceArray - Apply VAT Auditor masking to an array of audit/intelligence records.
+  1317→ */
+  1318→export function maskAuditIntelligenceArray<T extends Record<string, unknown>>(
+  1319→  items: T[],
+  1320→  role: UserRole,
+  1321→  extraFields?: string[]
+  1322→): T[] {
+  1323→  if (role !== 'vat_auditor') return items;
+  1324→  const fields = extraFields
+  1325→    ? [...AUDIT_INTEGRITY_VAT_MASKED_FIELDS, ...extraFields]
+  1326→    : AUDIT_INTEGRITY_VAT_MASKED_FIELDS;
+  1327→  return items.map((item) => maskForVatAuditor(item, role, fields));
+  1328→}
+  1329→
+  1330→/**
+  1331→ * maskDashboardForVatAuditor - Deep recursive masking for dashboard KPI responses.
+  1332→ * Walks through the response object and masks all numeric monetary fields
+  1333→ * at every nesting level. This is used by the Dashboard and DashboardAnalytics routes.
+  1334→ */
+  1335→export function maskDashboardForVatAuditor(
+  1336→  data: Record<string, unknown>,
+  1337→  role: UserRole
+  1338→): Record<string, unknown> {
+  1339→  if (role !== 'vat_auditor') return data;
+  1340→
+  1341→  const masked = { ...data };
+  1342→  const monetaryKeys = new Set(AUDIT_INTEGRITY_VAT_MASKED_FIELDS);
+  1343→  // Also include accounting masked fields for comprehensive coverage
+  1344→  ACCOUNTING_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+  1345→  FINANCIAL_VAT_MASKED_FIELDS.forEach(k => monetaryKeys.add(k));
+  1346→
+  1347→  function maskRecursive(obj: unknown): unknown {
+  1348→    if (obj === null || obj === undefined) return obj;
+  1349→    if (typeof obj === 'number') return 'N/A (Audit Mode)';
+  1350→    if (typeof obj === 'string') return obj; // string values stay
+  1351→    if (typeof obj === 'boolean') return obj;
+  1352→    if (Array.isArray(obj)) return obj.map(maskRecursive);
+  1353→    if (typeof obj === 'object') {
+  1354→      const result: Record<string, unknown> = {};
+  1355→      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+  1356→        // Mask numeric values whose key is in the monetary set
+  1357→        if (monetaryKeys.has(key) && typeof value === 'number') {
+  1358→          result[key] = 'N/A (Audit Mode)';
+  1359→        } else if (typeof value === 'object' && value !== null) {
+  1360→          result[key] = maskRecursive(value);
+  1361→        } else {
+  1362→          result[key] = value;
+  1363→        }
+  1364→      }
+  1365→      return result;
+  1366→    }
+  1367→    return obj;
+  1368→  }
+  1369→
+  1370→  // Mask top-level monetary keys
+  1371→  for (const key of Object.keys(masked)) {
+  1372→    if (monetaryKeys.has(key) && typeof masked[key] === 'number') {
+  1373→      masked[key] = 'N/A (Audit Mode)';
+  1374→    } else if (typeof masked[key] === 'object' && masked[key] !== null && !Array.isArray(masked[key])) {
+  1375→      masked[key] = maskRecursive(masked[key]);
+  1376→    } else if (Array.isArray(masked[key])) {
+  1377→      masked[key] = (masked[key] as unknown[]).map(maskRecursive);
+  1378→    }
+  1379→  }
+  1380→
+  1381→  masked['vatAuditMode'] = true;
+  1382→  return masked;
+  1383→}
+  1384→
+  1385→/**
+  1386→ * checkAutoPostAdminPermission - Only Administrators (admin) can force manual
+  1387→ * triggers of the Ledger Auto-Post engine. Managers can view but cannot trigger.
+  1388→ * SR and Dealer are already blocked by MODULE_DENY.
+  1389→ *
+  1390→ * Returns a 403 response if the role is not admin, or null if allowed.
+  1391→ */
+  1392→
+  1393→/**
+  1394→ * stripHtml - Sanitizes user-entered text to prevent XSS attacks.
+  1395→ * Strips all HTML tags, script content, and event handlers.
+  1396→ * Must be applied to ALL user-entered text fields before database storage.
+  1397→ */
+  1398→export function stripHtml(input: string): string {
+  1399→  if (typeof input !== 'string') return '';
+  1400→  return input
+  1401→    // Remove script tags and their content
+  1402→    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+  1403→    // Remove style tags and their content
+  1404→    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+  1405→    // Remove all HTML tags
+  1406→    .replace(/<[^>]*>/g, '')
+  1407→    // Remove HTML entities
+  1408→    .replace(/&(?:nbsp|lt|gt|amp|quot|apos|colon|lpar|rpar|#\d+|#x[\da-fA-F]+);/gi, ' ')
+  1409→    // Remove javascript: URLs
+  1410→    .replace(/javascript\s*:/gi, '')
+  1411→    // Remove on* event handlers
+  1412→    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+  1413→    // Collapse whitespace
+  1414→    .replace(/\s+/g, ' ')
+  1415→    .trim();
+  1416→}
+  1417→
+  1418→/**
+  1419→ * checkAutoPostAdminPermission - Only Administrators (admin) can force manual
+  1420→ * triggers of the Ledger Auto-Post engine. Managers can view but cannot trigger.
+  1421→ * SR and Dealer are already blocked by MODULE_DENY.
+  1422→ *
+  1423→ * Returns a 403 response if the role is not admin, or null if allowed.
+  1424→ */
+  1425→export function checkAutoPostAdminPermission(role: UserRole): NextResponse | null {
+  1426→  if (role !== 'admin') {
+  1427→    return NextResponse.json(
+  1428→      {
+  1429→        error: `Auto-Post trigger denied. Only Administrators can manually trigger the Ledger Auto-Post engine. Your role (${role}) can view auto-post records but cannot trigger posting operations.`,
+  1430→      },
+  1431→      { status: 403 }
+  1432→    );
+  1433→  }
+  1434→  return null;
+  1435→}
+  1436→
+  1437→/**
+  1438→ * checkNotificationDismissPermission - Only Administrators (admin) can dismiss
+  1439→ * critical system notifications and integrity warnings. Managers can mark as read
+  1440→ * but cannot dismiss. SR and Dealer are already blocked by MODULE_DENY.
+  1441→ *
+  1442→ * Returns a 403 response if the role is not admin, or null if allowed.
+  1443→ */
+  1444→export function checkNotificationDismissPermission(role: UserRole): NextResponse | null {
+  1445→  if (role !== 'admin') {
+  1446→    return NextResponse.json(
+  1447→      {
+  1448→        error: `Dismiss denied. Only Administrators can dismiss critical system notifications and integrity warnings. Your role (${role}) can mark notifications as read but cannot dismiss them.`,
+  1449→      },
+  1450→      { status: 403 }
+  1451→    );
+  1452→  }
+  1453→  return null;
+  1454→}
+  1455→

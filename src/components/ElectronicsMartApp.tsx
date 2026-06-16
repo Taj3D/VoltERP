@@ -1566,6 +1566,7 @@ function StockPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const { toast } = useToast();
+  const { user: stockUser } = useAuth();
 
   useEffect(() => {
     (async () => {
@@ -1583,9 +1584,68 @@ function StockPage() {
     return data.filter((item: any) => item.productName?.toLowerCase().includes(s) || item.productCode?.toLowerCase().includes(s));
   }, [data, search]);
 
+  // ── Export CSV ──
+  const exportCSV = () => {
+    try {
+      const headers = ["Product Code", "Product Name", "Category", "Stock Qty", "Cost Price", "Sale Price"];
+      const rows = filtered.map((item: any) => [
+        String(item.productCode ?? ""),
+        String(item.productName ?? ""),
+        String(item.category ?? "—"),
+        String((item.currentStock ?? item.totalStock) ?? 0),
+        String(item.costPrice ?? 0),
+        String(item.salePrice ?? 0),
+      ]);
+      exportToCSVSimple("Stock Overview", headers, rows);
+      toast({ title: "Exported", description: "Stock Overview exported to CSV" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  // ── Export PDF ──
+  const exportPDF = async () => {
+    try {
+      const headers = ["Product Code", "Product Name", "Category", "Stock Qty", "Cost Price", "Sale Price"];
+      const body = filtered.map((item: any) => [
+        String(item.productCode ?? ""),
+        String(item.productName ?? ""),
+        String(item.category ?? "—"),
+        String((item.currentStock ?? item.totalStock) ?? 0),
+        fmt(item.costPrice, "currency"),
+        fmt(item.salePrice, "currency"),
+      ]);
+      const company = getCachedCompanyProfile() || undefined;
+      await exportToPDFSimple("Stock Overview", headers, body, "landscape", undefined, company, getPDFFinancialFooter());
+      toast({ title: "Exported", description: "Stock Overview exported to PDF" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  // ── Import CSV ──
+  const importCSV = () => {
+    importFromCSV({
+      apiPath: "/api/stock",
+      formFields: [
+        { key: "productCode", label: "Product Code", type: "text" },
+        { key: "productName", label: "Product Name", type: "text", required: true },
+        { key: "category", label: "Category", type: "text" },
+        { key: "currentStock", label: "Stock Qty", type: "number" },
+        { key: "costPrice", label: "Cost Price", type: "number" },
+        { key: "salePrice", label: "Sale Price", type: "number" },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+    });
+  };
+
   return (
     <div className="page-enter space-y-4">
-      <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Overview</h2>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Overview</h2>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
+          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+        </div>
+      </div>
       <Card>
         <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-4">
@@ -1694,13 +1754,71 @@ function StockDetailsPage() {
   const totalIn = data.filter((d: any) => d.type === "IN").reduce((s: number, d: any) => s + (d.quantity || 0), 0);
   const totalOut = data.filter((d: any) => d.type === "OUT").reduce((s: number, d: any) => s + (d.quantity || 0), 0);
 
+  // ── Export CSV ──
+  const exportCSV = () => {
+    try {
+      const headers = ["Product", "Type", "Quantity", "Reference", "Date", "Notes"];
+      const rows = filtered.map((item: any) => [
+        String(item.product?.name || item.productId || "—"),
+        String(item.type ?? ""),
+        String(item.quantity ?? 0),
+        String(item.reference ?? "—"),
+        String(fmtDate(item.date)),
+        String(item.notes ?? "—"),
+      ]);
+      exportToCSVSimple("Stock Details", headers, rows);
+      toast({ title: "Exported", description: "Stock Details exported to CSV" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  // ── Export PDF ──
+  const exportPDF = async () => {
+    try {
+      const headers = ["Product", "Type", "Quantity", "Reference", "Date", "Notes"];
+      const body = filtered.map((item: any) => [
+        String(item.product?.name || item.productId || "—"),
+        String(item.type ?? ""),
+        String(item.quantity ?? 0),
+        String(item.reference ?? "—"),
+        String(fmtDate(item.date)),
+        String(item.notes ?? "—"),
+      ]);
+      const company = getCachedCompanyProfile() || undefined;
+      await exportToPDFSimple("Stock Details", headers, body, "landscape", undefined, company, getPDFFinancialFooter());
+      toast({ title: "Exported", description: "Stock Details exported to PDF" });
+    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  };
+
+  // ── Import CSV ──
+  const importCSV = () => {
+    importFromCSV({
+      apiPath: "/api/stock-entries",
+      formFields: [
+        { key: "productId", label: "Product ID", type: "text", required: true },
+        { key: "type", label: "Type (IN/OUT)", type: "text", required: true },
+        { key: "quantity", label: "Quantity", type: "number", required: true },
+        { key: "reference", label: "Reference", type: "text" },
+        { key: "date", label: "Date", type: "date" },
+        { key: "notes", label: "Notes", type: "text" },
+      ],
+    }).then(result => {
+      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+      loadData();
+    });
+  };
+
   return (
     <div className="page-enter space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Stock Details</h2>
-        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreateEntry}>
-          <Plus className="w-4 h-4 mr-1" />Create Stock Entry
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={importCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
+          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={exportPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={openCreateEntry}>
+            <Plus className="w-4 h-4 mr-1" />Create Stock Entry
+          </Button>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {[

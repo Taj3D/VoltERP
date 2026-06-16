@@ -26,10 +26,10 @@ import { useAuth } from "@/hooks/useAuth";
 
 // ── Utility Functions ──────────────────────────────────────────────
 
-import { fmtBDT as _fmtBDT, fmtCurrency as _fmtCurrencyVal } from "@/lib/number-format";
+import { fmtBDT as _fmtBDT, fmtCurrency as _fmtCurrencyVal, toLatinDigits } from "@/lib/number-format";
 
 const fmtCurrency = (v: any): string => { if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v; if (v === null || v === undefined) return "—"; const n = Number(v); if (isNaN(n)) return "—"; return _fmtBDT(n); };
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 const fmtEmpty = (v: any) => (v === null || v === undefined || v === "") ? "—" : String(v);
 const sanitizeCurrency = (val: any): number => { const num = Number(val); if (isNaN(num)) return 0; return Math.round(num * 100) / 100; };
 const auditMask = "N/A (Audit Mode)";

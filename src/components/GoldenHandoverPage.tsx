@@ -22,19 +22,21 @@ import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-
 // UTILITY FUNCTIONS
 // ============================================================
 
+import { toLatinDigits } from "@/lib/number-format";
+
 const safeFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmt = (n: number) => safeFmt.format(n);
+const fmt = (n: number) => toLatinDigits(safeFmt.format(n));
 
 const fmtDate = (d: string | Date) => {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+  return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    });
+    }));
 };
 
 const fmtMs = (ms: number) => {
@@ -585,7 +587,7 @@ export default function GoldenHandoverPage() {
 
       exportToPDF({
         title: "VoltERP Grand Master Enterprise Golden Handover Compliance Certificate",
-        subtitle: `Compliance Token: ${complianceToken} | Certification Date: ${now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })} | Total Test Assertions: ${totalTestAssertions} | Optimization Metrics: ${matrixRows.length} checkpoints | Verdict: ${verdict}`,
+        subtitle: `Compliance Token: ${complianceToken} | Certification Date: ${toLatinDigits(now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" }))} | Total Test Assertions: ${totalTestAssertions} | Optimization Metrics: ${matrixRows.length} checkpoints | Verdict: ${verdict}`,
         orientation: "landscape",
         columns,
         data: matrixRows,

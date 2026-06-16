@@ -18,6 +18,7 @@ import {
   safeFinancialRound,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 // Valid trigger types mapped to their config toggle field names
 const TRIGGER_TOGGLE_MAP: Record<string, string> = {
@@ -33,8 +34,89 @@ const TRIGGER_TOGGLE_MAP: Record<string, string> = {
 
 const VALID_TRIGGER_TYPES = Object.keys(TRIGGER_TOGGLE_MAP);
 
-// Internal auth header key — other API routes must include this header
-const INTERNAL_AUTH_HEADER = 'x-internal-api-call';
+// ── Internal API Authentication (HMAC-based) ──
+// Replaces the insecure static header check with proper HMAC validation.
+// Uses INTERNAL_API_SECRET env var as the shared secret.
+// The caller must provide an X-Internal-Timestamp header (epoch ms) and
+// an X-Internal-Signature header (HMAC-SHA256 of timestamp+requestBody).
+const INTERNAL_AUTH_HEADER = 'x-internal-api-call'; // Kept for backward-compat warning
+const INTERNAL_TIMESTAMP_HEADER = 'x-internal-timestamp';
+const INTERNAL_SIGNATURE_HEADER = 'x-internal-signature';
+const TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * verifyInternalAuth — Validates HMAC-based internal API authentication.
+ * Uses timing-safe comparison to prevent timing attacks.
+ *
+ * @param request - The incoming NextRequest
+ * @param body - The raw request body string
+ * @returns true if authentication is valid
+ */
+function verifyInternalAuth(request: NextRequest, body: string): { valid: boolean; reason?: string } {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const internalSecret = process.env.INTERNAL_API_SECRET;
+
+  // Check for legacy header and warn
+  const legacyHeader = request.headers.get(INTERNAL_AUTH_HEADER);
+  if (legacyHeader) {
+    console.warn(
+      '[SmsTrigger] DEPRECATED: x-internal-api-call header detected. ' +
+      'Migrate to HMAC-based authentication (X-Internal-Timestamp + X-Internal-Signature).'
+    );
+  }
+
+  // In production, INTERNAL_API_SECRET MUST be set
+  if (isProduction && !internalSecret) {
+    console.error('[SmsTrigger] FATAL: INTERNAL_API_SECRET not set in production. Rejecting request.');
+    return { valid: false, reason: 'Internal API authentication not configured.' };
+  }
+
+  // In development without INTERNAL_API_SECRET, allow with warning + legacy header check
+  if (!internalSecret) {
+    console.warn(
+      '[SmsTrigger] WARNING: INTERNAL_API_SECRET not set. ' +
+      'Development fallback: allowing request with legacy x-internal-api-call header.'
+    );
+    if (legacyHeader === 'true') {
+      return { valid: true };
+    }
+    return { valid: false, reason: 'Unauthorized. Set INTERNAL_API_SECRET for secure authentication.' };
+  }
+
+  // HMAC-based authentication
+  const timestamp = request.headers.get(INTERNAL_TIMESTAMP_HEADER);
+  const signature = request.headers.get(INTERNAL_SIGNATURE_HEADER);
+
+  if (!timestamp || !signature) {
+    return { valid: false, reason: 'Missing internal authentication headers (X-Internal-Timestamp, X-Internal-Signature).' };
+  }
+
+  // Validate timestamp freshness (replay protection)
+  const ts = Number(timestamp);
+  if (isNaN(ts) || Math.abs(Date.now() - ts) > TIMESTAMP_TOLERANCE_MS) {
+    return { valid: false, reason: 'Request timestamp expired or invalid.' };
+  }
+
+  // Compute expected HMAC: HMAC-SHA256(secret, timestamp + "." + body)
+  const message = `${timestamp}.${body}`;
+  const expectedSig = createHmac('sha256', internalSecret).update(message).digest('hex');
+
+  // Timing-safe comparison
+  try {
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expectedBuf = Buffer.from(expectedSig, 'hex');
+    if (sigBuf.length !== expectedBuf.length) {
+      return { valid: false, reason: 'Invalid internal authentication signature.' };
+    }
+    if (!timingSafeEqual(sigBuf, expectedBuf)) {
+      return { valid: false, reason: 'Invalid internal authentication signature.' };
+    }
+  } catch {
+    return { valid: false, reason: 'Invalid internal authentication signature.' };
+  }
+
+  return { valid: true };
+}
 
 // ─────────────────────────────────────────────────────────────
 // DIRECTIVE 3 — Sanitization & Validation Utilities
@@ -83,17 +165,35 @@ function isValidPhoneNumber(phone: string): boolean {
 // ─────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    // Verify the request is from an authorized internal source
-    const internalAuth = request.headers.get(INTERNAL_AUTH_HEADER);
-    if (!internalAuth || internalAuth !== 'true') {
+    // ── Internal API Authentication (HMAC-based) ──
+    // Read the raw body first for HMAC signature verification,
+    // then parse it as JSON for request processing.
+    const rawBody = await request.text();
+    const authResult = verifyInternalAuth(request, rawBody);
+    if (!authResult.valid) {
       return NextResponse.json(
-        { error: 'Unauthorized. This endpoint is reserved for internal server-to-server calls only.' },
+        { error: authResult.reason || 'Unauthorized. This endpoint is reserved for internal server-to-server calls only.' },
         { status: 401 }
       );
     }
 
-    const body = await request.json();
-    const { triggerType, recipient, message, companyId, referenceData } = body;
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        { error: 'Invalid JSON body.', code: 'INVALID_BODY' },
+        { status: 400 }
+      );
+    }
+
+    const { triggerType, recipient, message, companyId, referenceData } = body as {
+      triggerType?: string;
+      recipient?: string;
+      message?: string;
+      companyId?: string;
+      referenceData?: unknown;
+    };
 
     // ─── Step 1: Validate triggerType ───
     if (!triggerType || !VALID_TRIGGER_TYPES.includes(triggerType)) {

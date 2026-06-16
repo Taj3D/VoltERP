@@ -224,6 +224,12 @@ export async function POST(request: NextRequest) {
   if (!security.authorized) return security.response;
   try {
     const body = await request.json();
+
+    // Validate required fields
+    if (!body.name || String(body.name).trim() === '') {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
@@ -268,6 +274,8 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to create investment head' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Failed to create investment head';
+    const isValidation = /required|must be|already exists|duplicate|unique/i.test(message);
+    return NextResponse.json({ error: message }, { status: isValidation ? 400 : 500 });
   }
 }

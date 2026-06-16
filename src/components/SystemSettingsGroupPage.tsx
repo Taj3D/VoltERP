@@ -1021,7 +1021,7 @@ const SAMPLE_DATA: Record<string, string> = {
   '{{companyEmail}}': 'info@electronicsmart.com.bd',
   '{{invoiceNo}}': 'EM-00001',
   '{{poNumber}}': 'PUR-00001',
-  '{{date}}': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+  '{{date}}': toLatinDigits(new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })),
   '{{customerName}}': 'Rahim Uddin',
   '{{supplierName}}': 'Sony Bangladesh Ltd',
   '{{subTotal}}': 'Tk. 14,130.00',
@@ -2783,7 +2783,7 @@ function PerformanceCacheTab({ isVatAuditor, userRole }: { isVatAuditor: boolean
               {dbHealth.journalMode && (
                 <div className="mt-3 text-xs text-slate-400 flex items-center gap-4">
                   <span>Journal: <span className="font-medium text-slate-600 dark:text-slate-300">{dbHealth.journalMode}</span></span>
-                  <span>Checked: {(() => { if (!dbHealth.checkedAt) return '—'; const dt = new Date(dbHealth.checkedAt); return isNaN(dt.getTime()) ? '—' : dt.toLocaleTimeString('en-GB'); })()}</span>
+                  <span>Checked: {(() => { if (!dbHealth.checkedAt) return '—'; const dt = new Date(dbHealth.checkedAt); return isNaN(dt.getTime()) ? '—' : toLatinDigits(dt.toLocaleTimeString('en-GB')); })()}</span>
                 </div>
               )}
             </CardContent>

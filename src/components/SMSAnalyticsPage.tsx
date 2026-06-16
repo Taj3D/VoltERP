@@ -33,12 +33,13 @@ import {
 import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
 import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/hooks/useAuth";
+import { getCachedCompanyProfile } from "@/lib/company-branding-cache";
 
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
-import { fmtBDT as _fmtBDT, fmtNumber as _fmtNumberVal } from "@/lib/number-format";
+import { fmtBDT as _fmtBDT, fmtNumber as _fmtNumberVal, toLatinDigits } from "@/lib/number-format";
 
 const fmtCurrency = (v: any) => {
   if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
@@ -50,7 +51,7 @@ const fmtCurrency = (v: any) => {
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return fmtCurrency(v);
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   if (type === "number") {
     const num = Number(v);
@@ -65,7 +66,7 @@ const fmtEmpty = (v: any) => {
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
 // SMS Character Bounds Computation (Client-side mirror)
 const computeClientSmsSegments = (message: string) => {
@@ -92,8 +93,10 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   // Auth state (shared hook)
   const { user: authUser, isVatAuditor, isAdmin, isSR, isDealer } = useAuth();
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState(initialTab || "dashboard");
+  // Tab state - validate initialTab against role visibility
+  const srHiddenTabs = ["billing", "campaigns", "settings"];
+  const validInitialTab = initialTab && !(isSR && srHiddenTabs.includes(initialTab)) ? initialTab : "dashboard";
+  const [activeTab, setActiveTab] = useState(validInitialTab);
 
   // Data state
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
@@ -238,6 +241,13 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadReport(); }, [loadReport]);
+
+  // Guard: if role changes after mount and activeTab is now hidden, reset to dashboard
+  useEffect(() => {
+    if (isSR && srHiddenTabs.includes(activeTab)) {
+      setActiveTab("dashboard");
+    }
+  }, [isSR, activeTab]);
 
   // SMS Settings: open create dialog
   const openSettingsCreate = () => {
@@ -486,7 +496,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
   const dailySmsTrend = useMemo(() => {
     const dayMap = new Map<string, { date: string; sent: number; delivered: number; failed: number }>();
     smsLogs.forEach((log: any) => {
-      const dateStr = (() => { if (!log.sentAt) return "Unknown"; const dt = new Date(log.sentAt); return isNaN(dt.getTime()) ? "Unknown" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }); })();
+      const dateStr = (() => { if (!log.sentAt) return "Unknown"; const dt = new Date(log.sentAt); return isNaN(dt.getTime()) ? "Unknown" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })); })();
       const existing = dayMap.get(dateStr) || { date: dateStr, sent: 0, delivered: 0, failed: 0 };
       existing.sent++;
       if (log.status === "Delivered" || log.status === "delivered") existing.delivered++;
@@ -743,6 +753,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   const handleExportLogPDF = () => {
     try {
+      const company = getCachedCompanyProfile() || undefined;
       exportToPDF({
         title: "SMS Logs Report",
         subtitle: `Generated from Electronics Mart IMS`,
@@ -752,6 +763,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         isVatAuditor,
         vatMaskedColumns: ["cost"],
         filename: "sms-logs",
+        company,
         financialFooter: {
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
@@ -783,6 +795,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   const handleExportBillPDF = () => {
     try {
+      const company = getCachedCompanyProfile() || undefined;
       exportToPDF({
         title: "SMS Bills Report",
         subtitle: "Billing Summary",
@@ -792,6 +805,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         isVatAuditor,
         vatMaskedColumns: ["totalCost", "paidAmount", "outstanding"],
         filename: "sms-bills",
+        company,
         financialFooter: {
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
@@ -824,6 +838,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         isVatAuditor,
         vatMaskedColumns: ["cost"],
         filename: "sms-report",
+        company: getCachedCompanyProfile() || undefined,
         financialFooter: {
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
@@ -858,6 +873,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
         isVatAuditor,
         vatMaskedColumns: ["ratePerSms", "unicodeRate", "setupCost"],
         filename: "sms-settings",
+        company: getCachedCompanyProfile() || undefined,
         financialFooter: {
           preparedBy: authUser?.displayName || "",
           checkedBy: "",
@@ -1067,7 +1083,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
       </div>
 
       {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => { if (!(isSR && srHiddenTabs.includes(v))) setActiveTab(v); }}>
         <TabsList className="flex overflow-x-auto h-auto gap-1 pb-1 scrollbar-none w-full">
           <TabsTrigger value="dashboard" className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
             <Activity className="w-4 h-4" />
@@ -1371,7 +1387,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     { key: "status", label: "Status", type: "text" },
                     { key: "receivedAt", label: "Received", type: "date" },
                   ];
-                  exportToPDF({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+                  exportToPDF({ title: "SMS Inbox", columns: inboxColumns, data: smsInbox, isVatAuditor, filename: "sms-inbox", company: getCachedCompanyProfile() || undefined, financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
                   toast({ title: "Exported", description: "SMS Inbox exported to PDF" });
                 } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
               }}>
@@ -2381,7 +2397,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                     { key: "totalCost", label: "Cost", type: "currency" },
                     { key: "status", label: "Status", type: "text" },
                   ];
-                  exportToPDF({ title: "SMS Campaigns", columns: campaignColumns, data: smsCampaigns, isVatAuditor, vatMaskedColumns: ["totalCost"], filename: "sms-campaigns", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+                  exportToPDF({ title: "SMS Campaigns", columns: campaignColumns, data: smsCampaigns, isVatAuditor, vatMaskedColumns: ["totalCost"], filename: "sms-campaigns", company: getCachedCompanyProfile() || undefined, financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
                   toast({ title: "Exported", description: "Campaigns exported to PDF" });
                 } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
               }}>
@@ -2950,7 +2966,7 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
                       { key: "isEnabled", label: "Enabled", type: "boolean" },
                       { key: "templateBody", label: "Template", type: "text" },
                     ];
-                    exportToPDF({ title: "SMS Notification Triggers", columns: triggerColumns, data: smsTriggers, isVatAuditor, filename: "sms-triggers", financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
+                    exportToPDF({ title: "SMS Notification Triggers", columns: triggerColumns, data: smsTriggers, isVatAuditor, filename: "sms-triggers", company: getCachedCompanyProfile() || undefined, financialFooter: { preparedBy: authUser?.displayName || "", checkedBy: "", authorizedBy: "", printedBy: authUser?.displayName || "System" } });
                     toast({ title: "Exported", description: "Triggers exported to PDF" });
                   } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
                 }}>

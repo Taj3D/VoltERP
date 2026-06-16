@@ -1,0 +1,502 @@
+  1201→  1201→      <div className="flex items-center justify-between">
+  1202→  1202→        <div>
+  1203→  1203→          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">My Profile</h2>
+  1204→  1204→          <p className="text-sm text-muted-foreground mt-1">Manage your account settings and view activity</p>
+  1205→  1205→        </div>
+  1206→  1206→        <div className="flex items-center gap-2">
+  1207→  1207→          <Button
+  1208→  1208→            variant="outline"
+  1209→  1209→            size="sm"
+  1210→  1210→            onClick={() => { loadProfileFromServer(); loadActivityLogs(); loadServerTelemetry(); setActionTracking(getActionTracking()); }}
+  1211→  1211→            disabled={activityLoading}
+  1212→  1212→          >
+  1213→  1213→            <RefreshCw className={`w-4 h-4 mr-2 ${activityLoading ? "animate-spin" : ""}`} />
+  1214→  1214→            Refresh
+  1215→  1215→          </Button>
+  1216→  1216→          {!isEditing ? (
+  1217→  1217→            <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => setIsEditing(true)}>
+  1218→  1218→              <Pencil className="w-4 h-4 mr-2" />
+  1219→  1219→              Edit Profile
+  1220→  1220→            </Button>
+  1221→  1221→          ) : (
+  1222→  1222→            <div className="flex items-center gap-2">
+  1223→  1223→              <Button size="sm" variant="outline" onClick={() => {
+  1224→  1224→                setIsEditing(false);
+  1225→  1225→                setEditName(safeDisplayName);
+  1226→  1226→                setEditPhone(user.phone || "");
+  1227→  1227→                setEditDesignation(user.designation || "");
+  1228→  1228→                setEditAddress(user.address || "");
+  1229→  1229→                setEditProfileImage(user.photo || null);
+  1230→  1230→              }}>
+  1231→  1231→                <X className="w-4 h-4 mr-2" />
+  1232→  1232→                Cancel
+  1233→  1233→              </Button>
+  1234→  1234→              <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={handleSaveProfile} disabled={savingProfile}>
+  1235→  1235→                {savingProfile ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+  1236→  1236→                Save Changes
+  1237→  1237→              </Button>
+  1238→  1238→            </div>
+  1239→  1239→          )}
+  1240→  1240→          {/* Save Success Animation */}
+  1241→  1241→          {saveSuccess && (
+  1242→  1242→            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 animate-in fade-in slide-in-from-right">
+  1243→  1243→              <CheckCircle className="w-4 h-4" />
+  1244→  1244→              <span className="text-sm font-medium">Saved!</span>
+  1245→  1245→            </div>
+  1246→  1246→          )}
+  1247→  1247→        </div>
+  1248→  1248→      </div>
+  1249→  1249→
+  1250→  1250→      <Tabs defaultValue="profile" className="space-y-4">
+  1251→  1251→        <TabsList className="flex-wrap">
+  1252→  1252→          <TabsTrigger value="profile">Profile</TabsTrigger>
+  1253→  1253→          <TabsTrigger value="company">
+  1254→  1254→            <Building2 className="w-3.5 h-3.5 mr-1" />
+  1255→  1255→            Company Info
+  1256→  1256→          </TabsTrigger>
+  1257→  1257→          <TabsTrigger value="tracking">
+  1258→  1258→            <BarChart3 className="w-3.5 h-3.5 mr-1" />
+  1259→  1259→            Action Tracking
+  1260→  1260→          </TabsTrigger>
+  1261→  1261→          <TabsTrigger value="activity">
+  1262→  1262→            <Activity className="w-3.5 h-3.5 mr-1" />
+  1263→  1263→            Activity Ledger
+  1264→  1264→            {activityTotal > 0 && (
+  1265→  1265→              <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 py-0">
+  1266→  1266→                {activityTotal}
+  1267→  1267→              </Badge>
+  1268→  1268→            )}
+  1269→  1269→          </TabsTrigger>
+  1270→  1270→          {user.role === ROLES.ADMIN && (
+  1271→  1271→            <TabsTrigger value="admin-reset">
+  1272→  1272→              <KeyRound className="w-3.5 h-3.5 mr-1" />
+  1273→  1273→              Password Security
+  1274→  1274→            </TabsTrigger>
+  1275→  1275→          )}
+  1276→  1276→        </TabsList>
+  1277→  1277→
+  1278→  1278→        {/* ════════════════════════════════════════════════════
+  1279→  1279→            TAB A: USER PROFILE CARD (EDITABLE) + COMPANY LOGO
+  1280→  1280→            ════════════════════════════════════════════════════ */}
+  1281→  1281→        <TabsContent value="profile" className="space-y-6">
+  1282→  1282→          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  1283→  1283→            {/* Profile Card */}
+  1284→  1284→            <Card className="lg:col-span-1 border-0 shadow-md bg-gradient-to-br from-white to-slate-50 dark:from-[#132240] dark:to-[#0a1628]">
+  1285→  1285→              <CardContent className="p-6">
+  1286→  1286→                <div className="flex flex-col items-center text-center space-y-4">
+  1287→  1287→                  {/* Avatar / Profile Image */}
+  1288→  1288→                  <div className="relative group">
+  1289→  1289→                    {isEditing ? (
+  1290→  1290→                      <div className="relative cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+  1291→  1291→                        {editProfileImage ? (
+  1292→  1292→                          <img
+  1293→  1293→                            src={editProfileImage}
+  1294→  1294→                            alt="Profile"
+  1295→  1295→                            className="w-24 h-24 rounded-full object-cover border-4 border-white/20 shadow-lg"
+  1296→  1296→                          />
+  1297→  1297→                        ) : (
+  1298→  1298→                          <div
+  1299→  1299→                            className={`w-24 h-24 rounded-full ${
+  1300→  1300→                              user.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
+  1301→  1301→                            } flex items-center justify-center text-white text-3xl font-bold shadow-lg border-4 border-white/20`}
+  1302→  1302→                          >
+  1303→  1303→                            {getInitials()}
+  1304→  1304→                          </div>
+  1305→  1305→                        )}
+  1306→  1306→                        <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+  1307→  1307→                          <Camera className="w-6 h-6 text-white" />
+  1308→  1308→                        </div>
+  1309→  1309→                        <input
+  1310→  1310→                          ref={fileInputRef}
+  1311→  1311→                          type="file"
+  1312→  1312→                          accept="image/*"
+  1313→  1313→                          className="hidden"
+  1314→  1314→                          onChange={handleImageUpload}
+  1315→  1315→                        />
+  1316→  1316→                      </div>
+  1317→  1317→                    ) : user.photo ? (
+  1318→  1318→                      <img
+  1319→  1319→                        src={user.photo}
+  1320→  1320→                        alt={safeDisplayName}
+  1321→  1321→                        className="w-24 h-24 rounded-full object-cover border-4 border-white/20 shadow-lg"
+  1322→  1322→                      />
+  1323→  1323→                    ) : (
+  1324→  1324→                      <div
+  1325→  1325→                        className={`w-24 h-24 rounded-full ${
+  1326→  1326→                          user.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
+  1327→  1327→                        } flex items-center justify-center text-white text-3xl font-bold shadow-lg`}
+  1328→  1328→                      >
+  1329→  1329→                        {getInitials()}
+  1330→  1330→                      </div>
+  1331→  1331→                    )}
+  1332→  1332→                    {/* Online indicator */}
+  1333→  1333→                    <span className="absolute bottom-1 right-1 w-5 h-5 bg-green-500 border-2 border-white dark:border-[#132240] rounded-full" />
+  1334→  1334→                  </div>
+  1335→  1335→
+  1336→  1336→                  {/* Name (editable or display) — NEVER show raw email */}
+  1337→  1337→                  {isEditing ? (
+  1338→  1338→                    <div className="w-full space-y-2">
+  1339→  1339→                      <Input
+  1340→  1340→                        value={editName}
+  1341→  1341→                        onChange={(e) => setEditName(e.target.value)}
+  1342→  1342→                        placeholder="Full Name"
+  1343→  1343→                        className="text-center font-semibold"
+  1344→  1344→                      />
+  1345→  1345→                    </div>
+  1346→  1346→                  ) : (
+  1347→  1347→                    <div>
+  1348→  1348→                      <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+  1349→  1349→                        {safeDisplayName}
+  1350→  1350→                      </h3>
+  1351→  1351→                      <p className="text-sm text-muted-foreground mt-1">
+  1352→  1352→                        {getDesignation()}
+  1353→  1353→                      </p>
+  1354→  1354→                    </div>
+  1355→  1355→                  )}
+  1356→  1356→
+  1357→  1357→                  {/* Role badge hidden per requirement — role names not visible in UI */}
+  1358→  1358→
+  1359→  1359→                  <Separator />
+  1360→  1360→
+  1361→  1361→                  {/* Contact Details */}
+  1362→  1362→                  <div className="w-full space-y-3 text-left">
+  1363→  1363→                    {/* Role label hidden per requirement — only email visible */}
+  1364→  1364→
+  1365→  1365→                    {/* Email (read-only) */}
+  1366→  1366→                    <div className="flex items-center gap-2 text-sm">
+  1367→  1367→                      <Mail className="w-4 h-4 text-muted-foreground shrink-0" />
+  1368→  1368→                      <span className="text-muted-foreground truncate" title={user.email}>{user.email}</span>
+  1369→  1369→                      <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">Read-only</Badge>
+  1370→  1370→                    </div>
+  1371→  1371→
+  1372→  1372→                    {/* Phone (editable) */}
+  1373→  1373→                    {isEditing ? (
+  1374→  1374→                      <div className="flex items-center gap-2">
+  1375→  1375→                        <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+  1376→  1376→                        <Input
+  1377→  1377→                          value={editPhone}
+  1378→  1378→                          onChange={(e) => setEditPhone(e.target.value)}
+  1379→  1379→                          placeholder="Contact Number"
+  1380→  1380→                          className="h-8 text-sm"
+  1381→  1381→                        />
+  1382→  1382→                      </div>
+  1383→  1383→                    ) : (
+  1384→  1384→                      <div className="flex items-center gap-2 text-sm">
+  1385→  1385→                        <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+  1386→  1386→                        <span className="text-muted-foreground">{user.phone || "—"}</span>
+  1387→  1387→                      </div>
+  1388→  1388→                    )}
+  1389→  1389→
+  1390→  1390→                    {/* Address (editable) */}
+  1391→  1391→                    {isEditing ? (
+  1392→  1392→                      <div className="flex items-start gap-2">
+  1393→  1393→                        <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-1.5" />
+  1394→  1394→                        <Input
+  1395→  1395→                          value={editAddress}
+  1396→  1396→                          onChange={(e) => setEditAddress(e.target.value)}
+  1397→  1397→                          placeholder="Address"
+  1398→  1398→                          className="h-8 text-sm"
+  1399→  1399→                        />
+  1400→  1400→                      </div>
+  1401→  1401→                    ) : (
+  1402→  1402→                      <div className="flex items-start gap-2 text-sm">
+  1403→  1403→                        <MapPin className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+  1404→  1404→                        <span className="text-muted-foreground break-words">{user.address || "—"}</span>
+  1405→  1405→                      </div>
+  1406→  1406→                    )}
+  1407→  1407→
+  1408→  1408→                    {/* Designation (editable) */}
+  1409→  1409→                    {isEditing ? (
+  1410→  1410→                      <div className="flex items-center gap-2">
+  1411→  1411→                        <User className="w-4 h-4 text-muted-foreground shrink-0" />
+  1412→  1412→                        <Input
+  1413→  1413→                          value={editDesignation}
+  1414→  1414→                          onChange={(e) => setEditDesignation(e.target.value)}
+  1415→  1415→                          placeholder="Designation"
+  1416→  1416→                          className="h-8 text-sm"
+  1417→  1417→                        />
+  1418→  1418→                      </div>
+  1419→  1419→                    ) : (
+  1420→  1420→                      <div className="flex items-center gap-2 text-sm">
+  1421→  1421→                        <User className="w-4 h-4 text-muted-foreground shrink-0" />
+  1422→  1422→                        <span className="text-muted-foreground">{getDesignation()}</span>
+  1423→  1423→                      </div>
+  1424→  1424→                    )}
+  1425→  1425→
+  1426→  1426→                    {employeeInfo && (
+  1427→  1427→                      <div className="flex items-center gap-2 text-sm">
+  1428→  1428→                        <Activity className="w-4 h-4 text-muted-foreground shrink-0" />
+  1429→  1429→                        <span className="text-muted-foreground">Employee Code: {String((employeeInfo as unknown as Record<string, unknown>)?.employeeCode || "—")}</span>
+  1430→  1430→                      </div>
+  1431→  1431→                    )}
+  1432→  1432→                  </div>
+  1433→  1433→
+  1434→  1434→                  {/* Image upload/remove in edit mode */}
+  1435→  1435→                  {isEditing && editProfileImage && (
+  1436→  1436→                    <Button
+  1437→  1437→                      variant="outline"
+  1438→  1438→                      size="sm"
+  1439→  1439→                      className="w-full text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+  1440→  1440→                      onClick={() => setEditProfileImage(null)}
+  1441→  1441→                    >
+  1442→  1442→                      <X className="w-3.5 h-3.5 mr-1" />
+  1443→  1443→                      Remove Photo
+  1444→  1444→                    </Button>
+  1445→  1445→                  )}
+  1446→  1446→
+  1447→  1447→                  {/* Last Updated Timestamp */}
+  1448→  1448→                  {lastUpdated && (
+  1449→  1449→                    <div className="w-full pt-2 border-t border-border/50">
+  1450→  1450→                      <p className="text-[11px] text-muted-foreground/60 text-center flex items-center justify-center gap-1">
+  1451→  1451→                        <Clock className="w-3 h-3" />
+  1452→  1452→                        Last updated: {formatTimestamp(lastUpdated)}
+  1453→  1453→                      </p>
+  1454→  1454→                    </div>
+  1455→  1455→                  )}
+  1456→  1456→                </div>
+  1457→  1457→              </CardContent>
+  1458→  1458→            </Card>
+  1459→  1459→
+  1460→  1460→            {/* Company & Tenant Info + Company Logo Upload (Admin only for logo changes) */}
+  1461→  1461→            <Card className="lg:col-span-2 border-0 shadow-md">
+  1462→  1462→              <CardHeader className="pb-3">
+  1463→  1463→                <div className="flex items-center justify-between">
+  1464→  1464→                  <CardTitle className="text-lg flex items-center gap-2">
+  1465→  1465→                    <Building2 className="w-5 h-5 text-[#2563eb]" />
+  1466→  1466→                    Tenant Company Information
+  1467→  1467→                  </CardTitle>
+  1468→  1468→                  {/* Company Logo Upload (Admin only) */}
+  1469→  1469→                  {user?.role === "admin" && (
+  1470→  1470→                    <div className="flex items-center gap-2">
+  1471→  1471→                      {editCompanyLogo ? (
+  1472→  1472→                        <div className="relative group">
+  1473→  1473→                          <img
+  1474→  1474→                            src={editCompanyLogo}
+  1475→  1475→                            alt="Company Logo"
+  1476→  1476→                            className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
+  1477→  1477→                          />
+  1478→  1478→                          <div
+  1479→  1479→                            className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+  1480→  1480→                            onClick={() => companyLogoInputRef.current?.click()}
+  1481→  1481→                          >
+  1482→  1482→                            <Camera className="w-4 h-4 text-white" />
+  1483→  1483→                          </div>
+  1484→  1484→                        </div>
+  1485→  1485→                      ) : (
+  1486→  1486→                        <Button
+  1487→  1487→                          variant="outline"
+  1488→  1488→                          size="sm"
+  1489→  1489→                          className="text-xs"
+  1490→  1490→                          onClick={() => companyLogoInputRef.current?.click()}
+  1491→  1491→                          disabled={companyLogoUploading}
+  1492→  1492→                        >
+  1493→  1493→                          {companyLogoUploading ? (
+  1494→  1494→                            <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+  1495→  1495→                          ) : (
+  1496→  1496→                            <ImageIcon className="w-3.5 h-3.5 mr-1" />
+  1497→  1497→                          )}
+  1498→  1498→                          Upload Logo
+  1499→  1499→                        </Button>
+  1500→  1500→                      )}
+  1501→  1501→                      <input
+  1502→  1502→                        ref={companyLogoInputRef}
+  1503→  1503→                        type="file"
+  1504→  1504→                        accept="image/*"
+  1505→  1505→                        className="hidden"
+  1506→  1506→                        onChange={handleCompanyLogoUpload}
+  1507→  1507→                      />
+  1508→  1508→                    </div>
+  1509→  1509→                  )}
+  1510→  1510→                  {user?.role !== "admin" && editCompanyLogo && (
+  1511→  1511→                    <img
+  1512→  1512→                      src={editCompanyLogo}
+  1513→  1513→                      alt="Company Logo"
+  1514→  1514→                      className="w-12 h-12 rounded-lg object-contain border border-border/50 bg-white p-0.5"
+  1515→  1515→                    />
+  1516→  1516→                  )}
+  1517→  1517→                </div>
+  1518→  1518→                <CardDescription>
+  1519→  1519→                  Company details associated with your account
+  1520→  1520→                </CardDescription>
+  1521→  1521→              </CardHeader>
+  1522→  1522→              <CardContent className="space-y-4">
+  1523→  1523→                {companyInfo ? (
+  1524→  1524→                  <>
+  1525→  1525→                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  1526→  1526→                      <div className="space-y-1">
+  1527→  1527→                        <Label className="text-xs text-muted-foreground">Company Name</Label>
+  1528→  1528→                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+  1529→  1529→                          {companyInfo.name || "—"}
+  1530→  1530→                        </p>
+  1531→  1531→                      </div>
+  1532→  1532→                      <div className="space-y-1">
+  1533→  1533→                        <Label className="text-xs text-muted-foreground">Company Email</Label>
+  1534→  1534→                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+  1535→  1535→                          {companyInfo.email || "—"}
+  1536→  1536→                        </p>
+  1537→  1537→                      </div>
+  1538→  1538→                      <div className="space-y-1">
+  1539→  1539→                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+  1540→  1540→                          <Phone className="w-3 h-3" /> Phone
+  1541→  1541→                        </Label>
+  1542→  1542→                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+  1543→  1543→                          {companyInfo.phone || "—"}
+  1544→  1544→                        </p>
+  1545→  1545→                      </div>
+  1546→  1546→                      <div className="space-y-1">
+  1547→  1547→                        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+  1548→  1548→                          <MapPin className="w-3 h-3" /> Address
+  1549→  1549→                        </Label>
+  1550→  1550→                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+  1551→  1551→                          {companyInfo.address || "—"}
+  1552→  1552→                        </p>
+  1553→  1553→                      </div>
+  1554→  1554→                    </div>
+  1555→  1555→                    {/* Company Logo Thumbnail */}
+  1556→  1556→                    {editCompanyLogo && (
+  1557→  1557→                      <div className="pt-3 border-t border-border/50">
+  1558→  1558→                        <Label className="text-xs text-muted-foreground mb-2 block">Company Logo</Label>
+  1559→  1559→                        <div className="flex items-center gap-3">
+  1560→  1560→                          <img
+  1561→  1561→                            src={editCompanyLogo}
+  1562→  1562→                            alt="Company Logo"
+  1563→  1563→                            className="w-20 h-20 rounded-lg object-contain border border-border/50 bg-white p-1 shadow-sm"
+  1564→  1564→                          />
+  1565→  1565→                          <div className="space-y-1">
+  1566→  1566→                            <Button
+  1567→  1567→                              variant="outline"
+  1568→  1568→                              size="sm"
+  1569→  1569→                              className="text-xs h-7"
+  1570→  1570→                              onClick={() => companyLogoInputRef.current?.click()}
+  1571→  1571→                              disabled={companyLogoUploading}
+  1572→  1572→                            >
+  1573→  1573→                              <Upload className="w-3 h-3 mr-1" />
+  1574→  1574→                              Replace
+  1575→  1575→                            </Button>
+  1576→  1576→                            <Button
+  1577→  1577→                              variant="outline"
+  1578→  1578→                              size="sm"
+  1579→  1579→                              className="text-xs h-7 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+  1580→  1580→                              onClick={async () => {
+  1581→  1581→                                setEditCompanyLogo(null);
+  1582→  1582→                                if (companyInfo) {
+  1583→  1583→                                  try {
+  1584→  1584→                                    const headers = getAuthHeaders();
+  1585→  1585→                                    await fetch("/api/company-branding", {
+  1586→  1586→                                      method: "PUT",
+  1587→  1587→                                      headers,
+  1588→  1588→                                      body: JSON.stringify({ logo: null }),
+  1589→  1589→                                    });
+  1590→  1590→                                    setCompanyInfo(prev => prev ? { ...prev, logo: null } : prev);
+  1591→  1591→                                    toast({ title: "Logo Removed", description: "Company logo has been removed." });
+  1592→  1592→                                  } catch {
+  1593→  1593→                                    toast({ title: "Error", description: "Failed to remove logo", variant: "destructive" });
+  1594→  1594→                                  }
+  1595→  1595→                                }
+  1596→  1596→                              }}
+  1597→  1597→                            >
+  1598→  1598→                              <X className="w-3 h-3 mr-1" />
+  1599→  1599→                              Remove
+  1600→  1600→                            </Button>
+  1601→  1601→                          </div>
+  1602→  1602→                        </div>
+  1603→  1603→                      </div>
+  1604→  1604→                    )}
+  1605→  1605→                  </>
+  1606→  1606→                ) : (
+  1607→  1607→                  <div className="text-center py-8">
+  1608→  1608→                    <Building2 className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+  1609→  1609→                    <p className="text-sm text-muted-foreground">No company associated with your account</p>
+  1610→  1610→                    <p className="text-xs text-muted-foreground/60 mt-1">
+  1611→  1611→                      Contact your administrator to link your account to a company
+  1612→  1612→                    </p>
+  1613→  1613→                  </div>
+  1614→  1614→                )}
+  1615→  1615→              </CardContent>
+  1616→  1616→            </Card>
+  1617→  1617→          </div>
+  1618→  1618→
+  1619→  1619→          {/* Change Password Section (Admin-only with RBAC interlock) */}
+  1620→  1620→          {user.role === ROLES.ADMIN && (
+  1621→  1621→          <Card className="border-0 shadow-md border-l-4 border-l-amber-500">
+  1622→  1622→            <CardHeader className="pb-3">
+  1623→  1623→              <CardTitle className="text-lg flex items-center gap-2">
+  1624→  1624→                <KeyRound className="w-5 h-5 text-amber-500" />
+  1625→  1625→                Change My Password
+  1626→  1626→              </CardTitle>
+  1627→  1627→              <CardDescription>
+  1628→  1628→                Update your account password. All changes are audited.
+  1629→  1629→              </CardDescription>
+  1630→  1630→            </CardHeader>
+  1631→  1631→            <CardContent>
+  1632→  1632→              <div className="max-w-md space-y-4">
+  1633→  1633→                <div className="space-y-2">
+  1634→  1634→                  <Label htmlFor="current-pw">Current Password</Label>
+  1635→  1635→                  <div className="relative">
+  1636→  1636→                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+  1637→  1637→                    <Input
+  1638→  1638→                      id="current-pw"
+  1639→  1639→                      type="password"
+  1640→  1640→                      placeholder="Enter current password"
+  1641→  1641→                      value={currentPassword}
+  1642→  1642→                      onChange={(e) => setCurrentPassword(e.target.value)}
+  1643→  1643→                      className="pl-10"
+  1644→  1644→                    />
+  1645→  1645→                  </div>
+  1646→  1646→                </div>
+  1647→  1647→                <div className="space-y-2">
+  1648→  1648→                  <Label htmlFor="new-pw">New Password</Label>
+  1649→  1649→                  <div className="relative">
+  1650→  1650→                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+  1651→  1651→                    <Input
+  1652→  1652→                      id="new-pw"
+  1653→  1653→                      type="password"
+  1654→  1654→                      placeholder="Minimum 6 characters"
+  1655→  1655→                      value={newPassword}
+  1656→  1656→                      onChange={(e) => setNewPassword(e.target.value)}
+  1657→  1657→                      className="pl-10"
+  1658→  1658→                    />
+  1659→  1659→                  </div>
+  1660→  1660→                </div>
+  1661→  1661→                <div className="space-y-2">
+  1662→  1662→                  <Label htmlFor="confirm-pw">Confirm New Password</Label>
+  1663→  1663→                  <div className="relative">
+  1664→  1664→                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+  1665→  1665→                    <Input
+  1666→  1666→                      id="confirm-pw"
+  1667→  1667→                      type="password"
+  1668→  1668→                      placeholder="Confirm new password"
+  1669→  1669→                      value={confirmNewPassword}
+  1670→  1670→                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+  1671→  1671→                      className="pl-10"
+  1672→  1672→                    />
+  1673→  1673→                  </div>
+  1674→  1674→                </div>
+  1675→  1675→                <Button
+  1676→  1676→                  className="bg-[#2563eb] hover:bg-[#1d4ed8] w-full"
+  1677→  1677→                  onClick={handleSelfPasswordChange}
+  1678→  1678→                  disabled={changingPassword || !currentPassword || !newPassword || !confirmNewPassword}
+  1679→  1679→                >
+  1680→  1680→                  {changingPassword ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+  1681→  1681→                  Change Password
+  1682→  1682→                </Button>
+  1683→  1683→              </div>
+  1684→  1684→            </CardContent>
+  1685→  1685→          </Card>
+  1686→  1686→          )}
+  1687→  1687→
+  1688→  1688→          {/* Role Access Summary */}
+  1689→  1689→          <Card className="border-0 shadow-md">
+  1690→  1690→            <CardHeader className="pb-3">
+  1691→  1691→              <CardTitle className="text-lg flex items-center gap-2">
+  1692→  1692→                <Shield className="w-5 h-5 text-[#2563eb]" />
+  1693→  1693→                Role Access Summary
+  1694→  1694→              </CardTitle>
+  1695→  1695→            </CardHeader>
+  1696→  1696→            <CardContent>
+  1697→  1697→              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+  1698→  1698→                {(["admin", "manager", "sr", "dealer", "vat_auditor"] as UserRole[]).map((role) => (
+  1699→  1699→                  <div
+  1700→  1700→                    key={role}
+
+[showing lines 1201-1700 of 2002; use offset=1701 with limit to continue reading]

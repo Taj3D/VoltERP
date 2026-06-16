@@ -21,12 +21,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
 import type { ColumnDef, CompanyProfile } from "@/lib/export-utils";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS (self-contained)
 // ============================================================
 
-type UserRole = "admin" | "manager" | "sr" | "dealer" | "vat_auditor";
+import { apiFetch } from "@/lib/api-client";
+import { useAuth } from "@/hooks/useAuth";
 
 /** Intl.NumberFormat('en-US') for ALL financial/numeric figures */
 const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
@@ -36,14 +38,14 @@ const bdCurrencyFmt = new Intl.NumberFormat("en-US", {
 
 const fmtCurrency = (v: any): string => {
   if (v === null || v === undefined) return "—";
-  return `৳${bdCurrencyFmt.format(Number(v))}`;
+  return `Tk. ${toLatinDigits(bdCurrencyFmt.format(Number(v)))}`;
 };
 
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
   if (type === "currency") return fmtCurrency(v);
-  if (type === "number") return bdCurrencyFmt.format(Number(v));
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "number") return toLatinDigits(bdCurrencyFmt.format(Number(v)));
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   if (type === "boolean") return v ? "Active" : "Inactive";
   return String(v);
 };
@@ -54,78 +56,9 @@ const displayField = (v: any): string => {
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`;
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
-
-interface AuthUser {
-  name: string;
-  email: string;
-  role: UserRole;
-  displayName: string;
-}
-
-function useAuth() {
-  const getStoredAuth = (): { user: AuthUser | null; isAuthenticated: boolean } => {
-    if (typeof window === "undefined") return { user: null, isAuthenticated: false };
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        return { user: parsed.user, isAuthenticated: parsed.isAuthenticated };
-      } catch { /* ignore */ }
-    }
-    return { user: null, isAuthenticated: false };
-  };
-
-  const [authState, setAuthState] = useState(getStoredAuth);
-  const [, forceUpdate] = useState({});
-
-  useEffect(() => {
-    const listener = () => {
-      const s = localStorage.getItem("ems_auth");
-      if (s) {
-        try {
-          const p = JSON.parse(s);
-          setAuthState({ user: p.user, isAuthenticated: p.isAuthenticated });
-        } catch { /* ignore */ }
-      }
-      forceUpdate({});
-    };
-    window.addEventListener("storage", listener);
-    window.addEventListener("auth-change", listener);
-    return () => {
-      window.removeEventListener("storage", listener);
-      window.removeEventListener("auth-change", listener);
-    };
-  }, []);
-
-  const isVatAuditor = authState.user?.role === "vat_auditor";
-  const isDealer = authState.user?.role === "dealer";
-  const isSR = authState.user?.role === "sr";
-  const isAdmin = authState.user?.role === "admin";
-
-  return { user: authState.user, isAuthenticated: authState.isAuthenticated, isVatAuditor, isDealer, isSR, isAdmin };
-}
+// ============================================================
 
 // ============================================================
 // CASH COLLECTIONS & DELIVERIES PAGE COMPONENT

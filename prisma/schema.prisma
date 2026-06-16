@@ -646,6 +646,10 @@ model Employee {
   nidBackImage         String? // National ID back card image
   referenceBy          String?
   address              String?
+  // Exam Info — for Employee Exam SMS auto-trigger
+  examDate             DateTime?         // Employee exam/scheduling date
+  examTime             String?           // Exam time (e.g., "10:00 AM")
+  examVenue            String?           // Exam venue/location
   isActive             Boolean           @default(true)
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt

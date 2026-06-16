@@ -263,6 +263,11 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Single mode ──
+    // Validate required fields
+    if (!body.name || String(body.name).trim() === '') {
+      return NextResponse.json({ error: 'name is required' }, { status: 400 });
+    }
+
     const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 

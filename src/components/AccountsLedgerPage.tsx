@@ -26,40 +26,25 @@ import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+import { toLatinDigits } from "@/lib/number-format";
+import { apiFetch } from "@/lib/api-client";
 
 // ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
+const acctCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const fmt = (v: any, type?: string) => {
   if (v === null || v === undefined) return "—";
-  if (type === "currency") return `৳${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v))}`;
-  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+  if (type === "currency") return `Tk. ${toLatinDigits(acctCurrencyFmt.format(Number(v)))}`;
+  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
   return String(v);
 };
 
-const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); };
+const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
 
-async function apiFetch(path: string, opts?: RequestInit) {
-  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  try {
-    const stored = localStorage.getItem("ems_auth");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.accessToken) authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`;
-    }
-  } catch {}
-  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
-  if (!res.ok) {
-    if (res.status === 401) {
-      localStorage.removeItem("ems_auth");
-      window.location.reload();
-    }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
-  }
-  return res.json();
-}
+// apiFetch now imported from @/lib/api-client (includes CSRF + auto-refresh)
 
 // ============================================================
 // CLASSIFICATION COLORS
@@ -1035,8 +1020,8 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
                 <TableRow className="bg-[#0a1628]">
                   <TableHead className="text-white w-10">#</TableHead>
                   <TableHead className="text-white">Account</TableHead>
-                  <TableHead className="text-white w-32">Debit (৳)</TableHead>
-                  <TableHead className="text-white w-32">Credit (৳)</TableHead>
+                  <TableHead className="text-white w-32">Debit (Tk.)</TableHead>
+                  <TableHead className="text-white w-32">Credit (Tk.)</TableHead>
                   <TableHead className="text-white">Particulars</TableHead>
                   <TableHead className="text-white w-10"></TableHead>
                 </TableRow>
@@ -1185,7 +1170,7 @@ export default function AccountsLedgerPage({ initialTab, voucherType }: { initia
               <Input type="date" value={cbDate} onChange={e => setCbDate(e.target.value)} />
             </div>
             <div>
-              <Label>Amount (৳)</Label>
+              <Label>Amount (Tk.)</Label>
               <Input type="number" min="0" step="0.01" value={cbAmount || ""} onChange={e => setCbAmount(Number(e.target.value) || 0)} placeholder="0.00" />
             </div>
             <div>

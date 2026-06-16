@@ -28,6 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, exportToCSV, importFromCSV } from "@/lib/export-utils";
 import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-utils";
+import { toLatinDigits } from "@/lib/number-format";
 
 // ============================================================
 // UTILITY FUNCTIONS
@@ -36,23 +37,23 @@ import type { ColumnDef as ExportColumnDef, CompanyProfile } from "@/lib/export-
 const fmtDate = (d: string | Date) => {
     if (!d) return "—";
     const dt = new Date(d);
-    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
-      });
+      }));
   };
 
 const fmtDateShort = (d: string | Date) => {
     if (!d) return "—";
     const dt = new Date(d);
-    return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", {
+    return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", {
         day: "2-digit",
         month: "short",
         year: "numeric",
-      });
+      }));
   };
 
 const fmtSize = (bytes: number) => {
@@ -496,7 +497,7 @@ export default function SecurityAuditCenter() {
 
       exportToPDF({
         title: "Enterprise Security Compliance Audited Statement",
-        subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")} | Total Events: ${reportData.summary.totalAuditEntries} | Critical: ${reportData.summary.criticalEvents} | Threats: ${reportData.summary.totalThreats}${reportData.summary.chainIntact ? " | Ledger Chain: INTACT" : " | ⚠ LEDGER TAMPERING DETECTED"}`,
+        subtitle: `Generated: ${toLatinDigits(new Date().toLocaleDateString("en-GB"))} | Total Events: ${reportData.summary.totalAuditEntries} | Critical: ${reportData.summary.criticalEvents} | Threats: ${reportData.summary.totalThreats}${reportData.summary.chainIntact ? " | Ledger Chain: INTACT" : " | ⚠ LEDGER TAMPERING DETECTED"}`,
         orientation: "landscape",
         columns,
         data: reportData.recentAudits || [],

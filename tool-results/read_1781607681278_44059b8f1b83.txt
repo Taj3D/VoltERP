@@ -1,0 +1,2002 @@
+     1→"use client";
+     2→
+     3→import React, { useState, useEffect, useCallback, useMemo } from "react";
+     4→import {
+     5→  Plus, Edit, Trash2, Download, Upload, RefreshCw, Search,
+     6→  FileDown, Shield, X, CheckCircle, ClipboardList, ShoppingCart,
+     7→  FileBarChart, Receipt, DollarSign, RotateCcw, ArrowLeftRight,
+     8→  Package, BarChart3, Truck, AlertTriangle, Ban, PackageCheck,
+     9→  Calculator, ArrowRightLeft, Eye, TrendingUp, Clock, Printer,
+    10→  Inbox, CheckSquare, Copy,
+    11→} from "lucide-react";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Input } from "@/components/ui/input";
+    14→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    15→import {
+    16→  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+    17→} from "@/components/ui/dialog";
+    18→import {
+    19→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    20→} from "@/components/ui/select";
+    21→import {
+    22→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    23→} from "@/components/ui/table";
+    24→import { Badge } from "@/components/ui/badge";
+    25→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    26→import { Textarea } from "@/components/ui/textarea";
+    27→import { Label } from "@/components/ui/label";
+    28→import { Separator } from "@/components/ui/separator";
+    29→import { useToast } from "@/hooks/use-toast";
+    30→import {
+    31→  exportToPDF, exportToCSV, importFromCSV, getVatMaskedKeys, formatSanitizedCurrency,
+    32→} from "@/lib/export-utils";
+    33→import { copyTableToClipboard } from "@/lib/clipboard-utils";
+    34→import type { ColumnDef as ExportColumnDef, FieldDef as ExportFieldDef } from "@/lib/export-utils";
+    35→import { exportInvoicePDF, type InvoicePDFOptions, type InvoiceCompanyProfile, type InvoiceTemplateConfig, type InvoiceData, type InvoiceLineItem, numberToWordsBDT } from "@/lib/invoice-engine";
+    36→import { apiFetch, type UserRole } from "@/lib/api-client";
+    37→import { useAuth } from "@/hooks/useAuth";
+    38→
+    39→// ============================================================
+    40→// UTILITY FUNCTIONS
+    41→// ============================================================
+    42→
+    43→// Safe formatters — centralized utility guarantees Latin digits
+    44→import { fmtCurrency as _fmtCurrencyVal, fmtNumber as _fmtNumberVal, fmtBDT as _fmtBDT } from "@/lib/number-format";
+    45→
+    46→const fmt = (v: any, type?: string) => {
+    47→  if (v === null || v === undefined || v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v || "—";
+    48→  if (type === "currency") return _fmtBDT(Number(v));
+    49→  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
+    50→  if (type === "boolean") return v ? "Active" : "Inactive";
+    51→  if (type === "number") return _fmtNumberVal(Number(v));
+    52→  return String(v);
+    53→};
+    54→
+    55→const fmtCurrency = (v: any) => {
+    56→  if (v === null || v === undefined) return "—";
+    57→  if (v === "N/A (Audit Mode)" || v === "N/A (Restricted)") return v;
+    58→  return _fmtBDT(Number(v));
+    59→};
+    60→
+    61→
+    62→// ============================================================
+    63→// AUTH
+    64→
+    65→// ============================================================
+    66→// BADGE STYLES
+    67→// ============================================================
+    68→
+    69→const STATUS_BADGE: Record<string, string> = {
+    70→  Draft: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    71→  Pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    72→  Confirmed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    73→  Approved: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    74→  Completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    75→  Cancelled: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    76→  "In-Transit": "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+    77→  Delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    78→  Paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    79→  Unpaid: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    80→  Partial: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    81→  Overdue: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    82→  Active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    83→  Inactive: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    84→};
+    85→
+    86→const STOCK_STATUS_BADGE: Record<string, string> = {
+    87→  "In Stock": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    88→  "Low Stock": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    89→  "Out of Stock": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    90→};
+    91→
+    92→const TYPE_BADGE: Record<string, string> = {
+    93→  IN: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    94→  OUT: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    95→};
+    96→
+    97→// ============================================================
+    98→// PROPS
+    99→// ============================================================
+   100→
+   101→interface InventoryGroupPageProps {
+   102→  currentPage: string;
+   103→  isVatAuditor?: boolean;
+   104→  userRole?: UserRole;
+   105→}
+   106→
+   107→// ============================================================
+   108→// STATUS BADGE COMPONENT
+   109→// ============================================================
+   110→
+   111→function StatusBadge({ status }: { status: string }) {
+   112→  const cls = STATUS_BADGE[status] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+   113→  return <Badge className={`${cls} border-0 text-xs font-medium`}>{status}</Badge>;
+   114→}
+   115→
+   116→function StockStatusBadge({ status }: { status: string }) {
+   117→  const cls = STOCK_STATUS_BADGE[status] || "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+   118→  return <Badge className={`${cls} border-0 text-xs font-medium`}>{status}</Badge>;
+   119→}
+   120→
+   121→// ============================================================
+   122→// STAT CARD COMPONENT
+   123→// ============================================================
+   124→
+   125→function StatCard({ label, value, icon: Icon, color, bg }: {
+   126→  label: string; value: any; icon: React.ElementType; color: string; bg: string;
+   127→}) {
+   128→  return (
+   129→    <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   130→      <CardContent className="p-4 flex items-center gap-3">
+   131→        <div className={`h-10 w-10 rounded-lg ${bg} flex items-center justify-center`}>
+   132→          <Icon className={`h-5 w-5 ${color}`} />
+   133→        </div>
+   134→        <div>
+   135→          <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+   136→          <p className="text-xl font-bold text-slate-900 dark:text-white">{value}</p>
+   137→        </div>
+   138→      </CardContent>
+   139→    </Card>
+   140→  );
+   141→}
+   142→
+   143→// ============================================================
+   144→// ACCESS DENIED COMPONENT
+   145→// ============================================================
+   146→
+   147→function AccessDenied({ message }: { message?: string }) {
+   148→  return (
+   149→    <div className="space-y-4">
+   150→      <Card className="border-red-200 dark:border-red-800">
+   151→        <CardContent className="p-12 text-center">
+   152→          <Shield className="h-12 w-12 mx-auto text-red-400 mb-4" />
+   153→          <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">403 — Access Restricted</h3>
+   154→          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+   155→            {message || "You do not have permission to view this module."}
+   156→          </p>
+   157→        </CardContent>
+   158→      </Card>
+   159→    </div>
+   160→  );
+   161→}
+   162→
+   163→// ============================================================
+   164→// VAT MASK HELPER
+   165→// ============================================================
+   166→
+   167→function vatMask(val: any, isVatAuditor: boolean) {
+   168→  if (isVatAuditor) return "N/A (Audit Mode)";
+   169→  return val;
+   170→}
+   171→
+   172→// ============================================================
+   173→// MAIN COMPONENT
+   174→// ============================================================
+   175→
+   176→export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat, userRole: propRole }: InventoryGroupPageProps) {
+   177→  const { toast } = useToast();
+   178→  const auth = useAuth();
+   179→
+   180→  const isVatAuditor = propVat ?? auth.user?.role === "vat_auditor";
+   181→  const userRole = propRole ?? (auth.user?.role || "admin");
+   182→  const isAdmin = userRole === "admin" || userRole === "manager";
+   183→  const isSR = userRole === "sr";
+   184→  const isDealer = userRole === "dealer";
+   185→
+   186→  // Map currentPage to tab
+   187→  const tabMap: Record<string, string> = {
+   188→    "company-ordersheet": "company-ordersheet",
+   189→    "customer-ordersheet": "customer-ordersheet",
+   190→    "ordersheet-report": "ordersheet-report",
+   191→    "purchase-orders": "purchase-orders",
+   192→    "auto-po": "auto-po",
+   193→    "sales-orders": "sales-orders",
+   194→    "hire-sales": "hire-sales",
+   195→    "sales-returns": "sales-returns",
+   196→    "purchase-returns": "purchase-returns",
+   197→    "replacements": "replacements",
+   198→    "stock": "stock",
+   199→    "stock-details": "stock-details",
+   200→    "stock-transfers": "transfers",
+   201→  };
+   202→  const [activeTab, setActiveTab] = useState(tabMap[currentPage] || "company-ordersheet");
+   203→
+   204→  useEffect(() => {
+   205→    const mapped = tabMap[currentPage];
+   206→    if (mapped) setActiveTab(mapped);
+   207→  }, [currentPage]);
+   208→
+   209→  // ─── Shared Dropdowns ───
+   210→  const [companies, setCompanies] = useState<any[]>([]);
+   211→  const [customers, setCustomers] = useState<any[]>([]);
+   212→  const [suppliers, setSuppliers] = useState<any[]>([]);
+   213→  const [products, setProducts] = useState<any[]>([]);
+   214→  const [godowns, setGodowns] = useState<any[]>([]);
+   215→  const [paymentOptions, setPaymentOptions] = useState<any[]>([]);
+   216→
+   217→  const loadDropdowns = useCallback(async () => {
+   218→    try { const r = await apiFetch("/api/companies"); setCompanies(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading companies:', e); }
+   219→    try { const r = await apiFetch("/api/customers"); setCustomers(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading customers:', e); }
+   220→    try { const r = await apiFetch("/api/suppliers"); setSuppliers(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading suppliers:', e); }
+   221→    try { const r = await apiFetch("/api/products"); setProducts(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading products:', e); }
+   222→    try { const r = await apiFetch("/api/godowns"); setGodowns(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading godowns:', e); }
+   223→    try { const r = await apiFetch("/api/payment-options"); setPaymentOptions(Array.isArray(r) ? r : []); } catch (e) { console.error('Error loading payment options:', e); }
+   224→  }, []);
+   225→
+   226→  useEffect(() => { loadDropdowns(); }, [loadDropdowns]);
+   227→
+   228→  // ─── Company Ordersheet State ───
+   229→  const [coData, setCoData] = useState<any[]>([]);
+   230→  const [coLoading, setCoLoading] = useState(true);
+   231→  const [coSearch, setCoSearch] = useState("");
+   232→  const [coDialog, setCoDialog] = useState(false);
+   233→  const [coEdit, setCoEdit] = useState<any>(null);
+   234→  const [coSaving, setCoSaving] = useState(false);
+   235→  const [coDelete, setCoDelete] = useState<any>(null);
+   236→  const [coForm, setCoForm] = useState<Record<string, any>>({ companyId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+   237→  const [coLines, setCoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+   238→  const [coStockCheck, setCoStockCheck] = useState<Record<string, any>>({});
+   239→  const [coViewDetail, setCoViewDetail] = useState<any>(null);
+   240→
+   241→  // ─── Customer Ordersheet State ───
+   242→  const [custOData, setCustOData] = useState<any[]>([]);
+   243→  const [custOLoading, setCustOLoading] = useState(true);
+   244→  const [custOSearch, setCustOSearch] = useState("");
+   245→  const [custODialog, setCustODialog] = useState(false);
+   246→  const [custOEdit, setCustOEdit] = useState<any>(null);
+   247→  const [custOSaving, setCustOSaving] = useState(false);
+   248→  const [custODelete, setCustODelete] = useState<any>(null);
+   249→  const [custOForm, setCustOForm] = useState<Record<string, any>>({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+   250→  const [custOLines, setCustOLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+   251→  const [custOStockCheck, setCustOStockCheck] = useState<Record<string, any>>({});
+   252→  const [custOViewDetail, setCustOViewDetail] = useState<any>(null);
+   253→
+   254→  // ─── Ordersheet Report State ───
+   255→  const [osReportFrom, setOsReportFrom] = useState("");
+   256→  const [osReportTo, setOsReportTo] = useState("");
+   257→  const [osReportData, setOsReportData] = useState<any[]>([]);
+   258→  const [osReportLoading, setOsReportLoading] = useState(false);
+   259→  const [osReportTypeFilter, setOsReportTypeFilter] = useState("all");
+   260→  const [osReportStatusFilter, setOsReportStatusFilter] = useState("all");
+   261→  const [osReportFulfillmentFilter, setOsReportFulfillmentFilter] = useState("all");
+   262→
+   263→  // ─── Purchase Order State ───
+   264→  const [poData, setPoData] = useState<any[]>([]);
+   265→  const [poLoading, setPoLoading] = useState(true);
+   266→  const [poSearch, setPoSearch] = useState("");
+   267→  const [poDialog, setPoDialog] = useState(false);
+   268→  const [poEdit, setPoEdit] = useState<any>(null);
+   269→  const [poSaving, setPoSaving] = useState(false);
+   270→  const [poDelete, setPoDelete] = useState<any>(null);
+   271→  const [poForm, setPoForm] = useState<Record<string, any>>({ supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Draft", discount: 0, vatPercent: 0, notes: "", expectedDate: "" });
+   272→  const [poLines, setPoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+   273→  const [poReceiveDialog, setPoReceiveDialog] = useState(false);
+   274→  const [poReceiveForm, setPoReceiveForm] = useState<Record<string, any>>({ purchaseOrderId: "", receivedItems: [], receivedDate: new Date().toISOString().split("T")[0], challanRef: "", notes: "" });
+   275→  const [poReceiveSaving, setPoReceiveSaving] = useState(false);
+   276→  const [poViewDetail, setPoViewDetail] = useState<any>(null);
+   277→  const [poExpandedRows, setPoExpandedRows] = useState<Set<string>>(new Set());
+   278→  const [poStatusFilter, setPoStatusFilter] = useState("all");
+   279→  const [poReceivingFilter, setPoReceivingFilter] = useState("all");
+   280→
+   281→  // ─── Auto PO State ───
+   282→  const [autoPoData, setAutoPoData] = useState<any[]>([]);
+   283→  const [autoPoLoading, setAutoPoLoading] = useState(true);
+   284→  const [autoPoSearch, setAutoPoSearch] = useState("");
+   285→  const [autoPoSelected, setAutoPoSelected] = useState<Set<string>>(new Set());
+   286→  const [autoPoGenerating, setAutoPoGenerating] = useState(false);
+   287→  const [autoPoSummary, setAutoPoSummary] = useState<any>({});
+   288→  const [autoPoGroupedBySupplier, setAutoPoGroupedBySupplier] = useState<any[]>([]);
+   289→  const [autoPoUrgencyFilter, setAutoPoUrgencyFilter] = useState("");
+   290→  const [autoPoSupplierFilter, setAutoPoSupplierFilter] = useState("");
+   291→
+   292→  // ─── Sales Order State ───
+   293→  const [soData, setSoData] = useState<any[]>([]);
+   294→  const [soLoading, setSoLoading] = useState(true);
+   295→  const [soSearch, setSoSearch] = useState("");
+   296→  const [soDialog, setSoDialog] = useState(false);
+   297→  const [soEdit, setSoEdit] = useState<any>(null);
+   298→  const [soSaving, setSoSaving] = useState(false);
+   299→  const [soDelete, setSoDelete] = useState<any>(null);
+   300→  const [soForm, setSoForm] = useState<Record<string, any>>({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
+   301→  const [soLines, setSoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+   302→
+   303→  // ─── Hire Sales State ───
+   304→  const [hsData, setHsData] = useState<any[]>([]);
+   305→  const [hsLoading, setHsLoading] = useState(true);
+   306→  const [hsSearch, setHsSearch] = useState("");
+   307→  const [hsDialog, setHsDialog] = useState(false);
+   308→  const [hsEdit, setHsEdit] = useState<any>(null);
+   309→  const [hsSaving, setHsSaving] = useState(false);
+   310→  const [hsDelete, setHsDelete] = useState<any>(null);
+   311→  const [hsForm, setHsForm] = useState<Record<string, any>>({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Active", downPayment: 0, duration: 12, hireRate: 0, notes: "" });
+   312→  const [hsLines, setHsLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+   313→  const [hsViewInstallments, setHsViewInstallments] = useState<any>(null);
+   314→
+   315→  // ─── Sales Return State ───
+   316→  const [srData, setSrData] = useState<any[]>([]);
+   317→  const [srLoading, setSrLoading] = useState(true);
+   318→  const [srSearch, setSrSearch] = useState("");
+   319→  const [srDialog, setSrDialog] = useState(false);
+   320→  const [srEdit, setSrEdit] = useState<any>(null);
+   321→  const [srSaving, setSrSaving] = useState(false);
+   322→  const [srDelete, setSrDelete] = useState<any>(null);
+   323→  const [srForm, setSrForm] = useState<Record<string, any>>({ salesOrderId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
+   324→  const [srLines, setSrLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+   325→  const [srAvailableProducts, setSrAvailableProducts] = useState<any[]>([]);
+   326→
+   327→  // ─── Purchase Return State ───
+   328→  const [prData, setPrData] = useState<any[]>([]);
+   329→  const [prLoading, setPrLoading] = useState(true);
+   330→  const [prSearch, setPrSearch] = useState("");
+   331→  const [prDialog, setPrDialog] = useState(false);
+   332→  const [prEdit, setPrEdit] = useState<any>(null);
+   333→  const [prSaving, setPrSaving] = useState(false);
+   334→  const [prDelete, setPrDelete] = useState<any>(null);
+   335→  const [prForm, setPrForm] = useState<Record<string, any>>({ purchaseOrderId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
+   336→  const [prLines, setPrLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+   337→  const [prAvailableProducts, setPrAvailableProducts] = useState<any[]>([]);
+   338→
+   339→  // ─── Replacement State ───
+   340→  const [rplData, setRplData] = useState<any[]>([]);
+   341→  const [rplLoading, setRplLoading] = useState(true);
+   342→  const [rplSearch, setRplSearch] = useState("");
+   343→  const [rplDialog, setRplDialog] = useState(false);
+   344→  const [rplEdit, setRplEdit] = useState<any>(null);
+   345→  const [rplSaving, setRplSaving] = useState(false);
+   346→  const [rplDelete, setRplDelete] = useState<any>(null);
+   347→  const [rplForm, setRplForm] = useState<Record<string, any>>({ salesOrderId: "", date: new Date().toISOString().split("T")[0], reason: "", status: "Pending" });
+   348→  const [rplLines, setRplLines] = useState<any[]>([{ productId: "", replacementProductId: "", quantity: 1, rate: 0 }]);
+   349→
+   350→  // ─── Stock State ───
+   351→  const [stockData, setStockData] = useState<any[]>([]);
+   352→  const [stockLoading, setStockLoading] = useState(true);
+   353→  const [stockSearch, setStockSearch] = useState("");
+   354→  const [stockFilterGodown, setStockFilterGodown] = useState("all");
+   355→  const [stockFilterCategory, setStockFilterCategory] = useState("all");
+   356→  const [stockFilterStatus, setStockFilterStatus] = useState("all");
+   357→
+   358→  // ─── Stock Details State ───
+   359→  const [sdSelectedProduct, setSdSelectedProduct] = useState("");
+   360→  const [sdData, setSdData] = useState<any[]>([]);
+   361→  const [sdLoading, setSdLoading] = useState(false);
+   362→  const [sdSearch, setSdSearch] = useState("");
+   363→
+   364→  // ─── Transfer State ───
+   365→  const [trnData, setTrnData] = useState<any[]>([]);
+   366→  const [trnLoading, setTrnLoading] = useState(true);
+   367→  const [trnSearch, setTrnSearch] = useState("");
+   368→  const [trnDialog, setTrnDialog] = useState(false);
+   369→  const [trnEdit, setTrnEdit] = useState<any>(null);
+   370→  const [trnSaving, setTrnSaving] = useState(false);
+   371→  const [trnDelete, setTrnDelete] = useState<any>(null);
+   372→  const [trnForm, setTrnForm] = useState<Record<string, any>>({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" });
+   373→  const [trnLines, setTrnLines] = useState<any[]>([{ productId: "", quantity: 1 }]);
+   374→
+   375→  // ============================================================
+   376→  // DATA LOADERS
+   377→  // ============================================================
+   378→
+   379→  const loadCompanyOrdersheets = useCallback(async () => {
+   380→    setCoLoading(true);
+   381→    try {
+   382→      const res = await apiFetch("/api/order-sheets?orderType=Company");
+   383→      setCoData(Array.isArray(res) ? res : []);
+   384→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   385→    finally { setCoLoading(false); }
+   386→  }, [toast]);
+   387→
+   388→  const loadCustomerOrdersheets = useCallback(async () => {
+   389→    setCustOLoading(true);
+   390→    try {
+   391→      const res = await apiFetch("/api/order-sheets?orderType=Customer");
+   392→      setCustOData(Array.isArray(res) ? res : []);
+   393→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   394→    finally { setCustOLoading(false); }
+   395→  }, [toast]);
+   396→
+   397→  const loadPurchaseOrders = useCallback(async () => {
+   398→    setPoLoading(true);
+   399→    try {
+   400→      const res = await apiFetch("/api/purchase-orders");
+   401→      setPoData(Array.isArray(res) ? res : []);
+   402→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   403→    finally { setPoLoading(false); }
+   404→  }, [toast]);
+   405→
+   406→  const loadAutoPo = useCallback(async () => {
+   407→    setAutoPoLoading(true);
+   408→    try {
+   409→      const params = new URLSearchParams();
+   410→      if (autoPoSupplierFilter) params.set("supplierId", autoPoSupplierFilter);
+   411→      if (autoPoUrgencyFilter) params.set("urgency", autoPoUrgencyFilter);
+   412→      const qs = params.toString();
+   413→      const res = await apiFetch(`/api/auto-po${qs ? `?${qs}` : ""}`);
+   414→      if (res.items) {
+   415→        setAutoPoData(Array.isArray(res.items) ? res.items : []);
+   416→        setAutoPoSummary(res.summary || {});
+   417→        setAutoPoGroupedBySupplier(Array.isArray(res.groupedBySupplier) ? res.groupedBySupplier : []);
+   418→      } else {
+   419→        const items = Array.isArray(res) ? res : [];
+   420→        setAutoPoData(items);
+   421→        setAutoPoSummary({});
+   422→        setAutoPoGroupedBySupplier([]);
+   423→      }
+   424→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   425→    finally { setAutoPoLoading(false); }
+   426→  }, [toast, autoPoSupplierFilter, autoPoUrgencyFilter]);
+   427→
+   428→  const loadSalesOrders = useCallback(async () => {
+   429→    setSoLoading(true);
+   430→    try {
+   431→      const res = await apiFetch("/api/sales-orders");
+   432→      setSoData(Array.isArray(res) ? res : []);
+   433→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   434→    finally { setSoLoading(false); }
+   435→  }, [toast]);
+   436→
+   437→  const loadHireSales = useCallback(async () => {
+   438→    setHsLoading(true);
+   439→    try {
+   440→      const res = await apiFetch("/api/hire-sales");
+   441→      setHsData(Array.isArray(res) ? res : []);
+   442→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   443→    finally { setHsLoading(false); }
+   444→  }, [toast]);
+   445→
+   446→  const loadSalesReturns = useCallback(async () => {
+   447→    setSrLoading(true);
+   448→    try {
+   449→      const res = await apiFetch("/api/sales-returns");
+   450→      setSrData(Array.isArray(res) ? res : []);
+   451→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   452→    finally { setSrLoading(false); }
+   453→  }, [toast]);
+   454→
+   455→  const loadPurchaseReturns = useCallback(async () => {
+   456→    setPrLoading(true);
+   457→    try {
+   458→      const res = await apiFetch("/api/purchase-returns");
+   459→      setPrData(Array.isArray(res) ? res : []);
+   460→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   461→    finally { setPrLoading(false); }
+   462→  }, [toast]);
+   463→
+   464→  const loadReplacements = useCallback(async () => {
+   465→    setRplLoading(true);
+   466→    try {
+   467→      const res = await apiFetch("/api/replacements");
+   468→      setRplData(Array.isArray(res) ? res : []);
+   469→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   470→    finally { setRplLoading(false); }
+   471→  }, [toast]);
+   472→
+   473→  const loadStock = useCallback(async () => {
+   474→    setStockLoading(true);
+   475→    try {
+   476→      const params = new URLSearchParams();
+   477→      if (stockFilterGodown && stockFilterGodown !== "all") params.set("godownId", stockFilterGodown);
+   478→      if (stockFilterCategory && stockFilterCategory !== "all") params.set("categoryId", stockFilterCategory);
+   479→      if (stockFilterStatus && stockFilterStatus !== "all") params.set("status", stockFilterStatus);
+   480→      const qs = params.toString();
+   481→      const res = await apiFetch(`/api/stock${qs ? `?${qs}` : ""}`);
+   482→      setStockData(Array.isArray(res) ? res : []);
+   483→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   484→    finally { setStockLoading(false); }
+   485→  }, [toast, stockFilterGodown, stockFilterCategory, stockFilterStatus]);
+   486→
+   487→  const loadStockDetails = useCallback(async (productId: string) => {
+   488→    if (!productId) { setSdData([]); return; }
+   489→    setSdLoading(true);
+   490→    try {
+   491→      const res = await apiFetch(`/api/stock-details?productId=${productId}`);
+   492→      // stock-details API returns { product, entries, summary }
+   493→      setSdData(res?.entries || (Array.isArray(res) ? res : []));
+   494→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   495→    finally { setSdLoading(false); }
+   496→  }, [toast]);
+   497→
+   498→  const loadTransfers = useCallback(async () => {
+   499→    setTrnLoading(true);
+   500→    try {
+   501→      const res = await apiFetch("/api/transfers");
+   502→      setTrnData(Array.isArray(res) ? res : []);
+   503→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   504→    finally { setTrnLoading(false); }
+   505→  }, [toast]);
+   506→
+   507→  // ============================================================
+   508→  // INIT: Load data based on active tab
+   509→  // ============================================================
+   510→
+   511→  useEffect(() => {
+   512→    if (activeTab === "company-ordersheet") loadCompanyOrdersheets();
+   513→    if (activeTab === "customer-ordersheet") loadCustomerOrdersheets();
+   514→    if (activeTab === "purchase-orders") loadPurchaseOrders();
+   515→    if (activeTab === "auto-po") loadAutoPo();
+   516→    if (activeTab === "sales-orders") loadSalesOrders();
+   517→    if (activeTab === "hire-sales") loadHireSales();
+   518→    if (activeTab === "sales-returns") loadSalesReturns();
+   519→    if (activeTab === "purchase-returns") loadPurchaseReturns();
+   520→    if (activeTab === "replacements") loadReplacements();
+   521→    if (activeTab === "stock") loadStock();
+   522→    if (activeTab === "transfers") loadTransfers();
+   523→  }, [activeTab, loadCompanyOrdersheets, loadCustomerOrdersheets, loadPurchaseOrders, loadAutoPo, loadSalesOrders, loadHireSales, loadSalesReturns, loadPurchaseReturns, loadReplacements, loadStock, loadTransfers]);
+   524→
+   525→  // ============================================================
+   526→  // LINE ITEM HELPERS
+   527→  // ============================================================
+   528→
+   529→  const addLine = (setter: React.Dispatch<React.SetStateAction<any[]>>, template: any) => {
+   530→    setter(prev => [...prev, { ...template }]);
+   531→  };
+   532→
+   533→  const removeLine = (setter: React.Dispatch<React.SetStateAction<any[]>>, idx: number) => {
+   534→    setter(prev => prev.filter((_, i) => i !== idx));
+   535→  };
+   536→
+   537→  const updateLine = (setter: React.Dispatch<React.SetStateAction<any[]>>, idx: number, field: string, value: any) => {
+   538→    setter(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+   539→  };
+   540→
+   541→  // ============================================================
+   542→  // EXPORT HELPERS
+   543→  // ============================================================
+   544→
+   545→  const doExportCSV = (title: string, columns: ExportColumnDef[], data: any[], extraMasked?: string[]) => {
+   546→    try {
+   547→      const maskedKeys = [...getVatMaskedKeys(columns), ...(extraMasked || [])];
+   548→      exportToCSV({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+   549→      toast({ title: "CSV Exported", description: `${title} data exported` });
+   550→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   551→  };
+   552→
+   553→  const doExportPDF = (title: string, columns: ExportColumnDef[], data: any[], extraMasked?: string[]) => {
+   554→    try {
+   555→      const maskedKeys = [...getVatMaskedKeys(columns), ...(extraMasked || [])];
+   556→      const userName = auth.user?.displayName || auth.user?.name || "System";
+   557→      exportToPDF({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys, orientation: "landscape", financialFooter: { preparedBy: userName, checkedBy: "", authorizedBy: "", printedBy: userName || "System" }, systemNotice: "This is a computer-generated document. Verify with official records." });
+   558→      toast({ title: "PDF Exported", description: `${title} data exported` });
+   559→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   560→  };
+   561→
+   562→  const doImportCSV = (apiPath: string, fields: ExportFieldDef[], reloadFn: () => void) => {
+   563→    importFromCSV({ apiPath, formFields: fields }).then(result => {
+   564→      toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
+   565→      reloadFn();
+   566→    });
+   567→  };
+   568→
+   569→  const doCopyToClipboard = async (title: string, columns: ExportColumnDef[], data: any[], extraMasked?: string[]) => {
+   570→    try {
+   571→      const maskedKeys = [...getVatMaskedKeys(columns), ...(extraMasked || [])];
+   572→      const result = await copyTableToClipboard({ title, columns, data, isVatAuditor, vatMaskedColumns: maskedKeys });
+   573→      if (result.success) { toast({ title: "Copied", description: result.message }); } else { toast({ title: "Copy Failed", description: result.message, variant: "destructive" }); }
+   574→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   575→  };
+   576→
+   577→  // ============================================================
+   578→  // TOOLBAR COMPONENT (reusable)
+   579→  // ============================================================
+   580→
+   581→  function Toolbar({ search, setSearch, onRefresh, loading, onExportCSV, onExportPDF, onCopyToClipboard, onImportCSV, importFields, importApiPath, importReload, canCreate, onCreate, createLabel }: {
+   582→    search: string; setSearch: (v: string) => void; onRefresh: () => void; loading: boolean;
+   583→    onExportCSV: () => void; onExportPDF: () => void; onCopyToClipboard?: () => void;
+   584→    onImportCSV?: () => void; importFields?: ExportFieldDef[]; importApiPath?: string; importReload?: () => void;
+   585→    canCreate?: boolean; onCreate?: () => void; createLabel?: string;
+   586→  }) {
+   587→    return (
+   588→      <div className="flex flex-wrap items-center gap-2">
+   589→        <div className="relative flex-1 min-w-[200px]">
+   590→          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+   591→          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="pl-8" />
+   592→        </div>
+   593→        {canCreate && onCreate && (
+   594→          <Button onClick={onCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]">
+   595→            <Plus className="h-4 w-4 mr-1" /> {createLabel || "Add"}
+   596→          </Button>
+   597→        )}
+   598→        <Button variant="outline" size="sm" onClick={onExportCSV}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+   599→        <Button variant="outline" size="sm" onClick={onExportPDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+   600→        {onCopyToClipboard && <Button variant="outline" size="sm" onClick={onCopyToClipboard}><Copy className="h-4 w-4 mr-1" /> Copy</Button>}
+   601→        {onImportCSV && canCreate && (
+   602→          <label className="cursor-pointer">
+   603→            <Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button>
+   604→            <input type="file" accept=".csv" className="hidden" onChange={onImportCSV} />
+   605→          </label>
+   606→        )}
+   607→        <Button variant="ghost" size="sm" onClick={onRefresh}>
+   608→          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+   609→        </Button>
+   610→      </div>
+   611→    );
+   612→  }
+   613→
+   614→  // ============================================================
+   615→  // LINE ITEMS GRID COMPONENT
+   616→  // ============================================================
+   617→
+   618→  function LineItemsGrid({ lines, setLines, template, columns, showRate, showDiscount, showVat, vatPercentage }: {
+   619→    lines: any[]; setLines: React.Dispatch<React.SetStateAction<any[]>>; template: any;
+   620→    columns: { key: string; label: string; type?: string }[];
+   621→    showRate?: boolean; showDiscount?: boolean; showVat?: boolean; vatPercentage?: number;
+   622→  }) {
+   623→    return (
+   624→      <div className="space-y-2">
+   625→        <div className="flex items-center justify-between">
+   626→          <Label className="text-sm font-semibold text-slate-900 dark:text-white">Line Items</Label>
+   627→          <Button type="button" variant="outline" size="sm" onClick={() => addLine(setLines, template)}>
+   628→            <Plus className="h-3 w-3 mr-1" /> Add Line
+   629→          </Button>
+   630→        </div>
+   631→        <div className="overflow-x-auto border rounded-lg">
+   632→          <Table className="min-w-[600px]">
+   633→            <TableHeader>
+   634→              <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+   635→                <TableHead className="text-white text-xs">#</TableHead>
+   636→                {columns.map(col => (
+   637→                  <TableHead key={col.key} className="text-white text-xs">{col.label}</TableHead>
+   638→                ))}
+   639→                <TableHead className="text-white text-xs w-10"></TableHead>
+   640→              </TableRow>
+   641→            </TableHeader>
+   642→            <TableBody>
+   643→              {lines.map((line, idx) => (
+   644→                <TableRow key={idx}>
+   645→                  <TableCell className="text-xs">{idx + 1}</TableCell>
+   646→                  {columns.map(col => {
+   647→                    if (col.key === "productId") {
+   648→                      return (
+   649→                        <TableCell key={col.key}>
+   650→                          <Select value={line.productId || ""} onValueChange={v => updateLine(setLines, idx, "productId", v)}>
+   651→                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
+   652→                            <SelectContent>
+   653→                              {products.map(p => <SelectItem key={p.id} value={p.id}>{p.productCode} - {p.name}</SelectItem>)}
+   654→                            </SelectContent>
+   655→                          </Select>
+   656→                        </TableCell>
+   657→                      );
+   658→                    }
+   659→                    if (col.key === "replacementProductId") {
+   660→                      return (
+   661→                        <TableCell key={col.key}>
+   662→                          <Select value={line.replacementProductId || ""} onValueChange={v => updateLine(setLines, idx, "replacementProductId", v)}>
+   663→                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Replacement" /></SelectTrigger>
+   664→                            <SelectContent>
+   665→                              {products.map(p => <SelectItem key={p.id} value={p.id}>{p.productCode} - {p.name}</SelectItem>)}
+   666→                            </SelectContent>
+   667→                          </Select>
+   668→                        </TableCell>
+   669→                      );
+   670→                    }
+   671→                    if (col.key === "quantity") {
+   672→                      return (
+   673→                        <TableCell key={col.key}>
+   674→                          <Input type="number" min={1} value={line.quantity || 1} onChange={e => updateLine(setLines, idx, "quantity", Number(e.target.value))} className="h-8 w-20 text-xs" />
+   675→                        </TableCell>
+   676→                      );
+   677→                    }
+   678→                    if (col.key === "rate") {
+   679→                      return (
+   680→                        <TableCell key={col.key}>
+   681→                          <Input type="number" min={0} step="0.01" value={line.rate || 0} onChange={e => updateLine(setLines, idx, "rate", Number(e.target.value))} className="h-8 w-24 text-xs" />
+   682→                        </TableCell>
+   683→                      );
+   684→                    }
+   685→                    if (col.key === "discountPercent") {
+   686→                      return (
+   687→                        <TableCell key={col.key}>
+   688→                          <Input type="number" min={0} max={100} step="0.01" value={line.discountPercent || 0} onChange={e => updateLine(setLines, idx, "discountPercent", Number(e.target.value))} className="h-8 w-20 text-xs" />
+   689→                        </TableCell>
+   690→                      );
+   691→                    }
+   692→                    if (col.key === "notes") {
+   693→                      return (
+   694→                        <TableCell key={col.key}>
+   695→                          <Input type="text" value={line.notes || ""} onChange={e => updateLine(setLines, idx, "notes", e.target.value)} className="h-8 text-xs" placeholder="Notes" />
+   696→                        </TableCell>
+   697→                      );
+   698→                    }
+   699→                    if (col.key === "total") {
+   700→                      const qty = Number(line.quantity) || 0;
+   701→                      const rate = Number(line.rate) || 0;
+   702→                      const disc = Number(line.discountPercent) || 0;
+   703→                      const lineTotal = qty * rate * (1 - disc / 100);
+   704→                      return <TableCell key={col.key} className="text-xs font-medium">{fmtCurrency(lineTotal)}</TableCell>;
+   705→                    }
+   706→                    if (col.key === "discountAmt") {
+   707→                      const qty = Number(line.quantity) || 0;
+   708→                      const rate = Number(line.rate) || 0;
+   709→                      const disc = Number(line.discountPercent) || 0;
+   710→                      const discAmt = qty * rate * (disc / 100);
+   711→                      return <TableCell key={col.key} className="text-xs">{fmtCurrency(discAmt)}</TableCell>;
+   712→                    }
+   713→                    if (col.key === "vatAmt") {
+   714→                      const qty = Number(line.quantity) || 0;
+   715→                      const rate = Number(line.rate) || 0;
+   716→                      const disc = Number(line.discountPercent) || 0;
+   717→                      const vatPct = showVat ? (vatPercentage ?? 15) : 0;
+   718→                      const net = qty * rate * (1 - disc / 100);
+   719→                      return <TableCell key={col.key} className="text-xs">{fmtCurrency(net * vatPct / 100)}</TableCell>;
+   720→                    }
+   721→                    return <TableCell key={col.key} className="text-xs">—</TableCell>;
+   722→                  })}
+   723→                  <TableCell>
+   724→                    {lines.length > 1 && (
+   725→                      <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(setLines, idx)} className="h-6 w-6 p-0 text-red-500 hover:text-red-700">
+   726→                        <X className="h-3 w-3" />
+   727→                      </Button>
+   728→                    )}
+   729→                  </TableCell>
+   730→                </TableRow>
+   731→              ))}
+   732→            </TableBody>
+   733→          </Table>
+   734→        </div>
+   735→      </div>
+   736→    );
+   737→  }
+   738→
+   739→  // ============================================================
+   740→  // FULFILLMENT BADGE COMPONENT
+   741→  // ============================================================
+   742→
+   743→  const FULFILLMENT_BADGE: Record<string, string> = {
+   744→    Unfulfilled: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+   745→    Partial: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+   746→    Fulfilled: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+   747→  };
+   748→
+   749→  function FulfillmentBadge({ status }: { status: string }) {
+   750→    const cls = FULFILLMENT_BADGE[status] || "bg-slate-100 text-slate-700";
+   751→    return <Badge className={`${cls} border-0 text-xs font-medium`}>{status}</Badge>;
+   752→  }
+   753→
+   754→  // ============================================================
+   755→  // STOCK CHECK HELPER
+   756→  // ============================================================
+   757→
+   758→  const checkProductStock = async (productId: string, godownId: string, quantity: number, setter: React.Dispatch<React.SetStateAction<Record<string, any>>>) => {
+   759→    if (!productId) return;
+   760→    try {
+   761→      const params = new URLSearchParams({ productId });
+   762→      if (godownId) params.set("godownId", godownId);
+   763→      if (quantity) params.set("requestedQuantity", String(quantity));
+   764→      const res = await apiFetch(`/api/order-sheets/stock-check?${params.toString()}`);
+   765→      setter(prev => ({ ...prev, [productId]: res }));
+   766→    } catch (err) {
+   767→      console.warn('Stock check failed for product:', productId, err);
+   768→    }
+   769→  };
+   770→
+   771→  // ============================================================
+   772→  // COMPUTE ORDER FINANCIALS HELPER
+   773→  // ============================================================
+   774→
+   775→  const computeOrderTotals = (lines: any[], discountPercent: number, vatPercentage: number) => {
+   776→    const subTotal = lines.reduce((s: number, l: any) => {
+   777→      const qty = Number(l.quantity) || 0;
+   778→      const rate = Number(l.rate) || 0;
+   779→      const lineDisc = Number(l.discountPercent) || 0;
+   780→      const lineTotal = qty * rate * (1 - lineDisc / 100);
+   781→      return s + lineTotal;
+   782→    }, 0);
+   783→    const discountAmt = subTotal * (discountPercent / 100);
+   784→    const afterDiscount = subTotal - discountAmt;
+   785→    const vatAmt = afterDiscount * (vatPercentage / 100);
+   786→    const grandTotal = afterDiscount + vatAmt;
+   787→    return { subTotal: Math.round(subTotal * 100) / 100, discountAmt: Math.round(discountAmt * 100) / 100, vatAmt: Math.round(vatAmt * 100) / 100, grandTotal: Math.round(grandTotal * 100) / 100 };
+   788→  };
+   789→
+   790→  // ============================================================
+   791→  // CSV IMPORT FIELDS DEFINITION
+   792→  // ============================================================
+   793→
+   794→  const orderSheetImportFields: ExportFieldDef[] = [
+   795→    { key: "orderType", label: "Order Type", type: "select", required: true, options: [{ value: "Company", label: "Company" }, { value: "Customer", label: "Customer" }] },
+   796→    { key: "companyId", label: "Company Code", type: "text" },
+   797→    { key: "customerId", label: "Customer Code", type: "text" },
+   798→    { key: "date", label: "Date", type: "date", required: true },
+   799→    { key: "productId", label: "Product Code", type: "text", required: true },
+   800→    { key: "quantity", label: "Quantity", type: "number", required: true },
+   801→    { key: "rate", label: "Rate", type: "number", required: true },
+   802→    { key: "discountPercent", label: "Discount %", type: "number" },
+   803→  ];
+   804→
+   805→  // ============================================================
+   806→  // TAB 1: COMPANY ORDERSHEET
+   807→  // ============================================================
+   808→
+   809→  const coColumns: ExportColumnDef[] = [
+   810→    { key: "sheetNo", label: "Sheet No", type: "text" },
+   811→    { key: "date", label: "Date", type: "date" },
+   812→    { key: "companyName", label: "Company", type: "text" },
+   813→    { key: "godownName", label: "Godown", type: "text" },
+   814→    { key: "status", label: "Status", type: "text" },
+   815→    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+   816→    { key: "subTotal", label: "Sub Total", type: "currency" },
+   817→    { key: "grandTotal", label: "Grand Total", type: "currency" },
+   818→  ];
+   819→
+   820→  const coFiltered = useMemo(() => {
+   821→    if (!coSearch) return coData;
+   822→    const q = coSearch.toLowerCase();
+   823→    return coData.filter((o: any) =>
+   824→      (o.sheetNo || "").toLowerCase().includes(q) ||
+   825→      (o.company?.name || "").toLowerCase().includes(q) ||
+   826→      (o.godown?.name || "").toLowerCase().includes(q) ||
+   827→      (o.status || "").toLowerCase().includes(q) ||
+   828→      (o.fulfillmentStatus || "").toLowerCase().includes(q)
+   829→    );
+   830→  }, [coData, coSearch]);
+   831→
+   832→  const coStats = useMemo(() => ({
+   833→    total: coData.length,
+   834→    draft: coData.filter((o: any) => o.status === "Draft").length,
+   835→    completed: coData.filter((o: any) => o.status === "Completed").length,
+   836→    totalValue: coData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0),
+   837→    stockAlerts: coData.filter((o: any) => o.lines?.some((l: any) => l.stockStatus === "Insufficient")).length,
+   838→  }), [coData]);
+   839→
+   840→  const coFinancials = useMemo(() => computeOrderTotals(coLines, Number(coForm.discountPercent) || 0, Number(coForm.vatPercentage) || 0), [coLines, coForm.discountPercent, coForm.vatPercentage]);
+   841→
+   842→  const openCoCreate = () => {
+   843→    setCoForm({ companyId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+   844→    setCoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+   845→    setCoStockCheck({});
+   846→    setCoEdit(null);
+   847→    setCoDialog(true);
+   848→  };
+   849→
+   850→  const openCoEdit = (item: any) => {
+   851→    setCoForm({
+   852→      companyId: item.companyId || "",
+   853→      date: item.date ? item.date.split("T")[0] : "",
+   854→      status: item.status || "Draft",
+   855→      godownId: item.godownId || "",
+   856→      discountPercent: item.discountPercent || 0,
+   857→      vatPercentage: item.vatPercentage || 0,
+   858→      paymentOptionId: item.paymentOptionId || "",
+   859→      notes: item.notes || "",
+   860→    });
+   861→    setCoLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
+   862→      productId: l.productId || "",
+   863→      quantity: l.quantity || 1,
+   864→      rate: l.rate || 0,
+   865→      discountPercent: l.discountPercent || 0,
+   866→      notes: l.notes || "",
+   867→    })) : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+   868→    setCoStockCheck({});
+   869→    setCoEdit(item);
+   870→    setCoDialog(true);
+   871→  };
+   872→
+   873→  const saveCo = async () => {
+   874→    if (!coForm.companyId || !coForm.date) { toast({ title: "Error", description: "Company and Date are required", variant: "destructive" }); return; }
+   875→    const validLines = coLines.filter((l: any) => l.productId);
+   876→    if (validLines.length === 0) { toast({ title: "Error", description: "At least one line item is required", variant: "destructive" }); return; }
+   877→    setCoSaving(true);
+   878→    try {
+   879→      const linesPayload = validLines.map((l: any) => ({
+   880→        productId: l.productId,
+   881→        quantity: Number(l.quantity) || 1,
+   882→        rate: Number(l.rate) || 0,
+   883→        discountPercent: Number(l.discountPercent) || 0,
+   884→        notes: l.notes || "",
+   885→      }));
+   886→      const totals = computeOrderTotals(coLines, Number(coForm.discountPercent) || 0, Number(coForm.vatPercentage) || 0);
+   887→      const payload = {
+   888→        ...coForm,
+   889→        orderType: "Company",
+   890→        lines: linesPayload,
+   891→        subTotal: totals.subTotal,
+   892→        discount: totals.discountAmt,
+   893→        discountPercent: Number(coForm.discountPercent) || 0,
+   894→        vatPercentage: Number(coForm.vatPercentage) || 0,
+   895→        vatAmount: totals.vatAmt,
+   896→        grandTotal: totals.grandTotal,
+   897→      };
+   898→      if (coEdit) {
+   899→        await apiFetch(`/api/order-sheets/${coEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   900→        toast({ title: "Updated", description: "Company Ordersheet updated" });
+   901→      } else {
+   902→        await apiFetch("/api/order-sheets", { method: "POST", body: JSON.stringify(payload) });
+   903→        toast({ title: "Created", description: "Company Ordersheet created" });
+   904→      }
+   905→      setCoDialog(false);
+   906→      loadCompanyOrdersheets();
+   907→    } catch (e: any) {
+   908→      // Check for stock validation errors
+   909→      try {
+   910→        const parsed = JSON.parse(e.message);
+   911→        if (parsed?.stockErrors) {
+   912→          const insufficientItems = parsed.stockErrors.map((se: any) => `${se.productName}: need ${se.requested}, have ${se.available}`).join("; ");
+   913→          toast({ title: "Insufficient Stock", description: insufficientItems, variant: "destructive" });
+   914→          return;
+   915→        }
+   916→      } catch {
+   917→        // Error message was not JSON, fall through to generic toast
+   918→      }
+   919→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   920→    }
+   921→    finally { setCoSaving(false); }
+   922→  };
+   923→
+   924→  const deleteCo = async () => {
+   925→    if (!coDelete) return;
+   926→    try { await apiFetch(`/api/order-sheets/${coDelete.id}`, { method: "DELETE" }); toast({ title: "Deleted", description: "Ordersheet deleted" }); setCoDelete(null); loadCompanyOrdersheets(); }
+   927→    catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   928→  };
+   929→
+   930→  const renderCompanyOrdersheet = () => (
+   931→    <div className="space-y-4">
+   932→      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
+   933→        <StatCard label="Total Sheets" value={coStats.total} icon={ClipboardList} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+   934→        <StatCard label="Draft" value={coStats.draft} icon={Edit} color="text-amber-500" bg="bg-amber-500/10" />
+   935→        <StatCard label="Completed" value={coStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+   936→        <StatCard label="Grand Total" value={fmtCurrency(coStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+   937→        <StatCard label="Stock Alerts" value={coStats.stockAlerts} icon={AlertTriangle} color="text-red-500" bg="bg-red-500/10" />
+   938→      </div>
+   939→      <Toolbar search={coSearch} setSearch={setCoSearch} onRefresh={loadCompanyOrdersheets} loading={coLoading}
+   940→        onExportCSV={() => doExportCSV("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" })))}
+   941→        onCopyToClipboard={() => doCopyToClipboard("Company Ordersheets", coColumns, coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" })))}
+   942→        onExportPDF={() => {
+   943→          try {
+   944→            const reportData = coFiltered.map((o: any) => ({ ...o, companyName: o.company?.name || "—", godownName: o.godown?.name || "—" }));
+   945→            const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+   946→            exportToPDF({
+   947→              title: "Company Ordersheet Report",
+   948→              subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+   949→              columns: coColumns,
+   950→              data: reportData,
+   951→              isVatAuditor,
+   952→              vatMaskedColumns: getVatMaskedKeys(coColumns),
+   953→              orientation: "landscape" as const,
+   954→              company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
+   955→              financialFooter: {
+   956→                preparedBy: auth.user?.displayName || "System",
+   957→                checkedBy: "",
+   958→                authorizedBy: "",
+   959→                printedBy: auth.user?.displayName || "System",
+   960→              },
+   961→              summaryRows: [{
+   962→                cells: ["", "", "", "", "", "Grand Total:", formatSanitizedCurrency(grandTotal)],
+   963→                style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold" as const, fontSize: 9 },
+   964→              }],
+   965→            });
+   966→            toast({ title: "PDF Exported", description: "Company Ordersheet Report exported" });
+   967→          } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+   968→        }}
+   969→        onImportCSV={() => doImportCSV("/api/order-sheets?import=true", orderSheetImportFields, loadCompanyOrdersheets)}
+   970→        canCreate={isAdmin} onCreate={openCoCreate} createLabel="Add Ordersheet" />
+   971→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+   972→        <CardContent className="p-0 overflow-hidden">
+   973→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+   974→            <Table className="min-w-[600px]">
+   975→              <TableHeader>
+   976→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+   977→                  <TableHead className="text-white text-xs">Sheet No</TableHead>
+   978→                  <TableHead className="text-white text-xs">Date</TableHead>
+   979→                  <TableHead className="text-white text-xs">Company</TableHead>
+   980→                  <TableHead className="text-white text-xs">Godown</TableHead>
+   981→                  <TableHead className="text-white text-xs">Status</TableHead>
+   982→                  <TableHead className="text-white text-xs">Fulfillment</TableHead>
+   983→                  <TableHead className="text-white text-xs">Sub Total</TableHead>
+   984→                  <TableHead className="text-white text-xs">Grand Total</TableHead>
+   985→                  <TableHead className="text-white text-xs w-8"></TableHead>
+   986→                  <TableHead className="text-white text-xs">Actions</TableHead>
+   987→                </TableRow>
+   988→              </TableHeader>
+   989→              <TableBody>
+   990→                {coLoading ? (
+   991→                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
+   992→                ) : coFiltered.length === 0 ? (
+   993→                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400">No ordersheets found</TableCell></TableRow>
+   994→                ) : coFiltered.map((item: any) => {
+   995→                  const hasStockAlert = item.lines?.some((l: any) => l.stockStatus === "Insufficient");
+   996→                  return (
+   997→                    <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+   998→                      <TableCell className="text-xs font-medium">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
+   999→                      <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
+  1000→                      <TableCell className="text-xs">{item.company?.name || "—"}</TableCell>
+  1001→                      <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+  1002→                      <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
+  1003→                      <TableCell className="text-xs"><FulfillmentBadge status={item.fulfillmentStatus || "Unfulfilled"} /></TableCell>
+  1004→                      <TableCell className="text-xs">{fmtCurrency(item.subTotal || 0)}</TableCell>
+  1005→                      <TableCell className="text-xs font-medium">{fmtCurrency(item.grandTotal || item.totalAmount || 0)}</TableCell>
+  1006→                      <TableCell className="text-xs">{hasStockAlert && <AlertTriangle className="h-4 w-4 text-red-500" />}</TableCell>
+  1007→                      <TableCell>
+  1008→                        <div className="flex gap-1">
+  1009→                          <Button variant="ghost" size="sm" onClick={() => setCoViewDetail(item)} className="h-7 w-7 p-0"><Eye className="h-3 w-3" /></Button>
+  1010→                          <Button variant="ghost" size="sm" onClick={() => openCoEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+  1011→                          <Button variant="ghost" size="sm" onClick={() => setCoDelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>
+  1012→                        </div>
+  1013→                      </TableCell>
+  1014→                    </TableRow>
+  1015→                  );
+  1016→                })}
+  1017→              </TableBody>
+  1018→            </Table>
+  1019→          </div>
+  1020→        </CardContent>
+  1021→      </Card>
+  1022→      {/* Create/Edit Dialog */}
+  1023→      <Dialog open={coDialog} onOpenChange={setCoDialog}>
+  1024→        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+  1025→          <DialogHeader><DialogTitle>{coEdit ? "Edit" : "Create"} Company Ordersheet</DialogTitle><DialogDescription>Fill in the ordersheet details and line items.</DialogDescription></DialogHeader>
+  1026→          <div className="space-y-4">
+  1027→            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+  1028→              <div><Label className="text-sm font-medium">Company <span className="text-red-500">*</span></Label>
+  1029→                <Select value={coForm.companyId || ""} onValueChange={v => setCoForm(p => ({ ...p, companyId: v }))}>
+  1030→                  <SelectTrigger><SelectValue placeholder="Select Company" /></SelectTrigger>
+  1031→                  <SelectContent>{companies.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+  1032→                </Select></div>
+  1033→              <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={coForm.date || ""} onChange={e => setCoForm(p => ({ ...p, date: e.target.value }))} /></div>
+  1034→              <div><Label className="text-sm font-medium">Godown / Warehouse</Label>
+  1035→                <Select value={coForm.godownId || ""} onValueChange={v => setCoForm(p => ({ ...p, godownId: v }))}>
+  1036→                  <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+  1037→                  <SelectContent>{godowns.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+  1038→                </Select></div>
+  1039→            </div>
+  1040→            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+  1041→              <div><Label className="text-sm font-medium">Status</Label>
+  1042→                <Select value={coForm.status || "Draft"} onValueChange={v => setCoForm(p => ({ ...p, status: v }))}>
+  1043→                  <SelectTrigger><SelectValue /></SelectTrigger>
+  1044→                  <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Processing">Processing</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
+  1045→                </Select></div>
+  1046→              <div><Label className="text-sm font-medium">Discount %</Label><Input type="number" min={0} max={100} step="0.01" value={coForm.discountPercent || 0} onChange={e => setCoForm(p => ({ ...p, discountPercent: Number(e.target.value) }))} /></div>
+  1047→              <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={coForm.vatPercentage || 0} onChange={e => setCoForm(p => ({ ...p, vatPercentage: Number(e.target.value) }))} /></div>
+  1048→              <div><Label className="text-sm font-medium">Payment Option</Label>
+  1049→                <Select value={coForm.paymentOptionId || ""} onValueChange={v => setCoForm(p => ({ ...p, paymentOptionId: v }))}>
+  1050→                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1051→                  <SelectContent>{paymentOptions.map(po => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}</SelectContent>
+  1052→                </Select></div>
+  1053→            </div>
+  1054→            <div><Label className="text-sm font-medium">Notes</Label><Input value={coForm.notes || ""} onChange={e => setCoForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" /></div>
+  1055→            {/* Enhanced Line Items with Stock Indicator */}
+  1056→            <div className="space-y-2">
+  1057→              <div className="flex items-center justify-between">
+  1058→                <Label className="text-sm font-semibold text-slate-900 dark:text-white">Line Items</Label>
+  1059→                <Button type="button" variant="outline" size="sm" onClick={() => addLine(setCoLines, { productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" })}>
+  1060→                  <Plus className="h-3 w-3 mr-1" /> Add Line
+  1061→                </Button>
+  1062→              </div>
+  1063→              <div className="overflow-x-auto border rounded-lg">
+  1064→                <Table className="min-w-[600px]">
+  1065→                  <TableHeader>
+  1066→                    <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1067→                      <TableHead className="text-white text-xs">#</TableHead>
+  1068→                      <TableHead className="text-white text-xs">Product</TableHead>
+  1069→                      <TableHead className="text-white text-xs">Stock</TableHead>
+  1070→                      <TableHead className="text-white text-xs">Qty</TableHead>
+  1071→                      <TableHead className="text-white text-xs">Rate</TableHead>
+  1072→                      <TableHead className="text-white text-xs">Disc %</TableHead>
+  1073→                      <TableHead className="text-white text-xs">Total</TableHead>
+  1074→                      <TableHead className="text-white text-xs w-10"></TableHead>
+  1075→                    </TableRow>
+  1076→                  </TableHeader>
+  1077→                  <TableBody>
+  1078→                    {coLines.map((line, idx) => {
+  1079→                      const stockInfo = coStockCheck[line.productId];
+  1080→                      return (
+  1081→                        <TableRow key={idx}>
+  1082→                          <TableCell className="text-xs">{idx + 1}</TableCell>
+  1083→                          <TableCell>
+  1084→                            <Select value={line.productId || ""} onValueChange={v => {
+  1085→                              updateLine(setCoLines, idx, "productId", v);
+  1086→                              const prod = products.find(p => p.id === v);
+  1087→                              if (prod?.salePrice) updateLine(setCoLines, idx, "rate", prod.salePrice);
+  1088→                              checkProductStock(v, coForm.godownId, Number(line.quantity) || 1, setCoStockCheck);
+  1089→                            }}>
+  1090→                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
+  1091→                              <SelectContent>
+  1092→                                {products.map(p => <SelectItem key={p.id} value={p.id}>
+  1093→                                  {p.productCode} - {p.name} <span className="text-slate-400 ml-1">(Stock: {p.currentStock ?? p.openingStock ?? "?"})</span>
+  1094→                                </SelectItem>)}
+  1095→                              </SelectContent>
+  1096→                            </Select>
+  1097→                          </TableCell>
+  1098→                          <TableCell className="text-xs">
+  1099→                            {stockInfo ? (
+  1100→                              <Badge className={`border-0 text-xs ${
+  1101→                                stockInfo.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+  1102→                                stockInfo.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+  1103→                                "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  1104→                              }`}>
+  1105→                                {stockInfo.stockStatus === "Available" ? "🟢" : stockInfo.stockStatus === "Partial" ? "🟡" : "🔴"} {stockInfo.currentStock}
+  1106→                              </Badge>
+  1107→                            ) : line.productId ? <span className="text-slate-400">Checking...</span> : "—"}
+  1108→                          </TableCell>
+  1109→                          <TableCell>
+  1110→                            <Input type="number" min={1} value={line.quantity || 1} onChange={e => {
+  1111→                              updateLine(setCoLines, idx, "quantity", Number(e.target.value));
+  1112→                              if (line.productId) checkProductStock(line.productId, coForm.godownId, Number(e.target.value), setCoStockCheck);
+  1113→                            }} className="h-8 w-20 text-xs" />
+  1114→                          </TableCell>
+  1115→                          <TableCell><Input type="number" min={0} step="0.01" value={line.rate || 0} onChange={e => updateLine(setCoLines, idx, "rate", Number(e.target.value))} className="h-8 w-24 text-xs" /></TableCell>
+  1116→                          <TableCell><Input type="number" min={0} max={100} step="0.01" value={line.discountPercent || 0} onChange={e => updateLine(setCoLines, idx, "discountPercent", Number(e.target.value))} className="h-8 w-20 text-xs" /></TableCell>
+  1117→                          <TableCell className="text-xs font-medium">{fmtCurrency((Number(line.quantity) || 0) * (Number(line.rate) || 0) * (1 - (Number(line.discountPercent) || 0) / 100))}</TableCell>
+  1118→                          <TableCell>
+  1119→                            {coLines.length > 1 && (
+  1120→                              <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(setCoLines, idx)} className="h-6 w-6 p-0 text-red-500 hover:text-red-700">
+  1121→                                <X className="h-3 w-3" />
+  1122→                              </Button>
+  1123→                            )}
+  1124→                          </TableCell>
+  1125→                        </TableRow>
+  1126→                      );
+  1127→                    })}
+  1128→                  </TableBody>
+  1129→                </Table>
+  1130→              </div>
+  1131→            </div>
+  1132→            {/* Financial Summary */}
+  1133→            <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
+  1134→              <CardContent className="p-4">
+  1135→                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+  1136→                  <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold text-slate-900 dark:text-white">{fmtCurrency(coFinancials.subTotal)}</p></div>
+  1137→                  <div><span className="text-slate-500 dark:text-slate-400">Discount ({coForm.discountPercent || 0}%):</span><p className="font-bold text-red-600 dark:text-red-400">-{fmtCurrency(coFinancials.discountAmt)}</p></div>
+  1138→                  <div><span className="text-slate-500 dark:text-slate-400">VAT ({coForm.vatPercentage || 0}%):</span><p className="font-bold text-amber-600 dark:text-amber-400">+{fmtCurrency(coFinancials.vatAmt)}</p></div>
+  1139→                  <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 dark:text-emerald-400 text-lg">{fmtCurrency(coFinancials.grandTotal)}</p></div>
+  1140→                </div>
+  1141→              </CardContent>
+  1142→            </Card>
+  1143→          </div>
+  1144→          <DialogFooter><Button variant="outline" onClick={() => setCoDialog(false)}>Cancel</Button><Button onClick={saveCo} disabled={coSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">{coSaving ? "Saving..." : "Save"}</Button></DialogFooter>
+  1145→        </DialogContent>
+  1146→      </Dialog>
+  1147→      {/* View Detail Dialog */}
+  1148→      <Dialog open={!!coViewDetail} onOpenChange={() => setCoViewDetail(null)}>
+  1149→        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+  1150→          <DialogHeader><DialogTitle>Company Ordersheet — {coViewDetail?.sheetNo || ""}</DialogTitle><DialogDescription>Full order details and fulfillment status</DialogDescription></DialogHeader>
+  1151→          {coViewDetail && (
+  1152→            <div className="space-y-4">
+  1153→              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+  1154→                <div><span className="text-xs text-slate-500">Company</span><p className="text-sm font-medium">{coViewDetail.company?.name || "—"}</p></div>
+  1155→                <div><span className="text-xs text-slate-500">Date</span><p className="text-sm font-medium">{fmt(coViewDetail.date, "date")}</p></div>
+  1156→                <div><span className="text-xs text-slate-500">Godown</span><p className="text-sm font-medium">{coViewDetail.godown?.name || "—"}</p></div>
+  1157→                <div><span className="text-xs text-slate-500">Status</span><p className="text-sm"><StatusBadge status={coViewDetail.status || "Draft"} /></p></div>
+  1158→                <div><span className="text-xs text-slate-500">Fulfillment</span><p className="text-sm"><FulfillmentBadge status={coViewDetail.fulfillmentStatus || "Unfulfilled"} /></p></div>
+  1159→                <div><span className="text-xs text-slate-500">Payment</span><p className="text-sm font-medium">{coViewDetail.paymentOption?.name || "—"}</p></div>
+  1160→              </div>
+  1161→              <Separator />
+  1162→              <div className="overflow-x-auto border rounded-lg">
+  1163→                <Table className="min-w-[600px]">
+  1164→                  <TableHeader>
+  1165→                    <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1166→                      <TableHead className="text-white text-xs">#</TableHead>
+  1167→                      <TableHead className="text-white text-xs">Product</TableHead>
+  1168→                      <TableHead className="text-white text-xs">Stock Status</TableHead>
+  1169→                      <TableHead className="text-white text-xs">Qty</TableHead>
+  1170→                      <TableHead className="text-white text-xs">Allocated</TableHead>
+  1171→                      <TableHead className="text-white text-xs">Fulfilled</TableHead>
+  1172→                      <TableHead className="text-white text-xs">Fulfillment %</TableHead>
+  1173→                      <TableHead className="text-white text-xs">Rate</TableHead>
+  1174→                      <TableHead className="text-white text-xs">Disc %</TableHead>
+  1175→                      <TableHead className="text-white text-xs">Total</TableHead>
+  1176→                    </TableRow>
+  1177→                  </TableHeader>
+  1178→                  <TableBody>
+  1179→                    {(coViewDetail.lines || []).map((line: any, idx: number) => {
+  1180→                      const fulfilledPct = line.quantity > 0 ? Math.round(((line.fulfilledQuantity || 0) / line.quantity) * 100) : 0;
+  1181→                      return (
+  1182→                        <TableRow key={idx}>
+  1183→                          <TableCell className="text-xs">{idx + 1}</TableCell>
+  1184→                          <TableCell className="text-xs">{line.product?.name || "—"}</TableCell>
+  1185→                          <TableCell className="text-xs">
+  1186→                            <Badge className={`border-0 text-xs ${
+  1187→                              line.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+  1188→                              line.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+  1189→                              "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  1190→                            }`}>{line.stockStatus || "—"}</Badge>
+  1191→                          </TableCell>
+  1192→                          <TableCell className="text-xs">{line.quantity}</TableCell>
+  1193→                          <TableCell className="text-xs">{line.allocatedQuantity ?? "—"}</TableCell>
+  1194→                          <TableCell className="text-xs">{line.fulfilledQuantity ?? 0}</TableCell>
+  1195→                          <TableCell className="text-xs w-28">
+  1196→                            <div className="flex items-center gap-2">
+  1197→                              <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+  1198→                                <div className={`h-2 rounded-full ${fulfilledPct >= 100 ? "bg-emerald-500" : fulfilledPct > 0 ? "bg-amber-500" : "bg-slate-400"}`} style={{ width: `${Math.min(fulfilledPct, 100)}%` }} />
+  1199→                              </div>
+  1200→                              <span className="text-xs w-8">{fulfilledPct}%</span>
+  1201→                            </div>
+  1202→                          </TableCell>
+  1203→                          <TableCell className="text-xs">{fmtCurrency(line.rate)}</TableCell>
+  1204→                          <TableCell className="text-xs">{line.discountPercent || 0}%</TableCell>
+  1205→                          <TableCell className="text-xs font-medium">{fmtCurrency(line.total || 0)}</TableCell>
+  1206→                        </TableRow>
+  1207→                      );
+  1208→                    })}
+  1209→                  </TableBody>
+  1210→                </Table>
+  1211→              </div>
+  1212→              <Separator />
+  1213→              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
+  1214→                <CardContent className="p-4">
+  1215→                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+  1216→                    <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold">{fmtCurrency(coViewDetail.subTotal || 0)}</p></div>
+  1217→                    <div><span className="text-slate-500 dark:text-slate-400">Discount ({coViewDetail.discountPercent || 0}%):</span><p className="font-bold text-red-600">-{fmtCurrency(coViewDetail.discount || 0)}</p></div>
+  1218→                    <div><span className="text-slate-500 dark:text-slate-400">VAT ({coViewDetail.vatPercentage || 0}%):</span><p className="font-bold text-amber-600">+{fmtCurrency(coViewDetail.vatAmount || 0)}</p></div>
+  1219→                    <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 text-lg">{fmtCurrency(coViewDetail.grandTotal || coViewDetail.totalAmount || 0)}</p></div>
+  1220→                  </div>
+  1221→                </CardContent>
+  1222→              </Card>
+  1223→            </div>
+  1224→          )}
+  1225→        </DialogContent>
+  1226→      </Dialog>
+  1227→      {/* Delete Dialog */}
+  1228→      <Dialog open={!!coDelete} onOpenChange={() => setCoDelete(null)}>
+  1229→        <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Ordersheet</DialogTitle><DialogDescription>Are you sure you want to deactivate this ordersheet? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
+  1230→        <DialogFooter><Button variant="outline" onClick={() => setCoDelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteCo}>Delete</Button></DialogFooter></DialogContent>
+  1231→      </Dialog>
+  1232→    </div>
+  1233→  );
+  1234→
+  1235→  // ============================================================
+  1236→  // TAB 2: CUSTOMER ORDERSHEET
+  1237→  // ============================================================
+  1238→
+  1239→  const custOColumns: ExportColumnDef[] = [
+  1240→    { key: "sheetNo", label: "Sheet No", type: "text" },
+  1241→    { key: "date", label: "Date", type: "date" },
+  1242→    { key: "customerName", label: "Customer", type: "text" },
+  1243→    { key: "godownName", label: "Godown", type: "text" },
+  1244→    { key: "status", label: "Status", type: "text" },
+  1245→    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+  1246→    { key: "subTotal", label: "Sub Total", type: "currency" },
+  1247→    { key: "grandTotal", label: "Grand Total", type: "currency" },
+  1248→  ];
+  1249→
+  1250→  const custOFiltered = useMemo(() => {
+  1251→    if (!custOSearch) return custOData;
+  1252→    const q = custOSearch.toLowerCase();
+  1253→    return custOData.filter((o: any) =>
+  1254→      (o.sheetNo || "").toLowerCase().includes(q) ||
+  1255→      (o.customer?.name || "").toLowerCase().includes(q) ||
+  1256→      (o.godown?.name || "").toLowerCase().includes(q) ||
+  1257→      (o.status || "").toLowerCase().includes(q) ||
+  1258→      (o.fulfillmentStatus || "").toLowerCase().includes(q)
+  1259→    );
+  1260→  }, [custOData, custOSearch]);
+  1261→
+  1262→  const custOStats = useMemo(() => ({
+  1263→    total: custOData.length,
+  1264→    draft: custOData.filter((o: any) => o.status === "Draft").length,
+  1265→    completed: custOData.filter((o: any) => o.status === "Completed").length,
+  1266→    totalValue: custOData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0),
+  1267→    stockAlerts: custOData.filter((o: any) => o.lines?.some((l: any) => l.stockStatus === "Insufficient")).length,
+  1268→  }), [custOData]);
+  1269→
+  1270→  const custOFinancials = useMemo(() => computeOrderTotals(custOLines, Number(custOForm.discountPercent) || 0, Number(custOForm.vatPercentage) || 0), [custOLines, custOForm.discountPercent, custOForm.vatPercentage]);
+  1271→
+  1272→  const openCustOCreate = () => {
+  1273→    setCustOForm({ customerId: "", date: new Date().toISOString().split("T")[0], status: "Draft", godownId: "", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", notes: "" });
+  1274→    setCustOLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+  1275→    setCustOStockCheck({});
+  1276→    setCustOEdit(null);
+  1277→    setCustODialog(true);
+  1278→  };
+  1279→
+  1280→  const openCustOEdit = (item: any) => {
+  1281→    setCustOForm({
+  1282→      customerId: item.customerId || "",
+  1283→      date: item.date ? item.date.split("T")[0] : "",
+  1284→      status: item.status || "Draft",
+  1285→      godownId: item.godownId || "",
+  1286→      discountPercent: item.discountPercent || 0,
+  1287→      vatPercentage: item.vatPercentage || 0,
+  1288→      paymentOptionId: item.paymentOptionId || "",
+  1289→      notes: item.notes || "",
+  1290→    });
+  1291→    setCustOLines(item.lines && item.lines.length > 0 ? item.lines.map((l: any) => ({
+  1292→      productId: l.productId || "",
+  1293→      quantity: l.quantity || 1,
+  1294→      rate: l.rate || 0,
+  1295→      discountPercent: l.discountPercent || 0,
+  1296→      notes: l.notes || "",
+  1297→    })) : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" }]);
+  1298→    setCustOStockCheck({});
+  1299→    setCustOEdit(item);
+  1300→    setCustODialog(true);
+  1301→  };
+  1302→
+  1303→  const saveCustO = async () => {
+  1304→    if (!custOForm.customerId || !custOForm.date) { toast({ title: "Error", description: "Customer and Date are required", variant: "destructive" }); return; }
+  1305→    const validLines = custOLines.filter((l: any) => l.productId);
+  1306→    if (validLines.length === 0) { toast({ title: "Error", description: "At least one line item is required", variant: "destructive" }); return; }
+  1307→    setCustOSaving(true);
+  1308→    try {
+  1309→      const linesPayload = validLines.map((l: any) => ({
+  1310→        productId: l.productId,
+  1311→        quantity: Number(l.quantity) || 1,
+  1312→        rate: Number(l.rate) || 0,
+  1313→        discountPercent: Number(l.discountPercent) || 0,
+  1314→        notes: l.notes || "",
+  1315→      }));
+  1316→      const totals = computeOrderTotals(custOLines, Number(custOForm.discountPercent) || 0, Number(custOForm.vatPercentage) || 0);
+  1317→      const payload = {
+  1318→        ...custOForm,
+  1319→        orderType: "Customer",
+  1320→        lines: linesPayload,
+  1321→        subTotal: totals.subTotal,
+  1322→        discount: totals.discountAmt,
+  1323→        discountPercent: Number(custOForm.discountPercent) || 0,
+  1324→        vatPercentage: Number(custOForm.vatPercentage) || 0,
+  1325→        vatAmount: totals.vatAmt,
+  1326→        grandTotal: totals.grandTotal,
+  1327→      };
+  1328→      if (custOEdit) {
+  1329→        await apiFetch(`/api/order-sheets/${custOEdit.id}`, { method: "PUT", body: JSON.stringify(payload) });
+  1330→        toast({ title: "Updated", description: "Customer Ordersheet updated" });
+  1331→      } else {
+  1332→        await apiFetch("/api/order-sheets", { method: "POST", body: JSON.stringify(payload) });
+  1333→        toast({ title: "Created", description: "Customer Ordersheet created" });
+  1334→      }
+  1335→      setCustODialog(false);
+  1336→      loadCustomerOrdersheets();
+  1337→    } catch (e: any) {
+  1338→      try {
+  1339→        const parsed = JSON.parse(e.message);
+  1340→        if (parsed?.stockErrors) {
+  1341→          const insufficientItems = parsed.stockErrors.map((se: any) => `${se.productName}: need ${se.requested}, have ${se.available}`).join("; ");
+  1342→          toast({ title: "Insufficient Stock", description: insufficientItems, variant: "destructive" });
+  1343→          return;
+  1344→        }
+  1345→      } catch {
+  1346→        // Error message was not JSON, fall through to generic toast
+  1347→      }
+  1348→      toast({ title: "Error", description: e.message, variant: "destructive" });
+  1349→    }
+  1350→    finally { setCustOSaving(false); }
+  1351→  };
+  1352→
+  1353→  const deleteCustO = async () => {
+  1354→    if (!custODelete) return;
+  1355→    try { await apiFetch(`/api/order-sheets/${custODelete.id}`, { method: "DELETE" }); toast({ title: "Deleted", description: "Ordersheet deleted" }); setCustODelete(null); loadCustomerOrdersheets(); }
+  1356→    catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1357→  };
+  1358→
+  1359→  const renderCustomerOrdersheet = () => {
+  1360→    if (isDealer) return <AccessDenied message="Dealers cannot access Customer Ordersheets." />;
+  1361→    return (
+  1362→      <div className="space-y-4">
+  1363→        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
+  1364→          <StatCard label="Total Sheets" value={custOStats.total} icon={ClipboardList} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+  1365→          <StatCard label="Draft" value={custOStats.draft} icon={Edit} color="text-amber-500" bg="bg-amber-500/10" />
+  1366→          <StatCard label="Completed" value={custOStats.completed} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+  1367→          <StatCard label="Grand Total" value={fmtCurrency(custOStats.totalValue)} icon={DollarSign} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+  1368→          <StatCard label="Stock Alerts" value={custOStats.stockAlerts} icon={AlertTriangle} color="text-red-500" bg="bg-red-500/10" />
+  1369→        </div>
+  1370→        <Toolbar search={custOSearch} setSearch={setCustOSearch} onRefresh={loadCustomerOrdersheets} loading={custOLoading}
+  1371→          onExportCSV={() => doExportCSV("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
+  1372→          onCopyToClipboard={() => doCopyToClipboard("Customer Ordersheets", custOColumns, custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" })))}
+  1373→          onExportPDF={() => {
+  1374→            try {
+  1375→              const reportData = custOFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—" }));
+  1376→              const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+  1377→              exportToPDF({
+  1378→                title: "Customer Ordersheet Report",
+  1379→                subtitle: `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+  1380→                columns: custOColumns,
+  1381→                data: reportData,
+  1382→                isVatAuditor,
+  1383→                vatMaskedColumns: getVatMaskedKeys(custOColumns),
+  1384→                orientation: "landscape" as const,
+  1385→                company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
+  1386→                financialFooter: {
+  1387→                  preparedBy: auth.user?.displayName || "System",
+  1388→                  checkedBy: "",
+  1389→                  authorizedBy: "",
+  1390→                  printedBy: auth.user?.displayName || "System",
+  1391→                },
+  1392→                summaryRows: [{
+  1393→                  cells: ["", "", "", "", "", "Grand Total:", formatSanitizedCurrency(grandTotal)],
+  1394→                  style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold" as const, fontSize: 9 },
+  1395→                }],
+  1396→              });
+  1397→              toast({ title: "PDF Exported", description: "Customer Ordersheet Report exported" });
+  1398→            } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1399→          }}
+  1400→          onImportCSV={() => doImportCSV("/api/order-sheets?import=true", orderSheetImportFields, loadCustomerOrdersheets)}
+  1401→          canCreate={isAdmin || isSR} onCreate={openCustOCreate} createLabel="Add Ordersheet" />
+  1402→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1403→          <CardContent className="p-0 overflow-hidden">
+  1404→            <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1405→              <Table className="min-w-[600px]">
+  1406→                <TableHeader>
+  1407→                  <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1408→                    <TableHead className="text-white text-xs">Sheet No</TableHead>
+  1409→                    <TableHead className="text-white text-xs">Date</TableHead>
+  1410→                    <TableHead className="text-white text-xs">Customer</TableHead>
+  1411→                    <TableHead className="text-white text-xs">Godown</TableHead>
+  1412→                    <TableHead className="text-white text-xs">Status</TableHead>
+  1413→                    <TableHead className="text-white text-xs">Fulfillment</TableHead>
+  1414→                    <TableHead className="text-white text-xs">Sub Total</TableHead>
+  1415→                    <TableHead className="text-white text-xs">Grand Total</TableHead>
+  1416→                    <TableHead className="text-white text-xs w-8"></TableHead>
+  1417→                    <TableHead className="text-white text-xs">Actions</TableHead>
+  1418→                  </TableRow>
+  1419→                </TableHeader>
+  1420→                <TableBody>
+  1421→                  {custOLoading ? (
+  1422→                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
+  1423→                  ) : custOFiltered.length === 0 ? (
+  1424→                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-slate-400">No ordersheets found</TableCell></TableRow>
+  1425→                  ) : custOFiltered.map((item: any) => {
+  1426→                    const hasStockAlert = item.lines?.some((l: any) => l.stockStatus === "Insufficient");
+  1427→                    return (
+  1428→                      <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1429→                        <TableCell className="text-xs font-medium">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
+  1430→                        <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
+  1431→                        <TableCell className="text-xs">{item.customer?.name || "—"}</TableCell>
+  1432→                        <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+  1433→                        <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
+  1434→                        <TableCell className="text-xs"><FulfillmentBadge status={item.fulfillmentStatus || "Unfulfilled"} /></TableCell>
+  1435→                        <TableCell className="text-xs">{fmtCurrency(item.subTotal || 0)}</TableCell>
+  1436→                        <TableCell className="text-xs font-medium">{fmtCurrency(item.grandTotal || item.totalAmount || 0)}</TableCell>
+  1437→                        <TableCell className="text-xs">{hasStockAlert && <AlertTriangle className="h-4 w-4 text-red-500" />}</TableCell>
+  1438→                        <TableCell>
+  1439→                          {(isAdmin || isSR) && <div className="flex gap-1">
+  1440→                            <Button variant="ghost" size="sm" onClick={() => setCustOViewDetail(item)} className="h-7 w-7 p-0"><Eye className="h-3 w-3" /></Button>
+  1441→                            <Button variant="ghost" size="sm" onClick={() => openCustOEdit(item)} className="h-7 w-7 p-0"><Edit className="h-3 w-3" /></Button>
+  1442→                            {isAdmin && <Button variant="ghost" size="sm" onClick={() => setCustODelete(item)} className="h-7 w-7 p-0 text-red-500"><Trash2 className="h-3 w-3" /></Button>}
+  1443→                          </div>}
+  1444→                        </TableCell>
+  1445→                      </TableRow>
+  1446→                    );
+  1447→                  })}
+  1448→                </TableBody>
+  1449→              </Table>
+  1450→            </div>
+  1451→          </CardContent>
+  1452→        </Card>
+  1453→        {/* Create/Edit Dialog */}
+  1454→        <Dialog open={custODialog} onOpenChange={setCustODialog}>
+  1455→          <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+  1456→            <DialogHeader><DialogTitle>{custOEdit ? "Edit" : "Create"} Customer Ordersheet</DialogTitle><DialogDescription>Fill in the ordersheet details and line items.</DialogDescription></DialogHeader>
+  1457→            <div className="space-y-4">
+  1458→              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+  1459→                <div><Label className="text-sm font-medium">Customer <span className="text-red-500">*</span></Label>
+  1460→                  <Select value={custOForm.customerId || ""} onValueChange={v => setCustOForm(p => ({ ...p, customerId: v }))}>
+  1461→                    <SelectTrigger><SelectValue placeholder="Select Customer" /></SelectTrigger>
+  1462→                    <SelectContent>{customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+  1463→                  </Select></div>
+  1464→                <div><Label className="text-sm font-medium">Date <span className="text-red-500">*</span></Label><Input type="date" value={custOForm.date || ""} onChange={e => setCustOForm(p => ({ ...p, date: e.target.value }))} /></div>
+  1465→                <div><Label className="text-sm font-medium">Godown / Warehouse</Label>
+  1466→                  <Select value={custOForm.godownId || ""} onValueChange={v => setCustOForm(p => ({ ...p, godownId: v }))}>
+  1467→                    <SelectTrigger><SelectValue placeholder="Select Godown" /></SelectTrigger>
+  1468→                    <SelectContent>{godowns.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
+  1469→                  </Select></div>
+  1470→              </div>
+  1471→              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+  1472→                <div><Label className="text-sm font-medium">Status</Label>
+  1473→                  <Select value={custOForm.status || "Draft"} onValueChange={v => setCustOForm(p => ({ ...p, status: v }))}>
+  1474→                    <SelectTrigger><SelectValue /></SelectTrigger>
+  1475→                    <SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Processing">Processing</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
+  1476→                  </Select></div>
+  1477→                <div><Label className="text-sm font-medium">Discount %</Label><Input type="number" min={0} max={100} step="0.01" value={custOForm.discountPercent || 0} onChange={e => setCustOForm(p => ({ ...p, discountPercent: Number(e.target.value) }))} /></div>
+  1478→                <div><Label className="text-sm font-medium">VAT %</Label><Input type="number" min={0} max={100} step="0.01" value={custOForm.vatPercentage || 0} onChange={e => setCustOForm(p => ({ ...p, vatPercentage: Number(e.target.value) }))} /></div>
+  1479→                <div><Label className="text-sm font-medium">Payment Option</Label>
+  1480→                  <Select value={custOForm.paymentOptionId || ""} onValueChange={v => setCustOForm(p => ({ ...p, paymentOptionId: v }))}>
+  1481→                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+  1482→                    <SelectContent>{paymentOptions.map(po => <SelectItem key={po.id} value={po.id}>{po.name}</SelectItem>)}</SelectContent>
+  1483→                  </Select></div>
+  1484→              </div>
+  1485→              <div><Label className="text-sm font-medium">Notes</Label><Input value={custOForm.notes || ""} onChange={e => setCustOForm(p => ({ ...p, notes: e.target.value }))} placeholder="Notes" /></div>
+  1486→              {/* Enhanced Line Items with Stock Indicator */}
+  1487→              <div className="space-y-2">
+  1488→                <div className="flex items-center justify-between">
+  1489→                  <Label className="text-sm font-semibold text-slate-900 dark:text-white">Line Items</Label>
+  1490→                  <Button type="button" variant="outline" size="sm" onClick={() => addLine(setCustOLines, { productId: "", quantity: 1, rate: 0, discountPercent: 0, notes: "" })}>
+  1491→                    <Plus className="h-3 w-3 mr-1" /> Add Line
+  1492→                  </Button>
+  1493→                </div>
+  1494→                <div className="overflow-x-auto border rounded-lg">
+  1495→                  <Table className="min-w-[600px]">
+  1496→                    <TableHeader>
+  1497→                      <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1498→                        <TableHead className="text-white text-xs">#</TableHead>
+  1499→                        <TableHead className="text-white text-xs">Product</TableHead>
+  1500→                        <TableHead className="text-white text-xs">Stock</TableHead>
+  1501→                        <TableHead className="text-white text-xs">Qty</TableHead>
+  1502→                        <TableHead className="text-white text-xs">Rate</TableHead>
+  1503→                        <TableHead className="text-white text-xs">Disc %</TableHead>
+  1504→                        <TableHead className="text-white text-xs">Total</TableHead>
+  1505→                        <TableHead className="text-white text-xs w-10"></TableHead>
+  1506→                      </TableRow>
+  1507→                    </TableHeader>
+  1508→                    <TableBody>
+  1509→                      {custOLines.map((line, idx) => {
+  1510→                        const stockInfo = custOStockCheck[line.productId];
+  1511→                        return (
+  1512→                          <TableRow key={idx}>
+  1513→                            <TableCell className="text-xs">{idx + 1}</TableCell>
+  1514→                            <TableCell>
+  1515→                              <Select value={line.productId || ""} onValueChange={v => {
+  1516→                                updateLine(setCustOLines, idx, "productId", v);
+  1517→                                const prod = products.find(p => p.id === v);
+  1518→                                if (prod?.salePrice) updateLine(setCustOLines, idx, "rate", prod.salePrice);
+  1519→                                checkProductStock(v, custOForm.godownId, Number(line.quantity) || 1, setCustOStockCheck);
+  1520→                              }}>
+  1521→                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Product" /></SelectTrigger>
+  1522→                                <SelectContent>
+  1523→                                  {products.map(p => <SelectItem key={p.id} value={p.id}>
+  1524→                                    {p.productCode} - {p.name} <span className="text-slate-400 ml-1">(Stock: {p.currentStock ?? p.openingStock ?? "?"})</span>
+  1525→                                  </SelectItem>)}
+  1526→                                </SelectContent>
+  1527→                              </Select>
+  1528→                            </TableCell>
+  1529→                            <TableCell className="text-xs">
+  1530→                              {stockInfo ? (
+  1531→                                <Badge className={`border-0 text-xs ${
+  1532→                                  stockInfo.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+  1533→                                  stockInfo.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+  1534→                                  "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  1535→                                }`}>
+  1536→                                  {stockInfo.stockStatus === "Available" ? "🟢" : stockInfo.stockStatus === "Partial" ? "🟡" : "🔴"} {stockInfo.currentStock}
+  1537→                                </Badge>
+  1538→                              ) : line.productId ? <span className="text-slate-400">Checking...</span> : "—"}
+  1539→                            </TableCell>
+  1540→                            <TableCell>
+  1541→                              <Input type="number" min={1} value={line.quantity || 1} onChange={e => {
+  1542→                                updateLine(setCustOLines, idx, "quantity", Number(e.target.value));
+  1543→                                if (line.productId) checkProductStock(line.productId, custOForm.godownId, Number(e.target.value), setCustOStockCheck);
+  1544→                              }} className="h-8 w-20 text-xs" />
+  1545→                            </TableCell>
+  1546→                            <TableCell><Input type="number" min={0} step="0.01" value={line.rate || 0} onChange={e => updateLine(setCustOLines, idx, "rate", Number(e.target.value))} className="h-8 w-24 text-xs" /></TableCell>
+  1547→                            <TableCell><Input type="number" min={0} max={100} step="0.01" value={line.discountPercent || 0} onChange={e => updateLine(setCustOLines, idx, "discountPercent", Number(e.target.value))} className="h-8 w-20 text-xs" /></TableCell>
+  1548→                            <TableCell className="text-xs font-medium">{fmtCurrency((Number(line.quantity) || 0) * (Number(line.rate) || 0) * (1 - (Number(line.discountPercent) || 0) / 100))}</TableCell>
+  1549→                            <TableCell>
+  1550→                              {custOLines.length > 1 && (
+  1551→                                <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(setCustOLines, idx)} className="h-6 w-6 p-0 text-red-500 hover:text-red-700">
+  1552→                                  <X className="h-3 w-3" />
+  1553→                                </Button>
+  1554→                              )}
+  1555→                            </TableCell>
+  1556→                          </TableRow>
+  1557→                        );
+  1558→                      })}
+  1559→                    </TableBody>
+  1560→                  </Table>
+  1561→                </div>
+  1562→              </div>
+  1563→              {/* Financial Summary */}
+  1564→              <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
+  1565→                <CardContent className="p-4">
+  1566→                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+  1567→                    <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold text-slate-900 dark:text-white">{fmtCurrency(custOFinancials.subTotal)}</p></div>
+  1568→                    <div><span className="text-slate-500 dark:text-slate-400">Discount ({custOForm.discountPercent || 0}%):</span><p className="font-bold text-red-600 dark:text-red-400">-{fmtCurrency(custOFinancials.discountAmt)}</p></div>
+  1569→                    <div><span className="text-slate-500 dark:text-slate-400">VAT ({custOForm.vatPercentage || 0}%):</span><p className="font-bold text-amber-600 dark:text-amber-400">+{fmtCurrency(custOFinancials.vatAmt)}</p></div>
+  1570→                    <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 dark:text-emerald-400 text-lg">{fmtCurrency(custOFinancials.grandTotal)}</p></div>
+  1571→                  </div>
+  1572→                </CardContent>
+  1573→              </Card>
+  1574→            </div>
+  1575→            <DialogFooter><Button variant="outline" onClick={() => setCustODialog(false)}>Cancel</Button><Button onClick={saveCustO} disabled={custOSaving} className="bg-[#2563eb] hover:bg-[#1d4ed8]">{custOSaving ? "Saving..." : "Save"}</Button></DialogFooter>
+  1576→          </DialogContent>
+  1577→        </Dialog>
+  1578→        {/* View Detail Dialog */}
+  1579→        <Dialog open={!!custOViewDetail} onOpenChange={() => setCustOViewDetail(null)}>
+  1580→          <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+  1581→            <DialogHeader><DialogTitle>Customer Ordersheet — {custOViewDetail?.sheetNo || ""}</DialogTitle><DialogDescription>Full order details and fulfillment status</DialogDescription></DialogHeader>
+  1582→            {custOViewDetail && (
+  1583→              <div className="space-y-4">
+  1584→                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+  1585→                  <div><span className="text-xs text-slate-500">Customer</span><p className="text-sm font-medium">{custOViewDetail.customer?.name || "—"}</p></div>
+  1586→                  <div><span className="text-xs text-slate-500">Date</span><p className="text-sm font-medium">{fmt(custOViewDetail.date, "date")}</p></div>
+  1587→                  <div><span className="text-xs text-slate-500">Godown</span><p className="text-sm font-medium">{custOViewDetail.godown?.name || "—"}</p></div>
+  1588→                  <div><span className="text-xs text-slate-500">Status</span><p className="text-sm"><StatusBadge status={custOViewDetail.status || "Draft"} /></p></div>
+  1589→                  <div><span className="text-xs text-slate-500">Fulfillment</span><p className="text-sm"><FulfillmentBadge status={custOViewDetail.fulfillmentStatus || "Unfulfilled"} /></p></div>
+  1590→                  <div><span className="text-xs text-slate-500">Payment</span><p className="text-sm font-medium">{custOViewDetail.paymentOption?.name || "—"}</p></div>
+  1591→                </div>
+  1592→                <Separator />
+  1593→                <div className="overflow-x-auto border rounded-lg">
+  1594→                  <Table className="min-w-[600px]">
+  1595→                    <TableHeader>
+  1596→                      <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1597→                        <TableHead className="text-white text-xs">#</TableHead>
+  1598→                        <TableHead className="text-white text-xs">Product</TableHead>
+  1599→                        <TableHead className="text-white text-xs">Stock Status</TableHead>
+  1600→                        <TableHead className="text-white text-xs">Qty</TableHead>
+  1601→                        <TableHead className="text-white text-xs">Allocated</TableHead>
+  1602→                        <TableHead className="text-white text-xs">Fulfilled</TableHead>
+  1603→                        <TableHead className="text-white text-xs">Fulfillment %</TableHead>
+  1604→                        <TableHead className="text-white text-xs">Rate</TableHead>
+  1605→                        <TableHead className="text-white text-xs">Disc %</TableHead>
+  1606→                        <TableHead className="text-white text-xs">Total</TableHead>
+  1607→                      </TableRow>
+  1608→                    </TableHeader>
+  1609→                    <TableBody>
+  1610→                      {(custOViewDetail.lines || []).map((line: any, idx: number) => {
+  1611→                        const fulfilledPct = line.quantity > 0 ? Math.round(((line.fulfilledQuantity || 0) / line.quantity) * 100) : 0;
+  1612→                        return (
+  1613→                          <TableRow key={idx}>
+  1614→                            <TableCell className="text-xs">{idx + 1}</TableCell>
+  1615→                            <TableCell className="text-xs">{line.product?.name || "—"}</TableCell>
+  1616→                            <TableCell className="text-xs">
+  1617→                              <Badge className={`border-0 text-xs ${
+  1618→                                line.stockStatus === "Available" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+  1619→                                line.stockStatus === "Partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+  1620→                                "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+  1621→                              }`}>{line.stockStatus || "—"}</Badge>
+  1622→                            </TableCell>
+  1623→                            <TableCell className="text-xs">{line.quantity}</TableCell>
+  1624→                            <TableCell className="text-xs">{line.allocatedQuantity ?? "—"}</TableCell>
+  1625→                            <TableCell className="text-xs">{line.fulfilledQuantity ?? 0}</TableCell>
+  1626→                            <TableCell className="text-xs w-28">
+  1627→                              <div className="flex items-center gap-2">
+  1628→                                <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+  1629→                                  <div className={`h-2 rounded-full ${fulfilledPct >= 100 ? "bg-emerald-500" : fulfilledPct > 0 ? "bg-amber-500" : "bg-slate-400"}`} style={{ width: `${Math.min(fulfilledPct, 100)}%` }} />
+  1630→                                </div>
+  1631→                                <span className="text-xs w-8">{fulfilledPct}%</span>
+  1632→                              </div>
+  1633→                            </TableCell>
+  1634→                            <TableCell className="text-xs">{fmtCurrency(line.rate)}</TableCell>
+  1635→                            <TableCell className="text-xs">{line.discountPercent || 0}%</TableCell>
+  1636→                            <TableCell className="text-xs font-medium">{fmtCurrency(line.total || 0)}</TableCell>
+  1637→                          </TableRow>
+  1638→                        );
+  1639→                      })}
+  1640→                    </TableBody>
+  1641→                  </Table>
+  1642→                </div>
+  1643→                <Separator />
+  1644→                <Card className="border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-hidden">
+  1645→                  <CardContent className="p-4">
+  1646→                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+  1647→                      <div><span className="text-slate-500 dark:text-slate-400">Sub Total:</span><p className="font-bold">{fmtCurrency(custOViewDetail.subTotal || 0)}</p></div>
+  1648→                      <div><span className="text-slate-500 dark:text-slate-400">Discount ({custOViewDetail.discountPercent || 0}%):</span><p className="font-bold text-red-600">-{fmtCurrency(custOViewDetail.discount || 0)}</p></div>
+  1649→                      <div><span className="text-slate-500 dark:text-slate-400">VAT ({custOViewDetail.vatPercentage || 0}%):</span><p className="font-bold text-amber-600">+{fmtCurrency(custOViewDetail.vatAmount || 0)}</p></div>
+  1650→                      <div><span className="text-slate-500 dark:text-slate-400">Grand Total:</span><p className="font-bold text-emerald-700 text-lg">{fmtCurrency(custOViewDetail.grandTotal || custOViewDetail.totalAmount || 0)}</p></div>
+  1651→                    </div>
+  1652→                  </CardContent>
+  1653→                </Card>
+  1654→              </div>
+  1655→            )}
+  1656→          </DialogContent>
+  1657→        </Dialog>
+  1658→        {/* Delete Dialog */}
+  1659→        <Dialog open={!!custODelete} onOpenChange={() => setCustODelete(null)}>
+  1660→          <DialogContent className="max-w-[95vw] sm:max-w-md"><DialogHeader><DialogTitle>Deactivate Ordersheet</DialogTitle><DialogDescription>Are you sure you want to deactivate this ordersheet? It will be marked as inactive and hidden from views.</DialogDescription></DialogHeader>
+  1661→          <DialogFooter><Button variant="outline" onClick={() => setCustODelete(null)}>Cancel</Button><Button variant="destructive" onClick={deleteCustO}>Delete</Button></DialogFooter></DialogContent>
+  1662→        </Dialog>
+  1663→      </div>
+  1664→    );
+  1665→  };
+  1666→
+  1667→  // ============================================================
+  1668→  // TAB 3: ORDERSHEET REPORT
+  1669→  // ============================================================
+  1670→
+  1671→  const osReportColumns: ExportColumnDef[] = [
+  1672→    { key: "sheetNo", label: "Sheet No", type: "text" },
+  1673→    { key: "date", label: "Date", type: "date" },
+  1674→    { key: "orderType", label: "Type", type: "text" },
+  1675→    { key: "entityName", label: "Company/Customer", type: "text" },
+  1676→    { key: "godownName", label: "Godown", type: "text" },
+  1677→    { key: "status", label: "Status", type: "text" },
+  1678→    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+  1679→    { key: "grandTotal", label: "Grand Total", type: "currency" },
+  1680→  ];
+  1681→
+  1682→  const loadOsReport = async () => {
+  1683→    setOsReportLoading(true);
+  1684→    try {
+  1685→      let url = "/api/order-sheets?";
+  1686→      if (osReportFrom) url += `from=${osReportFrom}&`;
+  1687→      if (osReportTo) url += `to=${osReportTo}&`;
+  1688→      if (osReportTypeFilter && osReportTypeFilter !== "all") url += `orderType=${osReportTypeFilter}&`;
+  1689→      if (osReportStatusFilter && osReportStatusFilter !== "all") url += `status=${osReportStatusFilter}&`;
+  1690→      if (osReportFulfillmentFilter && osReportFulfillmentFilter !== "all") url += `fulfillmentStatus=${osReportFulfillmentFilter}&`;
+  1691→      const res = await apiFetch(url);
+  1692→      setOsReportData(Array.isArray(res) ? res : []);
+  1693→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1694→    finally { setOsReportLoading(false); }
+  1695→  };
+  1696→
+  1697→  const osReportFiltered = useMemo(() => {
+  1698→    let data = osReportData;
+  1699→    if (osReportTypeFilter && osReportTypeFilter !== "all") data = data.filter((o: any) => o.orderType === osReportTypeFilter);
+  1700→    if (osReportStatusFilter && osReportStatusFilter !== "all") data = data.filter((o: any) => o.status === osReportStatusFilter);
+  1701→    if (osReportFulfillmentFilter && osReportFulfillmentFilter !== "all") data = data.filter((o: any) => (o.fulfillmentStatus || "Unfulfilled") === osReportFulfillmentFilter);
+  1702→    return data;
+  1703→  }, [osReportData, osReportTypeFilter, osReportStatusFilter, osReportFulfillmentFilter]);
+  1704→
+  1705→  const osReportStats = useMemo(() => {
+  1706→    const total = osReportFiltered.length;
+  1707→    const totalValue = osReportFiltered.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+  1708→    const avgValue = total > 0 ? totalValue / total : 0;
+  1709→    const byStatus: Record<string, number> = {};
+  1710→    osReportFiltered.forEach((o: any) => { const st = o.status || "Unknown"; byStatus[st] = (byStatus[st] || 0) + 1; });
+  1711→    const fulfilled = osReportFiltered.filter((o: any) => o.fulfillmentStatus === "Fulfilled").length;
+  1712→    const partial = osReportFiltered.filter((o: any) => o.fulfillmentStatus === "Partial").length;
+  1713→    const unfulfilled = osReportFiltered.filter((o: any) => !o.fulfillmentStatus || o.fulfillmentStatus === "Unfulfilled").length;
+  1714→    const fulfillmentRate = total > 0 ? Math.round((fulfilled / total) * 100) : 0;
+  1715→    return { total, totalValue, avgValue, byStatus, fulfilled, partial, unfulfilled, fulfillmentRate };
+  1716→  }, [osReportFiltered]);
+  1717→
+  1718→  const renderOrdersheetReport = () => (
+  1719→    <div className="space-y-4">
+  1720→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+  1721→        <StatCard label="Total Ordersheets" value={osReportStats.total} icon={ClipboardList} color="text-[#2563eb]" bg="bg-[#2563eb]/10" />
+  1722→        <StatCard label="Grand Total" value={fmtCurrency(osReportStats.totalValue)} icon={DollarSign} color="text-emerald-500" bg="bg-emerald-500/10" />
+  1723→        <StatCard label="Avg Value" value={fmtCurrency(osReportStats.avgValue)} icon={TrendingUp} color="text-amber-500" bg="bg-amber-500/10" />
+  1724→        <StatCard label="Fulfillment Rate" value={`${osReportStats.fulfillmentRate}%`} icon={PackageCheck} color="text-emerald-500" bg="bg-emerald-500/10" />
+  1725→      </div>
+  1726→      {/* Fulfillment Summary Cards */}
+  1727→      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+  1728→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1729→          <CardContent className="p-3 text-center">
+  1730→            <FulfillmentBadge status="Fulfilled" />
+  1731→            <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.fulfilled}</p>
+  1732→          </CardContent>
+  1733→        </Card>
+  1734→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1735→          <CardContent className="p-3 text-center">
+  1736→            <FulfillmentBadge status="Partial" />
+  1737→            <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.partial}</p>
+  1738→          </CardContent>
+  1739→        </Card>
+  1740→        <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1741→          <CardContent className="p-3 text-center">
+  1742→            <FulfillmentBadge status="Unfulfilled" />
+  1743→            <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{osReportStats.unfulfilled}</p>
+  1744→          </CardContent>
+  1745→        </Card>
+  1746→      </div>
+  1747→      {/* Filters */}
+  1748→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1749→        <CardHeader className="bg-[#132240] dark:bg-[#0a1628]"><CardTitle className="text-white text-sm">Filters &amp; Report Generation</CardTitle></CardHeader>
+  1750→        <CardContent className="p-4">
+  1751→          <div className="flex flex-wrap items-end gap-4">
+  1752→            <div><Label className="text-xs">From</Label><Input type="date" value={osReportFrom} onChange={e => setOsReportFrom(e.target.value)} className="h-9" /></div>
+  1753→            <div><Label className="text-xs">To</Label><Input type="date" value={osReportTo} onChange={e => setOsReportTo(e.target.value)} className="h-9" /></div>
+  1754→            <div><Label className="text-xs">Order Type</Label>
+  1755→              <Select value={osReportTypeFilter} onValueChange={setOsReportTypeFilter}>
+  1756→                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+  1757→                <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Company">Company</SelectItem><SelectItem value="Customer">Customer</SelectItem></SelectContent>
+  1758→              </Select></div>
+  1759→            <div><Label className="text-xs">Status</Label>
+  1760→              <Select value={osReportStatusFilter} onValueChange={setOsReportStatusFilter}>
+  1761→                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+  1762→                <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Processing">Processing</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent>
+  1763→              </Select></div>
+  1764→            <div><Label className="text-xs">Fulfillment</Label>
+  1765→              <Select value={osReportFulfillmentFilter} onValueChange={setOsReportFulfillmentFilter}>
+  1766→                <SelectTrigger className="h-9 w-[130px]"><SelectValue /></SelectTrigger>
+  1767→                <SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Unfulfilled">Unfulfilled</SelectItem><SelectItem value="Partial">Partial</SelectItem><SelectItem value="Fulfilled">Fulfilled</SelectItem></SelectContent>
+  1768→              </Select></div>
+  1769→            <Button onClick={loadOsReport} className="bg-[#2563eb] hover:bg-[#1d4ed8]" disabled={osReportLoading}>{osReportLoading ? "Loading..." : "Generate Report"}</Button>
+  1770→          </div>
+  1771→          <div className="flex gap-2 mt-3">
+  1772→            <Button variant="outline" size="sm" onClick={() => {
+  1773→              try {
+  1774→                const reportData = osReportFiltered.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—", godownName: o.godown?.name || "—", orderType: o.orderType || (o.companyId ? "Company" : "Customer") }));
+  1775→                doExportCSV("Ordersheet Report", osReportColumns, reportData);
+  1776→              } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1777→            }}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
+  1778→            <Button variant="outline" size="sm" onClick={() => {
+  1779→              try {
+  1780→                const reportData = osReportFiltered.map((o: any) => ({ ...o, entityName: o.company?.name || o.customer?.name || "—", godownName: o.godown?.name || "—", orderType: o.orderType || (o.companyId ? "Company" : "Customer") }));
+  1781→                const grandTotal = reportData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || Number(o.totalAmount) || 0), 0);
+  1782→                exportToPDF({
+  1783→                  title: "Ordersheet Report",
+  1784→                  subtitle: osReportFrom && osReportTo ? `Period: ${fmt(osReportFrom, "date")} to ${fmt(osReportTo, "date")}` : `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+  1785→                  columns: osReportColumns,
+  1786→                  data: reportData,
+  1787→                  isVatAuditor,
+  1788→                  vatMaskedColumns: getVatMaskedKeys(osReportColumns),
+  1789→                  orientation: "landscape" as const,
+  1790→                  company: companies[0] ? { name: companies[0].name, address: companies[0].address, phone: companies[0].phone, email: companies[0].email, logo: companies[0].logo, brandLogo: companies[0].brandLogo, vatNumber: companies[0].vatNumber, tradeLicense: companies[0].tradeLicense, mobile: companies[0].mobile, website: companies[0].website, thankYouMsg: companies[0].thankYouMsg, systemNote: companies[0].systemNote } : undefined,
+  1791→                  financialFooter: {
+  1792→                    preparedBy: auth.user?.displayName || "System",
+  1793→                    checkedBy: "",
+  1794→                    authorizedBy: "",
+  1795→                    printedBy: auth.user?.displayName || "System",
+  1796→                  },
+  1797→                  summaryRows: [{
+  1798→                    cells: ["", "", "", "", "", "", "Grand Total:", formatSanitizedCurrency(grandTotal)],
+  1799→                    style: { fillColor: [10, 22, 40], textColor: [255, 255, 255], fontStyle: "bold" as const, fontSize: 9 },
+  1800→                  }],
+  1801→                });
+  1802→                toast({ title: "PDF Exported", description: "Ordersheet Report exported" });
+  1803→              } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1804→            }}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
+  1805→          <Button variant="outline" size="sm" onClick={async () => {
+  1806→            try {
+  1807→              const result = await importFromCSV({
+  1808→                apiPath: "/api/ordersheets?import=true",
+  1809→                formFields: [
+  1810→                  { key: "orderType", label: "Order Type", type: "text", required: true },
+  1811→                  { key: "date", label: "Date", type: "date", required: true },
+  1812→                  { key: "productId", label: "Product ID", type: "text", required: true },
+  1813→                  { key: "quantity", label: "Quantity", type: "number", required: true },
+  1814→                ],
+  1815→              });
+  1816→              if (result.imported > 0) {
+  1817→                toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
+  1818→                loadOsReport();
+  1819→              } else if (result.errors.length > 0) {
+  1820→                toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+  1821→              }
+  1822→            } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1823→          }}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
+  1824→          </div>
+  1825→        </CardContent>
+  1826→      </Card>
+  1827→      {/* Status Summary Cards */}
+  1828→      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+  1829→        {Object.entries(osReportStats.byStatus).map(([status, count]) => (
+  1830→          <Card key={status} className="border-slate-200 dark:border-slate-700">
+  1831→            <CardContent className="p-3 text-center">
+  1832→              <StatusBadge status={status} />
+  1833→              <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">{count}</p>
+  1834→            </CardContent>
+  1835→          </Card>
+  1836→        ))}
+  1837→      </div>
+  1838→      <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
+  1839→        <CardContent className="p-0 overflow-hidden">
+  1840→          <div className="overflow-x-auto -mx-2 sm:mx-0">
+  1841→            <Table className="min-w-[600px]">
+  1842→              <TableHeader>
+  1843→                <TableRow className="bg-[#132240] dark:bg-[#0a1628]">
+  1844→                  {osReportColumns.map(c => <TableHead key={c.key} className="text-white text-xs">{c.label}</TableHead>)}
+  1845→                </TableRow>
+  1846→              </TableHeader>
+  1847→              <TableBody>
+  1848→                {osReportFiltered.length === 0 ? (
+  1849→                  <TableRow><TableCell colSpan={osReportColumns.length} className="text-center py-8 text-slate-400">Select a date range and generate report</TableCell></TableRow>
+  1850→                ) : osReportFiltered.map((item: any) => (
+  1851→                  <TableRow key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+  1852→                    <TableCell className="text-xs">{item.sheetNo || `OS-${String(item.id).padStart(5, "0")}`}</TableCell>
+  1853→                    <TableCell className="text-xs">{fmt(item.date, "date")}</TableCell>
+  1854→                    <TableCell className="text-xs">{item.orderType || (item.companyId ? "Company" : "Customer")}</TableCell>
+  1855→                    <TableCell className="text-xs">{item.company?.name || item.customer?.name || "—"}</TableCell>
+  1856→                    <TableCell className="text-xs">{item.godown?.name || "—"}</TableCell>
+  1857→                    <TableCell className="text-xs"><StatusBadge status={item.status || "Draft"} /></TableCell>
+  1858→                    <TableCell className="text-xs"><FulfillmentBadge status={item.fulfillmentStatus || "Unfulfilled"} /></TableCell>
+  1859→                    <TableCell className="text-xs font-medium">{fmtCurrency(item.grandTotal || item.totalAmount || 0)}</TableCell>
+  1860→                  </TableRow>
+  1861→                ))}
+  1862→              </TableBody>
+  1863→            </Table>
+  1864→          </div>
+  1865→        </CardContent>
+  1866→      </Card>
+  1867→    </div>
+  1868→  );
+  1869→
+  1870→  // ============================================================
+  1871→  // TAB 4: PURCHASE ORDER
+  1872→  // ============================================================
+  1873→
+  1874→  const RECEIVING_BADGE: Record<string, string> = {
+  1875→    Unreceived: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  1876→    "Partially Received": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  1877→    "Fully Received": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  1878→  };
+  1879→
+  1880→  const poColumns: ExportColumnDef[] = [
+  1881→    { key: "poNumber", label: "PO Number", type: "text" },
+  1882→    { key: "date", label: "Date", type: "date" },
+  1883→    { key: "supplierName", label: "Supplier", type: "text" },
+  1884→    { key: "godownName", label: "Godown", type: "text" },
+  1885→    { key: "subTotal", label: "Sub-Total", type: "currency" },
+  1886→    { key: "discount", label: "Discount", type: "currency" },
+  1887→    { key: "vatAmount", label: "VAT", type: "currency" },
+  1888→    { key: "grandTotal", label: "Grand Total", type: "currency" },
+  1889→    { key: "status", label: "Status", type: "text" },
+  1890→    { key: "receivingStatus", label: "Receiving", type: "text" },
+  1891→    { key: "fulfillmentStatus", label: "Fulfillment", type: "text" },
+  1892→  ];
+  1893→
+  1894→  const poMaskedCols = ["subTotal", "discount", "vatAmount", "grandTotal", "costPrice", "wholesalePrice"];
+  1895→
+  1896→  const poFiltered = useMemo(() => {
+  1897→    let result = poData;
+  1898→    if (poSearch) {
+  1899→      const q = poSearch.toLowerCase();
+  1900→      result = result.filter((o: any) => (o.poNumber || "").toLowerCase().includes(q) || (o.supplier?.name || "").toLowerCase().includes(q) || (o.status || "").toLowerCase().includes(q));
+  1901→    }
+  1902→    if (poStatusFilter && poStatusFilter !== "all") {
+  1903→      result = result.filter((o: any) => (o.status || "Pending") === poStatusFilter);
+  1904→    }
+  1905→    if (poReceivingFilter && poReceivingFilter !== "all") {
+  1906→      result = result.filter((o: any) => {
+  1907→        const rs = (o as any).receivingStatus || "Unreceived";
+  1908→        return rs === poReceivingFilter;
+  1909→      });
+  1910→    }
+  1911→    return result;
+  1912→  }, [poData, poSearch, poStatusFilter, poReceivingFilter]);
+  1913→
+  1914→  const poStats = useMemo(() => ({
+  1915→    total: poData.length,
+  1916→    pending: poData.filter((o: any) => o.status === "Pending" || o.status === "Draft").length,
+  1917→    confirmed: poData.filter((o: any) => o.status === "Confirmed").length,
+  1918→    completed: poData.filter((o: any) => o.status === "Completed").length,
+  1919→    totalValue: poData.reduce((s: number, o: any) => s + (Number(o.grandTotal) || 0), 0),
+  1920→    fulfillmentPending: poData.filter((o: any) => (o.fulfillmentStatus || "Pending") === "Pending").length,
+  1921→    fulfillmentPartial: poData.filter((o: any) => (o.fulfillmentStatus || "") === "Partial").length,
+  1922→    fulfillmentFulfilled: poData.filter((o: any) => (o.fulfillmentStatus || "") === "Fulfilled").length,
+  1923→  }), [poData]);
+  1924→
+  1925→  const openPoCreate = () => {
+  1926→    setPoForm({ supplierId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Draft", discount: 0, vatPercent: 0, notes: "", expectedDate: "" });
+  1927→    setPoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
+  1928→    setPoEdit(null);
+  1929→    setPoDialog(true);
+  1930→  };
+  1931→
+  1932→  const openPoEdit = (item: any) => {
+  1933→    setPoForm({
+  1934→      supplierId: item.supplierId || "",
+  1935→      godownId: item.godownId || "",
+  1936→      date: item.date ? item.date.split("T")[0] : "",
+  1937→      status: item.status || "Draft",
+  1938→      discount: item.discount || 0,
+  1939→      vatPercent: item.vatPercentage || 0,
+  1940→      notes: item.notes || "",
+  1941→      expectedDate: item.expectedDate ? item.expectedDate.split("T")[0] : "",
+  1942→    });
+  1943→    const editLines = item.lines && item.lines.length > 0
+  1944→      ? item.lines.map((l: any) => ({
+  1945→          productId: l.productId,
+  1946→          quantity: l.quantity,
+  1947→          rate: l.rate,
+  1948→          discountPercent: l.discountPercent || 0,
+  1949→          receivedQuantity: l.receivedQuantity || 0,
+  1950→          pendingQuantity: l.pendingQuantity || l.quantity - (l.receivedQuantity || 0),
+  1951→        }))
+  1952→      : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0, receivedQuantity: 0, pendingQuantity: 0 }];
+  1953→    setPoLines(editLines);
+  1954→    setPoEdit(item);
+  1955→    setPoDialog(true);
+  1956→  };
+  1957→
+  1958→  const savePo = async () => {
+  1959→    if (!poForm.supplierId || !poForm.godownId || !poForm.date) { toast({ title: "Error", description: "Supplier, Godown and Date are required", variant: "destructive" }); return; }
+  1960→    setPoSaving(true);
+  1961→    try {
+  1962→      const linesPayload = poLines.filter((l: any) => l.productId).map((l: any) => ({
+  1963→        productId: l.productId, quantity: Number(l.quantity) || 1, rate: Number(l.rate) || 0, discountPercent: Number(l.discountPercent) || 0,
+  1964→      }));
+  1965→      const subTotal = linesPayload.reduce((s: number, l: any) => s + l.quantity * l.rate * (1 - l.discountPercent / 100), 0);
+  1966→      const discountPercent = Number(poForm.discount) || 0;
+  1967→      const discountAmt = subTotal * discountPercent / 100;
+  1968→      const vatPercentage = Number(poForm.vatPercent) || 0;
+  1969→      const vatAmt = (subTotal - discountAmt) * vatPercentage / 100;
+  1970→      const grandTotal = subTotal - discountAmt + vatAmt;
+  1971→      const payload = {
+  1972→        ...poForm,
+  1973→        lines: linesPayload,
+  1974→        subTotal,
+  1975→        discount: discountAmt,
+  1976→        discountPercent,
+  1977→        vatAmount: vatAmt,
+  1978→        vatPercentage,
+  1979→        grandTotal,
+  1980→        expectedDate: poForm.expectedDate || undefined,
+  1981→        status: poEdit ? poForm.status : "Draft",
+  1982→        referenceKey: poEdit ? undefined : `PO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  1983→      };
+  1984→      if (poEdit) { await apiFetch(`/api/purchase-orders/${poEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Purchase Order updated" }); }
+  1985→      else { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Order created as Draft" }); }
+  1986→      setPoDialog(false); loadPurchaseOrders();
+  1987→    } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1988→    finally { setPoSaving(false); }
+  1989→  };
+  1990→
+  1991→  const deletePo = async () => {
+  1992→    if (!poDelete) return;
+  1993→    try { await apiFetch(`/api/purchase-orders/${poDelete.id}`, { method: "DELETE" }); toast({ title: "Deleted", description: "Purchase Order deleted" }); setPoDelete(null); loadPurchaseOrders(); }
+  1994→    catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+  1995→  };
+  1996→
+  1997→  const openPoReceive = (item: any) => {
+  1998→    if (item.status !== "Confirmed" && item.status !== "Partially Received") {
+  1999→      toast({ title: "Error", description: "Only Confirmed or Partially Received POs can receive items", variant: "destructive" });
+  2000→      return;
+
+[showing lines 1-2000 of 3933; use offset=2001 with limit to continue reading]

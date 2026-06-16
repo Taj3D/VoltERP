@@ -1,0 +1,1673 @@
+     1→"use client";
+     2→// ============================================================
+     3→// VoltERP — Accounts & Ledger Management Page (Phase 13)
+     4→// 5-Tab SPA: COA Tree | Journal Voucher | Cash/Bank Vouchers
+     5→//            | Voucher Register | Ledger Statement
+     6→// Theme: Deep Navy Blue (#0a1628, #132240, #2563eb)
+     7→// ============================================================
+     8→
+     9→import React, { useState, useEffect, useCallback, useMemo } from "react";
+    10→import {
+    11→  BookOpen, FileText, Banknote, List, ClipboardList,
+    12→  Plus, Edit, Trash2, RefreshCw, Search, ChevronDown, ChevronRight,
+    13→  Download, FileDown, Upload, Shield, CheckCircle, AlertTriangle, X,
+    14→  ArrowUpCircle, ArrowDownCircle, Eye, Lock
+    15→} from "lucide-react";
+    16→import { Button } from "@/components/ui/button";
+    17→import { Input } from "@/components/ui/input";
+    18→import { Card, CardContent } from "@/components/ui/card";
+    19→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+    20→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+    21→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    22→import { Badge } from "@/components/ui/badge";
+    23→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+    24→import { Textarea } from "@/components/ui/textarea";
+    25→import { Label } from "@/components/ui/label";
+    26→import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+    27→import { useToast } from "@/hooks/use-toast";
+    28→import { exportToPDFSimple, exportToCSVSimple, importFromCSV } from "@/lib/export-utils";
+    29→import { toLatinDigits } from "@/lib/number-format";
+    30→
+    31→// ============================================================
+    32→// UTILITY FUNCTIONS
+    33→// ============================================================
+    34→
+    35→const acctCurrencyFmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    36→
+    37→const fmt = (v: any, type?: string) => {
+    38→  if (v === null || v === undefined) return "—";
+    39→  if (type === "currency") return `Tk. ${toLatinDigits(acctCurrencyFmt.format(Number(v)))}`;
+    40→  if (type === "date") { if (!v) return "—"; const dt = new Date(v); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); }
+    41→  return String(v);
+    42→};
+    43→
+    44→const fmtDate = (d: string | Date) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : toLatinDigits(dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })); };
+    45→
+    46→async function apiFetch(path: string, opts?: RequestInit) {
+    47→  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    48→  try {
+    49→    const stored = localStorage.getItem("ems_auth");
+    50→    if (stored) {
+    51→      const parsed = JSON.parse(stored);
+    52→      if (parsed.accessToken) authHeaders["Authorization"] = `Bearer ${parsed.accessToken}`;
+    53→    }
+    54→  } catch {}
+    55→  const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers }, ...opts });
+    56→  if (!res.ok) {
+    57→    if (res.status === 401) {
+    58→      localStorage.removeItem("ems_auth");
+    59→      window.location.reload();
+    60→    }
+    61→    const err = await res.json().catch(() => ({ error: res.statusText }));
+    62→    throw new Error(err.error || "Request failed");
+    63→  }
+    64→  return res.json();
+    65→}
+    66→
+    67→// ============================================================
+    68→// CLASSIFICATION COLORS
+    69→// ============================================================
+    70→
+    71→const CLASSIFICATION_COLORS: Record<string, string> = {
+    72→  Asset: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+    73→  Liability: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800",
+    74→  Equity: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800",
+    75→  Revenue: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800",
+    76→  Expense: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+    77→};
+    78→
+    79→const CLASSIFICATION_DOT: Record<string, string> = {
+    80→  Asset: "bg-blue-500",
+    81→  Liability: "bg-red-500",
+    82→  Equity: "bg-purple-500",
+    83→  Revenue: "bg-green-500",
+    84→  Expense: "bg-amber-500",
+    85→};
+    86→
+    87→// ============================================================
+    88→// MAIN COMPONENT
+    89→// ============================================================
+    90→
+    91→export default function AccountsLedgerPage({ initialTab, voucherType }: { initialTab?: string; voucherType?: string } = {}) {
+    92→  const { toast } = useToast();
+    93→  const [activeTab, setActiveTab] = useState(initialTab || "coa-tree");
+    94→
+    95→  // ── Shared State ──
+    96→  const [accounts, setAccounts] = useState<any[]>([]);
+    97→  const [banks, setBanks] = useState<any[]>([]);
+    98→  const [accountsLoading, setAccountsLoading] = useState(true);
+    99→
+   100→  // ── Tab 1: COA Tree ──
+   101→  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+   102→  const [selectedAccount, setSelectedAccount] = useState<any>(null);
+   103→  const [coaSearch, setCoaSearch] = useState("");
+   104→  const [coaFilter, setCoaFilter] = useState("all");
+   105→  const [coaFormOpen, setCoaFormOpen] = useState(false);
+   106→  const [coaEditItem, setCoaEditItem] = useState<any>(null);
+   107→  const [coaSaving, setCoaSaving] = useState(false);
+   108→  const [coaDeleteItem, setCoaDeleteItem] = useState<any>(null);
+   109→  const [seedingRoot, setSeedingRoot] = useState(false);
+   110→  const [coaFormData, setCoaFormData] = useState<Record<string, any>>({
+   111→    code: "", name: "", classification: "Asset", parentAccountId: "",
+   112→    openingBalance: 0, openingBalanceType: "Dr",
+   113→  });
+   114→
+   115→  // ── Tab 2: Journal Voucher Entry ──
+   116→  const [jvDate, setJvDate] = useState(new Date().toISOString().split("T")[0]);
+   117→  const [jvNarration, setJvNarration] = useState("");
+   118→  const [jvLines, setJvLines] = useState<Array<{ accountId: string; accountName: string; debit: number; credit: number; particulars: string }>>([
+   119→    { accountId: "", accountName: "", debit: 0, credit: 0, particulars: "" },
+   120→    { accountId: "", accountName: "", debit: 0, credit: 0, particulars: "" },
+   121→  ]);
+   122→  const [jvPosting, setJvPosting] = useState(false);
+   123→  const [jvSnapshot, setJvSnapshot] = useState<any>(null);
+   124→
+   125→  // ── Tab 3: Cash/Bank Vouchers ──
+   126→  const [cbSubTab, setCbSubTab] = useState<"cash-receipt" | "cash-payment" | "bank-receipt" | "bank-payment">(() => {
+   127→    if (voucherType === "CASH_RECEIPT") return "cash-receipt";
+   128→    if (voucherType === "CASH_PAYMENT") return "cash-payment";
+   129→    if (voucherType === "BANK_RECEIPT") return "bank-receipt";
+   130→    if (voucherType === "BANK_PAYMENT") return "bank-payment";
+   131→    return "cash-receipt";
+   132→  });
+   133→  const [cbDate, setCbDate] = useState(new Date().toISOString().split("T")[0]);
+   134→  const [cbAmount, setCbAmount] = useState(0);
+   135→  const [cbAccountId, setCbAccountId] = useState("");
+   136→  const [cbNarration, setCbNarration] = useState("");
+   137→  const [cbReferenceNo, setCbReferenceNo] = useState("");
+   138→  const [cbBankId, setCbBankId] = useState("");
+   139→  const [cbChequeNo, setCbChequeNo] = useState("");
+   140→  const [cbChequeDate, setCbChequeDate] = useState("");
+   141→  const [cbPosting, setCbPosting] = useState(false);
+   142→
+   143→  // ── Tab 4: Voucher Register ──
+   144→  const [vouchers, setVouchers] = useState<any[]>([]);
+   145→  const [vouchersLoading, setVouchersLoading] = useState(false);
+   146→  const [vrType, setVrType] = useState("all");
+   147→  const [vrStatus, setVrStatus] = useState("all");
+   148→  const [vrFrom, setVrFrom] = useState("");
+   149→  const [vrTo, setVrTo] = useState("");
+   150→  const [expandedVoucher, setExpandedVoucher] = useState<string | null>(null);
+   151→
+   152→  // ── Tab 5: Ledger Statement ──
+   153→  const [ledgerAccountId, setLedgerAccountId] = useState("");
+   154→  const [ledgerFrom, setLedgerFrom] = useState("");
+   155→  const [ledgerTo, setLedgerTo] = useState("");
+   156→  const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
+   157→  const [ledgerLoading, setLedgerLoading] = useState(false);
+   158→
+   159→  // ── Data Loading ──
+   160→  const loadAccounts = useCallback(async () => {
+   161→    setAccountsLoading(true);
+   162→    try {
+   163→      const res = await apiFetch("/api/chart-of-accounts");
+   164→      setAccounts(Array.isArray(res) ? res : res.data || []);
+   165→    } catch (e: any) {
+   166→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   167→    } finally { setAccountsLoading(false); }
+   168→  }, [toast]);
+   169→
+   170→  const loadBanks = useCallback(async () => {
+   171→    try {
+   172→      const res = await apiFetch("/api/banks");
+   173→      setBanks(Array.isArray(res) ? res : res.data || []);
+   174→    } catch {}
+   175→  }, []);
+   176→
+   177→  const loadVouchers = useCallback(async () => {
+   178→    setVouchersLoading(true);
+   179→    try {
+   180→      let url = "/api/journal-vouchers?";
+   181→      if (vrType !== "all") url += `type=${vrType}&`;
+   182→      if (vrStatus !== "all") url += `status=${vrStatus}&`;
+   183→      if (vrFrom) url += `from=${vrFrom}&`;
+   184→      if (vrTo) url += `to=${vrTo}&`;
+   185→      const res = await apiFetch(url);
+   186→      setVouchers(Array.isArray(res) ? res : res.data || []);
+   187→    } catch (e: any) {
+   188→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   189→    } finally { setVouchersLoading(false); }
+   190→  }, [toast, vrType, vrStatus, vrFrom, vrTo]);
+   191→
+   192→  const loadLedger = useCallback(async () => {
+   193→    if (!ledgerAccountId) return;
+   194→    setLedgerLoading(true);
+   195→    try {
+   196→      let url = `/api/ledger-entries?accountId=${ledgerAccountId}`;
+   197→      if (ledgerFrom) url += `&from=${ledgerFrom}`;
+   198→      if (ledgerTo) url += `&to=${ledgerTo}`;
+   199→      const res = await apiFetch(url);
+   200→      setLedgerEntries(Array.isArray(res) ? res : res.data || []);
+   201→    } catch (e: any) {
+   202→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   203→    } finally { setLedgerLoading(false); }
+   204→  }, [toast, ledgerAccountId, ledgerFrom, ledgerTo]);
+   205→
+   206→  useEffect(() => { loadAccounts(); loadBanks(); }, [loadAccounts, loadBanks]);
+   207→  useEffect(() => { if (activeTab === "voucher-register") loadVouchers(); }, [activeTab, loadVouchers]);
+   208→  useEffect(() => { if (activeTab === "ledger-statement" && ledgerAccountId) loadLedger(); }, [activeTab, loadLedger]);
+   209→
+   210→  // ── COA Tree helpers ──
+   211→  const accountMap = useMemo(() => {
+   212→    const m = new Map<string, any>();
+   213→    accounts.forEach((a: any) => m.set(a.id, a));
+   214→    return m;
+   215→  }, [accounts]);
+   216→
+   217→  const rootAccounts = useMemo(() => {
+   218→    let result = accounts.filter((a: any) => !a.parentAccountId);
+   219→    if (coaFilter !== "all") result = result.filter((a: any) => a.classification === coaFilter);
+   220→    if (coaSearch) {
+   221→      const s = coaSearch.toLowerCase();
+   222→      result = result.filter((a: any) =>
+   223→        a.code?.toLowerCase().includes(s) || a.name?.toLowerCase().includes(s) ||
+   224→        hasMatchingDescendant(a.id, s)
+   225→      );
+   226→    }
+   227→    return result;
+   228→  }, [accounts, coaFilter, coaSearch, accountMap]);
+   229→
+   230→  function hasMatchingDescendant(parentId: string, search: string): boolean {
+   231→    const children = accounts.filter((a: any) => a.parentAccountId === parentId);
+   232→    for (const child of children) {
+   233→      if (child.code?.toLowerCase().includes(search) || child.name?.toLowerCase().includes(search)) return true;
+   234→      if (hasMatchingDescendant(child.id, search)) return true;
+   235→    }
+   236→    return false;
+   237→  }
+   238→
+   239→  function getChildren(parentId: string) {
+   240→    return accounts.filter((a: any) => a.parentAccountId === parentId);
+   241→  }
+   242→
+   243→  function toggleNode(id: string) {
+   244→    setExpandedNodes(prev => {
+   245→      const next = new Set(prev);
+   246→      if (next.has(id)) next.delete(id); else next.add(id);
+   247→      return next;
+   248→    });
+   249→  }
+   250→
+   251→  // ── Tab 1: COA CRUD ──
+   252→  const openCOACreate = (parentId?: string) => {
+   253→    const count = accounts.length;
+   254→    setCoaFormData({
+   255→      code: `COA-${String(count + 1).padStart(5, "0")}`,
+   256→      name: "", classification: "Asset", parentAccountId: parentId || "",
+   257→      openingBalance: 0, openingBalanceType: "Dr",
+   258→    });
+   259→    setCoaEditItem(null);
+   260→    setCoaFormOpen(true);
+   261→  };
+   262→
+   263→  const openCOAEdit = (item: any) => {
+   264→    setCoaFormData({
+   265→      code: item.code || "",
+   266→      name: item.name || "",
+   267→      classification: item.classification || "Asset",
+   268→      parentAccountId: item.parentAccountId || "",
+   269→      openingBalance: item.openingBalance || 0,
+   270→      openingBalanceType: item.openingBalanceType || "Dr",
+   271→    });
+   272→    setCoaEditItem(item);
+   273→    setCoaFormOpen(true);
+   274→  };
+   275→
+   276→  const saveCOA = async () => {
+   277→    if (!coaFormData.name) {
+   278→      toast({ title: "Error", description: "Name is required", variant: "destructive" });
+   279→      return;
+   280→    }
+   281→    setCoaSaving(true);
+   282→    try {
+   283→      const payload = {
+   284→        name: coaFormData.name,
+   285→        classification: coaFormData.classification,
+   286→        parentAccountId: coaFormData.parentAccountId || null,
+   287→        openingBalance: Number(coaFormData.openingBalance) || 0,
+   288→        openingBalanceType: coaFormData.openingBalanceType,
+   289→      };
+   290→      if (coaEditItem) {
+   291→        await apiFetch(`/api/chart-of-accounts/${coaEditItem.id}`, { method: "PUT", body: JSON.stringify(payload) });
+   292→        toast({ title: "Updated", description: "Account updated successfully" });
+   293→      } else {
+   294→        await apiFetch("/api/chart-of-accounts", { method: "POST", body: JSON.stringify(payload) });
+   295→        toast({ title: "Created", description: "Account created successfully" });
+   296→      }
+   297→      setCoaFormOpen(false);
+   298→      loadAccounts();
+   299→    } catch (e: any) {
+   300→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   301→    } finally { setCoaSaving(false); }
+   302→  };
+   303→
+   304→  const deleteCOA = async () => {
+   305→    if (!coaDeleteItem) return;
+   306→    try {
+   307→      await apiFetch(`/api/chart-of-accounts/${coaDeleteItem.id}`, { method: "DELETE" });
+   308→      toast({ title: "Deleted", description: "Account deleted" });
+   309→      setCoaDeleteItem(null);
+   310→      loadAccounts();
+   311→    } catch (e: any) {
+   312→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   313→    }
+   314→  };
+   315→
+   316→  const seedRootNodes = async () => {
+   317→    setSeedingRoot(true);
+   318→    try {
+   319→      const res = await apiFetch("/api/coa-accounts-seed", { method: "POST" });
+   320→      toast({ title: "Seed Complete", description: res.message || "Root nodes seeded" });
+   321→      loadAccounts();
+   322→    } catch (e: any) {
+   323→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   324→    } finally { setSeedingRoot(false); }
+   325→  };
+   326→
+   327→  // ── Tab 2: Journal Voucher ──
+   328→  const jvTotalDebit = useMemo(() => jvLines.reduce((s, l) => s + (Number(l.debit) || 0), 0), [jvLines]);
+   329→  const jvTotalCredit = useMemo(() => jvLines.reduce((s, l) => s + (Number(l.credit) || 0), 0), [jvLines]);
+   330→  const jvDifference = useMemo(() => Math.abs(jvTotalDebit - jvTotalCredit), [jvTotalDebit, jvTotalCredit]);
+   331→  const jvBalanced = useMemo(() => jvDifference < 0.01 && jvTotalDebit > 0, [jvDifference, jvTotalDebit]);
+   332→
+   333→  const addJvLine = () => {
+   334→    setJvLines([...jvLines, { accountId: "", accountName: "", debit: 0, credit: 0, particulars: "" }]);
+   335→  };
+   336→
+   337→  const removeJvLine = (idx: number) => {
+   338→    if (jvLines.length <= 2) {
+   339→      toast({ title: "Minimum Lines", description: "At least 2 lines are required for double-entry", variant: "destructive" });
+   340→      return;
+   341→    }
+   342→    setJvLines(jvLines.filter((_, i) => i !== idx));
+   343→  };
+   344→
+   345→  const updateJvLine = (idx: number, field: string, value: any) => {
+   346→    const updated = [...jvLines];
+   347→    updated[idx] = { ...updated[idx], [field]: value };
+   348→    // Auto-fill accountName from accountId
+   349→    if (field === "accountId" && value) {
+   350→      const acct = accounts.find((a: any) => a.id === value);
+   351→      if (acct) updated[idx].accountName = `${acct.code} - ${acct.name}`;
+   352→    }
+   353→    // If debit is set, clear credit and vice versa
+   354→    if (field === "debit" && Number(value) > 0) updated[idx].credit = 0;
+   355→    if (field === "credit" && Number(value) > 0) updated[idx].debit = 0;
+   356→    setJvLines(updated);
+   357→  };
+   358→
+   359→  const postJournalVoucher = async () => {
+   360→    if (!jvDate) {
+   361→      toast({ title: "Error", description: "Date is required", variant: "destructive" });
+   362→      return;
+   363→    }
+   364→    if (!jvBalanced) {
+   365→      toast({ title: "Imbalance", description: "Debits and Credits must match perfectly", variant: "destructive" });
+   366→      return;
+   367→    }
+   368→    const hasAccount = jvLines.every(l => l.accountId);
+   369→    if (!hasAccount) {
+   370→      toast({ title: "Error", description: "All lines must have an account selected", variant: "destructive" });
+   371→      return;
+   372→    }
+   373→
+   374→    // Save snapshot for rollback
+   375→    setJvSnapshot({ lines: [...jvLines], date: jvDate, narration: jvNarration });
+   376→    setJvPosting(true);
+   377→
+   378→    try {
+   379→      await apiFetch("/api/journal-vouchers", {
+   380→        method: "POST",
+   381→        body: JSON.stringify({
+   382→          date: jvDate,
+   383→          type: "JOURNAL",
+   384→          narration: jvNarration,
+   385→          status: "Posted",
+   386→          lines: jvLines.map(l => ({
+   387→            accountId: l.accountId,
+   388→            accountName: l.accountName,
+   389→            debit: Number(l.debit) || 0,
+   390→            credit: Number(l.credit) || 0,
+   391→            particulars: l.particulars,
+   392→          })),
+   393→        }),
+   394→      });
+   395→      toast({ title: "Posted", description: "Journal Voucher posted to General Ledger" });
+   396→      // Reset form
+   397→      setJvDate(new Date().toISOString().split("T")[0]);
+   398→      setJvNarration("");
+   399→      setJvLines([
+   400→        { accountId: "", accountName: "", debit: 0, credit: 0, particulars: "" },
+   401→        { accountId: "", accountName: "", debit: 0, credit: 0, particulars: "" },
+   402→      ]);
+   403→      loadAccounts();
+   404→    } catch (e: any) {
+   405→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   406→      // Rollback to snapshot
+   407→      if (jvSnapshot) {
+   408→        setJvLines(jvSnapshot.lines);
+   409→        setJvDate(jvSnapshot.date);
+   410→        setJvNarration(jvSnapshot.narration);
+   411→      }
+   412→    } finally { setJvPosting(false); }
+   413→  };
+   414→
+   415→  // ── Tab 3: Cash/Bank Voucher ──
+   416→  const cbVoucherType = useMemo(() => {
+   417→    switch (cbSubTab) {
+   418→      case "cash-receipt": return "CASH_RECEIPT";
+   419→      case "cash-payment": return "CASH_PAYMENT";
+   420→      case "bank-receipt": return "BANK_RECEIPT";
+   421→      case "bank-payment": return "BANK_PAYMENT";
+   422→    }
+   423→  }, [cbSubTab]);
+   424→
+   425→  const cbIsBank = useMemo(() => cbSubTab === "bank-receipt" || cbSubTab === "bank-payment", [cbSubTab]);
+   426→
+   427→  const postCashBankVoucher = async () => {
+   428→    if (!cbDate || !cbAccountId || cbAmount <= 0) {
+   429→      toast({ title: "Error", description: "Date, Account, and Amount are required", variant: "destructive" });
+   430→      return;
+   431→    }
+   432→    if (cbIsBank && !cbBankId) {
+   433→      toast({ title: "Error", description: "Bank selection is required for bank vouchers", variant: "destructive" });
+   434→      return;
+   435→    }
+   436→
+   437→    setCbPosting(true);
+   438→
+   439→    try {
+   440→      const acct = accounts.find((a: any) => a.id === cbAccountId);
+   441→      const accountName = acct ? `${acct.code} - ${acct.name}` : cbAccountId;
+   442→
+   443→      // Find Cash-in-Hand or Bank COA account
+   444→      let contraAccountId = "";
+   445→      let contraAccountName = "";
+   446→
+   447→      if (!cbIsBank) {
+   448→        // Cash voucher — find Cash-in-Hand account
+   449→        const cashAccount = accounts.find((a: any) =>
+   450→          a.name?.toLowerCase().includes("cash") && a.classification === "Asset"
+   451→        );
+   452→        if (!cashAccount) {
+   453→          toast({ title: "Error", description: "No Cash-in-Hand account found in COA", variant: "destructive" });
+   454→          setCbPosting(false);
+   455→          return;
+   456→        }
+   457→        contraAccountId = cashAccount.id;
+   458→        contraAccountName = `${cashAccount.code} - ${cashAccount.name}`;
+   459→      } else {
+   460→        // Bank voucher — find bank's COA account
+   461→        const bank = banks.find((b: any) => b.id === cbBankId);
+   462→        if (bank) {
+   463→          // Look for a COA account matching this bank
+   464→          const bankCoaAccount = accounts.find((a: any) =>
+   465→            a.name?.toLowerCase().includes(bank.bankName?.toLowerCase()) && a.classification === "Asset"
+   466→          );
+   467→          if (bankCoaAccount) {
+   468→            contraAccountId = bankCoaAccount.id;
+   469→            contraAccountName = `${bankCoaAccount.code} - ${bankCoaAccount.name}`;
+   470→          } else {
+   471→            // Fallback to first bank-type asset account
+   472→            const fallbackAccount = accounts.find((a: any) =>
+   473→              a.name?.toLowerCase().includes("bank") && a.classification === "Asset"
+   474→            );
+   475→            if (fallbackAccount) {
+   476→              contraAccountId = fallbackAccount.id;
+   477→              contraAccountName = `${fallbackAccount.code} - ${fallbackAccount.name}`;
+   478→            }
+   479→          }
+   480→        }
+   481→        if (!contraAccountId) {
+   482→          toast({ title: "Error", description: "No Bank COA account found for this bank", variant: "destructive" });
+   483→          setCbPosting(false);
+   484→          return;
+   485→        }
+   486→      }
+   487→
+   488→      // Build the two lines based on voucher type
+   489→      let lines: Array<{ accountId: string; accountName: string; debit: number; credit: number; particulars: string }>;
+   490→      const particulars = cbNarration || `${cbSubTab.replace("-", " ")} voucher`;
+   491→
+   492→      switch (cbSubTab) {
+   493→        case "cash-receipt":
+   494→          // Debit Cash-in-Hand, Credit the receiving account
+   495→          lines = [
+   496→            { accountId: contraAccountId, accountName: contraAccountName, debit: cbAmount, credit: 0, particulars },
+   497→            { accountId: cbAccountId, accountName, debit: 0, credit: cbAmount, particulars },
+   498→          ];
+   499→          break;
+   500→        case "cash-payment":
+   501→          // Credit Cash-in-Hand, Debit the paying account
+   502→          lines = [
+   503→            { accountId: cbAccountId, accountName, debit: cbAmount, credit: 0, particulars },
+   504→            { accountId: contraAccountId, accountName: contraAccountName, debit: 0, credit: cbAmount, particulars },
+   505→          ];
+   506→          break;
+   507→        case "bank-receipt":
+   508→          // Debit Bank, Credit the receiving account
+   509→          lines = [
+   510→            { accountId: contraAccountId, accountName: contraAccountName, debit: cbAmount, credit: 0, particulars },
+   511→            { accountId: cbAccountId, accountName, debit: 0, credit: cbAmount, particulars },
+   512→          ];
+   513→          break;
+   514→        case "bank-payment":
+   515→          // Credit Bank, Debit the paying account
+   516→          lines = [
+   517→            { accountId: cbAccountId, accountName, debit: cbAmount, credit: 0, particulars },
+   518→            { accountId: contraAccountId, accountName: contraAccountName, debit: 0, credit: cbAmount, particulars },
+   519→          ];
+   520→          break;
+   521→        default:
+   522→          lines = [];
+   523→      }
+   524→
+   525→      await apiFetch("/api/journal-vouchers", {
+   526→        method: "POST",
+   527→        body: JSON.stringify({
+   528→          date: cbDate,
+   529→          type: cbVoucherType,
+   530→          narration: cbNarration,
+   531→          status: "Posted",
+   532→          lines,
+   533→          bankId: cbIsBank ? cbBankId : undefined,
+   534→          chequeNo: cbIsBank ? cbChequeNo : undefined,
+   535→          chequeDate: cbIsBank ? cbChequeDate : undefined,
+   536→          referenceNo: cbReferenceNo || undefined,
+   537→        }),
+   538→      });
+   539→
+   540→      toast({
+   541→        title: "Authorized",
+   542→        description: `${cbIsBank ? "Bank" : "Cash"} Voucher posted successfully`
+   543→      });
+   544→
+   545→      // Reset form
+   546→      setCbAmount(0);
+   547→      setCbAccountId("");
+   548→      setCbNarration("");
+   549→      setCbReferenceNo("");
+   550→      setCbBankId("");
+   551→      setCbChequeNo("");
+   552→      setCbChequeDate("");
+   553→      loadAccounts();
+   554→    } catch (e: any) {
+   555→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   556→    } finally { setCbPosting(false); }
+   557→  };
+   558→
+   559→  // ── Tab 1: COA Export helpers ──
+   560→  const exportCOAPDF = () => {
+   561→    try {
+   562→      const headers = ["Code", "Name", "Classification", "Type", "Opening Balance", "Balance Type"];
+   563→      const rows = accounts.filter((a: any) => !a.isRoot).map((a: any) => [
+   564→        a.code || "—", a.name, a.classification || "—", a.accountType || "—",
+   565→        a.openingBalance ? fmt(a.openingBalance, "currency") : "—", a.openingBalanceType || "—",
+   566→      ]);
+   567→      const printedBy = getPrintedBy();
+   568→      exportToPDFSimple("Chart-of-Accounts", headers, rows, "landscape", `Total: ${accounts.filter((a: any) => !a.isRoot).length} accounts`, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+   569→      toast({ title: "Exported", description: "Chart of Accounts exported to PDF" });
+   570→    } catch (e: any) {
+   571→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   572→    }
+   573→  };
+   574→
+   575→  const exportCOACSV = () => {
+   576→    try {
+   577→      const headers = ["Code", "Name", "Classification", "Type", "Opening Balance", "Balance Type"];
+   578→      const rows = accounts.filter((a: any) => !a.isRoot).map((a: any) => [
+   579→        a.code || "", a.name, a.classification || "", a.accountType || "",
+   580→        a.openingBalance || 0, a.openingBalanceType || "",
+   581→      ]);
+   582→      exportToCSVSimple("Chart-of-Accounts", headers, rows);
+   583→      toast({ title: "Exported", description: "Chart of Accounts exported to CSV" });
+   584→    } catch (e: any) {
+   585→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   586→    }
+   587→  };
+   588→
+   589→  const importCOACSV = async () => {
+   590→    try {
+   591→      const result = await importFromCSV({
+   592→        apiPath: "/api/chart-of-accounts?import=true",
+   593→        formFields: [
+   594→          { key: "code", label: "Code", type: "text", required: true },
+   595→          { key: "name", label: "Name", type: "text", required: true },
+   596→          { key: "classification", label: "Classification", type: "text", required: true },
+   597→          { key: "openingBalance", label: "Opening Balance", type: "number" },
+   598→          { key: "openingBalanceType", label: "Balance Type", type: "text" },
+   599→        ],
+   600→      });
+   601→      if (result.imported > 0) {
+   602→        toast({ title: "Import Complete", description: `${result.imported} accounts imported, ${result.failed} failed` });
+   603→        loadAccounts();
+   604→      } else if (result.errors.length > 0) {
+   605→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   606→      }
+   607→    } catch (e: any) {
+   608→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   609→    }
+   610→  };
+   611→
+   612→  // ── Tab 4: Export helpers ──
+   613→  const getPrintedBy = () => { try { const a = JSON.parse(localStorage.getItem("ems_auth") || "{}"); return a.user?.displayName || a.user?.name || "System"; } catch { return "System"; } };
+   614→  const exportVoucherPDF = (voucher: any) => {
+   615→    try {
+   616→      const headers = ["Account", "Debit", "Credit", "Particulars"];
+   617→      const rows = (voucher.lines || []).map((l: any) => [
+   618→        l.accountName || "—",
+   619→        l.debit > 0 ? fmt(l.debit, "currency") : "—",
+   620→        l.credit > 0 ? fmt(l.credit, "currency") : "—",
+   621→        l.particulars || "—",
+   622→      ]);
+   623→      const printedBy = getPrintedBy();
+   624→      exportToPDFSimple(
+   625→        `Voucher-${voucher.voucherNo}`,
+   626→        headers,
+   627→        rows,
+   628→        "landscape",
+   629→        `${voucher.type} | ${fmtDate(voucher.date)} | ${voucher.narration || ""}`,
+   630→        undefined,
+   631→        { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy }
+   632→      );
+   633→      toast({ title: "Exported", description: `Voucher ${voucher.voucherNo} exported to PDF` });
+   634→    } catch (e: any) {
+   635→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   636→    }
+   637→  };
+   638→
+   639→  const exportVoucherCSV = () => {
+   640→    try {
+   641→      const headers = ["Voucher No", "Date", "Type", "Narration", "Total Debit", "Total Credit", "Status"];
+   642→      const rows = vouchers.map((v: any) => [
+   643→        v.voucherNo, fmtDate(v.date), v.type, v.narration || "",
+   644→        fmt(v.totalDebit, "currency"), fmt(v.totalCredit, "currency"), v.status,
+   645→      ]);
+   646→      exportToCSVSimple("Voucher-Register", headers, rows);
+   647→      toast({ title: "Exported", description: "Voucher Register exported to CSV" });
+   648→    } catch (e: any) {
+   649→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   650→    }
+   651→  };
+   652→
+   653→  const exportVoucherRegisterPDF = () => {
+   654→    try {
+   655→      const headers = ["Voucher No", "Date", "Type", "Narration", "Total Debit", "Total Credit", "Status"];
+   656→      const rows = vouchers.map((v: any) => [
+   657→        v.voucherNo, fmtDate(v.date), v.type, v.narration || "",
+   658→        fmt(v.totalDebit, "currency"), fmt(v.totalCredit, "currency"), v.status,
+   659→      ]);
+   660→      const printedBy = getPrintedBy();
+   661→      exportToPDFSimple("Voucher-Register", headers, rows, "landscape", `${vouchers.length} vouchers`, undefined, { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy });
+   662→      toast({ title: "Exported", description: "Voucher Register exported to PDF" });
+   663→    } catch (e: any) {
+   664→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   665→    }
+   666→  };
+   667→
+   668→  const importVoucherCSV = async () => {
+   669→    try {
+   670→      const result = await importFromCSV({
+   671→        apiPath: "/api/vouchers?import=true",
+   672→        formFields: [
+   673→          { key: "type", label: "Type", type: "text", required: true },
+   674→          { key: "date", label: "Date", type: "date", required: true },
+   675→          { key: "narration", label: "Narration", type: "text" },
+   676→          { key: "accountId", label: "Account ID", type: "text", required: true },
+   677→          { key: "debit", label: "Debit", type: "number" },
+   678→          { key: "credit", label: "Credit", type: "number" },
+   679→        ],
+   680→      });
+   681→      if (result.imported > 0) {
+   682→        toast({ title: "Import Complete", description: `${result.imported} vouchers imported, ${result.failed} failed` });
+   683→        loadVouchers();
+   684→      } else if (result.errors.length > 0) {
+   685→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   686→      }
+   687→    } catch (e: any) {
+   688→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   689→    }
+   690→  };
+   691→
+   692→  // ── Tab 5: Ledger Statement Export ──
+   693→  const exportLedgerPDF = () => {
+   694→    try {
+   695→      const acct = accounts.find((a: any) => a.id === ledgerAccountId);
+   696→      const headers = ["Date", "Particulars", "Debit", "Credit", "Balance"];
+   697→      let runningBalance = 0;
+   698→      const rows = ledgerEntries.map((e: any) => {
+   699→        runningBalance += (e.debit || 0) - (e.credit || 0);
+   700→        return [
+   701→          fmtDate(e.date), e.particulars || "—",
+   702→          e.debit > 0 ? fmt(e.debit, "currency") : "—",
+   703→          e.credit > 0 ? fmt(e.credit, "currency") : "—",
+   704→          fmt(runningBalance, "currency"),
+   705→        ];
+   706→      });
+   707→      const printedBy = getPrintedBy();
+   708→      exportToPDFSimple(
+   709→        `Ledger-${acct?.name || "Statement"}`,
+   710→        headers,
+   711→        rows,
+   712→        "portrait",
+   713→        `${acct?.code || ""} - ${acct?.name || ""} | From: ${ledgerFrom || "—"} To: ${ledgerTo || "—"}`,
+   714→        undefined,
+   715→        { preparedBy: printedBy, checkedBy: "", authorizedBy: "", printedBy }
+   716→      );
+   717→      toast({ title: "Exported", description: "Ledger statement exported to PDF" });
+   718→    } catch (e: any) {
+   719→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   720→    }
+   721→  };
+   722→
+   723→  const exportLedgerCSV = () => {
+   724→    try {
+   725→      const headers = ["Date", "Particulars", "Debit", "Credit", "Balance"];
+   726→      let runningBalance = 0;
+   727→      const rows = ledgerEntries.map((e: any) => {
+   728→        runningBalance += (e.debit || 0) - (e.credit || 0);
+   729→        return [
+   730→          fmtDate(e.date), e.particulars || "",
+   731→          String(e.debit || 0), String(e.credit || 0), String(runningBalance),
+   732→        ];
+   733→      });
+   734→      exportToCSVSimple("Ledger-Statement", headers, rows);
+   735→      toast({ title: "Exported", description: "Ledger statement exported to CSV" });
+   736→    } catch (e: any) {
+   737→      toast({ title: "Error", description: e.message, variant: "destructive" });
+   738→    }
+   739→  };
+   740→
+   741→  const importLedgerCSV = async () => {
+   742→    try {
+   743→      const result = await importFromCSV({
+   744→        apiPath: "/api/ledger-entries?import=true",
+   745→        formFields: [
+   746→          { key: "accountId", label: "Account ID", type: "text", required: true },
+   747→          { key: "date", label: "Date", type: "date", required: true },
+   748→          { key: "particulars", label: "Particulars", type: "text" },
+   749→          { key: "debit", label: "Debit", type: "number" },
+   750→          { key: "credit", label: "Credit", type: "number" },
+   751→        ],
+   752→      });
+   753→      if (result.imported > 0) {
+   754→        toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
+   755→        if (ledgerAccountId) loadLedgerEntries(ledgerAccountId);
+   756→      } else if (result.errors.length > 0) {
+   757→        toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
+   758→      }
+   759→    } catch (e: any) {
+   760→      toast({ title: "Import Error", description: e.message, variant: "destructive" });
+   761→    }
+   762→  };
+   763→
+   764→  // ── Running balance computation ──
+   765→  const ledgerWithBalance = useMemo(() => {
+   766→    let balance = 0;
+   767→    return ledgerEntries.map((e: any) => {
+   768→      balance += (e.debit || 0) - (e.credit || 0);
+   769→      return { ...e, runningBalance: balance };
+   770→    });
+   771→  }, [ledgerEntries]);
+   772→
+   773→  // ============================================================
+   774→  // RENDER: COA Tree Node (recursive)
+   775→  // ============================================================
+   776→  const renderTreeNode = (account: any, depth: number = 0) => {
+   777→    const children = getChildren(account.id);
+   778→    const hasChildren = children.length > 0;
+   779→    const isExpanded = expandedNodes.has(account.id);
+   780→    const isSelected = selectedAccount?.id === account.id;
+   781→    const isRoot = account.isRoot === true;
+   782→    const dotColor = CLASSIFICATION_DOT[account.classification] || "bg-slate-400";
+   783→
+   784→    return (
+   785→      <React.Fragment key={account.id}>
+   786→        <div
+   787→          className={`flex items-center gap-1 py-1.5 px-2 rounded-md cursor-pointer transition-colors group
+   788→            ${isSelected ? "bg-[#2563eb]/10 border border-[#2563eb]/30" : "hover:bg-muted/50"}
+   789→            ${isRoot ? "font-semibold" : ""}`}
+   790→          style={{ paddingLeft: `${depth * 24 + 8}px` }}
+   791→          onClick={() => setSelectedAccount(account)}
+   792→        >
+   793→          {/* Expand/Collapse */}
+   794→          <Button
+   795→            variant="ghost"
+   796→            size="sm"
+   797→            className="h-5 w-5 p-0 shrink-0"
+   798→            onClick={(e) => { e.stopPropagation(); toggleNode(account.id); }}
+   799→          >
+   800→            {hasChildren ? (
+   801→              isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />
+   802→            ) : <span className="w-3.5" />}
+   803→          </Button>
+   804→
+   805→          {/* Root Shield */}
+   806→          {isRoot && <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+   807→
+   808→          {/* Classification Dot */}
+   809→          <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+   810→
+   811→          {/* Code + Name */}
+   812→          <span className="font-mono text-xs text-muted-foreground shrink-0">{account.code}</span>
+   813→          <span className="text-sm truncate text-slate-900 dark:text-white">{account.name}</span>
+   814→
+   815→          {/* Classification Badge */}
+   816→          <Badge className={`ml-1 text-[10px] px-1.5 py-0 ${CLASSIFICATION_COLORS[account.classification] || ""}`}>
+   817→            {account.classification}
+   818→          </Badge>
+   819→
+   820→          {/* Balance */}
+   821→          <span className="ml-auto font-mono text-xs whitespace-nowrap text-muted-foreground">
+   822→            {fmt(account.currentBalance ?? account.subBalance?.totalNet ?? 0, "currency")}
+   823→          </span>
+   824→
+   825→          {/* Actions */}
+   826→          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+   827→            <Button variant="ghost" size="sm" className="h-6 w-6 p-0"
+   828→              onClick={(e) => { e.stopPropagation(); openCOAEdit(account); }}>
+   829→              <Edit className="w-3 h-3" />
+   830→            </Button>
+   831→            <TooltipProvider>
+   832→              <Tooltip>
+   833→                <TooltipTrigger asChild>
+   834→                  <span>
+   835→                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500"
+   836→                      disabled={isRoot}
+   837→                      onClick={(e) => { e.stopPropagation(); setCoaDeleteItem(account); }}>
+   838→                      <Trash2 className="w-3 h-3" />
+   839→                    </Button>
+   840→                  </span>
+   841→                </TooltipTrigger>
+   842→                {isRoot && (
+   843→                  <TooltipContent>
+   844→                    <p>Root nodes are shield-locked and cannot be deleted</p>
+   845→                  </TooltipContent>
+   846→                )}
+   847→              </Tooltip>
+   848→            </TooltipProvider>
+   849→          </div>
+   850→        </div>
+   851→
+   852→        {/* Children */}
+   853→        {hasChildren && isExpanded && children.map((child: any) => renderTreeNode(child, depth + 1))}
+   854→      </React.Fragment>
+   855→    );
+   856→  };
+   857→
+   858→  // ============================================================
+   859→  // RENDER: TAB 1 — COA Tree Navigation
+   860→  // ============================================================
+   861→  const renderCOATree = () => (
+   862→    <div className="space-y-4">
+   863→      {/* Toolbar */}
+   864→      <div className="flex flex-wrap items-center gap-2">
+   865→        <div className="relative flex-1 min-w-[200px] max-w-sm">
+   866→          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   867→          <Input placeholder="Search accounts..." value={coaSearch} onChange={e => setCoaSearch(e.target.value)} className="pl-10" />
+   868→        </div>
+   869→        <Select value={coaFilter} onValueChange={setCoaFilter}>
+   870→          <SelectTrigger className="w-40"><SelectValue placeholder="Classification" /></SelectTrigger>
+   871→          <SelectContent>
+   872→            <SelectItem value="all">All Classifications</SelectItem>
+   873→            <SelectItem value="Asset">Asset</SelectItem>
+   874→            <SelectItem value="Liability">Liability</SelectItem>
+   875→            <SelectItem value="Equity">Equity</SelectItem>
+   876→            <SelectItem value="Revenue">Revenue</SelectItem>
+   877→            <SelectItem value="Expense">Expense</SelectItem>
+   878→          </SelectContent>
+   879→        </Select>
+   880→        <Button variant="outline" size="sm" onClick={loadAccounts}><RefreshCw className="w-4 h-4" /></Button>
+   881→        <Button variant="outline" size="sm" onClick={exportCOAPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+   882→        <Button variant="outline" size="sm" onClick={exportCOACSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+   883→        <Button variant="outline" size="sm" onClick={importCOACSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
+   884→        <Button variant="outline" size="sm" onClick={seedRootNodes} disabled={seedingRoot}>
+   885→          {seedingRoot ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Shield className="w-4 h-4 mr-1" />}
+   886→          Seed Root Nodes
+   887→        </Button>
+   888→        <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={() => openCOACreate()}>
+   889→          <Plus className="w-4 h-4 mr-1" />Add Account
+   890→        </Button>
+   891→      </div>
+   892→
+   893→      {/* Stats */}
+   894→      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+   895→        {[
+   896→          { label: "Total", value: accounts.length, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30", icon: BookOpen },
+   897→          { label: "Assets", value: accounts.filter((a: any) => a.classification === "Asset").length, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-900/30", icon: Shield },
+   898→          { label: "Liabilities", value: accounts.filter((a: any) => a.classification === "Liability").length, color: "text-red-600", bg: "bg-red-50 dark:bg-red-900/30", icon: AlertTriangle },
+   899→          { label: "Equity", value: accounts.filter((a: any) => a.classification === "Equity").length, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/30", icon: BookOpen },
+   900→          { label: "Revenue/Expense", value: accounts.filter((a: any) => a.classification === "Revenue" || a.classification === "Expense").length, color: "text-green-600", bg: "bg-green-50 dark:bg-green-900/30", icon: FileText },
+   901→        ].map((stat, i) => (
+   902→          <Card key={i}><CardContent className="p-3 flex items-center gap-2">
+   903→            <div className={`p-1.5 rounded-lg ${stat.bg} ${stat.color}`}><stat.icon className="w-4 h-4" /></div>
+   904→            <div><p className="text-xs text-muted-foreground">{stat.label}</p><p className="text-lg font-bold text-slate-900 dark:text-white">{stat.value}</p></div>
+   905→          </CardContent></Card>
+   906→        ))}
+   907→      </div>
+   908→
+   909→      {/* Tree + Detail */}
+   910→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   911→        {/* Tree */}
+   912→        <Card className="lg:col-span-2">
+   913→          <CardContent className="p-4">
+   914→            <div className="max-h-[60vh] overflow-y-auto space-y-0.5">
+   915→              {accountsLoading ? (
+   916→                <div className="flex items-center justify-center py-12"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+   917→              ) : rootAccounts.length === 0 ? (
+   918→                <div className="text-center py-12 text-muted-foreground">
+   919→                  <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
+   920→                  <p>No accounts found. Click "Seed Root Nodes" to initialize.</p>
+   921→                </div>
+   922→              ) : (
+   923→                rootAccounts.map((acct: any) => renderTreeNode(acct, 0))
+   924→              )}
+   925→            </div>
+   926→            <div className="mt-2 text-xs text-muted-foreground">Showing {rootAccounts.length} root accounts · {accounts.length} total</div>
+   927→          </CardContent>
+   928→        </Card>
+   929→
+   930→        {/* Detail Panel */}
+   931→        <Card>
+   932→          <CardContent className="p-4">
+   933→            {selectedAccount ? (
+   934→              <div className="space-y-3">
+   935→                <div className="flex items-center gap-2">
+   936→                  {selectedAccount.isRoot && <Shield className="w-5 h-5 text-amber-500" />}
+   937→                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">{selectedAccount.name}</h3>
+   938→                </div>
+   939→                <div className="text-sm font-mono text-muted-foreground">{selectedAccount.code}</div>
+   940→                <Badge className={CLASSIFICATION_COLORS[selectedAccount.classification] || ""}>{selectedAccount.classification}</Badge>
+   941→
+   942→                <div className="border-t pt-3 space-y-2">
+   943→                  <div className="flex justify-between text-sm">
+   944→                    <span className="text-muted-foreground">Current Balance</span>
+   945→                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+   946→                      {fmt(selectedAccount.currentBalance ?? selectedAccount.subBalance?.totalNet ?? 0, "currency")}
+   947→                    </span>
+   948→                  </div>
+   949→                  <div className="flex justify-between text-sm">
+   950→                    <span className="text-muted-foreground">Opening Balance</span>
+   951→                    <span className="font-mono text-slate-900 dark:text-white">{fmt(selectedAccount.openingBalance, "currency")}</span>
+   952→                  </div>
+   953→                  <div className="flex justify-between text-sm">
+   954→                    <span className="text-muted-foreground">Opening Type</span>
+   955→                    <Badge variant="outline">{selectedAccount.openingBalanceType}</Badge>
+   956→                  </div>
+   957→                  <div className="flex justify-between text-sm">
+   958→                    <span className="text-muted-foreground">Parent</span>
+   959→                    <span className="text-slate-900 dark:text-white">{selectedAccount.parentAccount?.name || "— (Root)"}</span>
+   960→                  </div>
+   961→                  <div className="flex justify-between text-sm">
+   962→                    <span className="text-muted-foreground">Children</span>
+   963→                    <span className="text-slate-900 dark:text-white">{selectedAccount._count?.childAccounts ?? getChildren(selectedAccount.id).length}</span>
+   964→                  </div>
+   965→                  {selectedAccount.subBalance && (
+   966→                    <>
+   967→                      <div className="border-t pt-2 mt-2">
+   968→                        <div className="text-xs font-medium text-muted-foreground mb-1">Sub-Balances</div>
+   969→                        <div className="flex justify-between text-sm">
+   970→                          <span className="text-muted-foreground">Own Net</span>
+   971→                          <span className="font-mono text-slate-900 dark:text-white">{fmt(selectedAccount.subBalance.ownNet, "currency")}</span>
+   972→                        </div>
+   973→                        <div className="flex justify-between text-sm">
+   974→                          <span className="text-muted-foreground">Child Net</span>
+   975→                          <span className="font-mono text-slate-900 dark:text-white">{fmt(selectedAccount.subBalance.childNet, "currency")}</span>
+   976→                        </div>
+   977→                        <div className="flex justify-between text-sm font-medium">
+   978→                          <span className="text-muted-foreground">Total Net</span>
+   979→                          <span className="font-mono font-bold text-slate-900 dark:text-white">{fmt(selectedAccount.subBalance.totalNet, "currency")}</span>
+   980→                        </div>
+   981→                      </div>
+   982→                    </>
+   983→                  )}
+   984→                </div>
+   985→
+   986→                <div className="border-t pt-3 flex gap-2">
+   987→                  <Button size="sm" variant="outline" className="flex-1" onClick={() => openCOAEdit(selectedAccount)}>
+   988→                    <Edit className="w-3.5 h-3.5 mr-1" />Edit
+   989→                  </Button>
+   990→                  <Button size="sm" variant="outline" className="flex-1" onClick={() => openCOACreate(selectedAccount.id)}>
+   991→                    <Plus className="w-3.5 h-3.5 mr-1" />Add Child
+   992→                  </Button>
+   993→                  {!selectedAccount.isRoot && (
+   994→                    <Button size="sm" variant="outline" className="text-red-500" onClick={() => setCoaDeleteItem(selectedAccount)}>
+   995→                      <Trash2 className="w-3.5 h-3.5" />
+   996→                    </Button>
+   997→                  )}
+   998→                </div>
+   999→              </div>
+  1000→            ) : (
+  1001→              <div className="text-center py-8 text-muted-foreground">
+  1002→                <Eye className="w-8 h-8 mx-auto mb-2 opacity-40" />
+  1003→                <p>Select an account to view details</p>
+  1004→              </div>
+  1005→            )}
+  1006→          </CardContent>
+  1007→        </Card>
+  1008→      </div>
+  1009→    </div>
+  1010→  );
+  1011→
+  1012→  // ============================================================
+  1013→  // RENDER: TAB 2 — Journal Voucher Entry
+  1014→  // ============================================================
+  1015→  const renderJournalVoucher = () => (
+  1016→    <div className="space-y-4">
+  1017→      <Card className={`transition-all ${!jvBalanced && jvTotalDebit > 0 ? "border-[3px] border-red-500 shadow-red-500/20 shadow-lg" : ""}`}>
+  1018→        <CardContent className="p-6">
+  1019→          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+  1020→            <div>
+  1021→              <Label>Date</Label>
+  1022→              <Input type="date" value={jvDate} onChange={e => setJvDate(e.target.value)} />
+  1023→            </div>
+  1024→            <div>
+  1025→              <Label>Type</Label>
+  1026→              <Input value="JOURNAL" disabled className="bg-muted" />
+  1027→            </div>
+  1028→            <div className="md:col-span-2">
+  1029→              <Label>Narration</Label>
+  1030→              <Textarea placeholder="Enter voucher narration..." value={jvNarration} onChange={e => setJvNarration(e.target.value)} rows={2} />
+  1031→            </div>
+  1032→          </div>
+  1033→
+  1034→          {/* Line Items Table */}
+  1035→          <div className="border rounded-lg overflow-hidden">
+  1036→            <Table>
+  1037→              <TableHeader>
+  1038→                <TableRow className="bg-[#0a1628]">
+  1039→                  <TableHead className="text-white w-10">#</TableHead>
+  1040→                  <TableHead className="text-white">Account</TableHead>
+  1041→                  <TableHead className="text-white w-32">Debit (Tk.)</TableHead>
+  1042→                  <TableHead className="text-white w-32">Credit (Tk.)</TableHead>
+  1043→                  <TableHead className="text-white">Particulars</TableHead>
+  1044→                  <TableHead className="text-white w-10"></TableHead>
+  1045→                </TableRow>
+  1046→              </TableHeader>
+  1047→              <TableBody>
+  1048→                {jvLines.map((line, idx) => (
+  1049→                  <TableRow key={idx}>
+  1050→                    <TableCell className="text-muted-foreground font-mono">{idx + 1}</TableCell>
+  1051→                    <TableCell>
+  1052→                      <Select value={line.accountId} onValueChange={v => updateJvLine(idx, "accountId", v)}>
+  1053→                        <SelectTrigger className="w-full"><SelectValue placeholder="Select account..." /></SelectTrigger>
+  1054→                        <SelectContent className="max-h-64">
+  1055→                          {accounts.filter((a: any) => !a.isRoot).map((a: any) => (
+  1056→                            <SelectItem key={a.id} value={a.id}>
+  1057→                              <span className="flex items-center gap-1">
+  1058→                                <span className={`w-2 h-2 rounded-full ${CLASSIFICATION_DOT[a.classification] || "bg-slate-400"}`} />
+  1059→                                {a.code} - {a.name}
+  1060→                              </span>
+  1061→                            </SelectItem>
+  1062→                          ))}
+  1063→                        </SelectContent>
+  1064→                      </Select>
+  1065→                    </TableCell>
+  1066→                    <TableCell>
+  1067→                      <Input type="number" min="0" step="0.01" value={line.debit || ""}
+  1068→                        onChange={e => updateJvLine(idx, "debit", Number(e.target.value) || 0)}
+  1069→                        className={line.debit > 0 ? "border-green-500/50 bg-green-50/50 dark:bg-green-900/10" : ""} />
+  1070→                    </TableCell>
+  1071→                    <TableCell>
+  1072→                      <Input type="number" min="0" step="0.01" value={line.credit || ""}
+  1073→                        onChange={e => updateJvLine(idx, "credit", Number(e.target.value) || 0)}
+  1074→                        className={line.credit > 0 ? "border-blue-500/50 bg-blue-50/50 dark:bg-blue-900/10" : ""} />
+  1075→                    </TableCell>
+  1076→                    <TableCell>
+  1077→                      <Input value={line.particulars} onChange={e => updateJvLine(idx, "particulars", e.target.value)} placeholder="Particulars" />
+  1078→                    </TableCell>
+  1079→                    <TableCell>
+  1080→                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500" onClick={() => removeJvLine(idx)}>
+  1081→                        <X className="w-4 h-4" />
+  1082→                      </Button>
+  1083→                    </TableCell>
+  1084→                  </TableRow>
+  1085→                ))}
+  1086→              </TableBody>
+  1087→            </Table>
+  1088→          </div>
+  1089→
+  1090→          <div className="mt-2">
+  1091→            <Button variant="outline" size="sm" onClick={addJvLine}>
+  1092→              <Plus className="w-4 h-4 mr-1" />Add Line
+  1093→            </Button>
+  1094→          </div>
+  1095→
+  1096→          {/* Balance Indicator */}
+  1097→          <div className={`mt-4 p-4 rounded-lg border-2 ${
+  1098→            jvBalanced
+  1099→              ? "bg-green-50 dark:bg-green-900/20 border-green-500"
+  1100→              : jvTotalDebit > 0 || jvTotalCredit > 0
+  1101→                ? "bg-red-50 dark:bg-red-900/20 border-[#ef4444]"
+  1102→                : "bg-muted/50 border-muted"
+  1103→          }`}>
+  1104→            <div className="flex flex-wrap items-center justify-between gap-4">
+  1105→              <div className="flex items-center gap-6 font-mono text-sm">
+  1106→                <span>Total Debit: <strong className="text-green-600">{fmt(jvTotalDebit, "currency")}</strong></span>
+  1107→                <span>Total Credit: <strong className="text-blue-600">{fmt(jvTotalCredit, "currency")}</strong></span>
+  1108→                <span>Difference: <strong className={jvDifference > 0.01 ? "text-red-600" : "text-green-600"}>{fmt(jvDifference, "currency")}</strong></span>
+  1109→              </div>
+  1110→              <div>
+  1111→                {jvBalanced ? (
+  1112→                  <div className="flex items-center gap-2 text-green-600">
+  1113→                    <CheckCircle className="w-5 h-5" />
+  1114→                    <span className="font-medium">Balanced ✓</span>
+  1115→                  </div>
+  1116→                ) : (jvTotalDebit > 0 || jvTotalCredit > 0) ? (
+  1117→                  <div className="flex items-center gap-2 text-[#ef4444]">
+  1118→                    <AlertTriangle className="w-5 h-5" />
+  1119→                    <span className="font-medium">Ledger Imbalance Detected: Debits and Credits must match perfectly.</span>
+  1120→                  </div>
+  1121→                ) : (
+  1122→                  <span className="text-muted-foreground text-sm">Enter amounts to see balance</span>
+  1123→                )}
+  1124→              </div>
+  1125→            </div>
+  1126→          </div>
+  1127→
+  1128→          {/* Post Button */}
+  1129→          <div className="mt-4 flex justify-end">
+  1130→            <Button
+  1131→              className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-[240px]"
+  1132→              onClick={postJournalVoucher}
+  1133→              disabled={jvPosting || !jvBalanced}
+  1134→            >
+  1135→              {jvPosting ? (
+  1136→                <>
+  1137→                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+  1138→                  Re-calculating Trial Balances & Committing General Ledger Matrix...
+  1139→                </>
+  1140→              ) : (
+  1141→                <>
+  1142→                  <CheckCircle className="w-4 h-4 mr-2" />
+  1143→                  Post Ledger Journal
+  1144→                </>
+  1145→              )}
+  1146→            </Button>
+  1147→          </div>
+  1148→        </CardContent>
+  1149→      </Card>
+  1150→    </div>
+  1151→  );
+  1152→
+  1153→  // ============================================================
+  1154→  // RENDER: TAB 3 — Cash/Bank Vouchers
+  1155→  // ============================================================
+  1156→  const renderCashBankVouchers = () => (
+  1157→    <div className="space-y-4">
+  1158→      {/* Sub-tabs */}
+  1159→      <div className="flex flex-wrap gap-2">
+  1160→        {[
+  1161→          { key: "cash-receipt", label: "Cash Receipt", icon: ArrowUpCircle, color: "text-green-600" },
+  1162→          { key: "cash-payment", label: "Cash Payment", icon: ArrowDownCircle, color: "text-red-600" },
+  1163→          { key: "bank-receipt", label: "Bank Receipt", icon: ArrowUpCircle, color: "text-green-600" },
+  1164→          { key: "bank-payment", label: "Bank Payment", icon: ArrowDownCircle, color: "text-red-600" },
+  1165→        ].map(tab => (
+  1166→          <Button
+  1167→            key={tab.key}
+  1168→            variant={cbSubTab === tab.key ? "default" : "outline"}
+  1169→            size="sm"
+  1170→            className={cbSubTab === tab.key ? `bg-[#2563eb] hover:bg-[#1d4ed8]` : ""}
+  1171→            onClick={() => {
+  1172→              setCbSubTab(tab.key as any);
+  1173→              setCbAmount(0); setCbAccountId(""); setCbNarration(""); setCbReferenceNo("");
+  1174→              setCbBankId(""); setCbChequeNo(""); setCbChequeDate("");
+  1175→            }}
+  1176→          >
+  1177→            <tab.icon className={`w-4 h-4 mr-1 ${cbSubTab !== tab.key ? tab.color : ""}`} />
+  1178→            {tab.label}
+  1179→          </Button>
+  1180→        ))}
+  1181→      </div>
+  1182→
+  1183→      <Card>
+  1184→        <CardContent className="p-6">
+  1185→          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  1186→            <div>
+  1187→              <Label>Date</Label>
+  1188→              <Input type="date" value={cbDate} onChange={e => setCbDate(e.target.value)} />
+  1189→            </div>
+  1190→            <div>
+  1191→              <Label>Amount (Tk.)</Label>
+  1192→              <Input type="number" min="0" step="0.01" value={cbAmount || ""} onChange={e => setCbAmount(Number(e.target.value) || 0)} placeholder="0.00" />
+  1193→            </div>
+  1194→            <div>
+  1195→              <Label>{cbSubTab === "cash-receipt" || cbSubTab === "bank-receipt" ? "Receiving Account (Credit)" : "Paying Account (Debit)"}</Label>
+  1196→              <Select value={cbAccountId} onValueChange={setCbAccountId}>
+  1197→                <SelectTrigger><SelectValue placeholder="Select account..." /></SelectTrigger>
+  1198→                <SelectContent className="max-h-64">
+  1199→                  {accounts.filter((a: any) => !a.isRoot).map((a: any) => (
+  1200→                    <SelectItem key={a.id} value={a.id}>
+  1201→                      <span className="flex items-center gap-1">
+  1202→                        <span className={`w-2 h-2 rounded-full ${CLASSIFICATION_DOT[a.classification] || "bg-slate-400"}`} />
+  1203→                        {a.code} - {a.name}
+  1204→                      </span>
+  1205→                    </SelectItem>
+  1206→                  ))}
+  1207→                </SelectContent>
+  1208→              </Select>
+  1209→            </div>
+  1210→            <div>
+  1211→              <Label>Reference No</Label>
+  1212→              <Input value={cbReferenceNo} onChange={e => setCbReferenceNo(e.target.value)} placeholder="Optional reference" />
+  1213→            </div>
+  1214→            <div className="md:col-span-2">
+  1215→              <Label>Narration</Label>
+  1216→              <Textarea value={cbNarration} onChange={e => setCbNarration(e.target.value)} placeholder="Voucher narration..." rows={2} />
+  1217→            </div>
+  1218→
+  1219→            {/* Bank-specific fields */}
+  1220→            {cbIsBank && (
+  1221→              <>
+  1222→                <div>
+  1223→                  <Label>Bank</Label>
+  1224→                  <Select value={cbBankId} onValueChange={setCbBankId}>
+  1225→                    <SelectTrigger><SelectValue placeholder="Select bank..." /></SelectTrigger>
+  1226→                    <SelectContent className="max-h-64">
+  1227→                      {banks.map((b: any) => (
+  1228→                        <SelectItem key={b.id} value={b.id}>
+  1229→                          {b.bankName} — {b.accountNo} {b.branch ? `(${b.branch})` : ""}
+  1230→                        </SelectItem>
+  1231→                      ))}
+  1232→                    </SelectContent>
+  1233→                  </Select>
+  1234→                </div>
+  1235→                <div>
+  1236→                  <Label>Cheque No</Label>
+  1237→                  <Input value={cbChequeNo} onChange={e => setCbChequeNo(e.target.value)} placeholder="Cheque number" />
+  1238→                </div>
+  1239→                <div>
+  1240→                  <Label>Cheque Date</Label>
+  1241→                  <Input type="date" value={cbChequeDate} onChange={e => setCbChequeDate(e.target.value)} />
+  1242→                </div>
+  1243→              </>
+  1244→            )}
+  1245→          </div>
+  1246→
+  1247→          {/* Auto-generated lines preview */}
+  1248→          <div className="mt-4 p-3 bg-muted/50 rounded-lg border">
+  1249→            <p className="text-xs font-medium text-muted-foreground mb-2">Auto-generated voucher lines:</p>
+  1250→            <div className="grid grid-cols-2 gap-2 text-sm">
+  1251→              {cbSubTab === "cash-receipt" && (
+  1252→                <>
+  1253→                  <div className="flex justify-between"><span>Dr: Cash-in-Hand</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1254→                  <div className="flex justify-between"><span>Cr: Selected Account</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1255→                </>
+  1256→              )}
+  1257→              {cbSubTab === "cash-payment" && (
+  1258→                <>
+  1259→                  <div className="flex justify-between"><span>Dr: Selected Account</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1260→                  <div className="flex justify-between"><span>Cr: Cash-in-Hand</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1261→                </>
+  1262→              )}
+  1263→              {cbSubTab === "bank-receipt" && (
+  1264→                <>
+  1265→                  <div className="flex justify-between"><span>Dr: Bank Account</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1266→                  <div className="flex justify-between"><span>Cr: Selected Account</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1267→                </>
+  1268→              )}
+  1269→              {cbSubTab === "bank-payment" && (
+  1270→                <>
+  1271→                  <div className="flex justify-between"><span>Dr: Selected Account</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1272→                  <div className="flex justify-between"><span>Cr: Bank Account</span><span className="font-mono">{fmt(cbAmount, "currency")}</span></div>
+  1273→                </>
+  1274→              )}
+  1275→            </div>
+  1276→          </div>
+  1277→
+  1278→          {/* Post Button */}
+  1279→          <div className="mt-4 flex justify-end">
+  1280→            <Button
+  1281→              className="bg-[#2563eb] hover:bg-[#1d4ed8] min-w-[220px]"
+  1282→              onClick={postCashBankVoucher}
+  1283→              disabled={cbPosting}
+  1284→            >
+  1285→              {cbPosting ? (
+  1286→                <>
+  1287→                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+  1288→                  Re-calculating Trial Balances & Committing General Ledger Matrix...
+  1289→                </>
+  1290→              ) : (
+  1291→                <>
+  1292→                  <CheckCircle className="w-4 h-4 mr-2" />
+  1293→                  {cbIsBank ? "Authorize Bank Voucher" : "Authorize Cash Voucher"}
+  1294→                </>
+  1295→              )}
+  1296→            </Button>
+  1297→          </div>
+  1298→        </CardContent>
+  1299→      </Card>
+  1300→    </div>
+  1301→  );
+  1302→
+  1303→  // ============================================================
+  1304→  // RENDER: TAB 4 — Voucher Register
+  1305→  // ============================================================
+  1306→  const renderVoucherRegister = () => (
+  1307→    <div className="space-y-4">
+  1308→      {/* Filters */}
+  1309→      <div className="flex flex-wrap items-center gap-2">
+  1310→        <Select value={vrType} onValueChange={setVrType}>
+  1311→          <SelectTrigger className="w-44"><SelectValue placeholder="Voucher Type" /></SelectTrigger>
+  1312→          <SelectContent>
+  1313→            <SelectItem value="all">All Types</SelectItem>
+  1314→            <SelectItem value="JOURNAL">Journal</SelectItem>
+  1315→            <SelectItem value="CASH_RECEIPT">Cash Receipt</SelectItem>
+  1316→            <SelectItem value="CASH_PAYMENT">Cash Payment</SelectItem>
+  1317→            <SelectItem value="BANK_RECEIPT">Bank Receipt</SelectItem>
+  1318→            <SelectItem value="BANK_PAYMENT">Bank Payment</SelectItem>
+  1319→          </SelectContent>
+  1320→        </Select>
+  1321→        <Select value={vrStatus} onValueChange={setVrStatus}>
+  1322→          <SelectTrigger className="w-36"><SelectValue placeholder="Status" /></SelectTrigger>
+  1323→          <SelectContent>
+  1324→            <SelectItem value="all">All Status</SelectItem>
+  1325→            <SelectItem value="Draft">Draft</SelectItem>
+  1326→            <SelectItem value="Posted">Posted</SelectItem>
+  1327→          </SelectContent>
+  1328→        </Select>
+  1329→        <Input type="date" value={vrFrom} onChange={e => setVrFrom(e.target.value)} className="w-36" />
+  1330→        <Input type="date" value={vrTo} onChange={e => setVrTo(e.target.value)} className="w-36" />
+  1331→        <Button variant="outline" size="sm" onClick={loadVouchers}><RefreshCw className="w-4 h-4" /></Button>
+  1332→        <div className="ml-auto flex gap-2">
+  1333→          <Button variant="outline" size="sm" onClick={exportVoucherCSV}><Download className="w-4 h-4 mr-1" />Export CSV</Button>
+  1334→          <Button variant="outline" size="sm" onClick={exportVoucherRegisterPDF}><FileDown className="w-4 h-4 mr-1" />Export PDF</Button>
+  1335→          <Button variant="outline" size="sm" onClick={importVoucherCSV}><Upload className="w-4 h-4 mr-1" />Import CSV</Button>
+  1336→        </div>
+  1337→      </div>
+  1338→
+  1339→      <Card>
+  1340→        <CardContent className="p-0">
+  1341→          <div className="overflow-auto max-h-[70vh]">
+  1342→            <Table>
+  1343→              <TableHeader>
+  1344→                <TableRow className="bg-[#0a1628]">
+  1345→                  <TableHead className="text-white w-8"></TableHead>
+  1346→                  <TableHead className="text-white">Voucher No</TableHead>
+  1347→                  <TableHead className="text-white">Date</TableHead>
+  1348→                  <TableHead className="text-white">Type</TableHead>
+  1349→                  <TableHead className="text-white">Narration</TableHead>
+  1350→                  <TableHead className="text-white text-right">Total Debit</TableHead>
+  1351→                  <TableHead className="text-white text-right">Total Credit</TableHead>
+  1352→                  <TableHead className="text-white">Status</TableHead>
+  1353→                  <TableHead className="text-white w-24 text-right">Actions</TableHead>
+  1354→                </TableRow>
+  1355→              </TableHeader>
+  1356→              <TableBody>
+  1357→                {vouchersLoading ? (
+  1358→                  <TableRow><TableCell colSpan={9} className="h-24 text-center"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-muted-foreground" /></TableCell></TableRow>
+  1359→                ) : vouchers.length === 0 ? (
+  1360→                  <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No vouchers found</TableCell></TableRow>
+  1361→                ) : vouchers.map((v: any) => (
+  1362→                  <React.Fragment key={v.id}>
+  1363→                    <TableRow className="hover:bg-muted/50 cursor-pointer" onClick={() => setExpandedVoucher(expandedVoucher === v.id ? null : v.id)}>
+  1364→                      <TableCell>
+  1365→                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+  1366→                          {expandedVoucher === v.id ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+  1367→                        </Button>
+  1368→                      </TableCell>
+  1369→                      <TableCell className="font-mono font-medium text-slate-900 dark:text-white">{v.voucherNo}</TableCell>
+  1370→                      <TableCell>{fmtDate(v.date)}</TableCell>
+  1371→                      <TableCell>
+  1372→                        <Badge variant="outline" className={
+  1373→                          v.type === "JOURNAL" ? "border-blue-300 text-blue-600" :
+  1374→                          v.type.includes("RECEIPT") ? "border-green-300 text-green-600" :
+  1375→                          "border-red-300 text-red-600"
+  1376→                        }>{v.type.replace(/_/g, " ")}</Badge>
+  1377→                      </TableCell>
+  1378→                      <TableCell className="max-w-[200px] truncate">{v.narration || "—"}</TableCell>
+  1379→                      <TableCell className="font-mono text-right">{fmt(v.totalDebit, "currency")}</TableCell>
+  1380→                      <TableCell className="font-mono text-right">{fmt(v.totalCredit, "currency")}</TableCell>
+  1381→                      <TableCell>
+  1382→                        <Badge className={v.status === "Posted" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"}>
+  1383→                          {v.status}
+  1384→                        </Badge>
+  1385→                      </TableCell>
+  1386→                      <TableCell className="text-right">
+  1387→                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); exportVoucherPDF(v); }}>
+  1388→                          <FileDown className="w-3.5 h-3.5" />
+  1389→                        </Button>
+  1390→                      </TableCell>
+  1391→                    </TableRow>
+  1392→                    {expandedVoucher === v.id && (
+  1393→                      <TableRow>
+  1394→                        <TableCell colSpan={9} className="bg-muted/30 p-3">
+  1395→                          <div className="max-w-3xl mx-auto">
+  1396→                            <Table>
+  1397→                              <TableHeader>
+  1398→                                <TableRow>
+  1399→                                  <TableHead>Account</TableHead>
+  1400→                                  <TableHead className="text-right">Debit</TableHead>
+  1401→                                  <TableHead className="text-right">Credit</TableHead>
+  1402→                                  <TableHead>Particulars</TableHead>
+  1403→                                </TableRow>
+  1404→                              </TableHeader>
+  1405→                              <TableBody>
+  1406→                                {(v.lines || []).map((line: any) => (
+  1407→                                  <TableRow key={line.id}>
+  1408→                                    <TableCell className="font-medium">{line.accountName || "—"}</TableCell>
+  1409→                                    <TableCell className="font-mono text-right">{line.debit > 0 ? fmt(line.debit, "currency") : "—"}</TableCell>
+  1410→                                    <TableCell className="font-mono text-right">{line.credit > 0 ? fmt(line.credit, "currency") : "—"}</TableCell>
+  1411→                                    <TableCell>{line.particulars || "—"}</TableCell>
+  1412→                                  </TableRow>
+  1413→                                ))}
+  1414→                              </TableBody>
+  1415→                            </Table>
+  1416→                            {v.bank && (
+  1417→                              <div className="mt-2 text-sm text-muted-foreground">
+  1418→                                Bank: {v.bank.bankName} — {v.bank.accountNo}
+  1419→                                {v.chequeNo && <> | Cheque: {v.chequeNo}</>}
+  1420→                                {v.chequeDate && <> | Cheque Date: {fmtDate(v.chequeDate)}</>}
+  1421→                                {v.referenceNo && <> | Ref: {v.referenceNo}</>}
+  1422→                              </div>
+  1423→                            )}
+  1424→                          </div>
+  1425→                        </TableCell>
+  1426→                      </TableRow>
+  1427→                    )}
+  1428→                  </React.Fragment>
+  1429→                ))}
+  1430→              </TableBody>
+  1431→            </Table>
+  1432→          </div>
+  1433→          <div className="p-3 text-xs text-muted-foreground border-t">{vouchers.length} vouchers</div>
+  1434→        </CardContent>
+  1435→      </Card>
+  1436→    </div>
+  1437→  );
+  1438→
+  1439→  // ============================================================
+  1440→  // RENDER: TAB 5 — Ledger Statement
+  1441→  // ============================================================
+  1442→  const renderLedgerStatement = () => (
+  1443→    <div className="space-y-4">
+  1444→      {/* Filters */}
+  1445→      <div className="flex flex-wrap items-center gap-2">
+  1446→        <Select value={ledgerAccountId} onValueChange={setLedgerAccountId}>
+  1447→          <SelectTrigger className="w-64"><SelectValue placeholder="Select account..." /></SelectTrigger>
+  1448→          <SelectContent className="max-h-64">
+  1449→            {accounts.filter((a: any) => !a.isRoot).map((a: any) => (
+  1450→              <SelectItem key={a.id} value={a.id}>
+  1451→                <span className="flex items-center gap-1">
+  1452→                  <span className={`w-2 h-2 rounded-full ${CLASSIFICATION_DOT[a.classification] || "bg-slate-400"}`} />
+  1453→                  {a.code} - {a.name}
+  1454→                </span>
+  1455→              </SelectItem>
+  1456→            ))}
+  1457→          </SelectContent>
+  1458→        </Select>
+  1459→        <Input type="date" value={ledgerFrom} onChange={e => setLedgerFrom(e.target.value)} className="w-36" />
+  1460→        <Input type="date" value={ledgerTo} onChange={e => setLedgerTo(e.target.value)} className="w-36" />
+  1461→        <Button variant="outline" size="sm" onClick={loadLedger} disabled={!ledgerAccountId}>
+  1462→          <RefreshCw className="w-4 h-4 mr-1" />Load
+  1463→        </Button>
+  1464→        <div className="ml-auto flex gap-2">
+  1465→          <Button variant="outline" size="sm" onClick={exportLedgerCSV} disabled={ledgerEntries.length === 0}>
+  1466→            <Download className="w-4 h-4 mr-1" />CSV
+  1467→          </Button>
+  1468→          <Button variant="outline" size="sm" onClick={exportLedgerPDF} disabled={ledgerEntries.length === 0}>
+  1469→            <FileDown className="w-4 h-4 mr-1" />PDF
+  1470→          </Button>
+  1471→          <Button variant="outline" size="sm" onClick={importLedgerCSV}>
+  1472→            <Upload className="w-4 h-4 mr-1" />Import CSV
+  1473→          </Button>
+  1474→        </div>
+  1475→      </div>
+  1476→
+  1477→      <Card>
+  1478→        <CardContent className="p-0">
+  1479→          {ledgerLoading ? (
+  1480→            <div className="flex items-center justify-center py-12"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+  1481→          ) : !ledgerAccountId ? (
+  1482→            <div className="text-center py-12 text-muted-foreground">
+  1483→              <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-40" />
+  1484→              <p>Select an account to view its ledger statement</p>
+  1485→            </div>
+  1486→          ) : ledgerWithBalance.length === 0 ? (
+  1487→            <div className="text-center py-12 text-muted-foreground">No ledger entries found for this account</div>
+  1488→          ) : (
+  1489→            <div className="overflow-auto max-h-[70vh]">
+  1490→              <Table>
+  1491→                <TableHeader>
+  1492→                  <TableRow className="bg-[#0a1628]">
+  1493→                    <TableHead className="text-white">Date</TableHead>
+  1494→                    <TableHead className="text-white">Particulars</TableHead>
+  1495→                    <TableHead className="text-white text-right">Debit</TableHead>
+  1496→                    <TableHead className="text-white text-right">Credit</TableHead>
+  1497→                    <TableHead className="text-white text-right">Balance</TableHead>
+  1498→                  </TableRow>
+  1499→                </TableHeader>
+  1500→                <TableBody>
+  1501→                  {ledgerWithBalance.map((entry: any) => (
+  1502→                    <TableRow key={entry.id} className="hover:bg-muted/50">
+  1503→                      <TableCell>{fmtDate(entry.date)}</TableCell>
+  1504→                      <TableCell>{entry.particulars || entry.account || "—"}</TableCell>
+  1505→                      <TableCell className="font-mono text-right">{entry.debit > 0 ? fmt(entry.debit, "currency") : "—"}</TableCell>
+  1506→                      <TableCell className="font-mono text-right">{entry.credit > 0 ? fmt(entry.credit, "currency") : "—"}</TableCell>
+  1507→                      <TableCell className={`font-mono text-right font-medium ${entry.runningBalance >= 0 ? "text-slate-900 dark:text-white" : "text-red-600"}`}>
+  1508→                        {fmt(entry.runningBalance, "currency")}
+  1509→                      </TableCell>
+  1510→                    </TableRow>
+  1511→                  ))}
+  1512→                </TableBody>
+  1513→              </Table>
+  1514→            </div>
+  1515→          )}
+  1516→          {ledgerWithBalance.length > 0 && (
+  1517→            <div className="p-3 border-t flex justify-between text-sm">
+  1518→              <span className="text-muted-foreground">{ledgerWithBalance.length} entries</span>
+  1519→              <span className="font-mono font-bold">
+  1520→                Closing Balance: {fmt(ledgerWithBalance[ledgerWithBalance.length - 1]?.runningBalance || 0, "currency")}
+  1521→              </span>
+  1522→            </div>
+  1523→          )}
+  1524→        </CardContent>
+  1525→      </Card>
+  1526→    </div>
+  1527→  );
+  1528→
+  1529→  // ============================================================
+  1530→  // RENDER: COA Add/Edit Dialog
+  1531→  // ============================================================
+  1532→  const renderCOADialog = () => (
+  1533→    <Dialog open={coaFormOpen} onOpenChange={setCoaFormOpen}>
+  1534→      <DialogContent className="sm:max-w-md">
+  1535→        <DialogHeader>
+  1536→          <DialogTitle>{coaEditItem ? "Edit Account" : "Add New Account"}</DialogTitle>
+  1537→          <DialogDescription>
+  1538→            {coaEditItem ? "Update the account details below." : "Create a new Chart of Accounts entry."}
+  1539→          </DialogDescription>
+  1540→        </DialogHeader>
+  1541→        <div className="space-y-4 py-2">
+  1542→          <div>
+  1543→            <Label>Account Name *</Label>
+  1544→            <Input value={coaFormData.name} onChange={e => setCoaFormData({ ...coaFormData, name: e.target.value })} placeholder="Enter account name" />
+  1545→          </div>
+  1546→          <div>
+  1547→            <Label>Classification</Label>
+  1548→            <Select value={coaFormData.classification} onValueChange={v => setCoaFormData({ ...coaFormData, classification: v })}>
+  1549→              <SelectTrigger><SelectValue /></SelectTrigger>
+  1550→              <SelectContent>
+  1551→                <SelectItem value="Asset">Asset</SelectItem>
+  1552→                <SelectItem value="Liability">Liability</SelectItem>
+  1553→                <SelectItem value="Equity">Equity</SelectItem>
+  1554→                <SelectItem value="Revenue">Revenue</SelectItem>
+  1555→                <SelectItem value="Expense">Expense</SelectItem>
+  1556→              </SelectContent>
+  1557→            </Select>
+  1558→          </div>
+  1559→          <div>
+  1560→            <Label>Parent Account</Label>
+  1561→            <Select value={coaFormData.parentAccountId || "__none__"} onValueChange={v => setCoaFormData({ ...coaFormData, parentAccountId: v === "__none__" ? "" : v })}>
+  1562→              <SelectTrigger><SelectValue placeholder="No parent (root)" /></SelectTrigger>
+  1563→              <SelectContent className="max-h-64">
+  1564→                <SelectItem value="__none__">No parent (root level)</SelectItem>
+  1565→                {accounts
+  1566→                  .filter((a: any) => a.id !== coaEditItem?.id)
+  1567→                  .map((a: any) => (
+  1568→                    <SelectItem key={a.id} value={a.id}>
+  1569→                      {a.code} - {a.name} ({a.classification})
+  1570→                    </SelectItem>
+  1571→                  ))
+  1572→                }
+  1573→              </SelectContent>
+  1574→            </Select>
+  1575→          </div>
+  1576→          <div className="grid grid-cols-2 gap-4">
+  1577→            <div>
+  1578→              <Label>Opening Balance</Label>
+  1579→              <Input type="number" min="0" step="0.01" value={coaFormData.openingBalance || ""} onChange={e => setCoaFormData({ ...coaFormData, openingBalance: Number(e.target.value) || 0 })} />
+  1580→            </div>
+  1581→            <div>
+  1582→              <Label>Opening Balance Type</Label>
+  1583→              <Select value={coaFormData.openingBalanceType} onValueChange={v => setCoaFormData({ ...coaFormData, openingBalanceType: v })}>
+  1584→                <SelectTrigger><SelectValue /></SelectTrigger>
+  1585→                <SelectContent>
+  1586→                  <SelectItem value="Dr">Dr (Debit)</SelectItem>
+  1587→                  <SelectItem value="Cr">Cr (Credit)</SelectItem>
+  1588→                </SelectContent>
+  1589→              </Select>
+  1590→            </div>
+  1591→          </div>
+  1592→        </div>
+  1593→        <DialogFooter>
+  1594→          <Button variant="outline" onClick={() => setCoaFormOpen(false)}>Cancel</Button>
+  1595→          <Button className="bg-[#2563eb] hover:bg-[#1d4ed8]" onClick={saveCOA} disabled={coaSaving}>
+  1596→            {coaSaving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1" />}
+  1597→            {coaEditItem ? "Update" : "Create"}
+  1598→          </Button>
+  1599→        </DialogFooter>
+  1600→      </DialogContent>
+  1601→    </Dialog>
+  1602→  );
+  1603→
+  1604→  // ============================================================
+  1605→  // RENDER: COA Delete Dialog
+  1606→  // ============================================================
+  1607→  const renderCOADeleteDialog = () => (
+  1608→    <Dialog open={!!coaDeleteItem} onOpenChange={() => setCoaDeleteItem(null)}>
+  1609→      <DialogContent className="sm:max-w-sm">
+  1610→        <DialogHeader>
+  1611→          <DialogTitle>Delete Account</DialogTitle>
+  1612→          <DialogDescription>
+  1613→            Are you sure you want to delete <strong>{coaDeleteItem?.name}</strong> ({coaDeleteItem?.code})?
+  1614→            This action cannot be undone.
+  1615→          </DialogDescription>
+  1616→        </DialogHeader>
+  1617→        <DialogFooter>
+  1618→          <Button variant="outline" onClick={() => setCoaDeleteItem(null)}>Cancel</Button>
+  1619→          <Button variant="destructive" onClick={deleteCOA}>
+  1620→            <Trash2 className="w-4 h-4 mr-1" />Delete
+  1621→          </Button>
+  1622→        </DialogFooter>
+  1623→      </DialogContent>
+  1624→    </Dialog>
+  1625→  );
+  1626→
+  1627→  // ============================================================
+  1628→  // MAIN RENDER
+  1629→  // ============================================================
+  1630→  return (
+  1631→    <div className="page-enter space-y-4">
+  1632→      {/* Header */}
+  1633→      <div className="flex items-center justify-between flex-wrap gap-2">
+  1634→        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+  1635→          <BookOpen className="w-6 h-6 text-[#2563eb]" />
+  1636→          Accounts & Ledger Management
+  1637→        </h2>
+  1638→      </div>
+  1639→
+  1640→      {/* Tabs */}
+  1641→      <Tabs value={activeTab} onValueChange={setActiveTab}>
+  1642→        <TabsList className="flex flex-wrap h-auto gap-1 bg-[#0a1628]/5 dark:bg-[#0a1628]/20 p-1 rounded-lg">
+  1643→          <TabsTrigger value="coa-tree" className="flex items-center gap-1 data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+  1644→            <BookOpen className="w-4 h-4" />COA Tree
+  1645→          </TabsTrigger>
+  1646→          <TabsTrigger value="journal-voucher" className="flex items-center gap-1 data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+  1647→            <FileText className="w-4 h-4" />Journal Voucher
+  1648→          </TabsTrigger>
+  1649→          <TabsTrigger value="cash-bank-vouchers" className="flex items-center gap-1 data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+  1650→            <Banknote className="w-4 h-4" />Cash/Bank Vouchers
+  1651→          </TabsTrigger>
+  1652→          <TabsTrigger value="voucher-register" className="flex items-center gap-1 data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+  1653→            <List className="w-4 h-4" />Voucher Register
+  1654→          </TabsTrigger>
+  1655→          <TabsTrigger value="ledger-statement" className="flex items-center gap-1 data-[state=active]:bg-[#2563eb] data-[state=active]:text-white">
+  1656→            <ClipboardList className="w-4 h-4" />Ledger Statement
+  1657→          </TabsTrigger>
+  1658→        </TabsList>
+  1659→
+  1660→        <TabsContent value="coa-tree">{renderCOATree()}</TabsContent>
+  1661→        <TabsContent value="journal-voucher">{renderJournalVoucher()}</TabsContent>
+  1662→        <TabsContent value="cash-bank-vouchers">{renderCashBankVouchers()}</TabsContent>
+  1663→        <TabsContent value="voucher-register">{renderVoucherRegister()}</TabsContent>
+  1664→        <TabsContent value="ledger-statement">{renderLedgerStatement()}</TabsContent>
+  1665→      </Tabs>
+  1666→
+  1667→      {/* Dialogs */}
+  1668→      {renderCOADialog()}
+  1669→      {renderCOADeleteDialog()}
+  1670→    </div>
+  1671→  );
+  1672→}
+  1673→

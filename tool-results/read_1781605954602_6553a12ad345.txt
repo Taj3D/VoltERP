@@ -1,0 +1,2002 @@
+     1→// ============================================================
+     2→// VoltERP — ELECTRONICS MART IMS
+     3→// Centralized Export/Import Utility Core
+     4→// Export PDF (jsPDF v4 + autoTable v5) | Export CSV | Import CSV
+     5→// Production-Ready: Corporate Layout, VAT Masking, UTF-8 BOM,
+     6→// Batch Insert, Row-Level Validation, Two-Pass Page Footer
+     7→// ============================================================
+     8→
+     9→// Type-only imports (erased at compile time, no runtime impact)
+    10→import type { jsPDF as JsPDFType } from "jspdf";
+    11→
+    12→// ============================================================
+    13→// LAZY IMPORTS: JsPDFType, autoTable, and Papa are loaded on-demand
+    14→// to prevent "Invalid hook call" (React error #321) in production.
+    15→//
+    16→// Root cause: Top-level static imports of jsPDF/papaparse cause
+    17→// Next.js webpack to bundle them in the initial chunk. In
+    18→// production builds, the module resolution order can create a
+    19→// scenario where React's internal module state detects a
+    20→// duplicate or out-of-order module load, triggering error #321.
+    21→//
+    22→// Fix: Dynamic imports ensure these heavy client-side-only
+    23→// libraries load ONLY when the user actually clicks
+    24→// Export PDF / Export CSV / Import CSV — never during the
+    25→// initial page render or hydration cycle.
+    26→// ============================================================
+    27→
+    28→let jsPDFModule: typeof import("jspdf") | null = null;
+    29→let autoTableModule: typeof import("jspdf-autotable") | null = null;
+    30→let papaModule: typeof import("papaparse") | null = null;
+    31→
+    32→async function loadJsPDF(): Promise<typeof import("jspdf")> {
+    33→  if (!jsPDFModule) {
+    34→    jsPDFModule = await import("jspdf");
+    35→  }
+    36→  return jsPDFModule;
+    37→}
+    38→
+    39→async function loadAutoTable(): Promise<typeof import("jspdf-autotable")> {
+    40→  if (!autoTableModule) {
+    41→    autoTableModule = await import("jspdf-autotable");
+    42→  }
+    43→  return autoTableModule;
+    44→}
+    45→
+    46→async function loadPapa(): Promise<typeof import("papaparse")> {
+    47→  if (!papaModule) {
+    48→    papaModule = await import("papaparse");
+    49→  }
+    50→  return papaModule;
+    51→}
+    52→
+    53→// NOTE: We use the standalone autoTable(doc, options) function instead of the
+    54→// applyPlugin(jsPDF) + doc.autoTable() pattern. The applyPlugin approach patches
+    55→// jsPDF.API but breaks in Next.js webpack/turbopack because the bundled jsPDF
+    56→// constructor may be a different reference than the one applyPlugin receives.
+    57→// The standalone autoTable() function works directly with the doc instance.
+    58→
+    59→// ============================================================
+    60→// TYPES
+    61→// ============================================================
+    62→
+    63→export interface ColumnDef {
+    64→  key: string;
+    65→  label: string;
+    66→  type?: "text" | "number" | "boolean" | "date" | "currency" | "select";
+    67→  options?: { value: string; label: string }[];
+    68→}
+    69→
+    70→export interface FieldDef {
+    71→  key: string;
+    72→  label: string;
+    73→  type: "text" | "number" | "email" | "password" | "textarea" | "select" | "checkbox" | "date" | "image" | "section" | "warrantyGroup";
+    74→  required?: boolean;
+    75→  options?: { value: string; label: string }[];
+    76→  placeholder?: string;
+    77→  defaultValue?: any;
+    78→  step?: string;
+    79→  /** For section type: icon name to display */
+    80→  sectionIcon?: string;
+    81→  /** For warrantyGroup type: the unit field key (e.g. "compressorWarrantyUnit") */
+    82→  unitKey?: string;
+    83→}
+    84→
+    85→/** Company profile for dynamic branding in PDF header/footer */
+    86→export interface CompanyProfile {
+    87→  name: string;
+    88→  address?: string;
+    89→  phone?: string;
+    90→  mobile?: string;
+    91→  email?: string;
+    92→  website?: string;
+    93→  logo?: string;       // Base64 data URL
+    94→  brandLogo?: string;  // Brand logo (high-res)
+    95→  logoData?: string;   // Logo data (alternative field)
+    96→  logoWidth?: number;  // mm (default 30)
+    97→  logoHeight?: number; // mm (default 20)
+    98→  vatNumber?: string;
+    99→  tradeLicense?: string;
+   100→  binNumber?: string;
+   101→  currencySymbol?: string;
+   102→  invoicePrefix?: string;
+   103→  thankYouMsg?: string;
+   104→  systemNote?: string;
+   105→  showBarcode?: boolean;
+   106→  showPayInWord?: boolean;
+   107→}
+   108→
+   109→/** Summary row definition for PDF — appears after main table with distinct styling */
+   110→export interface SummaryRow {
+   111→  cells: string[];
+   112→  style?: {
+   113→    fillColor?: number[];
+   114→    textColor?: number[];
+   115→    fontStyle?: "normal" | "bold" | "italic" | "bolditalic";
+   116→    fontSize?: number;
+   117→  };
+   118→}
+   119→
+   120→export interface PDFOptions {
+   121→  title: string;
+   122→  subtitle?: string;
+   123→  orientation?: "landscape" | "portrait";
+   124→  columns: ColumnDef[];
+   125→  data: any[];
+   126→  isVatAuditor?: boolean;
+   127→  vatMaskedColumns?: string[];
+   128→  filename?: string;
+   129→  /** Optional summary rows rendered below the main table with different styling */
+   130→  summaryRows?: SummaryRow[];
+   131→  /** Custom header callback — called on each page after the standard header is drawn */
+   132→  customHeader?: (doc: JsPDFType, pageNumber: number, pageWidth: number, pageHeight: number) => void;
+   133→  /** Optional company profile for dynamic branding in header/footer */
+   134→  company?: CompanyProfile;
+   135→  /** System notice statement rendered below the subtitle in the header */
+   136→  systemNotice?: string;
+   137→  /** Enterprise Financial Footer: "Prepared By", "Checked By", "Authorized By" signature blocks */
+   138→  financialFooter?: {
+   139→    preparedBy?: string;
+   140→    checkedBy?: string;
+   141→    authorizedBy?: string;
+   142→    approvedBy?: string;  // Double-signature panel
+   143→    printedBy: string; // Username of the person who generated the PDF
+   144→  };
+   145→}
+   146→
+   147→export interface CSVOptions {
+   148→  title: string;
+   149→  columns: ColumnDef[];
+   150→  data: any[];
+   151→  isVatAuditor?: boolean;
+   152→  vatMaskedColumns?: string[];
+   153→  filename?: string;
+   154→}
+   155→
+   156→export interface ImportResult {
+   157→  imported: number;
+   158→  failed: number;
+   159→  errors: string[];
+   160→  /** Row-level detail errors with field information */
+   161→  fieldErrors?: Array<{
+   162→    row: number;
+   163→    field: string;
+   164→    message: string;
+   165→  }>;
+   166→}
+   167→
+   168→// ============================================================
+   169→// UTILITY: Format cell value for display
+   170→// ============================================================
+   171→
+   172→const MASKING_SENTINEL = "N/A (Audit Mode)";
+   173→
+   174→// ============================================================
+   175→// UTILITY: Safe BDT Number Formatter
+   176→// GUARANTEES Latin digits (0-9) in all environments.
+   177→// Delegates to centralized number-format module which includes
+   178→// a Bengali-to-Latin digit replacement pass.
+   179→// ============================================================
+   180→
+   181→import { fmtCurrency, toLatinDigits, toEnglishDigits } from '@/lib/number-format';
+   182→import { loadCompanyProfile, getCachedCompanyProfile } from '@/lib/company-branding-cache';
+   183→
+   184→// Re-export toEnglishDigits for use across the application
+   185→export { toEnglishDigits };
+   186→
+   187→/** Format a number as BDT currency string with guaranteed Latin digits and 2 decimal places */
+   188→export function formatBDT(value: number): string {
+   189→  return fmtCurrency(value);
+   190→}
+   191→
+   192→// ============================================================
+   193→// UTILITY: Currency Sanitization Filter
+   194→// Eliminates corrupted numerical digits in running balances
+   195→// Strips non-numeric characters, validates the result, and
+   196→// formats using the safe BDT formatter for consistent output
+   197→// ============================================================
+   198→
+   199→export function sanitizeCurrencyValue(value: any): number {
+   200→  if (value === null || value === undefined || value === '') return 0;
+   201→  
+   202→  // Convert to string and strip all non-numeric chars except . and -
+   203→  let raw = String(value);
+   204→  
+   205→  // Remove known corruption patterns:
+   206→  // - Currency prefix "Tk." (English notation)
+   207→  // - Bengali-Indic digits (U+09E6-U+09EF) ০১২৩৪৫৬৭৮৯ → CONVERT to Latin 0-9
+   208→  // - Comma separators that may have digit corruption
+   209→  // - Any non-ASCII digits that might have been inserted
+   210→  raw = raw.replace(/Tk\.\s*/g, ''); // Remove Tk. currency prefix
+   211→  raw = raw.replace(/[\u09E6-\u09EF]/g, d => String(d.charCodeAt(0) - 0x09E6 + 0x0030)); // Convert Bengali digits to Latin
+   212→  raw = raw.replace(/[^\d.\-]/g, ''); // Keep only digits, decimal point, and minus sign
+   213→  
+   214→  // Handle multiple decimal points (keep only the first)
+   215→  const parts = raw.split('.');
+   216→  if (parts.length > 2) {
+   217→    raw = parts[0] + '.' + parts.slice(1).join('');
+   218→  }
+   219→  
+   220→  const num = Number(raw);
+   221→  if (isNaN(num)) return 0;
+   222→  return Math.round(num * 100) / 100; // Sanitize to 2 decimal places
+   223→}
+   224→
+   225→/** Format a sanitized currency value for PDF display (right-aligned, guaranteed Latin digits) */
+   226→export function formatSanitizedCurrency(value: any): string {
+   227→  const sanitized = sanitizeCurrencyValue(value);
+   228→  return `Tk. ${fmtCurrency(sanitized)}`;
+   229→}
+   230→
+   231→// ============================================================
+   232→// UTILITY: Number to Words (BDT Format)
+   233→// Converts a numeric amount to Bangladeshi Taka words:
+   234→// "Taka One Thousand Two Hundred Thirty Four and Paisa Fifty Six Only"
+   235→// Uses South Asian grouping: Crore, Lakh, Thousand, Hundred
+   236→// ============================================================
+   237→
+   238→const TAKA_ONES = [
+   239→  "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+   240→  "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+   241→  "Seventeen", "Eighteen", "Nineteen",
+   242→];
+   243→
+   244→const TAKA_TENS = [
+   245→  "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
+   246→];
+   247→
+   248→function takaConvertHundreds(num: number): string {
+   249→  if (num === 0) return "";
+   250→  let result = "";
+   251→  if (num >= 100) {
+   252→    result += TAKA_ONES[Math.floor(num / 100)] + " Hundred";
+   253→    num %= 100;
+   254→    if (num > 0) result += " ";
+   255→  }
+   256→  if (num >= 20) {
+   257→    result += TAKA_TENS[Math.floor(num / 10)];
+   258→    num %= 10;
+   259→    if (num > 0) result += " " + TAKA_ONES[num];
+   260→  } else if (num > 0) {
+   261→    result += TAKA_ONES[num];
+   262→  }
+   263→  return result;
+   264→}
+   265→
+   266→/** Convert a number to Bangladeshi Taka words (South Asian grouping: Crore, Lakh, Thousand) */
+   267→export function numberToTakaWords(amount: number): string {
+   268→  if (amount === 0) return "Taka Zero Only";
+   269→
+   270→  const isNegative = amount < 0;
+   271→  const absAmount = Math.abs(amount);
+   272→
+   273→  // Split into Taka and Paisa
+   274→  const taka = Math.floor(absAmount);
+   275→  const paisa = Math.round((absAmount - taka) * 100);
+   276→
+   277→  let takaWords = "";
+   278→
+   279→  if (taka === 0) {
+   280→    takaWords = "Zero";
+   281→  } else {
+   282→    // Handle crore (10,000,000)
+   283→    if (taka >= 10000000) {
+   284→      const crore = Math.floor(taka / 10000000);
+   285→      takaWords += takaConvertHundreds(crore) + " Crore";
+   286→      const remainder = taka % 10000000;
+   287→      if (remainder > 0) takaWords += " ";
+   288→    }
+   289→
+   290→    // Handle lakh (100,000)
+   291→    const afterCrore = taka % 10000000;
+   292→    if (afterCrore >= 100000) {
+   293→      const lakh = Math.floor(afterCrore / 100000);
+   294→      takaWords += takaConvertHundreds(lakh) + " Lakh";
+   295→      const remainder = afterCrore % 100000;
+   296→      if (remainder > 0) takaWords += " ";
+   297→    }
+   298→
+   299→    // Handle thousand (1,000)
+   300→    const afterLakh = afterCrore % 100000;
+   301→    if (afterLakh >= 1000) {
+   302→      const thousand = Math.floor(afterLakh / 1000);
+   303→      takaWords += takaConvertHundreds(thousand) + " Thousand";
+   304→      const remainder = afterLakh % 1000;
+   305→      if (remainder > 0) takaWords += " ";
+   306→    }
+   307→
+   308→    // Handle hundreds and below
+   309→    const belowThousand = afterLakh % 1000;
+   310→    if (belowThousand > 0) {
+   311→      takaWords += takaConvertHundreds(belowThousand);
+   312→    }
+   313→  }
+   314→
+   315→  let result = "";
+   316→  if (isNegative) result += "Minus ";
+   317→
+   318→  if (paisa > 0) {
+   319→    result += "Taka " + takaWords + " and Paisa " + takaConvertHundreds(paisa) + " Only";
+   320→  } else {
+   321→    result += "Taka " + takaWords + " Only";
+   322→  }
+   323→
+   324→  return result.trim().replace(/\s+/g, " ");
+   325→}
+   326→
+   327→function formatCellValue(
+   328→  value: any,
+   329→  type?: string,
+   330→  isVatAuditor?: boolean,
+   331→  isVatMasked?: boolean
+   332→): string {
+   333→  // VAT Auditor masking takes highest priority
+   334→  if (isVatAuditor && isVatMasked) {
+   335→    return MASKING_SENTINEL;
+   336→  }
+   337→  // If the value was already pre-masked by the caller (e.g. SR role salary masking),
+   338→  // return it as-is to prevent type-specific formatting from destroying the sentinel
+   339→  if (value === MASKING_SENTINEL) return MASKING_SENTINEL;
+   340→  if (value === null || value === undefined || value === "") return "\u2014";
+   341→  if (type === "currency") {
+   342→    const num = sanitizeCurrencyValue(value);
+   343→    if (num === 0 && (value === null || value === undefined || value === "")) return "\u2014";
+   344→    return `Tk. ${fmtCurrency(num)}`;
+   345→  }
+   346→  if (type === "boolean") return value ? "Active" : "Inactive";
+   347→  if (type === "date") {
+   348→    if (!value) return "\u2014";
+   349→    try {
+   350→      return toLatinDigits(new Date(value).toLocaleDateString("en-GB", {
+   351→        day: "2-digit",
+   352→        month: "short",
+   353→        year: "numeric",
+   354→      }));
+   355→    } catch {
+   356→      return toLatinDigits(String(value));
+   357→    }
+   358→  }
+   359→  if (type === "number") {
+   360→    const num = Number(value);
+   361→    if (isNaN(num)) return String(value);
+   362→    return fmtCurrency(num);
+   363→  }
+   364→  return String(value);
+   365→}
+   366→
+   367→// ============================================================
+   368→// UTILITY: Escape CSV field (RFC 4180 compliant)
+   369→// Handles commas, double quotes, line breaks, and the Tk.  symbol
+   370→// Numeric values are not quoted unless they contain special chars
+   371→// ============================================================
+   372→
+   373→function escapeCSVField(value: string, isNumeric?: boolean): string {
+   374→  // Guard against undefined/null values (e.g. sparse rows with missing cells)
+   375→  if (value === undefined || value === null) return "";
+   376→
+   377→  // Pure numeric values don't need quoting
+   378→  if (isNumeric && /^[0-9.,-]+$/.test(value)) {
+   379→    return value;
+   380→  }
+   381→
+   382→  // CSV Injection Protection: Prevent formula injection in Excel/Sheets
+   383→  // Cells starting with =, +, -, @, \t, \r, | are dangerous
+   384→  // | (pipe) added: pipe-delimited CSV exports treat | as a cell separator,
+   385→  // and some spreadsheet parsers (e.g. older Excel localized versions) may
+   386→  // interpret a leading pipe as a formula or command prefix, enabling injection.
+   387→  const trimmed = value.trimStart();
+   388→  if (trimmed.startsWith('=') || trimmed.startsWith('+') || trimmed.startsWith('-') || trimmed.startsWith('@') || trimmed.startsWith('\t') || trimmed.startsWith('\r') || trimmed.startsWith('|')) {
+   389→    // Prefix with a single quote to neutralize formula; quote the whole field
+   390→    return `"'" + value.replace(/"/g, '""') + '"'`;
+   391→  }
+   392→
+   393→  const needsQuoting =
+   394→    value.includes(",") ||
+   395→    value.includes('"') ||
+   396→    value.includes("\n") ||
+   397→    value.includes("\r") ||
+   398→    value.includes("Tk."); // Tk. currency prefix
+   399→
+   400→  if (needsQuoting) {
+   401→    return `"${value.replace(/"/g, '""')}"`;
+   402→  }
+   403→  return value;
+   404→}
+   405→
+   406→// ============================================================
+   407→// UTILITY: Get visible columns (respecting VAT Auditor masking)
+   408→// VAT Auditor can see all columns, but values are masked
+   409→// ============================================================
+   410→
+   411→function getVisibleColumns(
+   412→  columns: ColumnDef[],
+   413→  _isVatAuditor?: boolean,
+   414→  _vatMaskedColumns?: string[]
+   415→): ColumnDef[] {
+   416→  // VAT Auditor can still see all columns, but values are masked
+   417→  // This function exists for future column-hiding extensions
+   418→  return columns;
+   419→}
+   420→
+   421→// ============================================================
+   422→// UTILITY: Calculate safe column widths to prevent overflow
+   423→// ============================================================
+   424→
+   425→function calculateColumnWidths(
+   426→  columnCount: number,
+   427→  pageWidth: number,
+   428→  margin: number
+   429→): Record<number, { minW: number; maxW: number }> {
+   430→  const availableWidth = pageWidth - margin * 2;
+   431→  const maxPerColumn = availableWidth / columnCount;
+   432→  const result: Record<number, { minW: number; maxW: number }> = {};
+   433→  for (let i = 0; i < columnCount; i++) {
+   434→    result[i] = { minW: 12, maxW: Math.min(maxPerColumn * 2, 80) };
+   435→  }
+   436→  return result;
+   437→}
+   438→
+   439→// ============================================================
+   440→// INTERNAL: Draw corporate header on a jsPDF page
+   441→// Returns the Y position after the header for table start
+   442→// ============================================================
+   443→
+   444→function drawCorporateHeader(
+   445→  doc: JsPDFType,
+   446→  title: string,
+   447→  subtitle: string | undefined,
+   448→  isVatAuditor: boolean,
+   449→  pageWidth: number,
+   450→  margin: number,
+   451→  company?: CompanyProfile,
+   452→  systemNotice?: string
+   453→): number {
+   454→  const companyName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+   455→  const companyAddress = company?.address || "";
+   456→  const companyMobile = company?.mobile || company?.phone || "";
+   457→  const headerHeight = 28;
+   458→
+   459→  // Navy blue header bar
+   460→  doc.setFillColor(10, 22, 40);
+   461→  doc.rect(0, 0, pageWidth, headerHeight, "F");
+   462→
+   463→  // Calculate left offset for text (after logo if present)
+   464→  let textStartX = margin;
+   465→
+   466→  // Company logo (if provided as base64 data URL)
+   467→  if (company?.logo) {
+   468→    const logoW = company.logoWidth || 30;
+   469→    const logoH = company.logoHeight || 20;
+   470→    const logoY = (headerHeight - logoH) / 2; // vertically centered in header
+   471→    try {
+   472→      let logoUrl = company.logo;
+   473→      if (!logoUrl.startsWith("data:")) {
+   474→        // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
+   475→        const isJpeg = logoUrl.startsWith("/9j/");
+   476→        logoUrl = `data:image/${isJpeg ? "jpeg" : "png"};base64,${logoUrl}`;
+   477→      }
+   478→      doc.addImage(logoUrl, margin, logoY, logoW, logoH);
+   479→    } catch {
+   480→      // If logo rendering fails, skip it silently
+   481→    }
+   482→    textStartX = margin + logoW + 4; // 4mm gap after logo
+   483→  }
+   484→
+   485→  // Brand logo on the right side (if provided)
+   486→  if (company?.brandLogo) {
+   487→    const brandW = company.logoWidth || 30;
+   488→    const brandH = company.logoHeight || 20;
+   489→    const brandY = (headerHeight - brandH) / 2;
+   490→    try {
+   491→      let brandUrl = company.brandLogo;
+   492→      if (!brandUrl.startsWith("data:")) {
+   493→        const isBrandJpeg = brandUrl.startsWith("/9j/");
+   494→        brandUrl = `data:image/${isBrandJpeg ? "jpeg" : "png"};base64,${brandUrl}`;
+   495→      }
+   496→      doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
+   497→    } catch {
+   498→      // If brand logo fails, skip it
+   499→    }
+   500→  }
+   501→
+   502→  // ── LEFT SIDE: Company info ──
+   503→
+   504→  // Company name
+   505→  doc.setTextColor(255, 255, 255);
+   506→  doc.setFontSize(16);
+   507→  doc.setFont("helvetica", "bold");
+   508→  doc.text(companyName, textStartX, 11);
+   509→
+   510→  // Company address (below name if provided)
+   511→  let leftY = 15;
+   512→  if (companyAddress) {
+   513→    doc.setFontSize(8);
+   514→    doc.setFont("helvetica", "normal");
+   515→    doc.setTextColor(200, 210, 225); // slightly dimmer white
+   516→    doc.text(companyAddress, textStartX, 15);
+   517→    leftY = 19;
+   518→  }
+   519→
+   520→  // Company mobile/phone (if available, after address)
+   521→  if (companyMobile) {
+   522→    doc.setFontSize(7);
+   523→    doc.setFont("helvetica", "bold");
+   524→    doc.setTextColor(220, 220, 230);
+   525→    doc.text(`Mobile: ${companyMobile}`, textStartX, leftY);
+   526→    leftY += 3;
+   527→  }
+   528→
+   529→  // Company email (below address/mobile)
+   530→  if (company?.email) {
+   531→    doc.setFontSize(7);
+   532→    doc.setFont("helvetica", "normal");
+   533→    doc.setTextColor(200, 210, 225);
+   534→    doc.text(company.email, textStartX, leftY);
+   535→    leftY += 3;
+   536→  }
+   537→
+   538→  // ── RIGHT SIDE: Timestamp + VAT/Trade ──
+   539→
+   540→  // Generation timestamp (right-aligned)
+   541→  doc.setFontSize(8);
+   542→  doc.setTextColor(255, 255, 255);
+   543→  const now = new Date();
+   544→  const timestamp = `Generated: ${toLatinDigits(now.toLocaleDateString("en-GB", {
+   545→    day: "2-digit",
+   546→    month: "short",
+   547→    year: "numeric",
+   548→  }))} ${toLatinDigits(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }))}`;
+   549→  const tsWidth = doc.getTextWidth(timestamp);
+   550→  doc.text(timestamp, pageWidth - margin - tsWidth, 11);
+   551→
+   552→  // Report title (right-aligned, below timestamp)
+   553→  doc.setFontSize(11);
+   554→  doc.setFont("helvetica", "normal");
+   555→  doc.setTextColor(255, 255, 255);
+   556→  const titleWidth = doc.getTextWidth(title);
+   557→  doc.text(title, pageWidth - margin - titleWidth, 17);
+   558→
+   559→  // Subtitle / period (right-aligned, below title)
+   560→  if (subtitle) {
+   561→    doc.setFontSize(9);
+   562→    doc.setTextColor(200, 210, 225);
+   563→    const subWidth = doc.getTextWidth(subtitle);
+   564→    doc.text(subtitle, pageWidth - margin - subWidth, 22);
+   565→  }
+   566→
+   567→  // System notice statement (right-aligned, below subtitle or title)
+   568→  if (systemNotice) {
+   569→    doc.setFontSize(7);
+   570→    doc.setFont("helvetica", "italic");
+   571→    doc.setTextColor(180, 190, 200);
+   572→    const noticeWidth = doc.getTextWidth(systemNotice);
+   573→    doc.text(systemNotice, pageWidth - margin - noticeWidth, subtitle ? 26 : 22);
+   574→  }
+   575→
+   576→  // VAT Number and Trade License (left-aligned, below email/mobile, tiny text)
+   577→  let regY = headerHeight - 2;
+   578→  if (company?.vatNumber) {
+   579→    doc.setFontSize(6);
+   580→    doc.setTextColor(180, 190, 200);
+   581→    doc.text(`VAT: ${company.vatNumber}`, textStartX, regY);
+   582→    if (company?.tradeLicense) {
+   583→      const vatW = doc.getTextWidth(`VAT: ${company.vatNumber}  `);
+   584→      doc.text(`Trade License: ${company.tradeLicense}`, textStartX + vatW, regY);
+   585→    }
+   586→  } else if (company?.tradeLicense) {
+   587→    doc.setFontSize(6);
+   588→    doc.setTextColor(180, 190, 200);
+   589→    doc.text(`Trade License: ${company.tradeLicense}`, textStartX, regY);
+   590→  }
+   591→
+   592→  // VAT Auditor badge
+   593→  if (isVatAuditor) {
+   594→    doc.setFillColor(245, 158, 11); // amber-500
+   595→    const badgeText = "  VAT AUDITOR MODE  ";
+   596→    doc.setFontSize(7);
+   597→    doc.setFont("helvetica", "bold");
+   598→    doc.setTextColor(255, 255, 255);
+   599→    const badgeWidth = doc.getTextWidth(badgeText) + 4;
+   600→    doc.roundedRect(pageWidth - margin - badgeWidth, 23, badgeWidth, 7, 1, 1, "F");
+   601→    doc.text(badgeText.trim(), pageWidth - margin - badgeWidth + 2, 28);
+   602→  }
+   603→
+   604→  return headerHeight + 4; // 32mm start position for table
+   605→}
+   606→
+   607→// ============================================================
+   608→// INTERNAL: Draw footer on a jsPDF page
+   609→// ============================================================
+   610→
+   611→function drawFooter(
+   612→  doc: JsPDFType,
+   613→  pageNumber: number,
+   614→  totalPagesPlaceholder: string,
+   615→  pageWidth: number,
+   616→  pageHeight: number,
+   617→  margin: number,
+   618→  company?: CompanyProfile,
+   619→  financialFooter?: PDFOptions["financialFooter"]
+   620→): void {
+   621→  const footerY = pageHeight - 8;
+   622→
+   623→  // If financial footer is provided, draw the enterprise signature block ABOVE the navy bar
+   624→  if (financialFooter) {
+   625→    const signatureY = pageHeight - 38; // Position above the navy bar (increased from 32 to 38 for more space)
+   626→    doc.setTextColor(60, 60, 60);
+   627→    doc.setFontSize(7);
+   628→    doc.setFont("helvetica", "normal");
+   629→
+   630→    // Four signature columns: Customer's Signature, Prepared By, Checked By, Authorized By
+   631→    const signatureFields = [
+   632→      { label: "Customer's Signature", value: "" },
+   633→      { label: "Prepared By", value: financialFooter.preparedBy || "" },
+   634→      { label: "Checked By", value: financialFooter.checkedBy || "" },
+   635→      { label: "Authorized By", value: financialFooter.authorizedBy || "" },
+   636→    ];
+   637→
+   638→    // Draw four signature columns evenly spaced
+   639→    const colWidth = (pageWidth - margin * 2) / 4;
+   640→    signatureFields.forEach((field, i) => {
+   641→      const x = margin + i * colWidth;
+   642→      // Label
+   643→      doc.setFont("helvetica", "bold");
+   644→      doc.setTextColor(80, 80, 80);
+   645→      doc.text(field.label, x + (colWidth - 10) / 2 - doc.getTextWidth(field.label) / 2, signatureY);
+   646→      // Underline for signature
+   647→      doc.setDrawColor(180, 180, 180);
+   648→      doc.setLineWidth(0.3);
+   649→      doc.line(x, signatureY + 1.5, x + colWidth - 10, signatureY + 1.5);
+   650→      // Value below line
+   651→      if (field.value) {
+   652→        doc.setFont("helvetica", "normal");
+   653→        doc.setTextColor(60, 60, 60);
+   654→        doc.text(field.value, x + (colWidth - 10) / 2 - doc.getTextWidth(field.value) / 2, signatureY + 5);
+   655→      }
+   656→    });
+   657→
+   658→    // Thank you message from company settings (centered)
+   659→    const thankYouMsg = company?.thankYouMsg || "Thank You Come Again.";
+   660→    doc.setFontSize(8);
+   661→    doc.setFont("helvetica", "bold");
+   662→    doc.setTextColor(60, 60, 60);
+   663→    const tyWidth = doc.getTextWidth(thankYouMsg);
+   664→    doc.text(thankYouMsg, pageWidth / 2 - tyWidth / 2, signatureY + 9);
+   665→
+   666→    // System disclaimer (centered, below thank you) — professional dark grey, NOT red
+   667→    const systemNote = company?.systemNote || "This is a system generated document; no seal or signature is required unless explicitly stated.";
+   668→    doc.setFontSize(5.5);
+   669→    doc.setFont("helvetica", "italic");
+   670→    doc.setTextColor(130, 130, 130); // Dark grey instead of red
+   671→    const snWidth = doc.getTextWidth(systemNote);
+   672→    doc.text(systemNote, pageWidth / 2 - snWidth / 2, signatureY + 13);
+   673→
+   674→    // Currency specification (centered, below disclaimer)
+   675→    doc.setFontSize(5.5);
+   676→    doc.setFont("helvetica", "normal");
+   677→    doc.setTextColor(130, 130, 130);
+   678→    const currencyNote = "Amount in Bangladeshi Taka (BDT)";
+   679→    const cnWidth = doc.getTextWidth(currencyNote);
+   680→    doc.text(currencyNote, pageWidth / 2 - cnWidth / 2, signatureY + 16.5);
+   681→
+   682→    // Printed By + Print Date (left-aligned)
+   683→    const now = new Date();
+   684→    const printDate = toLatinDigits(now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+   685→    const printTime = toLatinDigits(now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }));
+   686→    const printedByText = `Printed By: ${financialFooter.printedBy}  |  Print Date: ${printDate} ${printTime}`;
+   687→    doc.setFontSize(5.5);
+   688→    doc.setTextColor(120, 120, 120);
+   689→    doc.setFont("helvetica", "normal");
+   690→    doc.text(printedByText, margin, signatureY + 20);
+   691→
+   692→  }
+   693→
+   694→  // Navy blue footer bar
+   695→  doc.setFillColor(10, 22, 40);
+   696→  doc.rect(0, pageHeight - 12, pageWidth, 12, "F");
+   697→
+   698→  doc.setTextColor(148, 163, 184); // slate-400
+   699→  doc.setFontSize(7);
+   700→  doc.setFont("helvetica", "normal");
+   701→
+   702→  // Left: copyright — use company name when provided, fallback to default
+   703→  const footerName = company?.name || "VoltERP \u2014 Electronics Mart IMS";
+   704→  const currentYear = new Date().getFullYear();
+   705→  doc.text(`\u00A9 ${currentYear} ${footerName}`, margin, footerY);
+   706→
+   707→  // Right: page number (with placeholder for total)
+   708→  const pageText = `Page ${pageNumber} of ${totalPagesPlaceholder}`;
+   709→  doc.text(pageText, pageWidth - margin - doc.getTextWidth(pageText), footerY);
+   710→}
+   711→
+   712→// ============================================================
+   713→// INTERNAL: Fix Page X of Y with a two-pass approach
+   714→// First pass: autoTable runs and draws placeholder {total}
+   715→// Second pass: replace {total} with actual page count
+   716→// ============================================================
+   717→
+   718→function fixPageXOfY(
+   719→  doc: JsPDFType,
+   720→  pageHeight: number,
+   721→  pageWidth: number,
+   722→  margin: number,
+   723→  financialFooter?: PDFOptions["financialFooter"],
+   724→  company?: CompanyProfile
+   725→): void {
+   726→  const totalPageCount = doc.getNumberOfPages();
+   727→  for (let i = 1; i <= totalPageCount; i++) {
+   728→    doc.setPage(i);
+   729→
+   730→    // ── Fix page number in the financial footer signature section (above navy bar) ──
+   731→    // When a financial footer is present, "Page X of {total}" is also drawn at
+   732→    // signatureY + 20 ≈ pageHeight - 18. We must overwrite that area too.
+   733→    if (financialFooter) {
+   734→      const signatureY = pageHeight - 38;
+   735→      const ffPageInfoY = signatureY + 20; // pageHeight - 18
+   736→
+   737→      // Overwrite with white/background to erase placeholder
+   738→      doc.setFillColor(255, 255, 255);
+   739→      doc.rect(pageWidth - 55, ffPageInfoY - 3, 55, 6, "F");
+   740→
+   741→      // Rewrite with correct total
+   742→      doc.setFontSize(5.5);
+   743→      doc.setTextColor(120, 120, 120);
+   744→      doc.setFont("helvetica", "normal");
+   745→      const ffCorrected = `Page ${i} of ${totalPageCount}`;
+   746→      doc.text(
+   747→        ffCorrected,
+   748→        pageWidth - margin - doc.getTextWidth(ffCorrected),
+   749→        ffPageInfoY
+   750→      );
+   751→    }
+   752→
+   753→    // ── Fix page number in the navy blue footer bar ──
+   754→    doc.setFillColor(10, 22, 40);
+   755→    doc.rect(pageWidth - 55, pageHeight - 12, 55, 12, "F");
+   756→
+   757→    // Write the corrected page text
+   758→    doc.setTextColor(148, 163, 184);
+   759→    doc.setFontSize(7);
+   760→    doc.setFont("helvetica", "normal");
+   761→    const correctedText = `Page ${i} of ${totalPageCount}`;
+   762→    doc.text(
+   763→      correctedText,
+   764→      pageWidth - margin - doc.getTextWidth(correctedText),
+   765→      pageHeight - 8
+   766→    );
+   767→  }
+   768→}
+   769→
+   770→// ============================================================
+   771→// EXPORT PDF ENGINE
+   772→// Corporate Layout: Landscape A4, High-Fidelity Header,
+   773→// Alternating Row Colors, Page X of Y Footer (Two-Pass),
+   774→// Summary Rows, Custom Header Callback, Column Bounds
+   775→// ============================================================
+   776→
+   777→export async function exportToPDF(options: PDFOptions): Promise<void> {
+   778→  const {
+   779→    title,
+   780→    subtitle,
+   781→    orientation = "landscape",
+   782→    columns,
+   783→    data,
+   784→    isVatAuditor = false,
+   785→    vatMaskedColumns = [],
+   786→    filename,
+   787→    summaryRows,
+   788→    customHeader,
+   789→    company: providedCompany,
+   790→  } = options;
+   791→
+   792→  // ── Auto-load company profile from branding cache when not provided ──
+   793→  let company = providedCompany;
+   794→  if (!company) {
+   795→    const cached = getCachedCompanyProfile();
+   796→    if (cached) {
+   797→      company = cached;
+   798→    } else {
+   799→      try {
+   800→        const loaded = await loadCompanyProfile();
+   801→        if (loaded) company = loaded;
+   802→      } catch {
+   803→        // Silently fail — callers use fallback defaults in drawCorporateHeader
+   804→      }
+   805→    }
+   806→  }
+   807→
+   808→  // Lazy-load jsPDF and autoTable to prevent React error #321
+   809→  const { jsPDF } = await loadJsPDF();
+   810→  const { autoTable } = await loadAutoTable();
+   811→
+   812→  try {
+   813→    const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+   814→    const pageWidth = doc.internal.pageSize.getWidth();
+   815→    const pageHeight = doc.internal.pageSize.getHeight();
+   816→    const margin = 14;
+   817→    const vatMaskSet = new Set(vatMaskedColumns);
+   818→
+   819→    // ── Corporate Header ──
+   820→    const tableStartY = drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company, options.systemNotice);
+   821→
+   822→    // ── Adjust bottom margin for financial footer (more space needed for signature blocks) ──
+   823→    const bottomMargin = options.financialFooter ? 36 : 18;
+   824→
+   825→    // ── Prepare Table Data ──
+   826→    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+   827→    const headers = visibleColumns.map((c) => c.label);
+   828→    const body = data.map((item: any) =>
+   829→      visibleColumns.map((c) =>
+   830→        formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key))
+   831→      )
+   832→    );
+   833→
+   834→    // ── autoTable Configuration ──
+   835→    const headStyles: any = {
+   836→      fillColor: [37, 99, 235], // primary blue
+   837→      textColor: [255, 255, 255],
+   838→      fontStyle: "bold",
+   839→      fontSize: 8,
+   840→      halign: "left",
+   841→      cellPadding: 3,
+   842→    };
+   843→
+   844→    const alternateRowStyles: any = {
+   845→      fillColor: [240, 244, 252], // light blue-gray
+   846→    };
+   847→
+   848→    const styles: any = {
+   849→      fontSize: 7,
+   850→      cellPadding: 2.5,
+   851→      textColor: [30, 41, 59], // slate-800
+   852→      lineWidth: 0.1,
+   853→      lineColor: [203, 213, 225], // slate-300
+   854→    };
+   855→
+   856→    // Currency/number columns right-aligned + column width bounds
+   857→    const columnStyles: Record<number, any> = {};
+   858→    const colWidths = calculateColumnWidths(visibleColumns.length, pageWidth, margin);
+   859→    visibleColumns.forEach((c, i) => {
+   860→      const colConfig: any = {};
+   861→      if (c.type === "currency" || c.type === "number") {
+   862→        colConfig.halign = "right";
+   863→      }
+   864→      // Apply column width bounds to prevent overflow
+   865→      colConfig.minCellWidth = colWidths[i].minW;
+   866→      colConfig.maxCellWidth = colWidths[i].maxW;
+   867→      columnStyles[i] = colConfig;
+   868→    });
+   869→
+   870→    // ── Fix right-aligned currency column widths ──
+   871→    // Calculate the maximum width needed for each currency column based on
+   872→    // the longest formatted value. Setting a fixed cellWidth ensures all
+   873→    // currency values in a column occupy the same width, making right-alignment
+   874→    // visually correct (the Tk.  symbol is consistently placed on the left of
+   875→    // each value, and numbers line up properly).
+   876→    {
+   877→      const tempDoc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+   878→      tempDoc.setFontSize(7);
+   879→      visibleColumns.forEach((c, i) => {
+   880→        if (c.type === "currency") {
+   881→          // Find the longest formatted value in this column
+   882→          let maxTextWidth = 0;
+   883→          for (const row of body) {
+   884→            const cellText = row[i] || "";
+   885→            const tw = tempDoc.getTextWidth(String(cellText));
+   886→            if (tw > maxTextWidth) maxTextWidth = tw;
+   887→          }
+   888→          // Add padding (cellPadding * 2 = 5mm) and a small buffer
+   889→          const calculatedWidth = maxTextWidth + 6;
+   890→          // Only set if the calculated width fits within the column bounds
+   891→          const minW = columnStyles[i]?.minCellWidth || 12;
+   892→          const maxW = columnStyles[i]?.maxCellWidth || 80;
+   893→          columnStyles[i].cellWidth = Math.max(minW, Math.min(calculatedWidth, maxW));
+   894→        }
+   895→      });
+   896→    }
+   897→
+   898→    // ── Draw Main Table ──
+   899→    // We use {total} as placeholder; second pass will fix it
+   900→    const TOTAL_PLACEHOLDER = "{total}";
+   901→
+   902→    autoTable(doc, {
+   903→      head: [headers],
+   904→      body,
+   905→      startY: tableStartY,
+   906→      margin: { left: margin, right: margin, bottom: bottomMargin },
+   907→      styles,
+   908→      headStyles,
+   909→      alternateRowStyles,
+   910→      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+   911→      didDrawPage: (data: any) => {
+   912→        // Draw footer on every page
+   913→        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
+   914→
+   915→        // Call custom header callback if provided
+   916→        if (customHeader) {
+   917→          customHeader(doc, data.pageNumber, pageWidth, pageHeight);
+   918→        }
+   919→      },
+   920→    });
+   921→
+   922→    // ── Summary Rows ──
+   923→    if (summaryRows && summaryRows.length > 0) {
+   924→      const lastTable = (doc as any).lastAutoTable;
+   925→      const summaryStartY = lastTable ? lastTable.finalY + 4 : tableStartY + 30;
+   926→
+   927→      // Check if summary fits on current page, otherwise add new page
+   928→      let currentSummaryY: number;
+   929→      if (summaryStartY > pageHeight - (options.financialFooter ? 44 : 30)) {
+   930→        doc.addPage();
+   931→        drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company, options.systemNotice);
+   932→        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
+   933→        currentSummaryY = 36; // Below corporate header on new page
+   934→      } else {
+   935→        currentSummaryY = summaryStartY;
+   936→      }
+   937→      summaryRows.forEach((summaryRow) => {
+   938→        const rowStyle = summaryRow.style || {
+   939→          fillColor: [10, 22, 40],
+   940→          textColor: [255, 255, 255],
+   941→          fontStyle: "bold" as const,
+   942→          fontSize: 8,
+   943→        };
+   944→
+   945→        // Check if summary row fits on current page
+   946→        if (currentSummaryY > pageHeight - (options.financialFooter ? 44 : 25)) {
+   947→          doc.addPage();
+   948→          drawCorporateHeader(doc, title, subtitle, isVatAuditor, pageWidth, margin, company, options.systemNotice);
+   949→          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
+   950→          currentSummaryY = 36; // Below corporate header
+   951→        }
+   952→
+   953→        autoTable(doc, {
+   954→          body: [summaryRow.cells],
+   955→          startY: currentSummaryY,
+   956→          margin: { left: margin, right: margin, bottom: 18 },
+   957→          styles: {
+   958→            fontSize: rowStyle.fontSize || 8,
+   959→            cellPadding: 3,
+   960→            textColor: (rowStyle.textColor as [number, number, number]) || [255, 255, 255],
+   961→            fontStyle: rowStyle.fontStyle || "bold",
+   962→            lineWidth: 0.1,
+   963→            lineColor: [203, 213, 225],
+   964→          },
+   965→          bodyStyles: {
+   966→            fillColor: rowStyle.fillColor || [10, 22, 40],
+   967→          },
+   968→          columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+   969→          didDrawPage: (data: any) => {
+   970→            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, options.financialFooter);
+   971→          },
+   972→        });
+   973→
+   974→        // Advance Y position for next summary row
+   975→        const lastTable = (doc as any).lastAutoTable;
+   976→        if (lastTable) {
+   977→          currentSummaryY = lastTable.finalY + 2;
+   978→        }
+   979→      });
+   980→    }
+   981→
+   982→    // ── Second Pass: Fix "Page X of Y" with correct total ──
+   983→    fixPageXOfY(doc, pageHeight, pageWidth, margin, options.financialFooter, company);
+   984→
+   985→    // ── Save ──
+   986→    // Strip any .pdf extension if already present in filename to prevent double .pdf.pdf
+   987→    const rawFilename =
+   988→      filename || title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+   989→    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
+   990→    doc.save(`${safeFilename}.pdf`);
+   991→  } catch (error: any) {
+   992→    console.error("Export PDF Error:", error);
+   993→    throw new Error(`PDF export failed: ${error.message || "Unknown error"}`);
+   994→  }
+   995→}
+   996→
+   997→// ============================================================
+   998→// EXPORT PDF ENGINE — Simple header/body overload
+   999→// For report pages that provide pre-formatted headers and rows
+  1000→// ============================================================
+  1001→
+  1002→export async function exportToPDFSimple(
+  1003→  title: string,
+  1004→  headers: string[],
+  1005→  rows: string[][],
+  1006→  orientation: "landscape" | "portrait" = "landscape",
+  1007→  subtitle?: string,
+  1008→  company?: CompanyProfile,
+  1009→  financialFooter?: PDFOptions["financialFooter"]
+  1010→): Promise<void> {
+  1011→  // ── Auto-load company profile from branding cache when not provided ──
+  1012→  let resolvedCompany = company;
+  1013→  if (!resolvedCompany) {
+  1014→    const cached = getCachedCompanyProfile();
+  1015→    if (cached) {
+  1016→      resolvedCompany = cached;
+  1017→    } else {
+  1018→      try {
+  1019→        const loaded = await loadCompanyProfile();
+  1020→        if (loaded) resolvedCompany = loaded;
+  1021→      } catch {
+  1022→        // Silently fail — callers use fallback defaults in drawCorporateHeader
+  1023→      }
+  1024→    }
+  1025→  }
+  1026→
+  1027→  // Lazy-load jsPDF and autoTable to prevent React error #321
+  1028→  const { jsPDF } = await loadJsPDF();
+  1029→  const { autoTable } = await loadAutoTable();
+  1030→
+  1031→  try {
+  1032→    const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+  1033→    const pageWidth = doc.internal.pageSize.getWidth();
+  1034→    const pageHeight = doc.internal.pageSize.getHeight();
+  1035→    const margin = 14;
+  1036→
+  1037→    // Corporate header
+  1038→    const tableStartY = drawCorporateHeader(doc, title, subtitle, false, pageWidth, margin, resolvedCompany);
+  1039→
+  1040→    const TOTAL_PLACEHOLDER = "{total}";
+  1041→    const colWidths = calculateColumnWidths(headers.length, pageWidth, margin);
+  1042→    const columnStyles: Record<number, any> = {};
+  1043→    headers.forEach((_, i) => {
+  1044→      columnStyles[i] = {
+  1045→        minCellWidth: colWidths[i].minW,
+  1046→        maxCellWidth: colWidths[i].maxW,
+  1047→      };
+  1048→    });
+  1049→
+  1050→    autoTable(doc, {
+  1051→      head: [headers],
+  1052→      body: rows,
+  1053→      startY: tableStartY,
+  1054→      margin: { left: margin, right: margin, bottom: 18 },
+  1055→      styles: {
+  1056→        fontSize: 7,
+  1057→        cellPadding: 2.5,
+  1058→        textColor: [30, 41, 59],
+  1059→        lineWidth: 0.1,
+  1060→        lineColor: [203, 213, 225],
+  1061→      },
+  1062→      headStyles: {
+  1063→        fillColor: [37, 99, 235],
+  1064→        textColor: [255, 255, 255],
+  1065→        fontStyle: "bold",
+  1066→        fontSize: 8,
+  1067→        halign: "left",
+  1068→        cellPadding: 3,
+  1069→      },
+  1070→      alternateRowStyles: { fillColor: [240, 244, 252] },
+  1071→      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+  1072→      didDrawPage: (data: any) => {
+  1073→        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, resolvedCompany, financialFooter);
+  1074→      },
+  1075→    });
+  1076→
+  1077→    // Second pass: fix Page X of Y
+  1078→    fixPageXOfY(doc, pageHeight, pageWidth, margin, financialFooter, resolvedCompany);
+  1079→
+  1080→    const rawFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  1081→    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
+  1082→    doc.save(`${safeFilename}.pdf`);
+  1083→  } catch (error: any) {
+  1084→    console.error("Export PDF Simple Error:", error);
+  1085→    throw new Error(`PDF export failed: ${error.message || "Unknown error"}`);
+  1086→  }
+  1087→}
+  1088→
+  1089→// ============================================================
+  1090→// AUDIT REPORT PDF ENGINE
+  1091→// Specialized PDF export for audit reports with classification
+  1092→// badge, integrity score, summary section, financial footer,
+  1093→// and system disclaimer
+  1094→// ============================================================
+  1095→
+  1096→export interface AuditReportOptions {
+  1097→  title: string;
+  1098→  subtitle?: string;
+  1099→  columns: ColumnDef[];
+  1100→  data: any[];
+  1101→  summaryRows?: SummaryRow[];
+  1102→  /** Integrity score 0-100; displayed as a visual gauge in the report */
+  1103→  integrityScore?: number;
+  1104→  isVatAuditor?: boolean;
+  1105→  vatMaskedColumns?: string[];
+  1106→  company?: CompanyProfile;
+  1107→  financialFooter?: PDFOptions["financialFooter"];
+  1108→  /** Document classification level — rendered as a badge in the header */
+  1109→  classification?: "CONFIDENTIAL" | "INTERNAL" | "PUBLIC";
+  1110→}
+  1111→
+  1112→/** Draw a classification badge on the header area */
+  1113→function drawClassificationBadge(
+  1114→  doc: JsPDFType,
+  1115→  classification: "CONFIDENTIAL" | "INTERNAL" | "PUBLIC",
+  1116→  pageWidth: number,
+  1117→  margin: number
+  1118→): void {
+  1119→  const colors: Record<string, { bg: number[]; fg: number[] }> = {
+  1120→    CONFIDENTIAL: { bg: [220, 38, 38], fg: [255, 255, 255] },   // red-600 / white
+  1121→    INTERNAL: { bg: [245, 158, 11], fg: [255, 255, 255] },      // amber-500 / white
+  1122→    PUBLIC: { bg: [34, 197, 94], fg: [255, 255, 255] },         // green-500 / white
+  1123→  };
+  1124→  const { bg, fg } = colors[classification] || colors.INTERNAL;
+  1125→
+  1126→  doc.setFillColor(bg[0], bg[1], bg[2]);
+  1127→  const badgeText = `  ${classification}  `;
+  1128→  doc.setFontSize(7);
+  1129→  doc.setFont("helvetica", "bold");
+  1130→  doc.setTextColor(fg[0], fg[1], fg[2]);
+  1131→  const badgeWidth = doc.getTextWidth(badgeText) + 4;
+  1132→  // Position the badge in the top-right area of the header, offset below the VAT auditor badge line
+  1133→  const badgeX = pageWidth - margin - badgeWidth;
+  1134→  const badgeY = 2;
+  1135→  doc.roundedRect(badgeX, badgeY, badgeWidth, 7, 1, 1, "F");
+  1136→  doc.text(badgeText.trim(), badgeX + 2, badgeY + 5);
+  1137→}
+  1138→
+  1139→/** Draw an integrity score gauge on the PDF */
+  1140→function drawIntegrityScore(
+  1141→  doc: JsPDFType,
+  1142→  score: number,
+  1143→  startY: number,
+  1144→  margin: number,
+  1145→  pageWidth: number
+  1146→): number {
+  1147→  const labelX = margin;
+  1148→  const barX = margin + 35;
+  1149→  const barWidth = pageWidth - margin * 2 - 70;
+  1150→  const barHeight = 5;
+  1151→
+  1152→  // Label
+  1153→  doc.setFontSize(8);
+  1154→  doc.setFont("helvetica", "bold");
+  1155→  doc.setTextColor(30, 41, 59);
+  1156→  doc.text("Integrity Score:", labelX, startY + 3.5);
+  1157→
+  1158→  // Background bar (gray)
+  1159→  doc.setFillColor(226, 232, 240); // slate-200
+  1160→  doc.roundedRect(barX, startY, barWidth, barHeight, 1, 1, "F");
+  1161→
+  1162→  // Score bar (color based on score)
+  1163→  const fillWidth = (barWidth * Math.min(Math.max(score, 0), 100)) / 100;
+  1164→  let barColor: number[];
+  1165→  if (score >= 80) {
+  1166→    barColor = [34, 197, 94]; // green-500
+  1167→  } else if (score >= 50) {
+  1168→    barColor = [245, 158, 11]; // amber-500
+  1169→  } else {
+  1170→    barColor = [220, 38, 38]; // red-600
+  1171→  }
+  1172→  if (fillWidth > 0) {
+  1173→    doc.setFillColor(barColor[0], barColor[1], barColor[2]);
+  1174→    doc.roundedRect(barX, startY, fillWidth, barHeight, 1, 1, "F");
+  1175→  }
+  1176→
+  1177→  // Score text
+  1178→  const scoreText = `${score}/100`;
+  1179→  doc.setFontSize(8);
+  1180→  doc.setFont("helvetica", "bold");
+  1181→  doc.setTextColor(30, 41, 59);
+  1182→  const scoreTextWidth = doc.getTextWidth(scoreText);
+  1183→  doc.text(scoreText, barX + barWidth + 4, startY + 3.5);
+  1184→
+  1185→  return startY + barHeight + 4;
+  1186→}
+  1187→
+  1188→/** Draw the system disclaimer at the bottom of the audit report */
+  1189→function drawSystemDisclaimer(
+  1190→  doc: JsPDFType,
+  1191→  startY: number,
+  1192→  margin: number,
+  1193→  pageWidth: number,
+  1194→  pageHeight: number,
+  1195→  financialFooter?: PDFOptions["financialFooter"]
+  1196→): void {
+  1197→  const disclaimerText = "This report is generated from live transactional data and is subject to verification. Any discrepancies should be reported to the finance department immediately.";
+  1198→
+  1199→  // Check if disclaimer fits; if not, add new page
+  1200→  const disclaimerHeight = 12;
+  1201→  const bottomSpace = financialFooter ? 44 : 25;
+  1202→  let y = startY;
+  1203→  if (y > pageHeight - bottomSpace - disclaimerHeight) {
+  1204→    doc.addPage();
+  1205→    y = 36;
+  1206→  }
+  1207→
+  1208→  // Disclaimer box with border
+  1209→  doc.setDrawColor(203, 213, 225); // slate-300
+  1210→  doc.setFillColor(248, 250, 252); // slate-50
+  1211→  doc.setLineWidth(0.3);
+  1212→  const boxWidth = pageWidth - margin * 2;
+  1213→  doc.roundedRect(margin, y, boxWidth, disclaimerHeight, 1, 1, "FD");
+  1214→
+  1215→  // Warning icon + text
+  1216→  doc.setFontSize(6.5);
+  1217→  doc.setFont("helvetica", "bold");
+  1218→  doc.setTextColor(100, 116, 139); // slate-500
+  1219→  const disclaimerLabel = "DISCLAIMER: ";
+  1220→  const labelWidth = doc.getTextWidth(`\u26A0 ${disclaimerLabel}`);
+  1221→  doc.text(`\u26A0 ${disclaimerLabel}`, margin + 3, y + 4.5);
+  1222→  doc.setFont("helvetica", "italic");
+  1223→  doc.setFontSize(6);
+  1224→  doc.setTextColor(120, 120, 120);
+  1225→  // Wrap text if needed
+  1226→  const maxTextWidth = boxWidth - 6 - labelWidth;
+  1227→  const lines = doc.splitTextToSize(disclaimerText, maxTextWidth);
+  1228→  doc.text(lines, margin + 3 + labelWidth, y + 4.5);
+  1229→}
+  1230→
+  1231→export async function exportAuditReportPDF(options: AuditReportOptions): Promise<void> {
+  1232→  const {
+  1233→    title,
+  1234→    subtitle,
+  1235→    columns,
+  1236→    data,
+  1237→    summaryRows,
+  1238→    integrityScore,
+  1239→    isVatAuditor = false,
+  1240→    vatMaskedColumns = [],
+  1241→    company: providedCompany,
+  1242→    financialFooter,
+  1243→    classification = "INTERNAL",
+  1244→  } = options;
+  1245→
+  1246→  // ── Auto-load company profile from branding cache when not provided ──
+  1247→  let company = providedCompany;
+  1248→  if (!company) {
+  1249→    const cached = getCachedCompanyProfile();
+  1250→    if (cached) {
+  1251→      company = cached;
+  1252→    } else {
+  1253→      try {
+  1254→        const loaded = await loadCompanyProfile();
+  1255→        if (loaded) company = loaded;
+  1256→      } catch {
+  1257→        // Silently fail — callers use fallback defaults in drawCorporateHeader
+  1258→      }
+  1259→    }
+  1260→  }
+  1261→
+  1262→  // Lazy-load jsPDF and autoTable to prevent React error #321
+  1263→  const { jsPDF } = await loadJsPDF();
+  1264→  const { autoTable } = await loadAutoTable();
+  1265→
+  1266→  try {
+  1267→    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  1268→    const pageWidth = doc.internal.pageSize.getWidth();
+  1269→    const pageHeight = doc.internal.pageSize.getHeight();
+  1270→    const margin = 14;
+  1271→    const vatMaskSet = new Set(vatMaskedColumns);
+  1272→
+  1273→    // ── Corporate Header ──
+  1274→    const auditSubtitle = subtitle ? `AUDIT REPORT \u2014 ${subtitle}` : "AUDIT REPORT";
+  1275→    const tableStartY = drawCorporateHeader(
+  1276→      doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company,
+  1277→      "Audit Report \u2014 Generated from verified transactional data"
+  1278→    );
+  1279→
+  1280→    // ── Classification Badge ──
+  1281→    drawClassificationBadge(doc, classification, pageWidth, margin);
+  1282→
+  1283→    // ── Adjust bottom margin for financial footer ──
+  1284→    const bottomMargin = financialFooter ? 36 : 18;
+  1285→
+  1286→    // ── Prepare Table Data ──
+  1287→    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+  1288→    const headers = visibleColumns.map((c) => c.label);
+  1289→    const body = data.map((item: any) =>
+  1290→      visibleColumns.map((c) =>
+  1291→        formatCellValue(item[c.key], c.type, isVatAuditor, vatMaskSet.has(c.key))
+  1292→      )
+  1293→    );
+  1294→
+  1295→    // ── autoTable Configuration ──
+  1296→    const headStyles: any = {
+  1297→      fillColor: [10, 22, 40], // Navy blue for audit reports (distinct from regular reports)
+  1298→      textColor: [255, 255, 255],
+  1299→      fontStyle: "bold",
+  1300→      fontSize: 8,
+  1301→      halign: "left",
+  1302→      cellPadding: 3,
+  1303→    };
+  1304→
+  1305→    const alternateRowStyles: any = {
+  1306→      fillColor: [248, 250, 252], // slate-50
+  1307→    };
+  1308→
+  1309→    const styles: any = {
+  1310→      fontSize: 7,
+  1311→      cellPadding: 2.5,
+  1312→      textColor: [30, 41, 59],
+  1313→      lineWidth: 0.1,
+  1314→      lineColor: [203, 213, 225],
+  1315→    };
+  1316→
+  1317→    // Currency/number columns right-aligned + column width bounds + fixed width for currency
+  1318→    const columnStyles: Record<number, any> = {};
+  1319→    const colWidths = calculateColumnWidths(visibleColumns.length, pageWidth, margin);
+  1320→    visibleColumns.forEach((c, i) => {
+  1321→      const colConfig: any = {};
+  1322→      if (c.type === "currency" || c.type === "number") {
+  1323→        colConfig.halign = "right";
+  1324→      }
+  1325→      colConfig.minCellWidth = colWidths[i].minW;
+  1326→      colConfig.maxCellWidth = colWidths[i].maxW;
+  1327→      columnStyles[i] = colConfig;
+  1328→    });
+  1329→
+  1330→    // ── Fix right-aligned currency column widths (same logic as exportToPDF) ──
+  1331→    {
+  1332→      const tempDoc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  1333→      tempDoc.setFontSize(7);
+  1334→      visibleColumns.forEach((c, i) => {
+  1335→        if (c.type === "currency") {
+  1336→          let maxTextWidth = 0;
+  1337→          for (const row of body) {
+  1338→            const cellText = row[i] || "";
+  1339→            const tw = tempDoc.getTextWidth(String(cellText));
+  1340→            if (tw > maxTextWidth) maxTextWidth = tw;
+  1341→          }
+  1342→          const calculatedWidth = maxTextWidth + 6;
+  1343→          const minW = columnStyles[i]?.minCellWidth || 12;
+  1344→          const maxW = columnStyles[i]?.maxCellWidth || 80;
+  1345→          columnStyles[i].cellWidth = Math.max(minW, Math.min(calculatedWidth, maxW));
+  1346→        }
+  1347→      });
+  1348→    }
+  1349→
+  1350→    // ── Draw Main Table ──
+  1351→    const TOTAL_PLACEHOLDER = "{total}";
+  1352→
+  1353→    autoTable(doc, {
+  1354→      head: [headers],
+  1355→      body,
+  1356→      startY: tableStartY,
+  1357→      margin: { left: margin, right: margin, bottom: bottomMargin },
+  1358→      styles,
+  1359→      headStyles,
+  1360→      alternateRowStyles,
+  1361→      columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+  1362→      didDrawPage: (data: any) => {
+  1363→        drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+  1364→      },
+  1365→    });
+  1366→
+  1367→    // ── Post-table content position ──
+  1368→    const lastTable = (doc as any).lastAutoTable;
+  1369→    let currentY = lastTable ? lastTable.finalY + 4 : tableStartY + 30;
+  1370→
+  1371→    // ── Summary Rows ──
+  1372→    if (summaryRows && summaryRows.length > 0) {
+  1373→      // Check if summary fits on current page
+  1374→      if (currentY > pageHeight - (financialFooter ? 54 : 40)) {
+  1375→        doc.addPage();
+  1376→        drawCorporateHeader(doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company);
+  1377→        drawClassificationBadge(doc, classification, pageWidth, margin);
+  1378→        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+  1379→        currentY = 36;
+  1380→      }
+  1381→
+  1382→      summaryRows.forEach((summaryRow) => {
+  1383→        const rowStyle = summaryRow.style || {
+  1384→          fillColor: [10, 22, 40],
+  1385→          textColor: [255, 255, 255],
+  1386→          fontStyle: "bold" as const,
+  1387→          fontSize: 8,
+  1388→        };
+  1389→
+  1390→        if (currentY > pageHeight - (financialFooter ? 54 : 35)) {
+  1391→          doc.addPage();
+  1392→          drawCorporateHeader(doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company);
+  1393→          drawClassificationBadge(doc, classification, pageWidth, margin);
+  1394→          drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+  1395→          currentY = 36;
+  1396→        }
+  1397→
+  1398→        autoTable(doc, {
+  1399→          body: [summaryRow.cells],
+  1400→          startY: currentY,
+  1401→          margin: { left: margin, right: margin, bottom: 18 },
+  1402→          styles: {
+  1403→            fontSize: rowStyle.fontSize || 8,
+  1404→            cellPadding: 3,
+  1405→            textColor: (rowStyle.textColor as [number, number, number]) || [255, 255, 255],
+  1406→            fontStyle: rowStyle.fontStyle || "bold",
+  1407→            lineWidth: 0.1,
+  1408→            lineColor: [203, 213, 225],
+  1409→          },
+  1410→          bodyStyles: {
+  1411→            fillColor: rowStyle.fillColor || [10, 22, 40],
+  1412→          },
+  1413→          columnStyles: Object.keys(columnStyles).length > 0 ? columnStyles : undefined,
+  1414→          didDrawPage: (data: any) => {
+  1415→            drawFooter(doc, data.pageNumber, TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+  1416→          },
+  1417→        });
+  1418→
+  1419→        const nextTable = (doc as any).lastAutoTable;
+  1420→        if (nextTable) currentY = nextTable.finalY + 2;
+  1421→      });
+  1422→    }
+  1423→
+  1424→    // ── Integrity Score Display ──
+  1425→    if (integrityScore !== undefined) {
+  1426→      if (currentY > pageHeight - (financialFooter ? 54 : 40)) {
+  1427→        doc.addPage();
+  1428→        drawCorporateHeader(doc, title, auditSubtitle, isVatAuditor, pageWidth, margin, company);
+  1429→        drawClassificationBadge(doc, classification, pageWidth, margin);
+  1430→        drawFooter(doc, doc.getNumberOfPages(), TOTAL_PLACEHOLDER, pageWidth, pageHeight, margin, company, financialFooter);
+  1431→        currentY = 36;
+  1432→      }
+  1433→      currentY = drawIntegrityScore(doc, integrityScore, currentY + 2, margin, pageWidth);
+  1434→    }
+  1435→
+  1436→    // ── System Disclaimer ──
+  1437→    drawSystemDisclaimer(doc, currentY + 2, margin, pageWidth, pageHeight, financialFooter);
+  1438→
+  1439→    // ── Second Pass: Fix "Page X of Y" ──
+  1440→    fixPageXOfY(doc, pageHeight, pageWidth, margin, financialFooter, company);
+  1441→
+  1442→    // ── Save ──
+  1443→    const rawFilename = `audit-${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
+  1444→    const safeFilename = rawFilename.replace(/\.pdf$/i, "");
+  1445→    doc.save(`${safeFilename}.pdf`);
+  1446→  } catch (error: any) {
+  1447→    console.error("Export Audit Report PDF Error:", error);
+  1448→    throw new Error(`Audit report PDF export failed: ${error.message || "Unknown error"}`);
+  1449→  }
+  1450→}
+  1451→
+  1452→// ============================================================
+  1453→// EXPORT CSV ENGINE
+  1454→// UTF-8 BOM always injected, RFC 4180 compliant, VAT masking,
+  1455→// numeric values unquoted, proper escaping for Tk.  symbol
+  1456→// ============================================================
+  1457→
+  1458→export async function exportToCSV(options: CSVOptions): Promise<void> {
+  1459→  const {
+  1460→    title,
+  1461→    columns,
+  1462→    data,
+  1463→    isVatAuditor = false,
+  1464→    vatMaskedColumns = [],
+  1465→    filename,
+  1466→  } = options;
+  1467→
+  1468→  // Papa is used for CSV generation
+  1469→  const PapaModule = await loadPapa();
+  1470→  const Papa = PapaModule.default || PapaModule;
+  1471→
+  1472→  try {
+  1473→    const vatMaskSet = new Set(vatMaskedColumns);
+  1474→    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+  1475→
+  1476→    // Build header row — labels are always text, so use text escaping
+  1477→    const headerRow = visibleColumns
+  1478→      .map((c) => escapeCSVField(c.label, false))
+  1479→      .join(",");
+  1480→
+  1481→    // Build data rows — dates formatted as dd/MM/yyyy for Excel compatibility
+  1482→    const dataRows = data.map((item: any) =>
+  1483→      visibleColumns
+  1484→        .map((c) => {
+  1485→          // Use dd/MM/yyyy format for date columns in CSV export
+  1486→          const rawValue = c.type === "date"
+  1487→            ? formatDateForCSV(item[c.key])
+  1488→            : formatCellValue(
+  1489→                item[c.key],
+  1490→                c.type,
+  1491→                isVatAuditor,
+  1492→                vatMaskSet.has(c.key)
+  1493→              );
+  1494→          const isNumeric = c.type === "number" || c.type === "currency";
+  1495→          return escapeCSVField(rawValue, isNumeric);
+  1496→        })
+  1497→        .join(",")
+  1498→    );
+  1499→
+  1500→    // UTF-8 BOM is ALWAYS injected for Excel compatibility (preserves Tk.  symbol)
+  1501→    const bom = "\uFEFF";
+  1502→    const csv = bom + headerRow + "\n" + dataRows.join("\n") + "\n";
+  1503→
+  1504→    // Create and download blob
+  1505→    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  1506→    const url = URL.createObjectURL(blob);
+  1507→    const a = document.createElement("a");
+  1508→    a.href = url;
+  1509→    // Strip any .csv extension if already present in filename to prevent double .csv.csv
+  1510→    const rawCsvFilename =
+  1511→      filename || `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
+  1512→    const safeCsvFilename = rawCsvFilename.replace(/\.csv$/i, "");
+  1513→    a.download = `${safeCsvFilename}.csv`;
+  1514→    document.body.appendChild(a);
+  1515→    a.click();
+  1516→    document.body.removeChild(a);
+  1517→    URL.revokeObjectURL(url);
+  1518→  } catch (error: any) {
+  1519→    console.error("Export CSV Error:", error);
+  1520→    throw new Error(`CSV export failed: ${error.message || "Unknown error"}`);
+  1521→  }
+  1522→}
+  1523→
+  1524→// ============================================================
+  1525→// EXPORT CSV — Simple header/body overload
+  1526→// ============================================================
+  1527→
+  1528→export async function exportToCSVSimple(
+  1529→  title: string,
+  1530→  headers: string[],
+  1531→  rows: string[][]
+  1532→): Promise<void> {
+  1533→  try {
+  1534→    const headerRow = headers.map((h) => escapeCSVField(h, false)).join(",");
+  1535→    const dataRows = rows.map((row) =>
+  1536→      row.map((cell) => escapeCSVField(cell, false)).join(",")
+  1537→    );
+  1538→
+  1539→    // UTF-8 BOM always injected
+  1540→    const bom = "\uFEFF";
+  1541→    const csv = bom + headerRow + "\n" + dataRows.join("\n") + "\n";
+  1542→
+  1543→    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  1544→    const url = URL.createObjectURL(blob);
+  1545→    const a = document.createElement("a");
+  1546→    a.href = url;
+  1547→    const rawSimpleFilename = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  1548→    const safeSimpleFilename = rawSimpleFilename.replace(/\.csv$/i, "");
+  1549→    a.download = `${safeSimpleFilename}.csv`;
+  1550→    document.body.appendChild(a);
+  1551→    a.click();
+  1552→    document.body.removeChild(a);
+  1553→    URL.revokeObjectURL(url);
+  1554→  } catch (error: any) {
+  1555→    console.error("Export CSV Simple Error:", error);
+  1556→    throw new Error(`CSV export failed: ${error.message || "Unknown error"}`);
+  1557→  }
+  1558→}
+  1559→
+  1560→// ============================================================
+  1561→// EXPORT CSV ENGINE — Memory-Efficient Streaming
+  1562→// Handles large datasets without memory bloat by fetching data
+  1563→// in batches and accumulating CSV chunks in an array before
+  1564→// creating a single Blob. Avoids string concatenation O(n²)
+  1565→// memory issues.
+  1566→// ============================================================
+  1567→
+  1568→export interface CSVStreamOptions {
+  1569→  title: string;
+  1570→  columns: ColumnDef[];
+  1571→  dataFetcher: (offset: number, limit: number) => Promise<{ data: any[]; hasMore: boolean }>;
+  1572→  isVatAuditor?: boolean;
+  1573→  vatMaskedColumns?: string[];
+  1574→  filename?: string;
+  1575→  /** Number of rows per fetch batch (default: 500) */
+  1576→  batchSize?: number;
+  1577→  /** Maximum total rows to export (safety limit, default: 100000) */
+  1578→  maxRows?: number;
+  1579→}
+  1580→
+  1581→export async function exportToCSVStreaming(options: CSVStreamOptions): Promise<{ totalRows: number; filename: string }> {
+  1582→  const {
+  1583→    title,
+  1584→    columns,
+  1585→    dataFetcher,
+  1586→    isVatAuditor = false,
+  1587→    vatMaskedColumns = [],
+  1588→    filename,
+  1589→    batchSize = 500,
+  1590→    maxRows = 100000,
+  1591→  } = options;
+  1592→
+  1593→  try {
+  1594→    const vatMaskSet = new Set(vatMaskedColumns);
+  1595→    const visibleColumns = getVisibleColumns(columns, isVatAuditor, vatMaskedColumns);
+  1596→
+  1597→    // Accumulate CSV chunks in an array to avoid O(n²) string concatenation
+  1598→    const chunks: string[] = [];
+  1599→
+  1600→    // UTF-8 BOM is ALWAYS injected for Excel compatibility
+  1601→    chunks.push("\uFEFF");
+  1602→
+  1603→    // Header row
+  1604→    const headerRow = visibleColumns
+  1605→      .map((c) => escapeCSVField(c.label, false))
+  1606→      .join(",");
+  1607→    chunks.push(headerRow);
+  1608→    chunks.push("\n");
+  1609→
+  1610→    // Fetch data in batches
+  1611→    let offset = 0;
+  1612→    let totalRows = 0;
+  1613→    let hasMore = true;
+  1614→
+  1615→    while (hasMore && totalRows < maxRows) {
+  1616→      const effectiveBatchSize = Math.min(batchSize, maxRows - totalRows);
+  1617→      const result = await dataFetcher(offset, effectiveBatchSize);
+  1618→
+  1619→      if (!result.data || result.data.length === 0) {
+  1620→        hasMore = false;
+  1621→        break;
+  1622→      }
+  1623→
+  1624→      // Convert each row in the batch to CSV and push as a chunk
+  1625→      for (const item of result.data) {
+  1626→        if (totalRows >= maxRows) break;
+  1627→
+  1628→        const row = visibleColumns
+  1629→          .map((c) => {
+  1630→            // Use dd/MM/yyyy format for date columns in CSV export
+  1631→            const rawValue = c.type === "date"
+  1632→              ? formatDateForCSV(item[c.key])
+  1633→              : formatCellValue(
+  1634→                  item[c.key],
+  1635→                  c.type,
+  1636→                  isVatAuditor,
+  1637→                  vatMaskSet.has(c.key)
+  1638→                );
+  1639→            const isNumeric = c.type === "number" || c.type === "currency";
+  1640→            return escapeCSVField(rawValue, isNumeric);
+  1641→          })
+  1642→          .join(",");
+  1643→        chunks.push(row);
+  1644→        chunks.push("\n");
+  1645→        totalRows++;
+  1646→      }
+  1647→
+  1648→      hasMore = result.hasMore;
+  1649→      offset += result.data.length;
+  1650→    }
+  1651→
+  1652→    // Create a single Blob from all chunks — this is memory-efficient
+  1653→    // because the Blob constructor accepts an array of strings without
+  1654→    // concatenating them into a single large string first
+  1655→    const blob = new Blob(chunks, { type: "text/csv;charset=utf-8;" });
+  1656→    const url = URL.createObjectURL(blob);
+  1657→    const a = document.createElement("a");
+  1658→    a.href = url;
+  1659→
+  1660→    const rawCsvFilename =
+  1661→      filename || `${title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}`;
+  1662→    const safeCsvFilename = rawCsvFilename.replace(/\.csv$/i, "");
+  1663→    const finalFilename = `${safeCsvFilename}.csv`;
+  1664→    a.download = finalFilename;
+  1665→    document.body.appendChild(a);
+  1666→    a.click();
+  1667→    document.body.removeChild(a);
+  1668→    URL.revokeObjectURL(url);
+  1669→
+  1670→    return { totalRows, filename: finalFilename };
+  1671→  } catch (error: any) {
+  1672→    console.error("Export CSV Streaming Error:", error);
+  1673→    throw new Error(`CSV streaming export failed: ${error.message || "Unknown error"}`);
+  1674→  }
+  1675→}
+  1676→
+  1677→// ============================================================
+  1678→// IMPORT CSV ENGINE
+  1679→// PapaParse-powered: Proper field parsing, header validation,
+  1680→// batch bulk insert (groups of 10), row-level error reporting,
+  1681→// UTF-8 BOM stripping from first header
+  1682→// ============================================================
+  1683→
+  1684→export interface ImportCSVOpts {
+  1685→  apiPath: string;
+  1686→  formFields: FieldDef[];
+  1687→  onProgress?: (imported: number, total: number) => void;
+  1688→  /** Number of rows per batch insert (default: 10) */
+  1689→  batchSize?: number;
+  1690→}
+  1691→
+  1692→/** Strip UTF-8 BOM if present at start of string */
+  1693→function stripBOM(str: string): string {
+  1694→  if (str.charCodeAt(0) === 0xfeff) {
+  1695→    return str.slice(1);
+  1696→  }
+  1697→  return str;
+  1698→}
+  1699→
+  1700→// ============================================================
+  1701→// CSV IMPORT: Security & Validation Constants
+  1702→// ============================================================
+  1703→
+  1704→/** Maximum string length for any imported text field */
+  1705→const MAX_CSV_STRING_LENGTH = 500;
+  1706→
+  1707→/** Bangladesh mobile phone regex: accepts +880, 880, or 0 prefix + 1[3-9] + 8 digits */
+  1708→const BD_PHONE_REGEX = /^(\+880|880|0)?1[3-9]\d{8}$/;
+  1709→
+  1710→/** Field key patterns that indicate a phone number field */
+  1711→const PHONE_FIELD_PATTERNS = /phone|mobile|cell|contact|whatsapp|telegram/i;
+  1712→
+  1713→/** CSV Text Sanitizer — strips security exploit patterns from input values
+  1714→ *  1. Strips HTML tags (XSS prevention)
+  1715→ *  2. Strips SQL injection patterns
+  1716→ *  3. Strips JavaScript protocol handlers
+  1717→ *  4. Strips event handler attributes
+  1718→ *  5. Enforces maximum string length (truncates with warning)
+  1719→ */
+  1720→function sanitizeCSVText(value: string): string {
+  1721→  if (!value) return value;
+  1722→  let sanitized = value;
+  1723→  // Strip HTML tags
+  1724→  sanitized = sanitized.replace(/<\s*\/?\s*(script|iframe|object|embed|form|input|textarea|button|link|style|meta|img|svg|math|base|body|html|head)[^>]*>/gi, '');
+  1725→  // Strip SQL injection patterns
+  1726→  sanitized = sanitized.replace(/(\b(OR|AND)\s+\d+\s*=\s*\d+|--|;\s*DROP\b|;\s*DELETE\b|;\s*UPDATE\b|;\s*INSERT\b|UNION\s+SELECT|;\s*ALTER\b)/gi, '');
+  1727→  // Strip JavaScript protocol handlers
+  1728→  sanitized = sanitized.replace(/javascript\s*:/gi, '');
+  1729→  // Strip event handler attributes
+  1730→  sanitized = sanitized.replace(/\b(on\w+)\s*=\s*["'][^"']*["']/gi, '');
+  1731→  // Enforce maximum string length
+  1732→  sanitized = sanitized.trim();
+  1733→  if (sanitized.length > MAX_CSV_STRING_LENGTH) {
+  1734→    sanitized = sanitized.slice(0, MAX_CSV_STRING_LENGTH);
+  1735→  }
+  1736→  return sanitized;
+  1737→}
+  1738→
+  1739→/** Validate Bangladesh phone number format.
+  1740→ *  Accepts: +8801XXXXXXXXX, 8801XXXXXXXXX, 01XXXXXXXXX
+  1741→ *  Returns: formatted +880XXXXXXXXXX or null if invalid
+  1742→ */
+  1743→function validateBDPhone(phone: string): string | null {
+  1744→  if (!phone) return null;
+  1745→  const cleaned = phone.trim().replace(/[\s\-()]/g, '');
+  1746→  if (!BD_PHONE_REGEX.test(cleaned)) return null;
+  1747→  // Extract the 11-digit local format and prepend +880
+  1748→  const match = cleaned.match(/1[3-9]\d{8}$/);
+  1749→  if (!match) return null;
+  1750→  return `+880${match[0]}`;
+  1751→}
+  1752→
+  1753→/** Format date value to dd/MM/yyyy for CSV export (Excel-friendly) */
+  1754→function formatDateForCSV(value: any): string {
+  1755→  if (!value) return '';
+  1756→  try {
+  1757→    const d = new Date(value);
+  1758→    if (isNaN(d.getTime())) return String(value);
+  1759→    const day = String(d.getDate()).padStart(2, '0');
+  1760→    const month = String(d.getMonth() + 1).padStart(2, '0');
+  1761→    const year = d.getFullYear();
+  1762→    return `${day}/${month}/${year}`;
+  1763→  } catch {
+  1764→    return String(value);
+  1765→  }
+  1766→}
+  1767→
+  1768→export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> {
+  1769→  const { apiPath, formFields, onProgress, batchSize = 10 } = opts;
+  1770→
+  1771→  // Lazy-load Papa to prevent React error #321
+  1772→  const PapaModule = await loadPapa();
+  1773→  const Papa = (PapaModule as any).default || PapaModule;
+  1774→
+  1775→  return new Promise((resolve) => {
+  1776→    const input = document.createElement("input");
+  1777→    input.type = "file";
+  1778→    input.accept = ".csv";
+  1779→    input.style.display = "none";
+  1780→    document.body.appendChild(input);
+  1781→
+  1782→    input.onchange = async (e: any) => {
+  1783→      const file = e.target.files?.[0];
+  1784→      document.body.removeChild(input);
+  1785→      if (!file) {
+  1786→        resolve({ imported: 0, failed: 0, errors: ["No file selected"] });
+  1787→        return;
+  1788→      }
+  1789→
+  1790→      try {
+  1791→        let text = await file.text();
+  1792→
+  1793→        // Strip UTF-8 BOM from the raw file content
+  1794→        // Some CSV editors (Excel) prepend BOM which would corrupt the first header
+  1795→        text = stripBOM(text);
+  1796→
+  1797→        // Parse with PapaParse (handles quoted fields, escaped commas, etc.)
+  1798→        const result = Papa.parse(text, {
+  1799→          header: true,
+  1800→          skipEmptyLines: "greedy",
+  1801→          transformHeader: (h: string) =>
+  1802→            h.trim().replace(/^["']|["']$/g, ""),
+  1803→          encoding: "UTF-8",
+  1804→        });
+  1805→
+  1806→        if (result.errors.length > 0 && result.data.length === 0) {
+  1807→          resolve({
+  1808→            imported: 0,
+  1809→            failed: 0,
+  1810→            errors: result.errors.map(
+  1811→              (e) => `Parse error at row ${e.row ?? "?"}: ${e.message}`
+  1812→            ),
+  1813→          });
+  1814→          return;
+  1815→        }
+  1816→
+  1817→        if (result.data.length === 0) {
+  1818→          resolve({ imported: 0, failed: 0, errors: ["CSV file contains no data rows"] });
+  1819→          return;
+  1820→        }
+  1821→
+  1822→        const rows = result.data as Record<string, string>[];
+  1823→        let imported = 0;
+  1824→        let failed = 0;
+  1825→        const errors: string[] = [];
+  1826→        const fieldErrors: ImportResult["fieldErrors"] = [];
+  1827→
+  1828→        // Build field lookup from label → field definition
+  1829→        const fieldByLabel = new Map<string, FieldDef>();
+  1830→        formFields.forEach((f) => {
+  1831→          fieldByLabel.set(f.label.toLowerCase(), f);
+  1832→          fieldByLabel.set(f.key.toLowerCase(), f);
+  1833→        });
+  1834→
+  1835→        // Map CSV headers to form field keys
+  1836→        const csvHeaders = result.meta.fields || [];
+  1837→        const headerFieldMap = csvHeaders.map((header) => {
+  1838→          const field = fieldByLabel.get(header.toLowerCase());
+  1839→          return { header, field: field || null };
+  1840→        });
+  1841→
+  1842→        // ── Validate: Check that all required fields are present in CSV headers ──
+  1843→        const csvHeaderLowerSet = new Set(csvHeaders.map((h) => h.toLowerCase()));
+  1844→        const requiredFields = formFields.filter((f) => f.required);
+  1845→        const missingHeaders = requiredFields.filter((f) => {
+  1846→          return !csvHeaderLowerSet.has(f.label.toLowerCase()) && !csvHeaderLowerSet.has(f.key.toLowerCase());
+  1847→        });
+  1848→
+  1849→        if (missingHeaders.length > 0) {
+  1850→          resolve({
+  1851→            imported: 0,
+  1852→            failed: 0,
+  1853→            errors: [
+  1854→              `CSV is missing required column headers: ${missingHeaders.map((f) => f.label).join(", ")}. Please ensure your CSV has all required columns.`,
+  1855→            ],
+  1856→          });
+  1857→          return;
+  1858→        }
+  1859→
+  1860→        // ── Process rows and prepare records ──
+  1861→        const validatedRecords: { record: Record<string, any>; rowIndex: number }[] = [];
+  1862→
+  1863→        for (let i = 0; i < rows.length; i++) {
+  1864→          const row = rows[i];
+  1865→          const record: Record<string, any> = {};
+  1866→          let rowHasError = false;
+  1867→
+  1868→          // Map and validate each field
+  1869→          for (const { header, field } of headerFieldMap) {
+  1870→            if (!field) continue;
+  1871→            let value = (row[header] || "").trim();
+  1872→
+  1873→            // Type coercion
+  1874→            if (field.type === "number") {
+  1875→              const num = Number(value.replace(/Tk\.\s*/g, "").replace(/[,$]/g, ""));
+  1876→              if (isNaN(num)) {
+  1877→                fieldErrors.push({
+  1878→                  row: i + 2,
+  1879→                  field: field.label,
+  1880→                  message: `Invalid number value: "${value}"`,
+  1881→                });
+  1882→                rowHasError = true;
+  1883→                continue;
+  1884→              }
+  1885→              record[field.key] = num;
+  1886→
+  1887→              // Negative value guard: drop rows with negative transaction quantities
+  1888→              if (record[field.key] < 0) {
+  1889→                const isQuantityField = /quantity|days|allocated|count|stock|amount|balance|limit|price|rate|total|qty/i.test(field.key);
+  1890→                if (isQuantityField) {
+  1891→                  failed++;
+  1892→                  errors.push(`Row ${i + 2}: Negative value not allowed for "${field.label}" (${record[field.key]}). Row dropped.`);
+  1893→                  fieldErrors.push({
+  1894→                    row: i + 2,
+  1895→                    field: field.label,
+  1896→                    message: `Negative value (${record[field.key]}) rejected by input sanitization rules`,
+  1897→                  });
+  1898→                  rowHasError = true;
+  1899→                  break; // Stop processing this row
+  1900→                }
+  1901→              }
+  1902→            } else if (field.type === "checkbox") {
+  1903→              record[field.key] =
+  1904→                value.toLowerCase() === "true" ||
+  1905→                value === "1" ||
+  1906→                value.toLowerCase() === "active";
+  1907→            } else if (field.type === "date") {
+  1908→              if (value) {
+  1909→                const d = new Date(value);
+  1910→                if (!isNaN(d.getTime())) {
+  1911→                  record[field.key] = d.toISOString().split("T")[0];
+  1912→                } else {
+  1913→                  fieldErrors.push({
+  1914→                    row: i + 2,
+  1915→                    field: field.label,
+  1916→                    message: `Invalid date value: "${value}"`,
+  1917→                  });
+  1918→                  rowHasError = true;
+  1919→                  continue;
+  1920→                }
+  1921→              }
+  1922→            } else if (field.type === "email") {
+  1923→              if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+  1924→                fieldErrors.push({
+  1925→                  row: i + 2,
+  1926→                  field: field.label,
+  1927→                  message: `Invalid email format: "${value}"`,
+  1928→                });
+  1929→                rowHasError = true;
+  1930→                continue;
+  1931→              }
+  1932→              record[field.key] = value;
+  1933→            } else if (field.type === "text" || field.type === "textarea") {
+  1934→              // Apply text sanitizer for security exploit protection
+  1935→              const originalValue = value;
+  1936→              const sanitized = sanitizeCSVText(value);
+  1937→              if (sanitized !== originalValue.trim()) {
+  1938→                // Determine what kind of sanitization occurred
+  1939→                const wasTruncated = sanitized.length >= MAX_CSV_STRING_LENGTH && originalValue.trim().length > MAX_CSV_STRING_LENGTH;
+  1940→                const wasDangerous = sanitized !== originalValue.trim() && !wasTruncated;
+  1941→                if (wasTruncated) {
+  1942→                  fieldErrors.push({
+  1943→                    row: i + 2,
+  1944→                    field: field.label,
+  1945→                    message: `Input truncated: value exceeds ${MAX_CSV_STRING_LENGTH} character limit`,
+  1946→                  });
+  1947→                }
+  1948→                if (wasDangerous) {
+  1949→                  fieldErrors.push({
+  1950→                    row: i + 2,
+  1951→                    field: field.label,
+  1952→                    message: `Input sanitized: potentially dangerous content removed`,
+  1953→                  });
+  1954→                }
+  1955→              }
+  1956→              // Phone field validation with Bangladesh +880 format
+  1957→              if (PHONE_FIELD_PATTERNS.test(field.key) && sanitized) {
+  1958→                const validatedPhone = validateBDPhone(sanitized);
+  1959→                if (validatedPhone) {
+  1960→                  record[field.key] = validatedPhone;
+  1961→                } else {
+  1962→                  // Non-BD format: still accept but warn
+  1963→                  fieldErrors.push({
+  1964→                    row: i + 2,
+  1965→                    field: field.label,
+  1966→                    message: `Phone "${sanitized}" does not match Bangladesh +880 format. Accepted as-is.`,
+  1967→                  });
+  1968→                  record[field.key] = sanitized;
+  1969→                }
+  1970→              } else {
+  1971→                record[field.key] = sanitized;
+  1972→              }
+  1973→            } else {
+  1974→              record[field.key] = value;
+  1975→            }
+  1976→          }
+  1977→
+  1978→          // Validate required fields per row
+  1979→          const missingRequired = formFields
+  1980→            .filter((f) => f.required)
+  1981→            .filter((f) => !record[f.key] && record[f.key] !== 0 && record[f.key] !== false);
+  1982→
+  1983→          if (missingRequired.length > 0) {
+  1984→            failed++;
+  1985→            const fieldList = missingRequired.map((f) => f.label).join(", ");
+  1986→            errors.push(`Row ${i + 2}: Missing required fields: ${fieldList}`);
+  1987→            missingRequired.forEach((f) => {
+  1988→              fieldErrors.push({
+  1989→                row: i + 2,
+  1990→                field: f.label,
+  1991→                message: "Required field is empty",
+  1992→              });
+  1993→            });
+  1994→            continue;
+  1995→          }
+  1996→
+  1997→          if (rowHasError) {
+  1998→            failed++;
+  1999→            errors.push(`Row ${i + 2}: Field validation failed`);
+  2000→            continue;
+
+[showing lines 1-2000 of 2189; use offset=2001 with limit to continue reading]
