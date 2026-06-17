@@ -319,7 +319,9 @@ export async function GET(request: NextRequest) {
         color: true,
         godown: true,
         segment: true,
-        company: true,
+        // PERF: Only select lightweight company fields — exclude logo/brandLogo
+        // (base64 images ~192KB each) which bloated every product record to 190KB+.
+        company: { select: { id: true, code: true, name: true } },
       },
     });
 

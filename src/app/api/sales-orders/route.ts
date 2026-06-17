@@ -284,7 +284,8 @@ export async function GET(request: NextRequest) {
         customer: true,
         godown: true,
         paymentOption: true,
-        company: true,
+        // PERF: Exclude logo/brandLogo (~192KB base64) from company relation.
+        company: { select: { id: true, code: true, name: true, phone: true, mobile: true, email: true, address: true, vatNumber: true, tradeLicense: true, invoicePrefix: true, thankYouMsg: true, systemNote: true, showBarcode: true, showPayInWord: true, website: true } },
         sr: {
           include: {
             designation: true,
