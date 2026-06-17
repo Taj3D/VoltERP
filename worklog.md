@@ -2370,3 +2370,78 @@ Stage Summary:
 - Application is STABLE and PRODUCTION-READY based on audit
 
 Files Modified: None (audit only - no bugs found requiring fixes)
+
+---
+Task ID: VERSIONING-SYSTEM-001
+Agent: Main Agent
+Task: Implement complete versioning system — semantic versioning + Git release branches + feature flags + database migration tracking
+
+Work Log:
+- Read previous worklog to understand v3.0.0 baseline (6 bug fixes + workflow verified)
+- Updated package.json: version 1.0.0 → 3.0.0, added scripts (version:patch/minor/major, release:tag)
+- Created VERSION.md: full changelog with v2.0.0 baseline, v3.0.0 release notes, rollback procedure
+- Created src/lib/feature-flags.ts: 3-tier flag resolution (runtime > DB > env > default), 15 flag definitions
+- Added FeatureFlag + SchemaMigration models to prisma/schema.prisma
+- Ran `bun run db:push` — both tables created successfully
+- Created prisma/migrations/20250118000000_v3_0_0_initial/migration.sql with seed data
+- Created src/lib/migration-tracker.ts: recordMigration, isMigrationApplied, getAppliedMigrations, getCurrentSchemaVersion
+- Created scripts/version-bump.mjs: patch/minor/major version bumps with VERSION.md update
+- Created scripts/create-release.mjs: git tag + release branch creation
+- Created src/components/erp/version-badge.tsx: header badge showing v3.0.0 + channel (stable/beta/dev)
+- Added VersionBadge to AppHeader.tsx (hidden on mobile, shown md+)
+- Created src/components/erp/feature-flag-manager.tsx: admin UI with toggle switches, grouped by category
+- Added "Feature Flags" tab to SystemSettingsGroupPage
+- Created /api/feature-flags route (GET/PUT/POST) using withApiSecurity
+- Created /api/system-info route: returns version, schema, migrations, flags, runtime info
+- Created src/components/erp/feature-flags-provider.tsx: React Context for client-side flag access
+- Fixed migration-tracker + feature-flags: removed `typeof db.X === 'undefined'` checks that broke with Prisma Proxy
+- Seeded SchemaMigration table with v3.0.0 record via direct Prisma client script
+- Restarted dev server to pick up new PrismaClient with featureFlag + schemaMigration models
+
+Git Operations:
+- Created git tag v2.0.0 on commit 54e2737 (baseline before master audit)
+- Created git tag v3.0.0 on latest commit (versioning system release)
+- Created release/v3.0 branch for isolated stabilization
+- Committed all changes in 2 commits:
+  1. feat(v3.0): versioning system - feature flags + migration tracking + release branches
+  2. feat(v3.0): feature flag UI + version badge + system info API
+
+Verification (agent-browser):
+- ✅ Version badge displays "v3.0.0 Dev" in header (screenshot: audit-version-badge.png)
+- ✅ Feature Flags tab visible in System Settings (6 tabs now, was 5)
+- ✅ Feature Flags panel loads 15 flags with correct enabled/disabled state
+  * 4 enabled: new_dashboard, enhanced_pdf, sidebar_collapse_fix, audit_trail_enhanced
+  * 11 disabled: sms_auto_trigger, password_hashing, jwt_auth, httponly_cookies, etc.
+- ✅ Toggling sms_auto_trigger: PUT /api/feature-flags 200, DB updated, UI reflected
+- ✅ /api/system-info returns: version=3.0.0, schemaVersion=3.0.0, migrationCount=1, flagTotal=15, flagEnabled=4
+- ✅ `bun run lint` exits 0 — no errors
+- ✅ No console errors or runtime crashes
+
+Stage Summary:
+- ✅ Semantic Versioning: package.json at 3.0.0, VERSION.md documents all changes
+- ✅ Git Release Branches: v2.0.0 tag (baseline), v3.0.0 tag (current), release/v3.0 branch
+- ✅ Feature Flags: 15 flags defined, 3-tier resolution (runtime > DB > env > default), admin UI with toggles
+- ✅ Database Migration Tracking: SchemaMigration table, v3.0.0 recorded, migration-tracker utility
+- ✅ Version Badge: visible in header, shows channel (stable/beta/dev)
+- ✅ System Info API: /api/system-info returns full system metadata
+- ✅ Version Bump Scripts: `bun run version:patch/minor/major` + `bun run release:tag`
+
+Architecture:
+- Feature flags can be toggled at runtime WITHOUT redeploy (PUT /api/feature-flags)
+- Changes persist to DB (survives server restart) AND update runtime cache (instant effect)
+- Rollback procedure documented in VERSION.md (git checkout v2.0.0 + DB rollback SQL)
+- New features can be added behind flags (default=false) and enabled per-customer
+
+Files Created (10):
+- VERSION.md, scripts/version-bump.mjs, scripts/create-release.mjs
+- prisma/migrations/20250118000000_v3_0_0_initial/migration.sql
+- src/lib/feature-flags.ts, src/lib/migration-tracker.ts
+- src/components/erp/version-badge.tsx, src/components/erp/feature-flag-manager.tsx
+- src/components/erp/feature-flags-provider.tsx
+- src/app/api/feature-flags/route.ts, src/app/api/system-info/route.ts
+
+Files Modified (4):
+- package.json (version + scripts)
+- prisma/schema.prisma (FeatureFlag + SchemaMigration models + Company.featureFlags relation)
+- src/components/erp/layout/AppHeader.tsx (VersionBadge import + render)
+- src/components/SystemSettingsGroupPage.tsx (Feature Flags tab + Flag icon import)
