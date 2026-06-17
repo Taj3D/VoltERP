@@ -194,7 +194,6 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
     const stockStatusFilter = searchParams.get('stockStatus');
     const searchQuery = searchParams.get('search');
-    const searchLimit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 0;
 
     // ---- SUMMARY ACTION ----
     if (action === 'summary') {
@@ -289,6 +288,13 @@ export async function GET(request: NextRequest) {
     }
 
     // ---- REGULAR LIST WITH STOCK COMPUTATION ----
+    // PERFORMANCE: Default pagination (100 items) to avoid returning 3.5MB+
+    // payloads when the client doesn't specify a limit. Use ?limit=0 for all
+    // (reserved for export/batch operations only).
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const requestedLimit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 100;
+    const searchLimit = requestedLimit === 0 ? 0 : Math.min(requestedLimit, 500); // cap at 500
+
     const searchWhere = searchQuery
       ? {
           OR: [
@@ -305,7 +311,7 @@ export async function GET(request: NextRequest) {
         ...(companyId ? { companyId } : {}),
         ...searchWhere,
       },
-      ...(searchLimit > 0 ? { take: searchLimit } : {}),
+      ...(searchLimit > 0 ? { take: searchLimit, skip: (page - 1) * searchLimit } : {}),
       orderBy: { createdAt: 'desc' },
       include: {
         category: { select: { id: true, name: true, code: true, isActive: true } },

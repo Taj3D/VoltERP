@@ -10,39 +10,49 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, validateImageFields, stripHtml } from '@/lib/api-security';
+import { cachedFetch, invalidateByPrefix } from '@/lib/server-cache';
 
 // GET /api/company-branding
-// Returns the first active company's branding data for invoice generation
-// RBAC: Requires 'system-config' group access (admin, manager, vat_auditor)
+// Returns the first active company's branding data for invoice generation.
+// RBAC: Requires 'system-config' group access (admin, manager, vat_auditor).
+//
+// PERFORMANCE: Cached server-side for 300s (5 min) to avoid repeatedly
+// transferring the ~190KB base64 logo payload from Turso on every page load.
+// Cache is auto-invalidated when PUT updates company branding.
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'SystemConfig', 'GET');
   if (!security.authorized) return security.response;
 
+  const companyId = (security.user as any)?.companyId;
+  const cacheKey = `company-branding:${companyId || 'default'}`;
+
   try {
-    const company = await db.company.findFirst({
-      where: { isActive: true },
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        address: true,
-        phone: true,
-        mobile: true,
-        email: true,
-        logo: true,
-        brandLogo: true,
-        logoWidth: true,
-        logoHeight: true,
-        vatNumber: true,
-        tradeLicense: true,
-        invoicePrefix: true,
-        thankYouMsg: true,
-        systemNote: true,
-        showBarcode: true,
-        showPayInWord: true,
-        website: true,
-      },
+    const company = await cachedFetch(cacheKey, 300, async () => {
+      return await db.company.findFirst({
+        where: { isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          address: true,
+          phone: true,
+          mobile: true,
+          email: true,
+          logo: true,
+          brandLogo: true,
+          logoWidth: true,
+          logoHeight: true,
+          vatNumber: true,
+          tradeLicense: true,
+          invoicePrefix: true,
+          thankYouMsg: true,
+          systemNote: true,
+          showBarcode: true,
+          showPayInWord: true,
+          website: true,
+        },
+      });
     });
 
     if (!company) {
@@ -171,6 +181,9 @@ export async function PUT(request: NextRequest) {
 
       return record;
     });
+
+    // Invalidate branding cache so next GET fetches fresh data
+    invalidateByPrefix('company-branding:');
 
     return NextResponse.json({
       company: {

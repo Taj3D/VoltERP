@@ -8,6 +8,7 @@ import {
   maskDashboardForVatAuditor,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { getCached, setCached } from '@/lib/server-cache';
 
 export const maxDuration = 60;
 
@@ -19,6 +20,28 @@ export async function GET(request: NextRequest) {
     // Multi-tenant isolation: filter by companyId
     const companyId = security.user.companyId;
     const companyFilter = companyId ? { companyId } : {};
+
+    // ── SERVER-SIDE CACHE (45s TTL) ──────────────────────────────────────
+    // Dashboard aggregates rarely change second-to-second. Caching avoids
+    // 5-9s of Turso round-trips on every dashboard refresh.
+    // Key includes companyId + role because VAT auditors see masked data.
+    const cacheKey = `dashboard:${companyId || 'default'}:${security.user.role}`;
+    const cached = getCached<unknown>(cacheKey);
+    if (cached) {
+      // Fire-and-forget activity log
+      logUserActivity({
+        action: 'EXPORT',
+        module: 'Audit-Dashboard-KPI',
+        userId: security.user.id,
+        userName: security.user.name,
+        details: 'Dashboard KPI data loaded (cached)',
+      }).catch(console.error);
+
+      return NextResponse.json(cached, {
+        headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=45' },
+      });
+    }
+
 
     // FIX 4: Consistent revenue status filter - exclude Draft and Cancelled
     const revenueStatusFilter = { notIn: ['Draft', 'Cancelled'] };
@@ -409,6 +432,9 @@ export async function GET(request: NextRequest) {
 
     // Stage 13: Apply deep recursive VAT Auditor masking
     const maskedData = maskDashboardForVatAuditor(responseData, security.user.role);
+
+    // Store in server-side cache for 45 seconds (avoids 5-9s Turso round-trips)
+    setCached(cacheKey, maskedData, 45);
 
     // Stage 13: Log user activity - fire-and-forget (don't await)
     logUserActivity({

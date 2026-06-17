@@ -6,6 +6,7 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, type UserRole, stripHtml } from '@/lib/api-security';
+import { getCached, setCached, invalidateByPrefix } from '@/lib/server-cache';
 
 // Keys that are sensitive — VAT Auditor must NOT see their values
 const PROFIT_SENSITIVE_KEYS = ['profit', 'margin', 'writeoff'];
@@ -42,7 +43,8 @@ async function seedDefaults() {
   }
 }
 
-// GET /api/system-config — List all system configs
+// GET /api/system-config — List all system configs.
+// PERFORMANCE: Cached server-side for 180s (system configs change rarely).
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'SystemConfig', 'GET');
   if (!security.authorized) return security.response;
@@ -51,13 +53,22 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userRole = security.user.role as UserRole;
     const isVatAuditor = userRole === 'vat_auditor';
+    const category = searchParams.get('category');
+
+    // Cache key includes role (VAT auditor sees masked values) + category filter
+    const cacheKey = `system-config:${userRole}:${category || 'all'}`;
+    const cached = getCached<{ configs: any[]; total: number }>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached, {
+        headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=180' },
+      });
+    }
 
     // Seed defaults if table is empty
     await seedDefaults();
 
     // Build filter
     const where: Record<string, unknown> = {};
-    const category = searchParams.get('category');
     if (category) where.category = category;
 
     const configs = await db.systemConfig.findMany({
@@ -73,7 +84,12 @@ export async function GET(request: NextRequest) {
       return c;
     });
 
-    return NextResponse.json({ configs: masked, total: masked.length });
+    const result = { configs: masked, total: masked.length };
+    setCached(cacheKey, result, 180);
+
+    return NextResponse.json(result, {
+      headers: { 'Cache-Control': 'private, max-age=60, stale-while-revalidate=180' },
+    });
   } catch (error) {
     console.error('SystemConfig GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch system configs' }, { status: 500 });
@@ -134,6 +150,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Invalidate system-config cache (new config added)
+    invalidateByPrefix('system-config:');
+
     return NextResponse.json({ config }, { status: 201 });
   } catch (error) {
     console.error('SystemConfig POST error:', error);
@@ -192,6 +211,9 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    // Invalidate system-config cache (config updated)
+    invalidateByPrefix('system-config:');
+
     return NextResponse.json({ config });
   } catch (error) {
     console.error('SystemConfig PUT error:', error);
@@ -247,6 +269,9 @@ export async function DELETE(request: NextRequest) {
         details: JSON.stringify({ configKey: existing.configKey, configValue: existing.configValue, category: existing.category }),
       },
     });
+
+    // Invalidate system-config cache (config deleted)
+    invalidateByPrefix('system-config:');
 
     return NextResponse.json({ success: true, deleted: existing.configKey });
   } catch (error) {

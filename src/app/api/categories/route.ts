@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { getCached, setCached, invalidateByPrefix } from '@/lib/server-cache';
 
 // ── Text Sanitizer ──
 function sanitizeText(value: unknown): string {
@@ -22,14 +23,23 @@ function sanitizeText(value: unknown): string {
 // ── Name Length Limit ──
 const CATEGORY_NAME_MAX_LENGTH = 100;
 
-// GET /api/categories — List all active categories filtered by companyId
+// GET /api/categories — List all active categories filtered by companyId.
+// PERFORMANCE: Cached server-side for 120s (categories change rarely).
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'Categories', 'GET');
   if (!security.authorized) return security.response;
 
   const companyId = security.user.companyId;
+  const cacheKey = `categories:${companyId || 'default'}`;
 
   try {
+    const cached = getCached<unknown>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached, {
+        headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=120' },
+      });
+    }
+
     const items = await db.category.findMany({
       where: { isActive: true, ...(companyId ? { companyId } : {}) },
       orderBy: { createdAt: 'desc' },
@@ -40,7 +50,11 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(items);
+    setCached(cacheKey, items, 120);
+
+    return NextResponse.json(items, {
+      headers: { 'Cache-Control': 'private, max-age=30, stale-while-revalidate=120' },
+    });
   } catch (error) {
     console.error('Error fetching categories:', error);
     return NextResponse.json(
@@ -220,6 +234,9 @@ export async function POST(request: NextRequest) {
 
       return record;
     });
+
+    // Invalidate categories cache (new category added)
+    invalidateByPrefix('categories:');
 
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
