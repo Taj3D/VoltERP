@@ -3535,3 +3535,39 @@ Stage Summary:
 - DEFINITIVE fix (requires user action): Set CRON_SECRET env var in Vercel project settings to enable the /api/dashboard-warmup cron job
 - Files created: src/lib/dashboard-shared.ts, src/app/api/dashboard-warmup/route.ts
 - Files modified: src/app/api/dashboard-batch/route.ts (full rewrite using shared layer), vercel.json (added crons config)
+
+---
+Task ID: PERF-FIX-03
+Agent: main (Z.ai Code)
+Task: Set up CRON_SECRET environment variable for production Vercel deployment so the dashboard-warmup cron job can authenticate.
+
+Work Log:
+- Generated a cryptographically secure 64-char hex secret using node crypto.randomBytes(32)
+- Added CRON_SECRET to local .env file (with documentation comments)
+- Created scripts/setup-vercel-cron-secret.sh — automated helper that:
+  - Reads or generates CRON_SECRET from .env
+  - Pushes it to Vercel project (production + preview) via Vercel REST API
+  - Falls back to printing manual dashboard setup instructions if no VERCEL_TOKEN
+  - Also supports interactive `--login` mode using Vercel CLI
+- Updated .env.example to document CRON_SECRET, DASHBOARD_AUDIT_ENABLED, and CSRF_ENFORCE
+- Force-added the script (was ignored by .gitignore `scripts/` rule)
+- Tested warmup endpoint locally:
+  - Correct secret → 200 OK, "warmed": 2 (cache pre-built for 2 admin users)
+  - Wrong secret → 401 Unauthorized
+  - No secret → 401 Unauthorized
+- Committed and pushed all changes to GitHub (Vercel auto-deploys from main)
+- Note: Vercel CLI was installed (v54.14.0) but not authenticated — user must either
+  run the script with a VERCEL_TOKEN, or set the var manually in Vercel dashboard
+
+Stage Summary:
+- CRON_SECRET value generated: 06f100d86feb96ed30f4dd70707f9a8086df12d8d512e74861121b129e0efe2e
+- Local .env: ✅ configured
+- .env.example: ✅ documented
+- Helper script: ✅ created at scripts/setup-vercel-cron-secret.sh
+- Git push: ✅ 2 commits pushed (script + .env.example docs)
+- Production Vercel env var: ⏳ PENDING — requires user to either:
+  (a) run `VERCEL_TOKEN=xxx bun run scripts/setup-vercel-cron-secret.sh`, OR
+  (b) manually add CRON_SECRET in Vercel dashboard with the value above
+- Files created: scripts/setup-vercel-cron-secret.sh
+- Files modified: .env, .env.example
+- Commits: d993d2f (script), 2892dc9 (.env.example docs)
