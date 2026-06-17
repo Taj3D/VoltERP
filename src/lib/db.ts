@@ -68,10 +68,16 @@ function getPrismaInstance(): PrismaClient {
   }
   if (!_prismaInstance) {
     _prismaInstance = createPrismaClient();
-    if (process.env.NODE_ENV !== 'production') {
-      globalForPrisma.prisma = _prismaInstance;
-      globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION;
-    }
+    // Cache on globalThis in ALL environments (including production).
+    // On Vercel serverless, a warm Lambda instance reuses this cached
+    // client across invocations → avoids re-creating PrismaClient + the
+    // LibSQL HTTP adapter on every request (saves ~200-500ms per cold hit).
+    // Previously this was gated by `!== 'production'` which meant every
+    // serverless invocation rebuilt the client. Safe because PrismaClient
+    // is connection-stateless over HTTP (libSQL) — there are no open TCP
+    // sockets to leak.
+    globalForPrisma.prisma = _prismaInstance;
+    globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION;
   }
   return _prismaInstance;
 }

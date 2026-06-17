@@ -43,6 +43,18 @@ export async function logUserActivity(params: {
   tx?: any;
 }): Promise<void> {
   try {
+    // PERFORMANCE: Dashboard analytics fire 9 logUserActivity calls per
+    // dashboard-batch request (one per handler). On Vercel↔Turso each
+    // INSERT is a cross-region HTTP roundtrip competing with the reads
+    // for the libSQL HTTP client. Allow operators to disable these
+    // high-frequency dashboard audit entries without losing CRUD audit
+    // trails by setting DASHBOARD_AUDIT_ENABLED=false.
+    if (
+      params.module?.startsWith('Audit-Dashboard') &&
+      process.env.DASHBOARD_AUDIT_ENABLED === 'false'
+    ) {
+      return;
+    }
     const client = params.tx || db;
     await client.auditLog.create({
       data: {

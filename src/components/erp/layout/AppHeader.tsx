@@ -325,10 +325,38 @@ export default function AppHeader({
   }, [user?.email]);
 
   // ── Initial load ──
+  // PERFORMANCE: Only run the expensive `generate` scan on the FIRST mount
+  // per session, and at most once every 10 minutes. The generate handler
+  // performs 500+ DB queries inside a transaction (low-stock, overdue
+  // installments, credit-limit, etc.) and was previously firing on every
+  // AppHeader mount → 14s API calls on the dashboard. Now we gate it with
+  // a localStorage timestamp so navigations within the same session skip it.
   useEffect(() => {
-    if (user?.email) {
-      loadNotifications(true); // Generate + fetch on first load
+    if (!user?.email) return;
+    const GENERATE_THROTTLE_MS = 10 * 60 * 1000; // 10 minutes
+    const STORAGE_KEY = "emart:lastNotifGenerate";
+    let shouldGenerate = true;
+    try {
+      const last = typeof window !== "undefined"
+        ? window.localStorage.getItem(STORAGE_KEY)
+        : null;
+      if (last) {
+        const elapsed = Date.now() - parseInt(last, 10);
+        if (!Number.isNaN(elapsed) && elapsed < GENERATE_THROTTLE_MS) {
+          shouldGenerate = false;
+        }
+      }
+    } catch {
+      // localStorage may be unavailable (private mode) — fall back to generate
     }
+    if (shouldGenerate) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, String(Date.now()));
+      } catch {
+        // ignore
+      }
+    }
+    loadNotifications(shouldGenerate);
   }, [user?.email, loadNotifications]);
 
   // ── Smart polling for live badge updates ──
