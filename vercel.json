@@ -11,7 +11,7 @@
   "crons": [
     {
       "path": "/api/dashboard-warmup",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
