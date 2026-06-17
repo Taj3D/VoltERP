@@ -3236,3 +3236,46 @@ Stage Summary:
 - ✅ Production TTFB: 89ms (86% faster than pre-optimization 629ms)
 - ✅ All performance optimizations live on production
 - ✅ No code breakage, no errors
+
+---
+Task ID: LOADING-FIX-001
+Agent: Main Agent
+Task: Diagnose "software not loading on PC/mobile" and fix loading reliability
+
+Work Log:
+- Diagnosed production site: HTTP 200, TTFB 86-93ms, all deployments READY
+- Verified with agent-browser: page loads correctly, login works, dashboard shows all KPIs
+- Found root cause of user complaint: 858KB initial page weight (620KB JS + 238KB CSS)
+  - On slow 3G (Bangladesh): takes 15-30s to load
+  - Old boot screen had 8s fallback timeout → removed boot screen before app hydrated → blank page
+- Enhanced boot screen in src/app/layout.tsx:
+  1. Added slow-connection warning at 10s ("Still loading... (slow connection)" in yellow)
+  2. Added very-slow warning at 20s ("Connection is very slow. Check your internet." in red)
+  3. Added "Retry Loading" button that appears at 20s
+  4. Added live progress percentage using PerformanceObserver (tracks resource loading)
+  5. Added <noscript> fallback for JS-disabled browsers
+  6. Increased fallback timeout from 8s → 30s (allows slow 3G to finish)
+  7. Added preconnect + dns-prefetch hints for faster API and font loading
+  8. Updated version label to v3.0.0
+- Committed: ca676d0 "perf(boot): enhanced boot screen..."
+- Pushed to GitHub: a25a627..ca676d0 main -> main ✅
+- Vercel deployment: dpl_83sE5C9pSS6NkW8aPn2RBW8Bgrkm → READY ✅
+  - Aliased to: volterp-app.vercel.app
+- Production verification:
+  - TTFB: 86ms (excellent)
+  - noscript tag: ✅ present
+  - preconnect hints: ✅ present
+  - App loads, login works, dashboard shows all KPIs
+  - No errors
+
+Stage Summary:
+- ✅ Software IS loading (verified on production)
+- ✅ Enhanced boot screen with slow-connection feedback
+- ✅ Progress percentage shows loading status
+- ✅ Retry button for very slow connections
+- ✅ noscript fallback for JS-disabled browsers
+- ✅ Preconnect hints for faster resource loading
+- ✅ 30s fallback timeout (was 8s — too short for 3G)
+- GitHub: commit ca676d0 pushed to main
+- Vercel: deployment READY at volterp-app.vercel.app
+- Note: 858KB page weight is still heavy for very slow connections. Future optimization: code-split ElectronicsMartApp.tsx (380KB source), tree-shake unused Radix components, lazy-load recharts
