@@ -298,7 +298,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   const [soEdit, setSoEdit] = useState<any>(null);
   const [soSaving, setSoSaving] = useState(false);
   const [soDelete, setSoDelete] = useState<any>(null);
-  const [soForm, setSoForm] = useState<Record<string, any>>({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
+  const [soForm, setSoForm] = useState<Record<string, any>>({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Confirmed", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
   const [soLines, setSoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
 
   // ─── Hire Sales State ───
@@ -565,6 +565,10 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
     importFromCSV({ apiPath, formFields: fields }).then(result => {
       toast({ title: "Import Complete", description: `Imported: ${result.imported}, Failed: ${result.failed}`, variant: result.failed > 0 ? "destructive" : "default" });
       reloadFn();
+    }).catch(err => {
+      // Previously missing — silent unhandled rejection if importFromCSV throws
+      // (e.g., PapaParse failed to load). Now surfaced as a destructive toast.
+      toast({ title: "Import Failed", description: err?.message || "Import failed unexpectedly", variant: "destructive" });
     });
   };
 
@@ -1807,7 +1811,9 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <Button variant="outline" size="sm" onClick={async () => {
             try {
               const result = await importFromCSV({
-                apiPath: "/api/ordersheets?import=true",
+                // FIX: typo — actual route is /api/order-sheets (hyphenated).
+                // The previous path /api/ordersheets returned 404 and silently failed.
+                apiPath: "/api/order-sheets?import=true",
                 formFields: [
                   { key: "orderType", label: "Order Type", type: "text", required: true },
                   { key: "date", label: "Date", type: "date", required: true },
@@ -1980,11 +1986,14 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         vatPercentage,
         grandTotal,
         expectedDate: poForm.expectedDate || undefined,
-        status: poEdit ? poForm.status : "Draft",
+        // Respect user-selected status for both create and edit.
+        // Previously, new POs were forced to "Draft" regardless of dropdown selection,
+        // which prevented users from creating a PO directly as "Confirmed" (ready to receive).
+        status: poForm.status || "Draft",
         referenceKey: poEdit ? undefined : `PO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       };
       if (poEdit) { await apiFetch(`/api/purchase-orders/${poEdit.id}`, { method: "PUT", body: JSON.stringify(payload) }); toast({ title: "Updated", description: "Purchase Order updated" }); }
-      else { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: "Purchase Order created as Draft" }); }
+      else { await apiFetch("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }); toast({ title: "Created", description: `Purchase Order created as ${poForm.status || "Draft"}` }); }
       setPoDialog(false); loadPurchaseOrders();
     } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
     finally { setPoSaving(false); }
@@ -2131,7 +2140,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
           <Button variant="outline" size="sm" onClick={doExportPOCorporatePDF}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Purchase Orders", poColumns, poFiltered.map((o: any) => ({ ...o, supplierName: o.supplier?.name || "—", godownName: o.godown?.name || "—", receivingStatus: o.receivingStatus || "Unreceived", fulfillmentStatus: o.fulfillmentStatus || "Pending" })), poMaskedCols)}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
-          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/purchase-orders", [], loadPurchaseOrders)} /></label>}
+          {isAdmin && <label className="cursor-pointer"><Button variant="outline" size="sm" asChild><span><Upload className="h-4 w-4 mr-1" /> Import CSV</span></Button><input type="file" accept=".csv" className="hidden" onChange={() => doImportCSV("/api/purchase-orders?import=true", [], loadPurchaseOrders)} /></label>}
           <Button variant="ghost" size="sm" onClick={loadPurchaseOrders}><RefreshCw className={`h-4 w-4 ${poLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={openPoCreate} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><Plus className="h-4 w-4 mr-1" /> Add PO</Button>}
         </div>
@@ -2434,39 +2443,56 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
       const selectedItems = autoPoData.filter((o: any) => autoPoSelected.has(o.productId || o.id));
       if (selectedItems.length === 0) { toast({ title: "Error", description: "Select at least one product", variant: "destructive" }); setAutoPoGenerating(false); return; }
 
-      // Group by supplier
+      // Group by supplier — products without an assigned supplier are skipped
+      // because /api/auto-po POST rejects empty supplierId with 400
+      // "supplierId is required". Previously the code sent supplierId: "" for
+      // unassigned groups, which always failed.
       const supplierGroups: Record<string, any[]> = {};
+      let unassignedCount = 0;
       for (const item of selectedItems) {
-        const supplierKey = item.supplierId || item.supplier?.id || "unassigned";
+        const supplierKey = item.supplierId || item.supplier?.id || "";
+        if (!supplierKey) {
+          unassignedCount++;
+          continue;
+        }
         if (!supplierGroups[supplierKey]) supplierGroups[supplierKey] = [];
         supplierGroups[supplierKey].push(item);
       }
 
+      if (Object.keys(supplierGroups).length === 0) {
+        toast({
+          title: "Cannot Generate PO",
+          description: `${unassignedCount} selected item(s) have no assigned supplier. Assign a supplier to each product before generating POs.`,
+          variant: "destructive",
+        });
+        setAutoPoGenerating(false);
+        return;
+      }
+
       let createdCount = 0;
       for (const [supplierId, items] of Object.entries(supplierGroups)) {
-        const lines = items.map((item: any) => ({ productId: item.productId || item.id, quantity: item.suggestedQuantity || 1, rate: item.costPrice || 0, discountPercent: 0 }));
-        const subTotal = lines.reduce((s: number, l: any) => s + l.quantity * l.rate, 0);
+        // API contract (/api/auto-po POST, route.ts:361):
+        //   { supplierId: string, godownId?: string, date: string,
+        //     items: [{ productId, quantity, rate }] }
+        // Previous bug: sent `lines` instead of `items` (API requires `items`)
+        // and included extra fields (status, discount, vatPercent, subTotal,
+        // vatAmount, grandTotal, referenceKey, notes) that the API ignores.
         const payload = {
-          supplierId: supplierId === "unassigned" ? "" : supplierId,
-          godownId: items[0]?.godownId || items[0]?.godown?.id || "",
+          supplierId,
+          godownId: items[0]?.godownId || items[0]?.godown?.id || undefined,
           date: new Date().toISOString().split("T")[0],
-          status: "Draft",
-          discount: 0,
-          discountPercent: 0,
-          vatPercent: 0,
-          vatPercentage: 0,
-          notes: `Auto-generated PO — ${items.length} item(s)`,
-          lines,
-          subTotal,
-          vatAmount: 0,
-          grandTotal: subTotal,
-          referenceKey: `AUTO-PO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          items: items.map((item: any) => ({
+            productId: item.productId || item.id,
+            quantity: item.suggestedQuantity || 1,
+            rate: item.costPrice || 0,
+          })),
         };
         await apiFetch("/api/auto-po", { method: "POST", body: JSON.stringify(payload) });
         createdCount++;
       }
 
-      toast({ title: "POs Generated", description: `${createdCount} Purchase Order(s) created for ${selectedItems.length} items across ${Object.keys(supplierGroups).length} supplier(s)` });
+      const skippedNote = unassignedCount > 0 ? ` (${unassignedCount} item(s) skipped — no supplier assigned)` : "";
+      toast({ title: "POs Generated", description: `${createdCount} Purchase Order(s) created for ${selectedItems.length - unassignedCount} item(s) across ${Object.keys(supplierGroups).length} supplier(s)${skippedNote}` });
       setAutoPoSelected(new Set());
       loadAutoPo();
       loadPurchaseOrders();
@@ -2518,25 +2544,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           </Select>
           <Button variant="outline" size="sm" onClick={() => doExportCSV("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => doExportPDF("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
-          <Button variant="outline" size="sm" onClick={async () => {
-            try {
-              const result = await importFromCSV({
-                apiPath: "/api/auto-po?import=true",
-                formFields: [
-                  { key: "productCode", label: "Product Code", type: "text", required: true },
-                  { key: "supplierCode", label: "Supplier Code", type: "text", required: true },
-                  { key: "quantity", label: "Quantity", type: "number", required: true },
-                  { key: "estimatedCost", label: "Estimated Cost", type: "number" },
-                ],
-              });
-              if (result.imported > 0) {
-                toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
-                loadAutoPo();
-              } else if (result.errors.length > 0) {
-                toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
-              }
-            } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-          }}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
+          {/* Auto PO Import CSV button removed — /api/auto-po has no batch import
+              handler. Its POST endpoint only accepts single-create payloads
+              (supplierId, date, items array of productId/quantity/rate), and the
+              previous ?import=true query param was ignored, so every import
+              attempt returned 400 "items array with at least one item is required". */}
           <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Auto PO Suggestions", autoPoColumns, autoPoFiltered.map((o: any) => ({ ...o, supplierName: o.supplierName || o.supplier?.name || "—", brand: o.brand || o.product?.brand || "—", godownName: o.godownName || o.godown?.name || "—" })), ["costPrice", "estimatedCost"])}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
           <Button variant="ghost" size="sm" onClick={loadAutoPo}><RefreshCw className={`h-4 w-4 ${autoPoLoading ? "animate-spin" : ""}`} /></Button>
           {isAdmin && <Button onClick={generateAutoPo} disabled={autoPoGenerating || autoPoSelected.size === 0} className="bg-[#2563eb] hover:bg-[#1d4ed8]"><ShoppingCart className="h-4 w-4 mr-1" /> {autoPoGenerating ? "Generating..." : `Generate PO by Supplier (${autoPoSelected.size})`}</Button>}
@@ -2667,14 +2679,14 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
   }), [soData]);
 
   const openSoCreate = () => {
-    setSoForm({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
+    setSoForm({ customerId: "", godownId: "", date: new Date().toISOString().split("T")[0], status: "Confirmed", discount: 0, vatPercent: 0, paymentOptionId: "", notes: "" });
     setSoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSoEdit(null);
     setSoDialog(true);
   };
 
   const openSoEdit = (item: any) => {
-    setSoForm({ customerId: item.customerId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Pending", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, paymentOptionId: item.paymentOptionId || "", notes: item.notes || "" });
+    setSoForm({ customerId: item.customerId || "", godownId: item.godownId || "", date: item.date ? item.date.split("T")[0] : "", status: item.status || "Confirmed", discount: item.discount || 0, vatPercent: item.vatPercentage || 0, paymentOptionId: item.paymentOptionId || "", notes: item.notes || "" });
     setSoLines(item.lines && item.lines.length > 0 ? item.lines : [{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSoEdit(item);
     setSoDialog(true);
@@ -2816,7 +2828,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onExportCSV={() => doExportCSV("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
           onExportPDF={() => doExportPDF("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
           onCopyToClipboard={() => doCopyToClipboard("Sales Orders", soColumns, soFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—", godownName: o.godown?.name || "—", paymentOptionName: o.paymentOption?.name || "Cash" })))}
-          onImportCSV={() => doImportCSV("/api/sales-orders", [], loadSalesOrders)}
+          onImportCSV={() => doImportCSV("/api/sales-orders?import=true", [], loadSalesOrders)}
           canCreate={isAdmin || isSR} onCreate={openSoCreate} createLabel="Add SO" />
         <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-0 overflow-hidden">
@@ -2888,6 +2900,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
                     </SelectContent>
                   </Select></div>
               </div>
+              <div><Label className="text-sm font-medium">Status</Label><Select value={soForm.status || "Confirmed"} onValueChange={v => setSoForm(p => ({ ...p, status: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Draft">Draft</SelectItem><SelectItem value="Confirmed">Confirmed</SelectItem><SelectItem value="Delivered">Delivered</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Cancelled">Cancelled</SelectItem></SelectContent></Select></div>
               <div><Label className="text-sm font-medium">Notes</Label><Textarea value={soForm.notes || ""} onChange={e => setSoForm(p => ({ ...p, notes: e.target.value }))} rows={2} /></div>
               <LineItemsGrid lines={soLines} setLines={setSoLines} template={{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }}
                 columns={[{ key: "productId", label: "Product" }, { key: "quantity", label: "Qty" }, { key: "rate", label: "Rate" }, { key: "discountPercent", label: "Disc %" }, { key: "discountAmt", label: "Disc Amt" }, { key: "vatAmt", label: "VAT Amt" }, { key: "total", label: "Total" }]} showVat />
@@ -2988,7 +3001,6 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onExportCSV={() => doExportCSV("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
           onExportPDF={() => doExportPDF("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
           onCopyToClipboard={() => doCopyToClipboard("Hire Sales", hsColumns, hsFiltered.map((o: any) => ({ ...o, customerName: o.customer?.name || "—" })), ["balanceAmount", "installmentAmount"])}
-          onImportCSV={() => doImportCSV("/api/hire-sales", [], loadHireSales)}
           canCreate={isAdmin || isSR} onCreate={openHsCreate} createLabel="Add Hire Sale" />
         <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-0 overflow-hidden">
@@ -3217,7 +3229,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onExportCSV={() => doExportCSV("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
           onExportPDF={() => doExportPDF("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
           onCopyToClipboard={() => doCopyToClipboard("Sales Returns", srColumns, srFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—", customerName: o.salesOrder?.customer?.name || "—" })))}
-          onImportCSV={() => doImportCSV("/api/sales-returns", [], loadSalesReturns)}
+          onImportCSV={() => doImportCSV("/api/sales-returns?import=true", [], loadSalesReturns)}
           canCreate={isAdmin || isSR} onCreate={openSrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-0 overflow-hidden">
@@ -3434,7 +3446,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onExportCSV={() => doExportCSV("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
           onExportPDF={() => doExportPDF("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
           onCopyToClipboard={() => doCopyToClipboard("Purchase Returns", prColumns, prFiltered.map((o: any) => ({ ...o, purchaseOrderNo: o.purchaseOrder?.poNumber || "—", supplierName: o.purchaseOrder?.supplier?.name || "—" })), prMaskedCols)}
-          onImportCSV={() => doImportCSV("/api/purchase-returns", [], loadPurchaseReturns)}
+          onImportCSV={() => doImportCSV("/api/purchase-returns?import=true", [], loadPurchaseReturns)}
           canCreate={isAdmin} onCreate={openPrCreate} createLabel="Add Return" />
         <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-0 overflow-hidden">
@@ -3609,7 +3621,6 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
           onExportCSV={() => doExportCSV("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onExportPDF={() => doExportPDF("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
           onCopyToClipboard={() => doCopyToClipboard("Replacements", rplColumns, rplFiltered.map((o: any) => ({ ...o, salesOrderNo: o.salesOrder?.invoiceNo || "—" })))}
-          onImportCSV={() => doImportCSV("/api/replacements", [], loadReplacements)}
           canCreate={isAdmin || isSR} onCreate={openRplCreate} createLabel="Add Replacement" />
         <Card className="border-slate-200 dark:border-slate-700 overflow-hidden">
           <CardContent className="p-0 overflow-hidden">
@@ -3791,26 +3802,11 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         </div>
         <Button variant="outline" size="sm" onClick={() => doExportCSV("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Download className="h-4 w-4 mr-1" /> Export CSV</Button>
         <Button variant="outline" size="sm" onClick={() => doExportPDF("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><FileDown className="h-4 w-4 mr-1" /> Export PDF</Button>
-        <Button variant="outline" size="sm" disabled={!sdSelectedProduct} onClick={async () => {
-          try {
-            const result = await importFromCSV({
-              apiPath: "/api/stock-details?import=true",
-              formFields: [
-                { key: "productId", label: "Product ID", type: "text", required: true },
-                { key: "date", label: "Date", type: "date", required: true },
-                { key: "type", label: "Type", type: "text" },
-                { key: "quantity", label: "Quantity", type: "number" },
-                { key: "notes", label: "Notes", type: "text" },
-              ],
-            });
-            if (result.imported > 0) {
-              toast({ title: "Import Complete", description: `${result.imported} entries imported, ${result.failed} failed` });
-              if (sdSelectedProduct) loadStockDetails(sdSelectedProduct);
-            } else if (result.errors.length > 0) {
-              toast({ title: "Import Failed", description: result.errors[0], variant: "destructive" });
-            }
-          } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
-        }}><Upload className="h-4 w-4 mr-1" /> Import CSV</Button>
+        {/* Stock Details Import CSV button removed — /api/stock-details has
+            only a GET handler (no POST endpoint at all), so every import
+            attempt returned 405 Method Not Allowed. Stock detail entries are
+            derived from transactions (POs, SOs, transfers, adjustments) — they
+            are not user-importable. */}
         <Button variant="outline" size="sm" onClick={() => doCopyToClipboard("Stock Details", [{ key: "date", label: "Date", type: "date" }, { key: "type", label: "Type", type: "text" }, { key: "reference", label: "Reference", type: "text" }, { key: "quantity", label: "Qty", type: "number" }, { key: "notes", label: "Notes", type: "text" }], sdData.filter((e: any) => { if (!sdSearch) return true; const q = sdSearch.toLowerCase(); return (e.reference || "").toLowerCase().includes(q) || (e.type || "").toLowerCase().includes(q); }))} disabled={!sdSelectedProduct}><Copy className="h-4 w-4 mr-1" /> Copy</Button>
       </div>
       <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">
@@ -3860,7 +3856,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         onExportCSV={() => doExportCSV("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
         onExportPDF={() => doExportPDF("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
         onCopyToClipboard={() => doCopyToClipboard("Stock Transfers", [{ key: "date", label: "Date", type: "date" }, { key: "fromGodown", label: "From", type: "text" }, { key: "toGodown", label: "To", type: "text" }, { key: "status", label: "Status", type: "text" }], trnData.map((t: any) => ({ ...t, fromGodown: t.fromGodown?.name || "—", toGodown: t.toGodown?.name || "—" })))}
-        onImportCSV={() => doImportCSV("/api/transfers", [], loadTransfers)}
+        onImportCSV={() => doImportCSV("/api/transfers?import=true", [], loadTransfers)}
         canCreate={isAdmin} onCreate={() => { setTrnForm({ fromGodownId: "", toGodownId: "", date: new Date().toISOString().split("T")[0], status: "Pending", notes: "" }); setTrnLines([{ productId: "", quantity: 1 }]); setTrnEdit(null); setTrnDialog(true); }} createLabel="New Transfer"
       />
       <div className="border rounded-lg overflow-x-auto -mx-2 sm:mx-0 max-h-[70vh]">

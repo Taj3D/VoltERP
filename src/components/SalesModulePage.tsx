@@ -202,7 +202,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
   const [soDelete, setSoDelete] = useState<any>(null);
   const [soForm, setSoForm] = useState<Record<string, any>>({
     customerId: "", godownId: "", date: new Date().toISOString().split("T")[0],
-    status: "Draft", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", srId: "", notes: "",
+    status: "Confirmed", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", srId: "", notes: "",
   });
   const [soSendSms, setSoSendSms] = useState(false);
   const [soLines, setSoLines] = useState<any[]>([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
@@ -275,7 +275,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
     setSoEdit(null);
     setSoForm({
       customerId: "", godownId: "", date: new Date().toISOString().split("T")[0],
-      status: "Draft", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", srId: "", notes: "",
+      status: "Confirmed", discountPercent: 0, vatPercentage: 0, paymentOptionId: "", srId: "", notes: "",
     });
     setSoLines([{ productId: "", quantity: 1, rate: 0, discountPercent: 0 }]);
     setSoDialog(true);
@@ -1373,21 +1373,20 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
                     </SelectContent>
                   </Select>
                 </div>
-                {soEdit && (
-                  <div>
-                    <Label className="text-sm font-medium">Status</Label>
-                    <Select value={soForm.status || "Draft"} onValueChange={v => setSoForm(p => ({ ...p, status: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Draft">Draft</SelectItem>
-                        <SelectItem value="Confirmed">Confirmed</SelectItem>
-                        <SelectItem value="Delivered">Delivered</SelectItem>
-                        <SelectItem value="Completed">Completed</SelectItem>
-                        <SelectItem value="Cancelled">Cancelled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                {soEdit && null}
+                <div>
+                  <Label className="text-sm font-medium">Status</Label>
+                  <Select value={soForm.status || "Confirmed"} onValueChange={v => setSoForm(p => ({ ...p, status: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Draft">Draft</SelectItem>
+                      <SelectItem value="Confirmed">Confirmed</SelectItem>
+                      <SelectItem value="Delivered">Delivered</SelectItem>
+                      <SelectItem value="Completed">Completed</SelectItem>
+                      <SelectItem value="Cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

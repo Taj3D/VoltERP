@@ -180,6 +180,10 @@ const MASKING_SENTINEL = "N/A (Audit Mode)";
 
 import { fmtCurrency, toLatinDigits, toEnglishDigits } from '@/lib/number-format';
 import { loadCompanyProfile, getCachedCompanyProfile } from '@/lib/company-branding-cache';
+// apiFetch injects Authorization (Bearer JWT) + X-CSRF-Token headers automatically
+// and handles token refresh on 401. Using it here fixes the app-wide CSV Import
+// 401 "Authentication required" bug — raw fetch() was missing both headers.
+import { apiFetch } from '@/lib/api-client';
 
 // Re-export toEnglishDigits for use across the application
 export { toEnglishDigits };
@@ -2046,65 +2050,41 @@ export async function importFromCSV(opts: ImportCSVOpts): Promise<ImportResult> 
         const recordsToInsert = duplicateRows.length > 0 ? dedupedRecords : validatedRecords;
 
         // ── Batch insert: groups of batchSize rows per API call ──
+        // NOTE: Uses apiFetch() instead of raw fetch() so the request includes
+        // Authorization (Bearer JWT) and X-CSRF-Token headers. Without these,
+        // withApiSecurity() rejects every POST with HTTP 401 "Authentication
+        // required", breaking CSV import app-wide.
         for (let batchStart = 0; batchStart < recordsToInsert.length; batchStart += batchSize) {
           const batch = recordsToInsert.slice(batchStart, batchStart + batchSize);
           const batchRecords = batch.map((b) => b.record);
 
           try {
-            const res = await fetch(apiPath, {
+            const batchResult = await apiFetch(apiPath, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ data: batchRecords, batchMode: true }),
             });
-
-            if (!res.ok) {
-              const err = await res.json().catch(() => ({ error: res.statusText }));
-              // If batch fails, fall back to individual inserts for this batch
-              for (const { record, rowIndex } of batch) {
-                try {
-                  const singleRes = await fetch(apiPath, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(record),
-                  });
-                  if (!singleRes.ok) {
-                    const singleErr = await singleRes
-                      .json()
-                      .catch(() => ({ error: singleRes.statusText }));
-                    failed++;
-                    errors.push(`Row ${rowIndex}: ${singleErr.error || `HTTP ${singleRes.status}`}`);
-                  } else {
-                    imported++;
-                  }
-                } catch (singleErr: any) {
-                  failed++;
-                  errors.push(`Row ${rowIndex}: ${singleErr.message || "Insert failed"}`);
-                }
-                onProgress?.(imported + failed, rows.length);
-              }
-            } else {
-              // Batch succeeded — all rows in batch are imported
-              imported += batch.length;
-              onProgress?.(imported + failed, rows.length);
+            // apiFetch returns { success: false, error: "Session expired" }
+            // for POST 401 (after refresh fails) instead of throwing — treat
+            // that as a failure so the user sees accurate error feedback.
+            if (batchResult && batchResult.success === false) {
+              throw new Error(batchResult.error || "Insert failed (session may have expired)");
             }
+            // Batch succeeded — all rows in batch are imported
+            imported += batch.length;
+            onProgress?.(imported + failed, rows.length);
           } catch (err: any) {
-            // Network or other error — fall back to individual inserts
+            // Batch failed (HTTP error, network error, or auth failure) —
+            // fall back to individual inserts for this batch
             for (const { record, rowIndex } of batch) {
               try {
-                const singleRes = await fetch(apiPath, {
+                const singleResult = await apiFetch(apiPath, {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
                   body: JSON.stringify(record),
                 });
-                if (!singleRes.ok) {
-                  const singleErr = await singleRes
-                    .json()
-                    .catch(() => ({ error: singleRes.statusText }));
-                  failed++;
-                  errors.push(`Row ${rowIndex}: ${singleErr.error || `HTTP ${singleRes.status}`}`);
-                } else {
-                  imported++;
+                if (singleResult && singleResult.success === false) {
+                  throw new Error(singleResult.error || "Insert failed (session may have expired)");
                 }
+                imported++;
               } catch (singleErr: any) {
                 failed++;
                 errors.push(`Row ${rowIndex}: ${singleErr.message || "Insert failed"}`);

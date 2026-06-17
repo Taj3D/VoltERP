@@ -1951,3 +1951,301 @@ Stage Summary:
   2. Consider httpOnly cookie migration for auth tokens (future enhancement)
   3. Bundle size optimization (913KB — code-split heavy modules)
   4. Add custom domain with Cloudflare DNS for Dhaka edge (faster loading in BD)
+
+---
+Task ID: AUDIT-CORE-MODULES
+Agent: general-purpose
+Task: Audit core ERP module pages for bugs/crashes/dummy features
+
+Work Log:
+- Read worklog.md (last 300 lines) to understand prior work (post-reset deep audit, master audit complete, image-field audit done, invoice-engine audit done, X-User-Email migration done).
+- Verified existence of all 5 audit target components. Note: `PurchaseModulePage.tsx` does NOT exist as a separate file — purchase functionality is embedded inside `InventoryGroupPage.tsx` (tabs: Purchase Orders, Auto PO, Purchase Returns). Note: `/api/stock-transfers/route.ts` does NOT exist — actual endpoint is `/api/transfers/route.ts`.
+- Read InventoryGroupPage.tsx (3,968 lines): inspected all 9 save handlers (saveCo, saveCustO, savePo, savePoReceive, generateAutoPo, saveSo, saveHs, saveSr, savePr, saveRpl) and inline transfer save.
+- Read SalesModulePage.tsx (2,369 lines): inspected saveSo, saveHs, savePayInstallment, saveSr, handleSrOrderChange, handlePrintInvoice.
+- Read StockModulePage.tsx (2,258 lines): inspected saveTrn, saveOs, saveBm, updateTransferStatus, loadOpeningStock, loadBatches, loadValuation.
+- Read BasicModulesGroupPage.tsx (1,690 lines): inspected handleSave (single generic save for all 11 modules), handleDelete, handleExportCSV, handleExportPDF, handleImportCSV, ModuleTab component.
+- Read /api/products/route.ts (715 lines), /api/sales-orders/route.ts (1,266 lines), /api/purchase-orders/route.ts (1,056 lines), /api/stock/route.ts (569 lines), /api/transfers/route.ts (902 lines).
+- Verified the auto-po POST contract (`/api/auto-po`) and discovered a critical client/server payload mismatch.
+- Verified the `importFromCSV` implementation in `/home/z/my-project/src/lib/export-utils.ts` uses raw `fetch()` instead of `apiFetch()` — meaning **all CSV imports across the app are missing the `Authorization: Bearer <JWT>` and `X-CSRF-Token` headers**, causing 401 Unauthorized on every import attempt.
+- Verified each API route's POST contract (batchMode vs ?import=true vs single-create) and cross-checked against the apiPaths used in doImportCSV calls.
+
+Stage Summary:
+
+### 1. CRITICAL BUGS — Save/Action buttons that silently fail or always fail
+
+**BUG C1 — Auto PO "Generate PO by Supplier" button ALWAYS fails** (`InventoryGroupPage.tsx:2431-2475` → `/api/auto-po/route.ts:339-386`)
+- The client sends a payload with the key `lines` (line 2459) but the API requires `items` (route.ts line 361, 381).
+- The client also sends `supplierId: ""` (line 2450) when products have no primary supplier — the API rejects empty supplierId at line 369 with `supplierId is required`.
+- The client sends extra fields (`status`, `discount`, `discountPercent`, `vatPercent`, `vatPercentage`, `notes`, `subTotal`, `vatAmount`, `grandTotal`, `referenceKey`) that the API ignores.
+- Result: every click on "Generate PO by Supplier" returns HTTP 400 `items array with at least one item is required` (or `supplierId is required` for unassigned suppliers). The catch block at line 2473 shows a destructive toast, so the error IS visible, but the feature is completely broken.
+
+**BUG C2 — CSV Import is broken app-wide due to missing auth headers** (`src/lib/export-utils.ts:2054, 2065, 2094`)
+- `importFromCSV()` uses raw `fetch(apiPath, { method: "POST", headers: { "Content-Type": "application/json" }, body: ... })` — no `Authorization: Bearer <token>` and no `X-CSRF-Token`.
+- `withApiSecurity()` (`src/lib/api-security.ts:442-447`) rejects all unauthenticated POSTs with HTTP 401 `AUTH_REQUIRED`.
+- Affects every `doImportCSV(...)` call in InventoryGroupPage (purchase-orders, sales-orders, sales-returns, purchase-returns, replacements, transfers, hire-sales, stock, stock-details, auto-po, order-sheets), SalesModulePage (hire-sales), StockModulePage (stock, stock-details, opening-stock, batch-master, valuation), and BasicModulesGroupPage (all 11 modules).
+- User sees a destructive toast: `0 imported, X failed (Row 2: Authentication required. Please log in.; …)`.
+
+**BUG C3 — Several `doImportCSV` calls use apiPaths that don't support batch import**
+The `importFromCSV` helper posts `{ data: [...], batchMode: true }`. Each route's POST must explicitly check `body.batchMode` OR be invoked with `?import=true`. InventoryGroupPage uses these apiPaths that will reject the import:
+
+| `doImportCSV` apiPath | File:Line | API supports? | Issue |
+|---|---|---|---|
+| `/api/purchase-orders` | `InventoryGroupPage.tsx:2134` | Only with `?import=true` | Returns 400 `supplierId is required` |
+| `/api/sales-orders` | `InventoryGroupPage.tsx:2819` | Only with `?import=true` | Returns 400 `customerId is required` |
+| `/api/sales-returns` | `InventoryGroupPage.tsx:3220` | Only with `?import=true` | Returns 400 `salesOrderId is required` |
+| `/api/purchase-returns` | `InventoryGroupPage.tsx:3437` | Only with `?import=true` | Returns 400 `purchaseOrderId is required` |
+| `/api/transfers` | `InventoryGroupPage.tsx:3863` | Only with `?import=true` | Returns 400 `fromGodownId, toGodownId, date, and lines are required` |
+| `/api/hire-sales` | `InventoryGroupPage.tsx:2991` + `SalesModulePage.tsx` | NO import endpoint at all | Returns 400 (single-create validation fails on `{data, batchMode}`) |
+| `/api/replacements` | `InventoryGroupPage.tsx:3612` | NO import endpoint at all | Returns 400 (single-create validation fails on `{data, batchMode}`) |
+| `/api/stock` | `InventoryGroupPage.tsx:2134?` (no — only the StockModulePage uses this) | POST is for single stock adjustment, NOT import | Returns 400 `productId is required` |
+| `/api/stock-details?import=true` | `InventoryGroupPage.tsx:3797` | NO POST endpoint at all | Returns 405 Method Not Allowed |
+| `/api/auto-po?import=true` | `InventoryGroupPage.tsx:2524` | NO import support | Returns 400 `items array with at least one item is required` (treats body as single create) |
+
+Only `/api/order-sheets?import=true` (used at lines 971, 1402) is correctly invoked with `?import=true`.
+
+Combined with BUG C2, even the routes that DO support batchMode (`/api/products`, `/api/companies`, `/api/categories`, `/api/brands`, `/api/customers`, `/api/suppliers`, `/api/employees`) still fail with 401 because of the missing auth header.
+
+### 2. VALIDATOR ISSUES
+
+**No too-strict validators found** in the 5 audited components — none of them call `validateBDPhone`, `validateVATNumber`, `validateEmail`, or `validateImage`. (All such validators live in the API routes, which use `validateImageFields`, `validatePrices`, `validatePricingInterlock`, etc.)
+
+API-side validators observed:
+- `/api/products/route.ts:24-49` — `validatePrices` allows `wholesalePrice: 0` and `dealerPrice: 0` (special case) but rejects `< 0`. Acceptable.
+- `/api/products/route.ts:54-63` — `validatePricingInterlock` enforces `costPrice < salePrice`. Combined with client-side check at `BasicModulesGroupPage.tsx:739-742`, this is double-checked. OK.
+- `/api/sales-orders/route.ts:508-525` — credit-limit check throws `CREDIT_LIMIT_EXCEEDED` (HTTP 403) when projected balance > limit. OK.
+- `/api/purchase-orders/route.ts:459-478` — supplier credit-limit check throws `CREDIT_LIMIT_EXCEEDED`. OK.
+
+**MINOR — Credit-limit warning toast in `saveSo` does not block submission** (`InventoryGroupPage.tsx:2683-2693`)
+```js
+if (orderTotal > Number(cust.creditLimit)) {
+  toast({ title: "⚠️ Credit Limit Warning", description: `Order total Tk. … exceeds credit limit Tk. …`, variant: "destructive" });
+}
+```
+The toast is shown but no `return` follows — the order proceeds to submit and the server then rejects with HTTP 403 `CREDIT_LIMIT_EXCEEDED`. The user sees two error toasts (client warning + server rejection). Not a silent failure, but redundant UX. (SalesModulePage.tsx `saveSo` at line 304-330 does NOT have this warning, so the user only sees the server's 403 — slightly worse UX there.)
+
+### 3. SILENT ERROR SWALLOWS
+
+**S1 — `StockModulePage.tsx:527-531` — Opening Stock load swallows errors with empty-state**
+```js
+} catch (e: any) {
+  // API might not exist yet — show empty state
+  setOsData([]);
+}
+```
+User sees "no records" with no error indication. Real network failures look identical to "no data exists."
+
+**S2 — `StockModulePage.tsx:658-661` — Batch Master load swallows errors silently**
+```js
+} catch (e: any) {
+  setBmData([]);
+  setBatches([]);
+}
+```
+Same pattern — no toast, no console log.
+
+**S3 — `StockModulePage.tsx:804-807` — Valuation load swallows errors silently**
+```js
+} catch (e: any) {
+  setValData([]);
+}
+```
+Same pattern.
+
+**S4 — `InventoryGroupPage.tsx:219-224` and `SalesModulePage.tsx:170-182` — `loadDropdowns` swallows each API failure with `console.error` only**
+Six (or seven) dropdowns fail silently in the console; the user sees empty dropdowns with no toast. If auth expires mid-session, every dropdown silently breaks.
+
+**S5 — `BasicModulesGroupPage.tsx:530-531` — `loadOptions` swallows per-field option-load failures**
+```js
+} catch (err) {
+  console.error(`Error loading options for ${field.key}:`, err);
+  opts[field.key] = [];
+}
+```
+Selects render empty option lists with no user-visible error.
+
+**S6 — `BasicModulesGroupPage.tsx:547` — company-branding load for white-label PDF silently fails**
+```js
+} catch (err) {
+  console.error('Error loading company branding:', err);
+}
+```
+PDFs export without company logo/name when this fails — user may not realize why branding is missing.
+
+**S7 — `InventoryGroupPage.tsx:564-569` — `doImportCSV` has no `.catch()` on the `importFromCSV(...)` promise**
+```js
+const doImportCSV = (apiPath, fields, reloadFn) => {
+  importFromCSV({ apiPath, formFields: fields }).then(result => { ... });
+};
+```
+If `importFromCSV` rejects (rare, but possible on Papa parse load failure), the rejection is unhandled. Same pattern in `BasicModulesGroupPage.tsx:927-934`.
+
+### 4. DUMMY / MISSING FEATURES
+
+**M1 — `stockFilterCategory` state is dead code** (`InventoryGroupPage.tsx:356, 479, 486`)
+- State is declared and used in the loader's URLSearchParams, but no UI control updates it (the Stock tab only has godown + status filters). Either remove the state or add a category `<Select>` to the toolbar.
+
+**M2 — InventoryGroupPage Transfer Save dialog has no client-side validation** (`InventoryGroupPage.tsx:3918` inline `onClick`)
+- No "from godown required", "to godown required", "source ≠ destination", or "at least one line item" check before submitting. The API catches these but the user gets a generic 400 error toast. Compare with StockModulePage.tsx `saveTrn` (lines 437-475) which has full validation. The two implementations of the same Transfer dialog are inconsistent — InventoryGroupPage's is the weaker version.
+
+**M3 — SR Target Setup employee dropdown loads ALL employees, not just SRs** (`BasicModulesGroupPage.tsx:376, 514`)
+- Form field `employeeId` fetches `/api/employees` (all employees). No filter for `designation.name.includes("SR")` or similar. Admin could assign an SR target to a non-SR employee. Compare with `SalesModulePage.tsx:178-180` which DOES filter employees by SR/Sales designation for the SR dropdown — same pattern should be applied here.
+
+**M4 — Employee filter for SR dropdown is fragile** (`SalesModulePage.tsx:178-180`)
+```js
+setEmployees(emps.filter((e: any) =>
+  e.designation?.name?.includes("SR") || e.designation?.name?.includes("Sales") || e.designation?.name?.includes("sr") || e.designation?.name?.includes("sales")
+));
+```
+Substring matching catches unrelated designations (e.g., "Customer Service Rep", "Senior Sales Coordinator"). Should match on a role field or a `designation.tags` array instead.
+
+**M5 — `InventoryGroupPage.tsx:3926` redundant page-level RBAC block hides per-tab SR allowances**
+```js
+if (isSR || isDealer) return <AccessDenied message="Sales Representatives and Dealers cannot access Inventory Management modules." />;
+```
+This blocks ALL SR access to the page, but individual tabs have `canCreate={isAdmin || isSR}` (e.g., lines 1403, 2820, 2992, 3221, 3613) which become dead code for SR. The dead branches are harmless but misleading. Either remove the dead `isAdmin || isSR` checks or relax the page-level block.
+
+### 5. API ROUTE ISSUES
+
+**A1 — `/api/products` GET silently truncates to first 100 records** (`route.ts:294-314`)
+- Default `limit=100` (line 295). Client-side `loadDropdowns` in InventoryGroupPage, SalesModulePage, StockModulePage all call `/api/products` without `?limit=0`. Result: any tenant with >100 products will see only the first 100 in dropdowns (Customer Ordersheet lines, Sales Order lines, PO lines, Stock selector, etc.). Records 101+ are silently missing from the picker. Fix: client should call `/api/products?limit=0` for dropdowns, OR the default limit should be raised.
+
+**A2 — `/api/products` POST price validation is asymmetric** (`route.ts:36-41`)
+- `wholesalePrice` and `dealerPrice` allow `0` as a special "unset" sentinel, but `costPrice` and `salePrice` must be strictly `> 0`. The form in `BasicModulesGroupPage.tsx:247-250` sets `defaultValue: 0` for wholesale/dealer, so this works — but if a user enters `wholesalePrice: -1` it's rejected while `0` is accepted. Acceptable, just non-obvious.
+
+**A3 — `/api/sales-orders` POST has dual SMS trigger paths with confusing toggle logic** (`route.ts:706-749`)
+- When `sendSms` is true, the code checks `automationConfig.autoSmsOnPurchase` (note: "OnPurchase" — likely a copy-paste from purchase-orders; should be `autoSmsOnSalesConfirmation` or similar). When `sendSms` is false but status is "Confirmed", the SMS is auto-triggered without checking any toggle. So the toggle only applies when the user explicitly checks the SMS checkbox — auto-trigger bypasses the toggle. This is likely a bug: the company-wide disable toggle should also apply to auto-triggers.
+
+**A4 — `/api/purchase-orders` POST fulfillmentStatus is hardcoded** (`route.ts:481`)
+```js
+const fulfillmentStatus = status === 'Draft' ? 'Pending' : 'Pending';
+```
+Both branches yield `'Pending'`. The ternary is dead. Likely intended `'Pending' : 'Confirmed'` or similar.
+
+**A5 — `/api/stock` POST is misused as a CSV import endpoint by StockModulePage** (`StockModulePage.tsx:1011`)
+- `doImportCSV("/api/stock", [], loadStock)` posts `{ data: [...], batchMode: true }` to `/api/stock`, but that route's POST is the **single stock adjustment** endpoint expecting `{ productId, godownId, type, quantity, ... }`. Every import will return 400 `productId is required`. The endpoint should either be changed to `/api/stock?import=true` (which doesn't exist) or the import button should be removed from the Stock tab.
+
+**A6 — `/api/auto-po` POST contract mismatch with client** (see BUG C1 above)
+- API expects `{ supplierId, date, items: [{ productId, quantity, rate }] }`.
+- Client sends `{ supplierId, godownId, date, status, discount, discountPercent, vatPercent, vatPercentage, notes, lines: [{ productId, quantity, rate, discountPercent }], subTotal, vatAmount, grandTotal, referenceKey }`.
+- Field name `lines` vs `items` is the primary mismatch; extra fields are harmless but the supplierId="" case is rejected.
+
+**A7 — `/api/transfers` POST has insufficient stock error wrapped in a custom error type** (`route.ts:495-504, 511-514`)
+- The catch block re-throws non-`VALIDATION_ERROR`/non-`INSUFFICIENT_STOCK` errors. Unhandled Prisma or DB errors will bubble up to the outer try/catch (line 232) and return HTTP 500 with a generic message — the underlying error is logged to console but not surfaced to the user. Acceptable for security, but operators have no in-app visibility.
+
+**A8 — No `/api/stock-transfers` endpoint exists**
+- The task spec referenced `/api/stock-transfers/route.ts`. The actual endpoint is `/api/transfers`. This is just a naming note — no bug.
+
+### 6. RECOMMENDED FIXES (file:line — what to change)
+
+**Critical (must fix to restore functionality):**
+
+1. `src/components/InventoryGroupPage.tsx:2446-2465` — In `generateAutoPo`, change `lines` → `items` in the payload, drop the `supplierId === "unassigned" ? ""` mapping (skip unassigned groups entirely or surface a "Please assign a supplier to product X" error), and remove extra fields the API doesn't accept. Mirror the contract in `/api/auto-po/route.ts:361-386`.
+2. `src/lib/export-utils.ts:2054, 2065, 2094` — Replace raw `fetch(apiPath, …)` with `apiFetch(apiPath, …)` (which injects `Authorization` and `X-CSRF-Token` headers automatically). Alternatively, import `authState` and `getCsrfToken` from `@/lib/api-client` and add the headers manually. Without this fix, every CSV import in the app fails with HTTP 401.
+3. `src/components/InventoryGroupPage.tsx:2134, 2819, 3220, 3437, 3863` — Append `?import=true` to the apiPaths passed to `doImportCSV` for `/api/purchase-orders`, `/api/sales-orders`, `/api/sales-returns`, `/api/purchase-returns`, `/api/transfers` respectively.
+4. `src/components/InventoryGroupPage.tsx:2991` and `SalesModulePage.tsx` — Remove the `doImportCSV("/api/hire-sales", …)` button (no import endpoint exists), OR add `?import=true` handler to `/api/hire-sales/route.ts` (currently no import support).
+5. `src/components/InventoryGroupPage.tsx:3612` — Remove the `doImportCSV("/api/replacements", …)` button, OR add `?import=true` handler to `/api/replacements/route.ts`.
+6. `src/components/InventoryGroupPage.tsx:2524` — Remove the Auto PO import CSV button (no import support in `/api/auto-po`), OR add `?import=true` handler.
+7. `src/components/StockModulePage.tsx:1011` — Change `doImportCSV("/api/stock", …)` to either call `/api/stock?import=true` (after adding import support to the route) or remove the Import CSV button from the Stock tab.
+8. `src/components/InventoryGroupPage.tsx:3797` — Remove the Stock Details Import CSV button — `/api/stock-details` has no POST endpoint.
+
+**Important (UX/robustness):**
+
+9. `src/components/StockModulePage.tsx:527-531, 658-661, 804-807` — Add `toast({ title: "Error", description: e.message, variant: "destructive" })` inside the three silent catch blocks for Opening Stock, Batch Master, and Valuation loaders.
+10. `src/components/InventoryGroupPage.tsx:219-224` and `src/components/SalesModulePage.tsx:170-182` — Show a single toast on first dropdown load failure (don't spam 6 toasts); at minimum log to telemetry.
+11. `src/components/InventoryGroupPage.tsx:564-569` and `src/components/BasicModulesGroupPage.tsx:927-934` — Add `.catch(err => toast({ title: "Import Failed", description: err.message, variant: "destructive" }))` to the `importFromCSV(...).then(...)` chains.
+12. `src/components/InventoryGroupPage.tsx:3918` — Add the same client-side validation that `StockModulePage.tsx:437-444` already has (fromGodownId required, toGodownId required, source ≠ destination, date required, at least one line item) before the inline transfer Save button submits.
+13. `src/components/InventoryGroupPage.tsx:2683-2693` — Either `return` after the credit-limit warning toast (block submission) OR remove the client-side warning and rely solely on the server's 403 (current behavior shows two toasts).
+14. `src/app/api/products/route.ts:294-296` — Either raise the default `requestedLimit` from 100 to 500, OR change the client dropdown loaders (`InventoryGroupPage.tsx:222`, `SalesModulePage.tsx:172`, `StockModulePage.tsx:243`) to call `/api/products?limit=0` so all products are available in dropdown pickers.
+15. `src/app/api/sales-orders/route.ts:720` — Fix the SMS toggle field name: `automationConfig.autoSmsOnPurchase` should be `automationConfig.autoSmsOnSalesConfirmation` (or whatever the actual field is for sales-confirmation SMS — currently the check is reading the purchase trigger's toggle, which is incorrect).
+16. `src/app/api/purchase-orders/route.ts:481` — Fix the dead ternary `status === 'Draft' ? 'Pending' : 'Pending'` — likely should be `'Pending' : 'Confirmed'` (or just `fulfillmentStatus = 'Pending'`).
+17. `src/components/BasicModulesGroupPage.tsx:376, 514` — Filter the `employeeId` dropdown to only show employees whose `designation.name` includes "SR" or "Sales" (mirror the `SalesModulePage.tsx:178-180` logic, but ideally replace the fragile substring match with a role/designation-tag check).
+18. `src/components/InventoryGroupPage.tsx:356, 479, 486` — Either remove the dead `stockFilterCategory` state or add a category `<Select>` to the Stock tab toolbar (currently the state is set but never updated from the UI).
+19. `src/components/InventoryGroupPage.tsx:3926` — Either relax the page-level SR/Dealer block to allow individual SR-allowed tabs (Customer Ordersheet, Sales Order, Hire Sales, Sales Return, Replacement) OR remove the dead `canCreate={isAdmin || isSR}` branches at lines 1403, 2820, 2992, 3221, 3613 — they contradict the page-level block.
+
+**Note: NO too-strict validators like the company-branding bug were found** in the 5 audited components — none of them call `validateBDPhone`, `validateVATNumber`, or `validateEmail`. The validators live in the API routes and use `validateImageFields`, `validatePrices`, `validatePricingInterlock`, and credit-limit/freeze checks — all of which are appropriately scoped and consistent with the form configurations in `BasicModulesGroupPage.tsx`.
+
+**Note: NO dummy/mock data or TODO placeholders were found** in any of the 5 audited components or 5 audited API routes. All data flows through real Prisma queries against the Turso DB.
+
+**Note: NO base64 prefix issues were found** — `BasicModulesGroupPage.tsx` correctly uses `ImageUploadField` for the Companies `logo`/`brandLogo` fields (line 118-119) and the Products `image` field (line 256). API routes use `validateImageFields` to enforce the `data:` prefix.
+
+### Files Modified
+None — read-only audit per task instructions.
+
+### Status: ✅ COMPLETE
+- 5 components audited (InventoryGroupPage, SalesModulePage, StockModulePage, BasicModulesGroupPage, plus the missing PurchaseModulePage which is embedded in InventoryGroupPage).
+- 5 API routes audited (products, sales-orders, purchase-orders, stock, transfers — the last because `stock-transfers` does not exist).
+- 1 critical save-button-breaking bug (Auto PO generate), 1 app-wide critical bug (CSV imports missing auth headers), 10+ misconfigured import apiPaths, 7 silent error swallow patterns, 5 missing/dead features, and 8 API route issues identified.
+- 19 concrete fixes recommended with file:line references.
+
+---
+Task ID: FIX-CSV-AUTOPO
+Agent: general-purpose
+Task: Fix CSV Import (broken app-wide) and Auto PO payload mismatch
+
+Work Log:
+- Read worklog.md (last 250 lines) to absorb prior AUDIT-CORE-MODULES findings — that audit identified exactly the three bugs in scope here (C1 Auto PO, C2 CSV auth, C3 ?import=true apiPaths) and recommended 19 concrete fixes. This task implements fixes 1–8 of that list (the critical ones).
+- Read /home/z/my-project/src/lib/api-client.ts (467 lines) to confirm `apiFetch` behavior: it auto-injects `Authorization: Bearer <accessToken>` and `X-CSRF-Token` (fetched lazily via `getCsrfToken`), retries once on 401-with-refresh, and on persistent 401 returns `{ success: false, error: "Session expired" }` for POST (rather than throwing) so auth listeners can redirect to login without scary popups. The `apiFetch` function itself was NOT modified (per task constraint).
+- Read /home/z/my-project/src/lib/export-utils.ts lines 1768–2125 (`importFromCSV` function) to confirm the 3 raw `fetch()` calls at the former lines 2054, 2065, 2094 inside the batch-insert and individual-insert paths.
+- Read /home/z/my-project/src/app/api/auto-po/route.ts (lines 339–429) to confirm the POST contract: `{ supplierId: string, godownId?: string, date: string, items: [{ productId, quantity, rate }] }`. Empty `supplierId` is rejected with 400 "supplierId is required"; missing/empty `items` is rejected with 400 "items array with at least one item is required".
+- Verified which API routes support `?import=true` batch-import vs. which are single-create-only:
+  - SUPPORTED: /api/purchase-orders, /api/sales-orders, /api/sales-returns, /api/purchase-returns, /api/transfers, /api/order-sheets (all check `searchParams.get('import') === 'true'`)
+  - NOT SUPPORTED: /api/hire-sales, /api/replacements, /api/auto-po (POST exists but ignores `?import=true`), /api/stock-details (no POST at all — only GET), /api/stock (POST is single-stock-adjustment only)
+
+Fix Bug 1 — `src/lib/export-utils.ts` (`importFromCSV`):
+- Added `import { apiFetch } from '@/lib/api-client'` near the other lib imports (after line 182).
+- Replaced all 3 raw `fetch(apiPath, { method: "POST", headers: { "Content-Type": "application/json" }, body: ... })` calls with `apiFetch(apiPath, { method: "POST", body: ... })`. Removed the manual `Content-Type` header (apiFetch sets it).
+- Consolidated the previous dual try/catch blocks (one for `!res.ok`, one for network error) into a single try/catch — apiFetch throws for both cases.
+- Added explicit `if (batchResult && batchResult.success === false) throw new Error(...)` check after each apiFetch call to surface the silent 401 case (apiFetch returns `{ success: false, error: "Session expired" }` for POST 401 instead of throwing — without this check, the import would silently count expired-session POSTs as "imported").
+
+Fix Bug 2 — `src/components/InventoryGroupPage.tsx` (`generateAutoPo`, around lines 2431–2492):
+- Changed payload field `lines` → `items` to match `/api/auto-po` POST contract (route.ts:361, 381).
+- Removed all extra payload fields the API ignores: `status`, `discount`, `discountPercent`, `vatPercent`, `vatPercentage`, `notes`, `subTotal`, `vatAmount`, `grandTotal`, `referenceKey`.
+- Removed `discountPercent: 0` from each item — API expects only `{ productId, quantity, rate }` per item.
+- Skipped items without an assigned supplier entirely (was `supplierId === "unassigned" ? "" : supplierId` which always failed with 400). Added `unassignedCount` counter.
+- Added early-abort guard: if ALL selected items are unassigned, show a destructive toast "Cannot Generate PO — N selected item(s) have no assigned supplier" and return without calling the API.
+- Updated success toast to include "(N item(s) skipped — no supplier assigned)" suffix when applicable.
+- Set `godownId: undefined` (omitted from JSON) when no godown is present, instead of empty string — API treats godownId as optional.
+
+Fix Bug 3 — `src/components/InventoryGroupPage.tsx` (doImportCSV apiPaths + unsupported-route buttons):
+- Appended `?import=true` to 5 doImportCSV calls:
+  - `/api/purchase-orders` → `/api/purchase-orders?import=true` (Purchase Orders tab)
+  - `/api/sales-orders` → `/api/sales-orders?import=true` (Sales Orders tab)
+  - `/api/sales-returns` → `/api/sales-returns?import=true` (Sales Returns tab)
+  - `/api/purchase-returns` → `/api/purchase-returns?import=true` (Purchase Returns tab)
+  - `/api/transfers` → `/api/transfers?import=true` (Stock Transfers tab)
+- Removed `onImportCSV={() => doImportCSV("/api/hire-sales", ...)}` prop from the Hire Sales `<Toolbar>` (the Toolbar component hides the Import CSV button when `onImportCSV` is undefined).
+- Removed `onImportCSV={() => doImportCSV("/api/replacements", ...)}` prop from the Replacements `<Toolbar>`.
+- Removed the entire inline Import CSV `<Button>` JSX block on the Auto PO tab (was using `importFromCSV` directly with `apiPath: "/api/auto-po?import=true"` — the `?import=true` was ignored by the route, returning 400 on every attempt). Left a `{/* ... */}` comment block explaining why.
+- Removed the entire inline Import CSV `<Button>` JSX block on the Stock Details tab (`/api/stock-details` has no POST endpoint at all — every import returned 405 Method Not Allowed). Left a `{/* ... */}` comment block explaining why.
+
+Additional silent-failure bugs fixed in the same files (per task instructions):
+- `src/components/InventoryGroupPage.tsx` line 1810: fixed typo `/api/ordersheets?import=true` → `/api/order-sheets?import=true` (the actual route directory is `order-sheets` with a hyphen; the previous path returned 404 and silently failed).
+- `src/components/InventoryGroupPage.tsx` `doImportCSV` helper: added `.catch(err => toast({ title: "Import Failed", ... }))` to the `importFromCSV(...).then(...)` chain. Previously, if `importFromCSV` threw (e.g., PapaParse failed to lazy-load), the rejection was unhandled and the user saw no feedback. Flagged as silent-failure S7 in the prior audit.
+
+Validation:
+- `bun run lint` → exit code 0 (no errors, no warnings). Required one iteration: an initial JSX comment between `<Toolbar>` attributes triggered a parser error ("'...' expected" at 3003:81) — even though JSX spec allows `{/* ... */}` between attributes, the project's eslint parser (babel-eslint via Next.js) rejected it. Replaced the multi-line JSX comment with a simpler inline form, then removed the comment entirely between attributes and relied on this worklog entry for documentation. Comments between JSX children (Auto PO and Stock Details button removals) were unaffected and kept as-is.
+- `tail -30 /home/z/my-project/dev.log` shows normal traffic (200s for dashboard, notifications). There is a sequence of `/api/notifications 500` errors in the middle of the log, but those recovered to 200s at the tail — they are pre-existing infrastructure noise unrelated to CSV import or Auto PO (those code paths were not exercised during this session).
+- Did NOT run agent-browser tests per task instructions — the main agent will verify.
+
+Stage Summary:
+- ✅ Bug 1 FIXED: `importFromCSV` in `src/lib/export-utils.ts` now uses `apiFetch` (auto Authorization + CSRF + 401 retry). All CSV imports across every module page (InventoryGroupPage, SalesModulePage, StockModulePage, BasicModulesGroupPage — all use the same shared helper) now send proper auth headers.
+- ✅ Bug 2 FIXED: `generateAutoPo` in `src/components/InventoryGroupPage.tsx` now sends the correct payload shape (`items` instead of `lines`, no extra fields) and skips unassigned-supplier items instead of failing on `supplierId: ""`. The "Generate PO by Supplier" button now works for any selection that has at least one item with an assigned supplier.
+- ✅ Bug 3 FIXED: 5 doImportCSV calls now append `?import=true` so the API routes dispatch to their batch-import handlers. 4 unsupported Import CSV entry points removed (Hire Sales, Replacements, Auto PO, Stock Details) so users can no longer click a button that always errors.
+- ✅ Bonus fixes: typo `/api/ordersheets` → `/api/order-sheets`, and added `.catch` on `doImportCSV` promise chain (silent-failure S7).
+- ⚠️ Out-of-scope architectural note (not fixed, documented for future task): the `/api/{purchase-orders,sales-orders,sales-returns,purchase-returns,transfers,order-sheets}?import=true` handlers expect either `text/csv` content-type OR a JSON body with a `csvData` string field. The shared `importFromCSV` helper posts `{ data: [...records], batchMode: true }` as JSON — so the handler's `body.csvData || body.csv || ''` resolves to empty string and returns 400 "No CSV data provided". Bug 1 (auth) and Bug 3 (?import=true) are necessary preconditions for those imports to work, but a follow-up task is needed to either (a) change `importFromCSV` to serialize records back into CSV text and send `text/csv`, or (b) extend each route's `?import=true` handler to also accept the `{ data, batchMode }` JSON shape. This was outside the listed scope ("Do NOT modify any other files beyond what's listed" + "Preserve all existing behavior except the bugs being fixed") so it was not addressed here.
+
+Files Modified:
+- `src/lib/export-utils.ts` (+13 / -45 lines, net -32)
+  - Added `apiFetch` import (1 line + 3-line comment)
+  - Rewrote batch-insert and individual-insert blocks inside `importFromCSV` (replaced 3 raw fetch + 2 nested try/catch with 2 apiFetch + 1 consolidated try/catch + silent-401 guard)
+- `src/components/InventoryGroupPage.tsx` (+46 / -54 lines, net -8)
+  - `doImportCSV`: added `.catch` handler (4 lines)
+  - `generateAutoPo`: rewrote payload + supplier grouping (+25 lines net)
+  - 5 `doImportCSV` calls: appended `?import=true` (5 single-line edits)
+  - Removed `onImportCSV` prop from Hire Sales + Replacements Toolbars (2 line deletions)
+  - Removed inline Import CSV button JSX from Auto PO + Stock Details tabs (replaced with explanatory `{/* */}` comment blocks; net -22 lines)
+  - Fixed `/api/ordersheets` → `/api/order-sheets` typo (1 line)
+- `worklog.md`: appended this section (+this block)
+
+Lint: ✅ `bun run lint` exits 0
+Dev.log: ✅ no new errors attributable to changes
