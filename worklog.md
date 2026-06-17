@@ -986,3 +986,74 @@ Stage Summary:
   2. Bundle size optimization: the 242KB CSS file (ca46860039985dc6.css) is unusually large, investigate and tree-shake
   3. Add service worker for offline caching (returning visitors load instantly)
   4. Consider code-splitting heavy components (ElectronicsMartApp is 336KB)
+
+---
+Task ID: PERF-1
+Agent: Main Agent (Turso Loading Fix)
+Task: User reported site not loading on PC/mobile (https://volterp-app.vercel.app). Asked if files uploading to Turso causing delay. Diagnose and fix loading performance.
+
+Work Log:
+- Diagnosed production API response times with curl timing:
+  - /api/auth (login): 1.8-2.9s (Turso user lookup + bcrypt + JWT + audit log)
+  - /api/dashboard: 5.9s (20 parallel Turso queries)
+  - /api/products: 4.6s, 3,500,494 bytes (3.5MB!)
+  - /api/sales-orders: 3.3s, 195,997 bytes (196KB)
+  - /api/company-branding: 1.8s, 192,323 bytes (logo base64)
+  - /api/categories: 1.9s
+  - /api/system-config: 1.1s
+- Identified root causes:
+  1. Turso cloud DB has 1-2s network latency per query (Vercel serverless <-> Turso cloud)
+  2. /api/products returned ALL products with no pagination (3.5MB)
+  3. Every product/order record embedded FULL company relation including 192KB base64 logo
+  4. No server-side caching — every request hit Turso
+  5. Vercel serverless cold starts add 1-3s to first request after idle
+
+- Implemented server-side in-memory cache (src/lib/server-cache.ts):
+  - cachedFetch() with TTL + single-flight (thundering-herd protection)
+  - company-branding: cached 300s (logo data, 192KB payload)
+  - dashboard: cached 45s (role-aware key for VAT masking)
+  - categories: cached 120s
+  - system-config: cached 180s (role + category-aware key)
+  - All caches auto-invalidated on POST/PUT/DELETE mutations
+
+- Fixed products pagination (src/app/api/products/route.ts):
+  - Default limit=100 (was unlimited)
+  - Cap at 500 max, supports ?page=N&limit=M
+  - ?limit=0 for batch/export operations
+
+- Fixed company logo over-fetching (CRITICAL):
+  - /api/products: company: true -> company: { select: { id, code, name } }
+  - /api/sales-orders: same fix (exclude logo/brandLogo from list)
+  - /api/purchase-orders: same fix
+  - Single record endpoints ([id]/route.ts) keep full include for PDF/invoice generation
+  - This reduced product record size from 190KB to ~1KB each
+
+- Committed 2 commits and pushed to GitHub:
+  - 4142059: server-side caching + products pagination
+  - ca062ea: exclude 192KB company logo from product/order list responses
+- Vercel auto-deployed both commits
+
+- Verified on production (https://volterp-app.vercel.app):
+  BEFORE vs AFTER comparison:
+  | Endpoint          | Before (cold)    | After (cold)     | After (warm/cache) |
+  |-------------------|------------------|------------------|--------------------|
+  | /api/products     | 3.5MB, 7.6s      | 38KB, 3.5s       | 38KB, 1.9s         |
+  | /api/sales-orders | 196KB, 3.3s      | 4KB, 2.3s        | 4KB, 1.7s          |
+  | /api/dashboard    | 5.9s             | 5.6s             | 0.46s (12x faster) |
+  | /api/company-brand| 1.8s             | 1.5s             | 0.46s (3x faster)  |
+  | /api/system-config| 1.1s             | 1.2s             | 0.45s (2.5x faster)|
+  | /api/categories   | 1.9s             | 1.2s             | 0.73s (1.6x faster)|
+
+Stage Summary:
+- ✅ Root cause identified: Turso network latency + over-fetching (3.5MB products, 192KB logo per record)
+- ✅ Server-side caching deployed: dashboard 12x faster on warm calls, branding 3x faster
+- ✅ Products payload reduced 99%: 3.5MB -> 38KB
+- ✅ Sales orders payload reduced 98%: 196KB -> 4KB
+- ✅ Both commits deployed to Vercel production
+- ⚠️ Cold starts still 1-6s (Turso network latency, unavoidable without Turso replica in closer region)
+- ⚠️ Login always slow (2-3s) — bcrypt + audit log can't be cached
+- 📋 RECOMMENDED NEXT STEPS:
+  1. Add Turso database replica in a region closer to Vercel (e.g., sin1 Singapore) for lower latency
+  2. Consider moving logo storage to Vercel Blob/S3 instead of base64 in DB (would eliminate 192KB branding payload)
+  3. Add Vercel Edge Functions for cached GET endpoints (edge has global distribution)
+  4. Implement client-side request deduplication (React Query) to avoid duplicate calls
