@@ -834,3 +834,25 @@ Stage Summary:
 - ✅ PDF invoice generates correctly with company logo + English digits + all required fields
 - ✅ No popups, errors, or layout issues on dashboard or module pages
 - ✅ New security code (CSRF, validation) is LIVE and working
+
+---
+Task ID: RECHECK-5ROLE-LOGIN
+Agent: main
+Task: User asked to verify all 5 role logins work on live site (emart.amit/Test_123, emart.manager/Manager_123, emart.sr/SR_123, emart.dealer/Dealer_123, emart.vat/VAT_123).
+
+Work Log:
+- Performed dual-layer verification: API level (POST /api/auth) + real browser UI login (agent-browser)
+- API level: All 5 credentials returned HTTP 200 with valid JWT accessToken + correct user record
+- Browser UI level: For each role — cleared localStorage → opened login page → filled username+password → clicked Sign In → verified dashboard loaded with correct user banner
+- Admin (emart.amit): ✅ API 200 + banner "E emart.amit"
+- Manager (emart.manager): ✅ API 200 + banner "E emart.manager"
+- SR (emart.sr): ✅ API 200 + banner "E emart.sr"
+- Dealer (emart.dealer): ✅ API 200 + banner "E emart.dealer"
+- VAT Auditor (emart.vat): ✅ API 200 + banner "E emart.vat"
+- Server-returned user names: Amit Sharma (Admin), Kamal Hossain (Manager), Fatima Khan (SR), Mahmud Hardware (Dealer), Rakib Hasan (VAT Auditor)
+
+Stage Summary:
+- ✅ ALL 5 ROLES LOGIN SUCCESSFULLY on https://volterp-app.vercel.app
+- ✅ Credentials unchanged and fully functional
+- ✅ Verification done at both API level (HTTP 200 + JWT) and browser UI level (dashboard renders with correct user)
+- ✅ Live site is healthy and authentication system is working as expected
