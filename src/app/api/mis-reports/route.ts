@@ -2391,26 +2391,48 @@ async function categoryWiseCustomerDue(params: QueryParams): Promise<ReportResul
     const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0);
     const totalReturns = c.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
     const totalCollections = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
-    const due = Math.max(c.openingBalance + totalSales - totalReturns - totalCollections, 0);
+    // Respect openingBalanceType: 'Cr' means credit balance
+    const openingSigned = c.openingBalanceType === 'Cr' ? -c.openingBalance : c.openingBalance;
+    const due = Math.max(openingSigned + totalSales - totalReturns - totalCollections, 0);
 
     if (due <= 0) continue;
 
-    const categories = new Set<string>();
+    // Calculate sales amount per category for proportional due allocation
+    // This prevents double-counting: due is split proportionally across categories
+    const catSalesMap = new Map<string, number>();
+    let totalCatSales = 0;
     for (const so of c.salesOrders) {
       for (const line of so.lines) {
         const cat = line.product?.category?.name || 'Unknown';
-        categories.add(cat);
+        const lineTotal = (Number(line.unitPrice) || 0) * (Number(line.quantity) || 0);
+        catSalesMap.set(cat, (catSalesMap.get(cat) || 0) + lineTotal);
+        totalCatSales += lineTotal;
       }
     }
 
-    for (const cat of categories) {
+    // If no sales lines found, allocate full due to 'Uncategorized'
+    if (totalCatSales === 0 || catSalesMap.size === 0) {
+      const cat = 'Uncategorized';
       const existing = catDueMap.get(cat);
       if (existing) {
-        // H12 FIX: Use full outstanding amount instead of even split across categories
         existing.totalDue += due;
         existing.customerCount += 1;
       } else {
         catDueMap.set(cat, { category: cat, totalDue: due, customerCount: 1 });
+      }
+      continue;
+    }
+
+    // Allocate due proportionally across categories based on sales volume
+    for (const [cat, catSales] of catSalesMap) {
+      const proportion = catSales / totalCatSales;
+      const allocatedDue = due * proportion;
+      const existing = catDueMap.get(cat);
+      if (existing) {
+        existing.totalDue += allocatedDue;
+        existing.customerCount += 1;
+      } else {
+        catDueMap.set(cat, { category: cat, totalDue: allocatedDue, customerCount: 1 });
       }
     }
   }
@@ -2474,9 +2496,12 @@ async function customerLedger(params: QueryParams): Promise<ReportResult> {
 
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  let runningBalance = customer.openingBalance;
+  // Respect openingBalanceType for customer ledger sign convention
+  // For customers: 'Dr' (Debit) = customer owes us (positive), 'Cr' (Credit) = we owe customer (negative)
+  const openingSigned = customer.openingBalanceType === 'Cr' ? -customer.openingBalance : customer.openingBalance;
+  let runningBalance = openingSigned;
   const rows: Record<string, unknown>[] = [
-    { date: 'Opening', type: 'Opening Balance', reference: '-', debit: maskVat(customer.openingBalance, params.vatMode), credit: 0, balance: maskVat(customer.openingBalance, params.vatMode) },
+    { date: 'Opening', type: 'Opening Balance', reference: '-', debit: maskVat(Math.abs(openingSigned), params.vatMode), credit: 0, balance: maskVat(openingSigned, params.vatMode) },
   ];
   for (const e of entries) {
     runningBalance += e.debit - e.credit;
@@ -2527,7 +2552,9 @@ async function customerDueReport(params: QueryParams): Promise<ReportResult> {
     const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0) + c.hireSales.reduce((s, h) => s + h.grandTotal, 0);
     const totalPaid = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
     const totalReturns = c.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
-    const outstanding = c.openingBalance + totalSales - totalPaid - totalReturns;
+    // Respect openingBalanceType: 'Cr' means credit balance (we owe customer)
+    const openingSigned = c.openingBalanceType === 'Cr' ? -c.openingBalance : c.openingBalance;
+    const outstanding = openingSigned + totalSales - totalPaid - totalReturns;
     return {
       _customerId: c.id, // H2 FIX: Keep customer UUID for filtering
       customerCode: c.customerCode,
@@ -2627,7 +2654,9 @@ async function customerLedgerSummary(params: QueryParams): Promise<ReportResult>
     const totalSales = c.salesOrders.reduce((s, so) => s + so.grandTotal, 0) + c.hireSales.reduce((s, h) => s + h.grandTotal, 0);
     const totalReturns = c.salesReturns.reduce((s, r) => s + r.grandTotal, 0);
     const totalCollections = c.cashCollections.reduce((s, cc) => s + cc.amount, 0);
-    const balance = c.openingBalance + totalSales - totalReturns - totalCollections;
+    // Respect openingBalanceType: 'Cr' means credit balance (we owe customer)
+    const openingSigned = c.openingBalanceType === 'Cr' ? -c.openingBalance : c.openingBalance;
+    const balance = openingSigned + totalSales - totalReturns - totalCollections;
     return {
       _customerId: c.id, // H3 FIX: Keep customer UUID for filtering
       customerCode: c.customerCode,

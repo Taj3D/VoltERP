@@ -15,6 +15,7 @@ import {
   formatFinancialField,
 } from '@/lib/api-security';
 import { logUserActivity } from '@/lib/activity-logger';
+import { dispatchSmsBatch, buildGatewayConfig } from '@/lib/sms-gateway-dispatcher';
 
 // Valid campaign statuses
 const VALID_STATUSES = [
@@ -292,14 +293,13 @@ export async function PUT(
           },
         });
 
-        // Create SmsLog entries for each recipient
-        let sentCount = 0;
-        let deliveredCount = 0;
+        // Create SmsLog entries for each recipient and collect IDs for dispatch
+        const createdLogs: { id: string; recipient: string }[] = [];
         let failedCount = 0;
 
         for (const recipient of recipients) {
           try {
-            await tx.smsLog.create({
+            const log = await tx.smsLog.create({
               data: {
                 recipient: recipient.phone,
                 message: existing.message,
@@ -315,27 +315,25 @@ export async function PUT(
                 ...(companyId && { companyId }),
               },
             });
-            // For simulation: mark as Delivered immediately
-            sentCount++;
-            deliveredCount++;
+            createdLogs.push({ id: log.id, recipient: log.recipient });
           } catch {
             failedCount++;
           }
         }
 
-        // Compute total cost
+        // Compute total cost (based on successfully created logs)
+        const sentCount = createdLogs.length;
         const totalCost = safeFinancialRound(sentCount * costPerSms);
 
-        // Update campaign with final counts and completed status
+        // Update campaign with initial counts (status stays Sending until dispatch completes)
         const record = await tx.smsCampaign.update({
           where: { id },
           data: {
-            status: 'Completed',
+            status: 'Sending',
             sentCount,
-            deliveredCount,
+            deliveredCount: 0, // Will be updated after dispatch
             failedCount,
             totalCost,
-            completedAt: new Date(),
           },
         });
 
@@ -353,7 +351,6 @@ export async function PUT(
             action: 'launch',
             recipientCount: recipients.length,
             sentCount,
-            deliveredCount,
             failedCount,
             costPerSms,
             totalCost,
@@ -362,14 +359,89 @@ export async function PUT(
           }),
         });
 
-        return record;
+        return { record, createdLogs };
+      });
+
+      // ── AFTER TRANSACTION: Dispatch SMS through gateway ──
+      let deliveredCount = 0;
+      let dispatchFailedCount = 0;
+
+      if (item.createdLogs.length > 0 && activeSetting) {
+        try {
+          const gatewayConfig = buildGatewayConfig(activeSetting);
+          const batchResult = await dispatchSmsBatch(
+            gatewayConfig,
+            item.createdLogs.map((log) => ({
+              smsLogId: log.id,
+              recipient: log.recipient,
+              message: existing.message,
+            })),
+            { concurrency: 5, delayMs: 100 }
+          );
+
+          // Update each SmsLog with its individual gateway result
+          for (const result of batchResult.results) {
+            try {
+              await db.smsLog.update({
+                where: { id: result.smsLogId },
+                data: {
+                  status: result.success ? 'Delivered' : 'Failed',
+                  gatewayMessageId: result.messageId || null,
+                  errorMessage: result.error || null,
+                  deliveredAt: result.success ? new Date() : null,
+                },
+              });
+              if (result.success) {
+                deliveredCount++;
+              } else {
+                dispatchFailedCount++;
+              }
+            } catch {
+              // Log update failed — continue
+            }
+          }
+        } catch (dispatchError) {
+          console.error('[SMS Campaign] Batch dispatch failed:', dispatchError);
+          // Mark all as Failed
+          for (const log of item.createdLogs) {
+            try {
+              await db.smsLog.update({
+                where: { id: log.id },
+                data: { status: 'Failed', errorMessage: 'Batch dispatch error' },
+              });
+            } catch { /* ignore */ }
+          }
+          dispatchFailedCount = item.createdLogs.length;
+        }
+      } else if (item.createdLogs.length > 0 && !activeSetting) {
+        // No active SMS setting — mark all as Failed
+        for (const log of item.createdLogs) {
+          try {
+            await db.smsLog.update({
+              where: { id: log.id },
+              data: { status: 'Failed', errorMessage: 'No active SMS gateway configured' },
+            });
+          } catch { /* ignore */ }
+        }
+        dispatchFailedCount = item.createdLogs.length;
+      }
+
+      // Update campaign with final delivery counts
+      const finalRecord = await db.smsCampaign.update({
+        where: { id },
+        data: {
+          status: 'Completed',
+          deliveredCount,
+          failedCount: item.record.failedCount + dispatchFailedCount,
+          completedAt: new Date(),
+        },
       });
 
       const masked = maskSmsArray(
         [{
-          ...item,
-          description: formatFinancialField(item.description),
-          targetFilter: formatFinancialField(item.targetFilter),
+          ...finalRecord,
+          description: formatFinancialField(finalRecord.description),
+          targetFilter: formatFinancialField(finalRecord.targetFilter),
         }],
         security.user.role,
         ['costPerSms', 'totalCost', 'recipientCount', 'sentCount', 'deliveredCount', 'failedCount']

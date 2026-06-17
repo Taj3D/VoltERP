@@ -231,8 +231,38 @@ export default function SMSAnalyticsPage({ initialTab }: { initialTab?: string }
 
   const loadReport = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/reports?type=sms&from=${reportFrom}&to=${reportTo}`).catch(() => []);
-      setSmsReport(Array.isArray(res) ? res : res?.data || []);
+      const res = await apiFetch(`/api/reports?type=sms&from=${reportFrom}&to=${reportTo}`).catch(() => null);
+      // API returns { logs, summary: { dailyTrend: [...] }, billing }
+      // Use dailyTrend for the report table, fall back to logs if no trend
+      if (!res) {
+        setSmsReport([]);
+        return;
+      }
+      const trend = res?.summary?.dailyTrend;
+      if (Array.isArray(trend) && trend.length > 0) {
+        setSmsReport(trend);
+      } else if (Array.isArray(res?.logs)) {
+        // Fallback: aggregate logs by date
+        const map = new Map<string, { date: string; totalSent: number; delivered: number; failed: number; cost: number }>();
+        for (const log of res.logs) {
+          const d = new Date(log.sentAt);
+          const key = d.toISOString().split('T')[0];
+          const isDelivered = log.status === 'Delivered' || log.status === 'Sent';
+          const isFailed = log.status === 'Failed' || log.status === 'Error';
+          const existing = map.get(key);
+          if (existing) {
+            existing.totalSent += 1;
+            existing.cost += log.cost || 0;
+            if (isDelivered) existing.delivered += 1;
+            if (isFailed) existing.failed += 1;
+          } else {
+            map.set(key, { date: key, totalSent: 1, delivered: isDelivered ? 1 : 0, failed: isFailed ? 1 : 0, cost: log.cost || 0 });
+          }
+        }
+        setSmsReport(Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date)));
+      } else {
+        setSmsReport([]);
+      }
     } catch (err) {
       console.error('Error loading SMS report:', err);
       setSmsReport([]);

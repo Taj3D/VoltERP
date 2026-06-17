@@ -15,11 +15,16 @@ import {
 import { logUserActivity } from '@/lib/activity-logger';
 
 // Valid event types for notification triggers
+// Includes all 8 event types supported by the SMS auto-trigger engine
 const VALID_EVENT_TYPES = [
   'SalesConfirmation',
   'FinancialCollection',
   'InventoryIngestion',
   'HRLifecycle',
+  'PaymentReceived',
+  'PurchaseOrderReceived',
+  'EmployeeJoined',
+  'EmployeeExamDate',
 ] as const;
 
 // Valid recipient types

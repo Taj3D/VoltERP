@@ -2496,3 +2496,534 @@ Important for Vercel production deployment:
 - JWT_SECRET must be set
 - BLOB_READ_WRITE_TOKEN must be set (for photo upload feature, pending)
 - CSRF_ENFORCE should be "false" (transitional mode, same as dev)
+
+---
+Task ID: MASTER-AUDIT-001
+Agent: Main Agent
+Task: Master audit of VoltERP (Electronics Mart IMS) - 100+ module pages, 5 roles, comprehensive feature verification
+
+Work Log:
+- Read previous worklog: v3.0.0 versioning system complete, pushed to GitHub/Vercel
+- Verified dev server running on port 3000 (HTTP 200)
+- Opened app via agent-browser - already logged in as Admin (Amit Sharma)
+- Checked dashboard: KPIs, reorder alerts, top products/customers/suppliers, SR targets all rendering
+- Verified version badge "v3.0.0Dev" visible in header
+- Checked profile page: has photo upload (Company Logo, Voter ID front/back), Edit Profile, Password Security tabs
+- Tested sidebar collapse: WORKS correctly (Collapse → Expand, sub-menus hidden)
+- Tested mobile responsive (390x844): sidebar becomes hamburger, header shows initial "A", all content accessible
+- Checked console: 1 warning "Notification generate (non-blocking): Failed to generate notifications"
+- Verified security infrastructure already in place:
+  * password-utils.ts: bcrypt hashing (hashPassword, verifyPassword, isHashed, needsRehash)
+  * jwt-utils.ts: JWT token signing (signAccessToken, signRefreshToken)
+  * api-client.ts: JWT Bearer token auth with auto-refresh
+  * csrf.ts: CSRF token generation
+  * rate-limiter.ts: Rate limiting on login
+  * login route.ts: Uses verifyPassword, signAccessToken, rate limiting, auto-seeds users with hashed passwords
+- Verified SMS auto-trigger infrastructure exists:
+  * sms-auto-trigger.ts: Engine with sanitization, truncation, concurrency guard
+  * sms-event-hooks.ts: triggerEventSms for 8 event types (SalesConfirmation, PaymentReceived, PurchaseOrderReceived, EmployeeJoined, etc.)
+- Found notification polling issue: dev.log shows rapid /api/notifications calls (possible thundering herd)
+
+Initial Assessment:
+- App is FUNCTIONAL and loading correctly (local)
+- Security infrastructure (bcrypt, JWT, CSRF, rate limiting) already implemented
+- SMS auto-trigger engine already implemented
+- Photo upload infrastructure (blob-storage.ts) exists
+- Sidebar collapse works on PC
+- Mobile responsive works
+- Profile page has photo upload UI
+
+MASTER PLAN (20 Steps):
+Step 1:  Login as Admin (emart.amit/Test_123) - verify dashboard, profile, all modules
+Step 2:  Login as Manager (emart.manager/Manager_123) - verify role-based menu visibility
+Step 3:  Login as SR (emart.sr/SR_123) - verify SR-specific pages only
+Step 4:  Login as Dealer (emart.dealer/Dealer_123) - verify dealer-specific pages
+Step 5:  Login as VAT Auditor (emart.vat/VAT_123) - verify VAT/report pages
+Step 6:  Verify username NOT visible after login (only display name)
+Step 7:  Verify Profile page: photo upload, edit/save, voter ID upload
+Step 8:  Verify Password change: only Admin can change passwords
+Step 9:  Audit Products page - CRUD, export PDF/CSV, import CSV
+Step 10: Audit Customers/Suppliers pages - CRUD, export/import
+Step 11: Audit Purchase Order/Sales Order - create, save, PDF export
+Step 12: Audit Stock/Transfer/Valuation pages
+Step 13: Audit SMS Service - settings, auto-trigger toggles, send SMS
+Step 14: Audit Accounting pages - expense, income, bank transactions
+Step 15: Audit Reports pages - all export PDF/CSV working
+Step 16: Verify PDF digit formatting (all English, no Bengali mixed)
+Step 17: Verify company branding on PDF/print outputs
+Step 18: Fix notification polling thundering herd issue
+Step 19: Fix any bugs/gaps/dummy features found
+Step 20: Final end-to-end verification with all roles
+
+Stage Summary:
+- App is stable and functional locally
+- Security infrastructure already solid (bcrypt, JWT, CSRF, rate limiting)
+- SMS auto-trigger engine already implemented
+- Beginning systematic 20-step master audit
+
+---
+Task ID: AUDIT-SEC-001
+Agent: Security Audit Agent
+Task: Audit security and authentication implementation
+
+Work Log:
+- Read /home/z/my-project/worklog.md to understand previous Phase 3 security migration work (bcrypt + JWT-only auth, X-User-Email removal documented as complete)
+- Audited all 12 required files in detail:
+  * src/lib/password-utils.ts (bcrypt implementation, 71 lines)
+  * src/lib/jwt-utils.ts (JWT signing/verify/revoke, 317 lines)
+  * src/lib/api-security.ts (withApiSecurity RBAC wrapper, 1456 lines)
+  * src/lib/api-client.ts (client-side auth state, 533 lines)
+  * src/lib/csrf.ts (CSRF token store, 108 lines)
+  * src/lib/rate-limiter.ts (two-tier rate limiter, 213 lines)
+  * src/lib/security-audit-trail.ts (immutable forensic audit, 118 lines)
+  * src/app/api/auth/route.ts (login, 165 lines)
+  * src/app/api/auth/refresh/route.ts (refresh w/ rotation, 85 lines)
+  * src/app/api/auth/change-password/route.ts (admin-only, 180 lines)
+  * src/app/api/auth/profile/route.ts (profile GET/PUT, 239 lines)
+  * src/app/api/auth/migrate-passwords/route.ts (admin bulk migrate, 54 lines)
+- Also inspected auxiliary auth routes: /api/auth/logout, /api/auth/me, /api/auth/password, /api/auth/reset-password, /api/auth/rate-limit, /api/auth/telemetry, /api/users/change-password, /api/users/profile, /api/csrf-token
+- Verified schema: RevokedToken model exists (schema.prisma:1944) with jti index for JWT blacklist
+- Ran grep searches for security gaps:
+  * `x-user-email` → 0 active usages (only comments in 5 files documenting removal)
+  * `localStorage` → 17 files (api-client.ts is the core; rest are components reading ems_auth)
+  * `httpOnly` → 0 cookie usages; only mentioned in feature-flags.ts:38,103-105 as a flag (defaults false, NOT consumed anywhere)
+  * `password === ...` → 0 plaintext comparisons anywhere in src/
+  * `user.password` → all 6 hits use verifyPassword() with bcrypt
+- Verified API route coverage: 233 of 239 route files (97.5%) call withApiSecurity(). The 6 exceptions are by design:
+  * /api/auth (login - public)
+  * /api/auth/refresh (accepts refresh token, not access token)
+  * /api/auth/logout (manually extracts/revokes)
+  * /api/csrf-token (token generator with header-based session ID)
+  * /api/route (root health check - public)
+  * /api/sms-automation/trigger (server-to-server, uses HMAC auth with timing-safe compare)
+- Verified feature flag consumption: rg confirms `password_hashing`, `jwt_auth`, `httponly_cookies` flags are defined in feature-flags.ts but consumed by ZERO files. They are misleading documentation, not gates.
+- Verified password change is admin-only across ALL 5 routes:
+  * /api/auth/change-password:23
+  * /api/auth/password:32
+  * /api/auth/reset-password:28
+  * /api/users/change-password:31
+  * /api/auth/migrate-passwords:14
+  Every non-admin attempt is audited with SECURITY_OVERRIDE action and returns 403 PRIVILEGE_ESCALATION_BLOCKED.
+- Verified JWT_SECRET handling: production throws FATAL if missing (jwt-utils.ts:40-45); .env.example:15 contains placeholder; worklog confirms JWT_SECRET was set in real .env during prior session.
+
+Stage Summary:
+- Security status: STRONG. Core auth (bcrypt password hashing, JWT-only auth, no X-User-Email, refresh token rotation, DB-backed token blacklist, server-side RBAC via withApiSecurity on 233/239 routes, two-tier rate limiting, CSRF defense-in-depth, immutable forensic audit trail, XSS input sanitization, admin-only password changes) is fully implemented and consistently enforced.
+- Vulnerabilities found (in priority order):
+  1. [MEDIUM] **localStorage token storage instead of httpOnly cookies** — `src/lib/api-client.ts:98,118,135,149,158,191,428` and `src/hooks/useAuth.ts:90`. JWT access/refresh/CSRF tokens stored in localStorage under `ems_auth` key. Any XSS = full account takeover. OWASP recommends httpOnly cookies. The `httponly_cookies` feature flag exists at `src/lib/feature-flags.ts:103` but defaults to false and is consumed by ZERO files (dead flag).
+  2. [MEDIUM] **Auto-seed of 5 default users on every login attempt** — `src/app/api/auth/route.ts:9-16,47-67`. Hardcoded credentials (`Test_123`, `Manager_123`, `SR_123`, `Dealer_123`, `VAT_123`) visible in source. Should be disabled in production (`NODE_ENV === 'production'`).
+  3. [LOW-MED] **CSRF token store is in-memory** — `src/lib/csrf.ts:34-41` (globalThis Map). Does NOT survive across Vercel serverless instances. Code acknowledges this at `src/lib/api-security.ts:383-392` and provides `CSRF_ENFORCE=false` transitional escape hatch. Currently mitigated because JWT is in Authorization header (CSRF inherently hard), but if localStorage is replaced with cookies (fix #1), this becomes a critical gap.
+  4. [LOW-MED] **Rate limiter store is in-memory** — `src/lib/rate-limiter.ts:28,103` (Maps). Each Vercel instance has independent counters, effectively multiplying limits by warm-instance count. Recommended: Redis (Upstash) or DB-backed store.
+  5. [LOW] **/api/csrf-token endpoint has weak auth** — `src/app/api/csrf-token/route.ts:5-7`. Falls back to `'anonymous'` session ID; uses first 16 chars of JWT as session ID (truncated, could collide). Recommend requiring real JWT auth.
+  6. [LOW] **/api/auth/rate-limit endpoint exposes other users' rate limit state** — `src/app/api/auth/rate-limit/route.ts:35`. Authenticated user can query any IP/endpoint. Recommend restricting to caller's own IP.
+  7. [LOW] **/api/auth/logout does not verify token before revoking** — `src/app/api/auth/logout/route.ts:18`. Uses `revokeToken()` which calls `jwt.decode()` (no signature check). Not a security hole (revoking a fake token is a no-op), but inconsistency with `verifyToken()` used elsewhere.
+  8. [INFO] **3 duplicate password-change routes** — `/api/auth/change-password`, `/api/auth/password`, `/api/users/change-password` all do the same admin-only password change. Consistent enforcement, but maintenance risk. Recommend consolidating.
+  9. [INFO] **Security feature flags (`password_hashing`, `jwt_auth`, `httponly_cookies`) defined but never consumed** — `src/lib/feature-flags.ts:89-109`. Defaults to `false`, misleading. Both password hashing and JWT auth are always on (hardcoded). Recommend either removing the flags or setting defaults to `true`.
+- Recommended fixes (priority order):
+  1. **Migrate JWT tokens from localStorage to httpOnly cookies**. Set-Cookie on /api/auth response: `access_token` (`HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800`), `refresh_token` (`HttpOnly; Secure; SameSite=Strict; Path=/api/auth/refresh; Max-Age=604800`), `csrf_token` (`HttpOnly; Secure; SameSite=Strict; Path=/`). Update `withApiSecurity()` at `src/lib/api-security.ts:281` to read token from cookie with Authorization header fallback. Update `apiFetch()` at `src/lib/api-client.ts:347-351` to omit Authorization header (browser auto-sends cookie). Use double-submit CSRF pattern: csrf_token cookie (httpOnly=false, readable by JS) + X-CSRF-Token header on writes.
+  2. **Disable auto-seed in production** at `src/app/api/auth/route.ts:47`. Wrap in `if (process.env.NODE_ENV !== 'production')`. Force explicit `bun run db:seed` for first-time setup.
+  3. **Move CSRF + rate-limit stores to Redis (Upstash)** for Vercel serverless. Both `src/lib/csrf.ts:40` and `src/lib/rate-limiter.ts:28,103` need persistent backend.
+  4. **Require JWT auth on /api/csrf-token** at `src/app/api/csrf-token/route.ts:4` via `withApiSecurity(request, 'UserProfile', 'GET')`.
+  5. **Restrict /api/auth/rate-limit to caller's own IP** at `src/app/api/auth/rate-limit/route.ts:25` — ignore `ipAddress` query param, use `getClientIp(request)` instead.
+  6. **Verify token signature in /api/auth/logout** at `src/app/api/auth/logout/route.ts:18` before revoke. Log invalid-token logout attempts.
+  7. **Consolidate 3 password-change routes** into single `/api/auth/password` with `targetUserId` body param (already supported by /api/auth/password route).
+  8. **Either delete or set defaults=true** for `password_hashing`, `jwt_auth`, `httponly_cookies` flags at `src/lib/feature-flags.ts:91-108` (they are dead code — never consumed).
+- No code changes made by this audit (read-only audit task per scope). All findings documented above for follow-up implementation.
+
+---
+Task ID: AUDIT-ACC-SMS-001
+Agent: Account & SMS Audit Agent
+Task: Audit Account Management and SMS Service module pages
+
+Work Log:
+- Read worklog.md to understand prior audit context (Phase 1-3 + Security Deep Audit already complete; production deployed).
+- Confirmed routing map in `src/components/ElectronicsMartApp.tsx`:
+  - All Account Management pages (`expenses`, `incomes`, `cash-collections`, `cash-deliveries`, `bank-transactions`, `expense-income-heads`) → consolidated `AccountManagementPage.tsx` (lazy-loaded, wrapped in ModuleErrorBoundary).
+  - All SMS pages (`send-sms`, `send-bulk-sms`, `sms-inbox`, `sms-bills`, `sms-report`, `sms-settings`, `sms-bill-payments`) → consolidated `SMSAnalyticsPage.tsx` with different `initialTab` props.
+- Discovered `ExpensesIncomesPage.tsx`, `BankTransactionsPage.tsx`, `CashCollectionsDeliveriesPage.tsx` exist as standalone components but are NOT routed anywhere in `ElectronicsMartApp.tsx` (only `AccountManagementPage` is). They are orphan duplicates of the consolidated page.
+- Audited `src/components/AccountManagementPage.tsx` (809 lines): RBAC gates for SR/Dealer/VAT Auditor; per-tab form fields; Export PDF/CSV/Import CSV/Copy buttons all wired; double-entry ledger integration via `/api/expenses`, `/api/incomes`, `/api/cash-collections`, `/api/cash-deliveries`, `/api/bank-transactions`, `/api/expense-income-heads`.
+- Audited `src/components/SMSAnalyticsPage.tsx` (3141 lines): Dashboard/Inbox/Logs/Billing/Send/Campaigns/Settings tabs all present; KPI cards; charts (BarChart + PieChart via Recharts); per-tab Export PDF/CSV/Import CSV buttons wired; Send SMS (single+bulk) with optimistic UI; SMS Settings CRUD; SMS Bill CRUD + Payment recording; Campaign CRUD + Launch/Cancel; Auto SMS Trigger toggles (8 master switches) + Notification Trigger CRUD.
+- Audited SMS gateway dispatcher (`src/lib/sms-gateway-dispatcher.ts`): Multi-gateway support (BulkSMSBD, SmartSMS, Metronet, SSLWireless, Generic) with per-gateway param builders, GET/POST dispatch, response parsing, retryable error classification, batch dispatch with concurrency=5.
+- Audited SMS auto-trigger engine (`src/lib/sms-auto-trigger.ts`): Per-company in-memory lock; atomic credit check inside `$transaction`; phone validation with `SKIPPED_INVALID_NUMBER` logging; template variable sanitization; summary truncation; fire-and-forget gateway dispatch after SmsLog creation.
+- Audited SMS event hooks (`src/lib/sms-event-hooks.ts`): 8 trigger functions (SalesConfirmation, FinancialCollection, InventoryIngestion, HRLifecycle, PaymentReceived, PurchaseOrderReceived, EmployeeJoined, EmployeeExamDate); auto-seed of default templates when trigger doesn't exist; phone validation; non-blocking gateway dispatch.
+- Audited SMS API routes: `/api/sms-logs` (single+bulk with gateway dispatch), `/api/sms-logs/[id]` (GET/PUT/DELETE), `/api/sms-bills` + `/[id]`, `/api/sms-bill-payments` + `/[id]`, `/api/sms-inbox` + `/[id]`, `/api/sms-settings` + `/[id]`, `/api/sms-campaigns` + `/[id]`, `/api/sms-campaigns/dispatch`, `/api/sms-automation` (GET/POST/PUT), `/api/sms-automation-config` (GET only), `/api/sms-automation/trigger` (POST with HMAC auth), `/api/sms-dispatch/event` (POST), `/api/sms/dispatch-pending` (GET/POST retry).
+- Audited Account API routes: `/api/expenses` (CSV import + double-entry ledger), `/api/incomes`, `/api/cash-collections` (AR reversal + ledger), `/api/cash-deliveries` (AP reversal + ledger), `/api/bank-transactions` (Transfer + Deposit + Withdraw), `/api/expense-income-heads` (with CoA linking). All have `[id]` routes with GET/PUT/DELETE.
+- Confirmed SMS auto-trigger IS wired into cash-collections, cash-deliveries, bank-transactions, sales-orders, employees, purchase-orders via `triggerEventSms` calls (NOT wired into expenses/incomes — domain-correct, no customer-facing event).
+- Confirmed Export PDF, Export CSV, Import CSV buttons present on ALL audited tabs (AccountManagementPage toolbar + per-tab toolbars in SMSAnalyticsPage).
+
+Stage Summary:
+
+ISSUES FOUND (17 total: 4 Critical, 8 High, 5 Low/Info):
+
+CRITICAL:
+1. **Campaign Launch button does NOT actually send SMS through the gateway** — `src/app/api/sms-campaigns/[id]/route.ts` lines 242-379, comment at lines 318-320 literally says "For simulation: mark as Delivered immediately"; creates SmsLog with status 'Pending' but never calls `dispatchSingleSms`/`dispatchSmsBatch`. Frontend calls this route at `src/components/SMSAnalyticsPage.tsx:2475`. The competing `/api/sms-campaigns/dispatch` route (line 21-293 of `src/app/api/sms-campaigns/dispatch/route.ts`) DOES dispatch correctly but is unused by the UI. Result: bulk SMS campaigns appear "Completed" but no SMS is sent — messages stay Pending forever (until `/api/sms/dispatch-pending` is manually invoked).
+
+2. **SMS Report tab always shows "No report data for the selected period"** — `src/components/SMSAnalyticsPage.tsx` lines 232-240 `loadReport` does `setSmsReport(Array.isArray(res) ? res : res?.data || [])` but `/api/reports/route.ts` lines 428-447 returns an OBJECT `{logs, summary, billing}` (not array, no `data` key). The report table (lines 1288-1316) iterates an empty array. Field names also mismatched (table expects `totalSent/delivered/failed`; API returns `summary.dailyTrend[].{date,count,cost}`).
+
+3. **`/api/sms-automation/trigger` route creates SmsLog but never dispatches through gateway** — `src/app/api/sms-automation/trigger/route.ts` lines 327-438: Step 8 comment says "Try to dispatch through the SMS gateway (non-blocking)" but the dispatch code is MISSING entirely (function returns after SmsLog creation). Compare with `src/lib/sms-auto-trigger.ts` lines 327-368 which properly calls `dispatchSingleSms`. Latent bug (no current callers — the actual auto-trigger uses `dispatchAutoSms` directly), but the route is broken if anyone calls it.
+
+4. **`sms-notification-triggers` POST rejects 4 of 8 valid event types** — `src/app/api/sms-notification-triggers/route.ts` lines 18-23 `VALID_EVENT_TYPES` only includes `SalesConfirmation, FinancialCollection, InventoryIngestion, HRLifecycle`. POST returns 400 for `PaymentReceived, PurchaseOrderReceived, EmployeeJoined, EmployeeExamDate`. Same limitation in `src/app/api/sms-dispatch/event/route.ts` lines 23-28 and in UI dropdown at `src/components/SMSAnalyticsPage.tsx:3073`. Admins cannot manually create/edit triggers for the 4 newer event types (only auto-seeded defaults via `src/lib/sms-event-hooks.ts:130-215`).
+
+HIGH:
+5. **PUT on cash-collections/deliveries/bank-transactions does NOT reverse + repost ledger when amount/bank/date/customer changes** — `src/app/api/cash-collections/[id]/route.ts` lines 124-343 PUT handler updates the record fields but does NOT create reversal ledger entries nor new ledger entries for the updated amount. Same pattern in `src/app/api/cash-deliveries/[id]/route.ts:123-344` and `src/app/api/bank-transactions/[id]/route.ts` PUT. Result: editing amount silently desyncs `Bank.currentBalance`, `LedgerEntry`, `LedgerAutoPost`, and customer/supplier AR/AP balances. Recommend: require DELETE + re-POST for amount/bank/date changes (preferred) OR add full reversal+repost logic inside PUT.
+
+6. **`sms-campaigns/dispatch` route references non-existent `creditBalanceLimit` field** — `src/app/api/sms-campaigns/dispatch/route.ts` lines 67-76: `(activeSetting as any).creditBalanceLimit` is always `undefined`, so the credit-limit check is silently skipped (dead code, `as any` hides the bug from TypeScript). The `SmsSetting` model only has `lastKnownCreditBalance` (used correctly in `src/lib/sms-auto-trigger.ts:262,291`). Recommend: remove dead block OR replace with `lastKnownCreditBalance`.
+
+7. **`sms-campaigns/dispatch` sets `deliveredCount = successCount` immediately after SmsLog creation** — `src/app/api/sms-campaigns/dispatch/route.ts` line 162: campaign is updated to `deliveredCount: successCount` (where successCount = number of SmsLog entries CREATED, not actually delivered). Misleading — reports "delivered" before gateway confirms. Recommend: set `deliveredCount: 0` initially, update post-dispatch based on `batchResult.sent` only.
+
+8. **`sms-campaigns/dispatch` tautology bug** — `src/app/api/sms-campaigns/dispatch/route.ts` line 257: `status: batchResult.failed === 0 && batchResult.pending === 0 ? 'Completed' : 'Completed'` — both branches return `'Completed'`. Should be `'Completed' : 'Partial'` (or `'Failed'` if all failed).
+
+9. **`sms-campaigns/dispatch` uses local `detectEncoding` instead of `computeSmsSegments`** — `src/app/api/sms-campaigns/dispatch/route.ts` lines 10-18 + line 109: custom `detectEncoding` re-implements GSM 03.38 detection (simpler, may produce different segment counts) instead of using `computeSmsSegments` from `@/lib/api-security` used everywhere else. Inconsistency risk for cost calculations.
+
+10. **SMS Log table has NO Edit/Delete actions** — `src/components/SMSAnalyticsPage.tsx` lines 1610-1706: 10-column table with no Actions column. Users cannot edit or delete individual SMS log entries from the UI (API at `/api/sms-logs/[id]` supports GET/PUT/DELETE but UI doesn't surface them). Minor — admins can use API directly, but breaks the "CRUD works" audit criterion for the SMS Log tab.
+
+11. **SMS Log Type filter dropdown missing 4 newer trigger types** — `src/components/SMSAnalyticsPage.tsx` lines 1581-1588: dropdown only has `Manual, SalesConfirmation, FinancialCollection, InventoryIngestion, HRLifecycle, Campaign`. Missing `PaymentReceived, PurchaseOrderReceived, EmployeeJoined, EmployeeExamDate`. Users can't filter logs by these trigger types even though logs are tagged with them via `triggerType: eventType` in `sms-event-hooks.ts:257`.
+
+12. **`/api/sms-dispatch/event` route is dead code with stale event type list** — `src/app/api/sms-dispatch/event/route.ts` (226 lines): zero callers in codebase (event triggering goes through `triggerEventSms` in `sms-event-hooks.ts` directly, which bypasses this HTTP route). Also has the same 4-type `VALID_EVENT_TYPES` limitation as issue #4. Recommend: delete OR document intended use and add 4 newer types.
+
+LOW/INFO:
+13. **Orphaned page components** — `src/components/ExpensesIncomesPage.tsx` (890 lines), `src/components/BankTransactionsPage.tsx` (1237 lines), `src/components/CashCollectionsDeliveriesPage.tsx` (1112 lines) exist as standalone pages but are NOT routed by `ElectronicsMartApp.tsx` (which uses only the consolidated `AccountManagementPage.tsx`). Their counterparts in `src/components/_deprecated/` confirm they were superseded. Recommend: delete the 3 orphan files (or move to `_deprecated/`) to reduce maintenance burden.
+
+14. **`/api/sms-automation-config` route is redundant with `/api/sms-automation`** — `src/app/api/sms-automation-config/route.ts` (GET only, 52 lines) returns the same data as `/api/sms-automation` GET. SMSAnalyticsPage only uses `/api/sms-automation` (line 220). Minor cleanup opportunity.
+
+15. **AccountManagementPage form sends all fields even for "heads" context** — `src/components/AccountManagementPage.tsx` lines 253-272 (openCreate) and 280-300 (openEdit) build a flat `formData` with all keys (bankId, paymentOptionId, chequeNo, voucherNo, etc.) regardless of context. The `handleSave` (line 353-359) only sends context-appropriate fields to the API. Not a bug, but creates noise. Minor.
+
+16. **AccountManagementPage CoA dropdown for heads lacks explicit "None" option** — `src/components/AccountManagementPage.tsx` line 588: when creating a head, the Chart of Account `<Select>` has no `<SelectItem value="">None</SelectItem>` option (unlike other Selects at lines 600-601 that include "None"). Users can still clear via the Select's clear button. Minor UX inconsistency.
+
+17. **`sms-inbox/[id]` route uses `'SmsLogs'` RBAC module token instead of `'SmsInbox'`** — `src/app/api/sms-inbox/[id]/route.ts` lines 36, 81: `withApiSecurity(request, 'SmsLogs', 'GET'/'PUT')` instead of `'SmsInbox'`. Works because both modules share the same RBAC rules, but inconsistent with `/api/sms-inbox/route.ts` line 46 which correctly uses `'SmsInbox'`. Minor.
+
+RECOMMENDED FIXES (priority order):
+
+1. **[CRITICAL] Fix Campaign Launch dispatch** — In `src/app/api/sms-campaigns/[id]/route.ts` PUT `action: 'launch'` branch (lines 242-379), add a post-transaction `dispatchSmsBatch` call mirroring the pattern in `src/app/api/sms-campaigns/dispatch/route.ts` lines 193-266. Remove the misleading "For simulation: mark as Delivered immediately" comment and the fake `sentCount++`/`deliveredCount++` increments at lines 319-320. Set `sentCount: 0, deliveredCount: 0` initially; update post-dispatch based on actual `batchResult.sent`. Alternative: switch the frontend at `src/components/SMSAnalyticsPage.tsx:2475` to call `POST /api/sms-campaigns/dispatch` with `{campaignId}` instead of `PUT /api/sms-campaigns/${id}` with `{action: 'launch'}`.
+
+2. **[CRITICAL] Fix SMS Report data loading** — In `src/components/SMSAnalyticsPage.tsx:232-240`, change `loadReport` to: `const res = await apiFetch('/api/reports?type=sms&from=...&to=...'); setSmsReport(res?.summary?.dailyTrend || [])`. Update the table render (lines 1288-1316) to map `count → totalSent` (and show `—` for `delivered`/`failed` since the API doesn't break down by day; or fetch from `res.logs` filtered by date).
+
+3. **[CRITICAL] Add gateway dispatch to `/api/sms-automation/trigger`** — In `src/app/api/sms-automation/trigger/route.ts` after line 411 (inside the `result.smsLog` return block), add the post-transaction gateway dispatch step (mirror `src/lib/sms-auto-trigger.ts:327-368`). Without this, the route creates Pending SmsLogs that never get sent.
+
+4. **[CRITICAL] Add 4 newer event types to VALID_EVENT_TYPES** — Update `VALID_EVENT_TYPES` in `src/app/api/sms-notification-triggers/route.ts:18-23`, `src/app/api/sms-dispatch/event/route.ts:23-28` to include `PaymentReceived, PurchaseOrderReceived, EmployeeJoined, EmployeeExamDate`. Update the UI dropdown at `src/components/SMSAnalyticsPage.tsx:3073` to include the 4 newer types. Update the SMS Log Type filter dropdown at `src/components/SMSAnalyticsPage.tsx:1581-1588` to include them as well.
+
+5. **[HIGH] Add ledger reversal+repost to PUT handlers** — In `src/app/api/cash-collections/[id]/route.ts` PUT, `src/app/api/cash-deliveries/[id]/route.ts` PUT, and `src/app/api/bank-transactions/[id]/route.ts` PUT: if `body.amount`, `body.bankId`, `body.date`, `body.customerId`/`body.supplierId` differs from existing AND `existing.ledgerPosted === true`, perform full reversal of existing ledger entries + bank balance change + customer/supplier AR/AP change, then re-post with new values. Simpler alternative: reject edits to those fields if `ledgerPosted === true` (force DELETE + re-create).
+
+6. **[HIGH] Remove `creditBalanceLimit` dead code** — In `src/app/api/sms-campaigns/dispatch/route.ts:67-76`, either delete the dead credit-limit block or replace `creditBalanceLimit` with `lastKnownCreditBalance` (and use `dispatchSmsBatch` cost aggregation for the comparison).
+
+7. **[HIGH] Fix `deliveredCount` premature reporting** — In `src/app/api/sms-campaigns/dispatch/route.ts:162`, change `deliveredCount: successCount` to `deliveredCount: 0`. Update post-dispatch (after line 266) with `deliveredCount: batchResult.sent` (Sent status = gateway accepted; true DLR requires webhook integration, not in scope).
+
+8. **[HIGH] Fix tautology in dispatch status** — In `src/app/api/sms-campaigns/dispatch/route.ts:257`, change `'Completed' : 'Completed'` to `'Completed' : (batchResult.sent > 0 ? 'Partial' : 'Failed')`.
+
+9. **[HIGH] Replace `detectEncoding` with `computeSmsSegments`** — In `src/app/api/sms-campaigns/dispatch/route.ts`, remove the local `detectEncoding` function (lines 10-18) and use `computeSmsSegments` from `@/lib/api-security` (already imported on line 3). Replace `detectEncoding(campaign.message)` at line 109 with `computeSmsSegments(campaign.message)` and update destructuring (`{ isUnicode, segmentCount }` instead of `{ encoding, smsUnits }`).
+
+10. **[HIGH] Add Actions column to SMS Log table** — In `src/components/SMSAnalyticsPage.tsx` SMS Log tab (lines 1610-1706), add an 11th column "Actions" with Edit (Pencil) and Delete (Trash2, admin-only) buttons that call `PUT /api/sms-logs/{id}` and `DELETE /api/sms-logs/{id}` respectively. Add an edit dialog similar to the inbox edit dialog.
+
+11. **[LOW] Delete 3 orphan page components** — Move `src/components/ExpensesIncomesPage.tsx`, `src/components/BankTransactionsPage.tsx`, `src/components/CashCollectionsDeliveriesPage.tsx` to `src/components/_deprecated/` (or delete entirely) since `ElectronicsMartApp.tsx` only uses the consolidated `AccountManagementPage.tsx`.
+
+12. **[LOW] Delete `/api/sms-dispatch/event` route** — `src/app/api/sms-dispatch/event/route.ts` has zero callers and duplicates `triggerEventSms` functionality. Delete to reduce maintenance surface (or document intended use and add 4 newer event types if kept).
+
+13. **[LOW] Delete `/api/sms-automation-config` route** — `src/app/api/sms-automation-config/route.ts` is redundant with `/api/sms-automation` GET. Remove and update any references (none found).
+
+14. **[LOW] Use `'SmsInbox'` module token in `/api/sms-inbox/[id]`** — Change `withApiSecurity(request, 'SmsLogs', ...)` to `withApiSecurity(request, 'SmsInbox', ...)` at `src/app/api/sms-inbox/[id]/route.ts:36,81` (and DELETE handler) for consistency with `/api/sms-inbox/route.ts:46,128`.
+
+15. **[LOW] Add "None" option to CoA dropdown for heads** — In `src/components/AccountManagementPage.tsx:588`, add `<SelectItem value="">None</SelectItem>` as the first option inside `<SelectContent>` for the Chart of Account Select (mirroring the pattern at lines 600-601 for Bank/Payment Option selects).
+
+- No code changes made by this audit (read-only audit task per scope). All 17 findings documented above for follow-up implementation. Critical fixes (#1, #2, #3, #4) should be prioritized — they affect core SMS functionality (campaigns don't send, reports don't load, triggers can't be customized for newer events).
+
+---
+Task ID: AUDIT-INV-001
+Agent: Inventory Audit Agent
+Task: Audit Inventory Management and Order module pages
+
+Work Log:
+- Read /home/z/my-project/worklog.md to understand prior audit sessions (Phase 1-17, post-reset-deep-audit-fix, fix-x-user-email-remaining, seed-reference-data, and recent SMS audit).
+- Verified routing in src/components/ElectronicsMartApp.tsx (lines 6401-6411) — confirmed 4 dedicated components handle the inventory/order pages:
+  • InventoryGroupPage.tsx → company-ordersheet, customer-ordersheet, ordersheet-report, purchase-orders, auto-po
+  • SalesModulePage.tsx → sales-orders, hire-sales, sales-returns
+  • ReturnReplacementModulePage.tsx → purchase-returns, replacements
+  • StockModulePage.tsx → stock, stock-details, stock-transfers, opening-stock, batch-master, valuation
+- Read all 4 component files end-to-end (10,141 total lines) and audited 13 related API routes (order-sheets, purchase-orders, sales-orders, hire-sales, transfers, batches, batch-master, auto-po, valuation, opening-stock, stock, stock-details, purchase-returns, sales-returns, replacements).
+- Cross-referenced frontend field names vs API request schemas to detect mismatches.
+- Traced the CSV-import code path through src/lib/export-utils.ts:importFromCSV (lines 1772-2105) → apiFetch POST → API handleCsvImport handlers to identify a system-wide import incompatibility.
+- No code changes made (read-only audit task per scope).
+
+Stage Summary:
+
+═══════════════════════════════════════════════════════════════════════
+CRITICAL ISSUES (block core functionality)
+═══════════════════════════════════════════════════════════════════════
+
+1. **CSV Import is broken app-wide for the entire Inventory/Order module** — `src/lib/export-utils.ts:2062-2064` and `:2080-2083`: `importFromCSV()` POSTs the body as `JSON.stringify({ data: batchRecords, batchMode: true })` (batch) or `JSON.stringify(record)` (single fallback). But every API CSV-import handler expects either `Content-Type: text/csv` (raw CSV text) or a JSON body with a `csvData` (or `csv`) string field — see `src/app/api/order-sheets/route.ts:518-535`, `src/app/api/purchase-orders/route.ts:636-656`, `src/app/api/sales-orders/route.ts:760-783`, `src/app/api/transfers/route.ts:529-551`, `src/app/api/purchase-returns/route.ts:731-...`, `src/app/api/sales-returns/route.ts:675-...`. The two formats are incompatible → every batch attempt returns `400 "No CSV data provided"` and every single-row fallback returns `400 "missing required fields"`. Affected Import CSV buttons:
+   • InventoryGroupPage.tsx:975 (Company OS), :1406 (Customer OS), :1811-1831 (OS Report — also uses wrong field name `productId` instead of API-expected `productCode`), :2143 (PO — also passes empty `[]` for formFields), :2831 (SO — empty `[]`), :3232 (Sales Return — empty `[]`), :3449 (Purchase Return — empty `[]`), :3859 (Transfers — empty `[]`)
+   • SalesModulePage.tsx:1190 (SO — empty `[]`), :1630 (Hire Sales — empty `[]`, API has no import handler), :2055 (Sales Return — empty `[]`)
+   • ReturnReplacementModulePage.tsx:775 (PR — uses real fields, but format mismatch), :1194 (Replacements — uses real fields, API has no import handler)
+   • StockModulePage.tsx:1011 (Stock — empty `[]`, API has no import handler), :1183 (Stock Details — empty `[]`, API has only GET — returns 405), :1335 (Transfers — real fields, but format mismatch), :1700 (Opening Stock — empty `[]`, API has no import handler), :1922 (Batch Master — empty `[]`, API has no import handler), :2142 (Valuation — empty `[]`, API has only GET — returns 405)
+   Note: when `formFields` is `[]`, importFromCSV skips every row at line 2007-2011 with "No mappable data" before even hitting the API. So ~12 of the 16 Import CSV buttons fail 100% client-side without ever making a network call.
+
+2. **Ordersheet Report date-range filter is silently ignored** — `src/components/InventoryGroupPage.tsx:1688-1701` (`loadOsReport`) sends `?from=X&to=Y` query params to `/api/order-sheets`, but `src/app/api/order-sheets/route.ts:188-202` (GET handler) reads only `companyId, customerId, status, fulfillmentStatus, orderType, godownId` — `from` and `to` are never read. The client-side `osReportFiltered` useMemo (lines 1703-1709) also doesn't filter by date. Result: user picks a date range, clicks "Generate Report", and sees ALL ordersheets regardless of date.
+
+3. **InventoryGroupPage renders 8 duplicate, less-featured tabs that conflict with newer dedicated components** — `src/components/InventoryGroupPage.tsx:3932-3947` (TabsList) and `:188-202` (tabMap) include tabs for `sales-orders, hire-sales, sales-returns, purchase-returns, replacements, stock, stock-details, transfers`. But ElectronicsMartApp.tsx:6403-6411 routes those pages to the newer SalesModulePage / ReturnReplacementModulePage / StockModulePage components. When a user opens e.g. `purchase-orders` (which IS routed to InventoryGroupPage) and then clicks the "Sales Orders" tab inside InventoryGroupPage, they see an OLDER, less-featured UI missing COGS tracking, AR/AP posting, hire installment payments, batch linking, valuation method, etc. The duplicate code is also a maintenance burden — InventoryGroupPage is 3,965 lines, ~60% of which is dead/duplicate code.
+
+4. **PO edit shows discount AMOUNT in the discount PERCENT field** — `src/components/InventoryGroupPage.tsx:1946` (`openPoEdit`): `discount: item.discount || 0`. The PO data model stores `discount` as an AMOUNT (currency), but the form label at `:2260` says "Discount %" and `savePo` at `:1974-1975` treats `poForm.discount` as a percent: `const discountPercent = Number(poForm.discount) || 0; const discountAmt = subTotal * discountPercent / 100;`. So editing a PO with a 100 Tk. discount on a 1,000 Tk. subtotal shows "100" in the "Discount %" field, and on save the new discount becomes 1,000 Tk. (100% of 1,000). This silently corrupts PO totals on every edit.
+
+5. **`/api/batch-master` POST does NOT create a StockEntry** — `src/app/api/batch-master/route.ts:138-155` creates only the `BatchMaster` record. The parallel `/api/batches` route (lines 204-248) correctly creates BOTH `BatchMaster` AND a `StockEntry` (type=IN, referenceType="BatchEntry") so that stock increases. StockModulePage.tsx:741 calls `/api/batch-master` (not `/api/batches`), so creating a batch via the UI registers the batch but does NOT add to inventory — users will see the batch in Batch Master but `currentStock` for the product won't change. Also: `/api/batch-master` requires user-supplied `batchCode` (the frontend generates `BCH-${Date.now().toString(36)}` at StockModulePage.tsx:740), while `/api/batches` auto-generates a sequential `BCH-XXXXX` code.
+
+6. **6 Import CSV buttons target APIs with no POST (or no POST import handler) at all**:
+   • `StockModulePage.tsx:1183` → `/api/stock-details` (only GET defined) → 405 Method Not Allowed
+   • `StockModulePage.tsx:2142` → `/api/valuation` (only GET defined) → 405 Method Not Allowed
+   • `StockModulePage.tsx:1011` → `/api/stock` (POST exists but no `isImport` branch — body parsed as single stock adjustment, fails validation)
+   • `StockModulePage.tsx:1700` → `/api/opening-stock` (POST exists but no `isImport` branch)
+   • `StockModulePage.tsx:1922` → `/api/batch-master` (POST exists but no `isImport` branch)
+   • `SalesModulePage.tsx:1630` → `/api/hire-sales` (POST exists but no `isImport` branch)
+   • `ReturnReplacementModulePage.tsx:1194` → `/api/replacements?import=true` (POST exists but no `isImport` branch — the `?import=true` flag is ignored)
+   These buttons will never successfully import a CSV regardless of the importFromCSV format bug.
+
+═══════════════════════════════════════════════════════════════════════
+HIGH-SEVERITY ISSUES
+═══════════════════════════════════════════════════════════════════════
+
+7. **InventoryGroupPage Hire Sales dialog lacks `godownId`** — `src/components/InventoryGroupPage.tsx:312` (hsForm initial state) and `:3046-3071` (dialog) have no Godown selector, but the newer SalesModulePage.tsx:1810-1818 includes one and the API accepts `godownId`. Older dialog creates incomplete hire-sale records.
+
+8. **InventoryGroupPage Sales Return form omits `godownId`** — `src/components/InventoryGroupPage.tsx:324` (srForm) and `:3273-3335` (dialog) — no godown selector. SalesModulePage.tsx:2196-2203 includes one. Stock realignment on return may fail or default incorrectly.
+
+9. **InventoryGroupPage Purchase Return form omits `godownId`** — `src/components/InventoryGroupPage.tsx:336` (prForm) and `:3490-3545` (dialog) — no godown selector. ReturnReplacementModulePage.tsx (full version) includes godown handling. AP/stock realignment may default incorrectly.
+
+10. **InventoryGroupPage Transfers dialog lacks batch linking + cost value + shipping status** — `src/components/InventoryGroupPage.tsx:3912` uses simple columns `[{productId, quantity}]` only. StockModulePage.tsx:1524-1565 supports `batchId` per line, `costPrice`, and the API (`/api/transfers` POST) accepts `shippingStatus`. Older dialog creates transfers without batch tracking.
+
+11. **InventoryGroupPage Transfer save has no `fromGodownId != toGodownId` validation** — `src/components/InventoryGroupPage.tsx:3914` (inline save) — no check. User can create a transfer where source = destination, which is logically invalid.
+
+12. **InventoryGroupPage `openPoReceive` blocks legitimate receiving** — `src/components/InventoryGroupPage.tsx:2009`: `if (item.status !== "Confirmed" && item.status !== "Partially Received")`. But the PO status dropdown (line 2266) has no "Partially Received" option (Draft, Pending, Confirmed, Completed, Cancelled). `receivingStatus` is a computed field, not user-editable. So a PO that has been partially received but whose `status` is still "Confirmed" can be received from (correct), but if a user changes the status to "Pending" or "Completed" after partial receipt, they cannot receive the remaining items.
+
+13. **SalesModulePage SO Import CSV uses `/api/sales-orders` without `?import=true`** — `src/components/SalesModulePage.tsx:1190`: `doImportCSV("/api/sales-orders", [], loadSalesOrders)`. The API at `src/app/api/sales-orders/route.ts:328-340` checks `isImport = searchParams.get('import') === 'true'` and only calls `handleCsvImport` when that flag is set. Without it, the POST is treated as a single SO create — fails with missing required fields. Same issue at `SalesModulePage.tsx:2055` (Sales Return).
+
+14. **InventoryGroupPage OS Report Import CSV uses wrong field name `productId`** — `src/components/InventoryGroupPage.tsx:1820`: `{ key: "productId", label: "Product ID", type: "text", required: true }`. But the API's CSV import handler at `src/app/api/order-sheets/route.ts:566-587` parses `row.productCode` (not `productId`). Even if the importFromCSV format bug were fixed, this mismatch would cause every row to fail product lookup.
+
+15. **InventoryGroupPage SO credit-limit warning doesn't block save** — `src/components/InventoryGroupPage.tsx:2702-2704`: shows a destructive toast but does not `return` — proceeds to save the SO anyway. May be intentional (warning only) but inconsistent with the destructive variant which usually signals blocking.
+
+16. **`/api/batch-master` POST ignores `notes` and `supplierLotNo` fields from the form** — `src/app/api/batch-master/route.ts:62-74` destructures only `batchCode, batchNumber, productId, quantity, costPrice, salePrice, expiryDate, manufacturingDate, godownId, status`. The form at `StockModulePage.tsx:2044-2045` sends `supplierLotNo` and `notes`, but both are silently dropped. The BatchMaster model has `notes` (used in `/api/batches` POST at line 222) but the `/api/batch-master` POST never sets it.
+
+17. **InventoryGroupPage `srAvailableProducts` / `prAvailableProducts` staleness** — `src/components/InventoryGroupPage.tsx:3155-3173` (`loadSrProducts`) reads `srData` to compute max-returnable quantities. After creating a return, `loadSalesReturns()` is called but the form's `srAvailableProducts` was already stale at the time of save. If the user opens another return for the same SO without navigating away, maxQty is incorrect.
+
+18. **InventoryGroupPage `checkProductStock` called with empty `godownId`** — `src/components/InventoryGroupPage.tsx:1094, 1525`: `checkProductStock(v, coForm.godownId, ...)`. The Company/Customer OS form makes godownId optional, but `/api/order-sheets/stock-check` may return all-godown aggregate stock or fail when godownId is empty. UX is inconsistent.
+
+19. **InventoryGroupPage Sales Return `saveSr` reads `srForm.vatPercentage` / `vatForm.vatPercent` which are never set in the form** — `src/components/InventoryGroupPage.tsx:3203-3204`: `const vatPct = Number(srForm.vatPercentage || srForm.vatPercent || 0);`. But `openSrCreate` (line 3176) and `openSrEdit` (line 3184) never set either field. So `vatPct` is always 0 — Sales Return never charges VAT even when the original SO had VAT. Same issue at `:3418` for Purchase Returns.
+
+20. **InventoryGroupPage Replacement `saveRpl` doesn't validate `salesOrderId` is set** — `src/components/InventoryGroupPage.tsx:3592-3603`: only checks `if (!rplForm.date)`. Allows creating replacement orders with no linked sales order, which makes the replacement untraceable to the original sale. The form (line 3666-3669) marks salesOrderId as "optional" via placeholder text, but conceptually replacements should always link back to an SO.
+
+═══════════════════════════════════════════════════════════════════════
+MEDIUM / LOW-SEVERITY ISSUES
+═══════════════════════════════════════════════════════════════════════
+
+21. **`/api/order-sheets` GET doesn't read `godownId` filter consistently** — `src/app/api/order-sheets/route.ts:194, 202`: reads `godownId` from query but only applies it if truthy. The Ordersheet Report frontend doesn't send godownId filter (only type/status/fulfillment), so this is unused in that context. The Company/Customer OS tabs also don't expose a godown filter. Minor dead-code.
+
+22. **InventoryGroupPage `vatMask` utility used only once** — `src/components/InventoryGroupPage.tsx:168-170, 2113`. All other VAT-auditor masking uses inline `isVatAuditor ? "N/A (Audit Mode)" : ...` pattern. Inconsistent but not a bug.
+
+23. **InventoryGroupPage PO Form `referenceKey` only set on create, not edit** — `src/components/InventoryGroupPage.tsx:1993`: `referenceKey: poEdit ? undefined : \`PO-${Date.now()}-${...}\``. Correct for idempotency, but the API may not enforce referenceKey uniqueness on edit. Minor.
+
+24. **InventoryGroupPage OS Report "Generate Report" button has no clear/reset** — `src/components/InventoryGroupPage.tsx:1775`: clicking Generate loads data, but changing filters without re-clicking Generate leaves stale data on screen. UX issue.
+
+25. **InventoryGroupPage Hire Sales installment view computes due dates with fixed 30-day months** — `src/components/InventoryGroupPage.tsx:3099`: `new Date(h.date).getTime() + i * 30 * 24 * 60 * 60 * 1000`. Doesn't use actual calendar months. SalesModulePage relies on the API-computed `inst.dueDate` field instead. Minor inaccuracy.
+
+26. **InventoryGroupPage Hire Sales installment view doesn't show penalty/interest/principal breakdown** — `src/components/InventoryGroupPage.tsx:3082-3107`: simple table with #, Due Date, Amount, Paid, Status. SalesModulePage.tsx:1739-1770 shows principal, interest, penalty, paid, status — much richer. Part of issue #3 (older duplicate code).
+
+27. **InventoryGroupPage Replacement tab lacks supplier/customer filters and cost breakdown** — `src/components/InventoryGroupPage.tsx:3558-3564`: only 5 columns (replacementNo, date, salesOrderNo, reason, status). ReturnReplacementModulePage.tsx:1176-1186 has 9 columns including originalCostTotal, replacementCostTotal, adjustmentAmount, stockPosted, ledgerPosted. Part of issue #3.
+
+28. **InventoryGroupPage Stock tab lacks reorder level, cost price, batch count, expand-to-detail** — `src/components/InventoryGroupPage.tsx:3760-3787`: 6 columns only (Product, Category, Godown, Qty, Value, Status). StockModulePage.tsx:1017-1132 has 11 columns + expandable warehouse balance + active batches. Part of issue #3.
+
+29. **InventoryGroupPage Stock Details tab lacks summary panel + product info card + running balance** — `src/components/InventoryGroupPage.tsx:3812-3835`: simple 5-column table. StockModulePage.tsx:1155-1253 has product info card + 4-stat summary (Total IN/OUT/Current Balance/Opening Stock) + 8-column movement trail with running balance and line value. Part of issue #3.
+
+30. **`/api/valuation` GET supports `method` (FIFO/LIFO/WeightedAverage) param but doesn't appear to fully implement FIFO/LIFO** — `src/app/api/valuation/route.ts:24-27`: reads `method` param. Need deeper code review to verify FIFO/LIFO actually use batch ordering. The StockModulePage UI exposes the dropdown (line 2126-2133) so users expect it to work.
+
+31. **InventoryGroupPage `soForm.discount` is treated as AMOUNT, but PO `poForm.discount` is treated as PERCENT** — `src/components/InventoryGroupPage.tsx:301` (SO form, label "Discount (Tk.)") vs `:272` (PO form, label "Discount %"). Inconsistent UX between two similar order types.
+
+32. **InventoryGroupPage PO Form uses `vatPercent` while SO Form uses `vatPercentage`** — `src/components/InventoryGroupPage.tsx:272` (PO: `vatPercent`) vs `:301` (SO: `vatPercentage`). Both map to the same DB column. Inconsistent field naming.
+
+33. **InventoryGroupPage Customer Ordersheet `onCreate` allows SR to create** — `src/components/InventoryGroupPage.tsx:1407`: `canCreate={isAdmin || isSR}`. The Dealer access is blocked at line 1366. SR can create customer ordersheets but not company ordersheets (line 976: `canCreate={isAdmin}`). May be intentional but worth verifying with business rules.
+
+34. **InventoryGroupPage PO `doExportPOCorporatePDF` fetches `/api/company-branding` on every click** — `src/components/InventoryGroupPage.tsx:2063-2064`: `await apiFetch("/api/company-branding")`. Should use the cached `getCachedCompanyProfile()` like the other export helpers (line 558). Minor perf issue.
+
+35. **InventoryGroupPage SO print-invoice (`handlePrintInvoice`) fetches `/api/sales-orders/${soId}?include=lines,customer,paymentOption`** — `src/components/InventoryGroupPage.tsx:2732`. But `/api/sales-orders/[id]` GET may not implement the `include` query param (need to verify). If it doesn't, the response will lack lines/customer/paymentOption and the invoice PDF will be incomplete.
+
+36. **InventoryGroupPage `coForm.paymentOptionId` defaults to empty string** — `src/components/InventoryGroupPage.tsx:237`. The API may require a valid paymentOptionId for AR posting. Not validated client-side.
+
+37. **InventoryGroupPage SO `soForm.paymentOptionId` uses `_none` sentinel value** — `src/components/InventoryGroupPage.tsx:2895-2901`: `value={soForm.paymentOptionId || "_none"}` and `onValueChange={v => setSoForm(p => ({ ...p, paymentOptionId: v === "_none" ? "" : v }))}`. Works but is a hack — Radix Select requires non-empty values, so this is a known workaround. Documented for awareness.
+
+38. **InventoryGroupPage Replacement tab `rplLines` template missing `discountPercent`** — `src/components/InventoryGroupPage.tsx:349`: `{ productId: "", replacementProductId: "", quantity: 1, rate: 0 }`. The LineItemsGrid component supports `discountPercent` but it's not in the template. Replacements won't have line-level discounts.
+
+39. **InventoryGroupPage `checkProductStock` doesn't debounce** — `src/components/InventoryGroupPage.tsx:1117-1118`: called on every quantity keystroke. Could spam the `/api/order-sheets/stock-check` endpoint. Minor perf.
+
+40. **InventoryGroupPage PO `savePo` doesn't validate line items have valid `productId`** — `src/components/InventoryGroupPage.tsx:1970`: `poLines.filter((l: any) => l.productId)` — only filters out empty productId, doesn't validate the productId exists in the products list. Could send invalid IDs to the API.
+
+═══════════════════════════════════════════════════════════════════════
+RECOMMENDED FIXES (priority order)
+═══════════════════════════════════════════════════════════════════════
+
+1. **[CRITICAL] Unify CSV import format** — Pick ONE of two approaches:
+   **Option A (recommended):** Update `src/lib/export-utils.ts:2062-2094` to send the body as raw CSV text with `Content-Type: text/csv` header (reconstruct CSV from parsed records using Papa.unparse). This matches what all 6 API CSV-import handlers already expect.
+   **Option B:** Update all 6 API CSV-import handlers to accept the `{ data: [...], batchMode: true }` JSON format that importFromCSV currently sends. More invasive.
+   Either way, also fix the empty-`formFields` calls (issues #1, #14, #19 above) — every Import CSV button must pass real field definitions matching the API's expected column names.
+
+2. **[CRITICAL] Add `from`/`to` date filtering to `/api/order-sheets` GET** — In `src/app/api/order-sheets/route.ts:188-202`, add: `const from = searchParams.get('from'); const to = searchParams.get('to');` and apply `if (from) where.date = { ...where.date, gte: new Date(from) }; if (to) where.date = { ...where.date, lte: new Date(to + 'T23:59:59') };`. Mirror the pattern in `/api/sales-orders/route.ts:244-258`.
+
+3. **[CRITICAL] Prune InventoryGroupPage tabs and tabMap** — In `src/components/InventoryGroupPage.tsx:188-202` (tabMap) and `:3932-3947` (TabsList + TabsContent blocks), remove entries for `sales-orders, hire-sales, sales-returns, purchase-returns, replacements, stock, stock-details, transfers`. Keep only `company-ordersheet, customer-ordersheet, ordersheet-report, purchase-orders, auto-po`. This forces users back to the sidebar to navigate to the newer dedicated components, eliminating the duplicate-UI confusion. Optionally also delete the dead render functions (`renderSalesOrder`, `renderHireSales`, `renderSalesReturn`, `renderPurchaseReturn`, `renderReplacements`, `renderStock`, `renderStockDetails`, `renderTransfers`) — ~2,000 lines of dead code.
+
+4. **[CRITICAL] Fix PO discount percent/amount confusion** — In `src/components/InventoryGroupPage.tsx:1946`, change `discount: item.discount || 0` to `discount: item.discountPercent || 0` (read the percent field). OR change the form label at `:2260` from "Discount %" to "Discount (Tk.)" and update `savePo` at `:1974-1978` to treat `poForm.discount` as an amount (not percent). Pick one approach and align all order types (PO, SO, OS) consistently.
+
+5. **[CRITICAL] Make `/api/batch-master` POST create a StockEntry** — In `src/app/api/batch-master/route.ts:138-155`, wrap the create in a `$transaction` and add a `tx.stockEntry.create()` call mirroring `src/app/api/batches/route.ts:233-248` (type=IN, referenceType="BatchEntry", costPrice snapshot). Also auto-generate `batchCode` if not supplied (mirror `generateBatchCode` in `/api/batches/route.ts:18-27`). Also accept `notes` and `supplierLotNo` fields from the body. Alternatively: deprecate `/api/batch-master` entirely and switch StockModulePage to call `/api/batches` (which already has all the correct behavior).
+
+6. **[CRITICAL] Remove or fix the 6 Import CSV buttons that target no-import APIs** — Either:
+   (a) Remove the Import CSV button from: StockModulePage.tsx:1183 (stock-details), :2142 (valuation) — these are read-only derived views, importing makes no sense.
+   (b) Add `isImport` branch + `handleCsvImport` to: `/api/stock`, `/api/opening-stock`, `/api/batch-master`, `/api/hire-sales`, `/api/replacements` POST handlers (mirror the pattern in `/api/purchase-orders/route.ts:272-275, 636+`).
+   (c) For SalesModulePage.tsx:1190 (SO) and :2055 (Sales Return), add `?import=true` to the apiPath so the existing API import handler is triggered.
+
+7. **[HIGH] Add `godownId` to InventoryGroupPage Hire Sales / Sales Return / Purchase Return forms** — Or, better, remove these duplicate forms entirely (see fix #3) and route users to SalesModulePage / ReturnReplacementModulePage which already have godown selectors.
+
+8. **[HIGH] Add `fromGodownId != toGodownId` validation to InventoryGroupPage Transfer save** — In `src/components/InventoryGroupPage.tsx:3914`, before the POST: `if (trnForm.fromGodownId === trnForm.toGodownId) { toast({ title: "Error", description: "Source and destination godown must be different", variant: "destructive" }); return; }`.
+
+9. **[HIGH] Fix `openPoReceive` to use `receivingStatus` instead of `status`** — In `src/components/InventoryGroupPage.tsx:2009`, change to: `if (item.receivingStatus === "Fully Received") { toast(...); return; }`. Allow receiving from any PO that hasn't been fully received, regardless of `status`.
+
+10. **[HIGH] Fix OS Report Import CSV field name** — In `src/components/InventoryGroupPage.tsx:1820`, change `{ key: "productId", label: "Product ID", type: "text", required: true }` to `{ key: "productCode", label: "Product Code", type: "text", required: true }` to match the API's expected column.
+
+11. **[HIGH] Add VAT % field to Sales Return / Purchase Return forms** — In `src/components/InventoryGroupPage.tsx:324, 336` (form state), add `vatPercentage: 0`. In the dialogs at `:3273+` and `:3490+`, add a VAT % input. Update `saveSr` (line 3203) and `savePr` (line 3418) to read the form value. OR remove the vatAmt computation entirely if returns should inherit VAT from the original order (in which case fetch the original order's vatPercentage in `loadSrProducts` / `loadPrProducts`).
+
+12. **[HIGH] Add `salesOrderId` required validation to Replacement save** — In `src/components/InventoryGroupPage.tsx:3593`, change `if (!rplForm.date)` to `if (!rplForm.salesOrderId || !rplForm.date)` and show appropriate error message.
+
+13. **[MEDIUM] Use `getCachedCompanyProfile()` in `doExportPOCorporatePDF`** — In `src/components/InventoryGroupPage.tsx:2063-2064`, replace `await apiFetch("/api/company-branding")` with `getCachedCompanyProfile()` (already imported at line 38) to avoid an extra network round-trip on every PDF export.
+
+14. **[MEDIUM] Debounce `checkProductStock`** — In `src/components/InventoryGroupPage.tsx:1094, 1117-1118`, wrap `checkProductStock` in a 300ms debounce to avoid spamming the stock-check API on every keystroke.
+
+15. **[LOW] Standardize field naming across PO/SO/OS forms** — Pick `vatPercentage` (matching the DB column) or `vatPercent` consistently. Pick `discount` (amount) or `discountPercent` consistently. Apply across InventoryGroupPage.tsx, SalesModulePage.tsx, and the API schemas.
+
+16. **[LOW] Verify `/api/sales-orders/[id]` supports `?include=` query param** — If not, either remove the `?include=...` from `handlePrintInvoice` (InventoryGroupPage.tsx:2732) or add the param support to the API. The invoice PDF generation depends on lines/customer/paymentOption being present in the response.
+
+- No code changes made by this audit (read-only audit task per scope). All 40 findings documented above for follow-up implementation. Critical fixes (#1, #2, #3, #4, #5, #6) should be prioritized — they affect core import/export/filter functionality across the entire Inventory & Order module.
+
+---
+Task ID: AUDIT-REP-SYS-001
+Agent: Reports & Settings Audit Agent
+Task: Audit Reports and System Settings module pages
+
+Work Log:
+- Read worklog.md to understand prior audit context (Phase 1-3, Security Deep Audit, BLOB-1 migration, Account & SMS audit complete).
+- Confirmed routing map in `src/components/ElectronicsMartApp.tsx`: All 50+ MIS report sidebar keys route to `MISReportEngine` (lazy-loaded, line 6468) via `initialReport` prop. `MISReportEngine.SIDEBAR_REPORT_MAP` (lines 162-226) correctly maps each sidebar key to (category, subtype). All 5 System Settings tabs (`company-settings`, `invoice-templates`, `number-formats`, `audit-trail`, `performance-cache`) route to `SystemSettingsGroupPage` via `initialTab` prop.
+- Audited `src/components/MISReportEngine.tsx` (1390 lines): 9 category tabs (Basic, Purchase, Sales, Hire Sales, SR, Customer Wise, Management, Bank, Advance Search). Each tab has dynamic filter panel (From/To date, Sub-Report, Entity filter, Group By, Sort By, Sort Order, Generate button). Toolbar has Import CSV, Export CSV, Export PDF, Copy buttons (lines 757-770). Stat cards (4 summary metrics), chart panel (auto Pie/Bar detection), data table with sortable headers, pagination (25/50/100/500 rows), grand total row. VAT Auditor mode masks currency cells with "N/A (Audit Mode)" (line 1254). All wired correctly.
+- Audited `src/app/api/mis-reports/route.ts` (3917 lines): 50+ report handler functions for all subtypes. XSS prevention via `stripHtml` on all user input (lines 3624-3631). VAT mode validation via `validateVatMode` (line 3635). Entity ID mapping per category (lines 3648-3671). Date filter via `buildDateFilter` (line 48-59) with end-of-day inclusive bound. Each handler returns `{ title, columns, rows, summary, chartData }` standard shape.
+- Audited `src/components/SystemSettingsGroupPage.tsx` (2983 lines): 5 tabs + Feature Flags bonus tab. Company Settings has Identity/Contact/Registration/Display Options/PDF Header Preview sections (lines 600-950). Invoice Templates has CRUD + HTML/CSS editor with live iframe preview + toggle settings (lines 1054-1556). Number Formats has CRUD + preview (lines 1690-2110). Audit Trail has filter panel + paginated list with expandable details (lines 2116-2554). Performance & Cache has System Health card (dbStatus, size, tables, integrity, keyRecords) + Configuration Statistics with category breakdown (lines 2560-2890).
+- Audited `src/components/AuditTrailViewer.tsx` (1680 lines): Forensic audit log viewer with timeline, before/after diff parsing, action badges, IP history, statistics, integrity score. Has dedicated `exportAuditReportPDF` with classification badge (CONFIDENTIAL/INTERNAL/PUBLIC), integrity score gauge, financial signature footer.
+- Audited `src/components/AccountingReportsPage.tsx` (1799 lines): 5 tabs (CoA, Cash In Hand, Trial Balance, P&L, Balance Sheet). Company branding loaded on mount (lines 126-134). Executive PDF export with `exportToPDF` (line 270) + enhanced CSV export (line 300).
+- Audited `src/components/FinancialAuditGroupPage.tsx` (2156 lines): 7 tabs (KPI Dashboard, Fraud Detection, Ledger Auto-Post, Inventory Aging, Product Lifecycle, Specialized Reports, Notifications/Integrity). Has `exportToPDF`, `exportToCSV`, `exportAuditReportPDF` (lines 517-560) with company branding.
+- Audited `src/components/ChartOfAccountsLedgerPage.tsx` (874 lines): 2 tabs (COA tree + Ledger entries). Uses `exportToPDFSimple`/`exportToCSVSimple` (line 341, 351) — relies on `getCachedCompanyProfile()` fallback for branding.
+- Audited `src/components/BalanceSheetPeriodClosePage.tsx` (634 lines): 2 tabs (Balance Sheet + Period Close). Same `exportToPDFSimple` pattern (line 195).
+- Audited `src/lib/export-utils.ts` (2168 lines): Comprehensive PDF engine with corporate header (logo, company name, address, mobile, email, VAT, trade license, timestamp, title, subtitle, system notice, VAT auditor badge), footer (signature blocks, thank you message, system disclaimer, currency note, printed by, page X of Y), autoTable integration, two-pass page count fix, summary rows. CSV engine with UTF-8 BOM, VAT masking. Import engine with batch insert. Company branding cache (`loadCompanyProfile`) auto-loads on every export.
+- Audited `src/lib/company-branding-cache.ts` (78 lines): Module-level cache + in-flight dedup + `clearCompanyProfileCache()` for invalidation on save.
+- Audited `src/app/api/company-branding/route.ts` (313 lines): GET returns cached branding (5min TTL), supports both Blob URL (preferred) and base64 (legacy fallback) based on `isBlobConfigured()`. PUT is admin-only, uploads logos to Vercel Blob, normalizes base64 with `data:` prefix.
+- Audited `src/app/api/company-profile/route.ts` (72 lines): Simpler GET that returns raw DB fields without `data:` prefix normalization for base64 logos.
+- Verified TS compile: identified 20+ TS errors in `mis-reports/route.ts` caused by `groupRows()` returning `Record<string, unknown>[]` reassigning to typed `let rows`.
+
+Stage Summary:
+
+ISSUES FOUND (14 total: 1 Critical-latent, 6 High, 4 Medium, 3 Low/Info):
+
+1. **[CRITICAL-latent] Client-side PDF logo missing when Vercel Blob is configured**
+   - File: `src/lib/export-utils.ts:471-504` (`drawCorporateHeader`)
+   - Issue: Only checks `company.logo` (base64), NOT `company.logoUrl` (Blob CDN URL). The `CompanyProfile` interface (lines 86-107) doesn't declare `logoUrl`/`brandLogoUrl`. When `BLOB_READ_WRITE_TOKEN` is set (pending per `VERSION.md:116`), `/api/company-branding` returns `logo: null, logoUrl: <url>` (line 107-108 of company-branding/route.ts), so client-side PDFs lose the logo.
+   - Impact: ALL report PDFs from MIS Reports, System Settings tabs, Accounting Reports, Financial Audit will silently drop the company logo once Blob is configured. Note: server-side `invoice-engine.ts:305-330` already handles both via `fetch()`.
+   - Recommended Fix: Mirror the `invoice-engine.ts` pattern — `fetch(logoUrl)` → `arrayBuffer()` → `data:${mime};base64,...` → `doc.addImage()`. Add `logoUrl?: string` and `brandLogoUrl?: string` to `CompanyProfile` interface. Update `drawCorporateHeader` lines 471-504 to prefer `logoUrl || logo` and `brandLogoUrl || brandLogo`.
+
+2. **[HIGH] Customer Ledger doesn't respect `openingBalanceType`**
+   - File: `src/app/api/mis-reports/route.ts:2477`
+   - Issue: `let runningBalance = customer.openingBalance;` ignores `openingBalanceType`. If type is `'Cr'` (we owe customer, e.g., advance payment), opening balance should subtract from AR.
+   - Compare: `supplierLedger` (line 1045) correctly does `let running = supplier.openingBalanceType === 'Dr' ? -supplier.openingBalance : supplier.openingBalance;`
+   - Recommended Fix: `let runningBalance = customer.openingBalanceType === 'Cr' ? -customer.openingBalance : customer.openingBalance;`
+
+3. **[HIGH] Customer Due Report doesn't respect `openingBalanceType`**
+   - File: `src/app/api/mis-reports/route.ts:2530`
+   - Issue: `const outstanding = c.openingBalance + totalSales - totalPaid - totalReturns;` ignores openingBalanceType.
+   - Impact: Outstanding is incorrectly inflated for customers with credit opening balances.
+   - Recommended Fix: `const signedOpening = c.openingBalanceType === 'Cr' ? -c.openingBalance : c.openingBalance; const outstanding = signedOpening + totalSales - totalPaid - totalReturns;`
+
+4. **[HIGH] Customer Ledger Summary doesn't respect `openingBalanceType`**
+   - File: `src/app/api/mis-reports/route.ts:2630`
+   - Same bug as #3. Recommended fix: same pattern.
+
+5. **[HIGH] Customer Due Report and Customer Ledger Summary ignore date range filter**
+   - Files: `src/app/api/mis-reports/route.ts:2505-2513` (customerDueReport) and `2605-2613` (customerLedgerSummary)
+   - Issue: The `include` clauses for `salesOrders`, `salesReturns`, `cashCollections`, `hireSales` use `{ where: { isActive: true } }` without applying the date filter. The user-selected From/To date range is silently ignored — reports show lifetime totals.
+   - Recommended Fix: Build a `dateFilter` via `buildDateFilter(params.from, params.to)` and add `date: dateFilter` to each relation's `where` clause.
+
+6. **[HIGH] Category Wise Customer Due double-counts due across categories**
+   - File: `src/app/api/mis-reports/route.ts:2394, 2410`
+   - Issue: When a customer has purchases in 2+ categories, the full outstanding `due` amount is added to EACH category bucket (line 2410: `existing.totalDue += due`), inflating category totals.
+   - Impact: Category totals don't sum to the actual total outstanding — they over-count by (N-1)×due for customers with N categories. The "H12 FIX" comment claims this is intentional but it's mathematically incorrect for category totals.
+   - Recommended Fix: Either split `due` evenly across the customer's categories (`due / categories.size`), or add a separate "All Categories" bucket for the full amount and keep individual categories at zero (with customer count only).
+
+7. **[MEDIUM] Sales Performance report silently excludes sales without SR**
+   - File: `src/app/api/mis-reports/route.ts:810, 870`
+   - Issue: `if (!so.sr) continue;` silently drops sales orders without an assigned SR.
+   - Impact: Report undercounts total revenue/orders. Summary totals won't match actual sales totals.
+   - Recommended Fix: Aggregate unassigned sales under an "Unassigned" bucket, OR show a separate summary stat for "Sales without SR" so the discrepancy is visible.
+
+8. **[MEDIUM] CompanyData interface missing `logoUrl`/`brandLogoUrl` fields**
+   - File: `src/components/SystemSettingsGroupPage.tsx:125-146`
+   - Issue: `loadCompany()` (lines 305-338) drops `logoUrl`/`brandLogoUrl` because the interface doesn't have them. The PDF Header Preview uses `effectiveLogo` (line 554) which falls back to `company?.logo` — null when Blob is configured.
+   - Impact: Company Settings tab preview shows no logo when Vercel Blob is configured.
+   - Recommended Fix: Add `logoUrl?: string | null` and `brandLogoUrl?: string | null` to interface; populate in `loadCompany`; update `effectiveLogo` (line 554) to `companyEdits.logo !== undefined ? companyEdits.logo : (company?.logoUrl || company?.logo)`.
+
+9. **[MEDIUM] Inconsistent company profile API for PDF exports in System Settings tabs**
+   - File: `src/components/SystemSettingsGroupPage.tsx:446, 1291, 1825, 2255, 2636`
+   - Issue: 5 tabs call `/api/company-profile` (raw DB fields, no `data:` prefix normalization) instead of `/api/company-branding` (which normalizes base64 with `data:` prefix at line 81-91 of the route).
+   - Impact: If logo is stored in DB without `data:image/png;base64,` prefix, PDFs from Invoice Templates, Number Formats, Audit Trail, and Performance tabs may render broken logo images.
+   - Recommended Fix: Use `/api/company-branding` consistently, OR add the same `normalizeBase64()` helper to `/api/company-profile` route.
+
+10. **[MEDIUM] SR Commission Report has convoluted srId lookup**
+    - File: `src/app/api/mis-reports/route.ts:2296, 2325`
+    - Issue: `srTargetSetups.find((t) => t.employeeId === [...srSalesMap.entries()].find(([, d]) => d.srCode === v.srCode)?.[0])` is O(n²) and hard to read.
+    - Recommended Fix: Store `srId` in the `srSalesMap` value object when building it (line 2283: `srSalesMap.set(sr.id, { srId: sr.id, srCode: sr.employeeCode, srName: sr.name, ... })`), then look up directly: `srTargetSetups.find((t) => t.employeeId === v.srId)`.
+
+11. **[MEDIUM] TypeScript errors in mis-reports route (~20 errors)**
+    - File: `src/app/api/mis-reports/route.ts` (lines 159-160, 218-219, 283-284, 339-340, 396-397, 451-452, 514-515, 570-571, 643-644, 738-739, 859-860, 954-955, 1116-1117, etc.)
+    - Issue: `let rows` is typed as specific object array (e.g., `{ employeeCode: string; name: string; ... }[]`), but `groupRows()` returns `Record<string, unknown>[]`. TS errors on reassignment.
+    - Impact: Not a runtime issue (JS ignores types), but indicates type-safety regression and may mask real bugs.
+    - Recommended Fix: Make `groupRows` generic: `function groupRows<T>(rows: T[], groupBy: string | null): T[]`. Or type `let rows: Record<string, unknown>[]` from the start.
+
+12. **[LOW] Customer Ledger chartData type inconsistency in VAT mode**
+    - File: `src/app/api/mis-reports/route.ts:2501`
+    - Issue: `chartData: rows.slice(1).map((r) => ({ date: r.date, balance: r.balance }))` — `r.balance` may be the string "N/A (Audit Mode)" in VAT mode, but the chart expects a number. May render broken chart in VAT mode.
+    - Recommended Fix: In VAT mode, set `balance: 0` instead of the mask string for chart data.
+
+13. **[LOW] Adjustment Report has empty chartData**
+    - File: `src/app/api/mis-reports/route.ts:2904`
+    - Issue: `chartData: []` — the report never displays a chart.
+    - Note: Acceptable since adjustment entries are typically few; not a bug per se. Could add a debit/credit comparison chart if desired.
+
+14. **[INFO] Orphan `/api/reports/*` route files**
+    - Files: `src/app/api/reports/basic/route.ts`, `purchase/route.ts`, `sales/route.ts`, `hire-sales/route.ts`, `sr/route.ts`, `customer-wise/route.ts`, `bank/route.ts`, `advance-search/route.ts` (all 100-220 lines each)
+    - Issue: These exist as separate route files but the actual report logic lives in `/api/mis-reports/route.ts` (3917 lines). The `/api/reports/*` routes appear to be unused duplicates.
+    - Recommended Fix: Verify no component calls `/api/reports/*` directly (grep confirms MISReportEngine uses `/api/mis-reports`). If unused, deprecate/delete the `/api/reports/*` directory to reduce maintenance surface.
+
+POSITIVE FINDINGS:
+- ✅ All 50+ MIS sub-reports are wired correctly: sidebar → MISReportEngine → /api/mis-reports → handler functions. No dead links, no missing handlers.
+- ✅ All 5 required System Settings tabs present (Company Settings, Invoice Templates, Number Formats, Audit Trail, Performance & Cache) + bonus Feature Flags tab.
+- ✅ Export PDF, Export CSV, Import CSV, Copy buttons present on EVERY report page and EVERY settings tab.
+- ✅ VAT Auditor mode properly masks currency values across all reports, CSV exports, and PDF exports.
+- ✅ Company branding cache (`company-branding-cache.ts`) deduplicates API calls and clears on save (`clearCompanyProfileCache()` called at `SystemSettingsGroupPage.tsx:408`).
+- ✅ AuditTrailViewer has dedicated `exportAuditReportPDF` with integrity score gauge, classification badge (CONFIDENTIAL/INTERNAL/PUBLIC), and signature footer.
+- ✅ Server-side invoice PDF generation (`invoice-engine.ts`) correctly handles both Blob URLs and base64 logos (reference implementation for fix #1).
+- ✅ System Health check works for both Turso (cloud) and local SQLite (with PRAGMA integrity check, journal mode, busy timeout).
+- ✅ Auto-generate report on sidebar navigation (MISReportEngine `autoGenerateRef` pattern at line 353-395).
+- ✅ Pagination (25/50/100/500 rows per page) on MIS Report table.
+- ✅ Dynamic chart rendering (Pie for single-series with `value` key, Bar for multi-series) in MISReportEngine.
+- ✅ All MIS reports have proper title, columns, rows, summary, chartData structure — no dummy/placeholder reports found.
+- ✅ SR Commission Report correctly uses `SRTargetSetup.commissionPercentage` (not hardcoded 2%).
+- ✅ Customer Ledger correctly applies date filter on sales orders, returns, and cash collections.
+- ✅ Defaulting Customer report correctly filters by hireSales date post-fetch.
+- ✅ Bank Ledger Report correctly computes running balance from opening + transactions (was previously falling through to bankBalanceReport per "C7 FIX" comment).
+- ✅ Supplier Ledger correctly respects `openingBalanceType` (reference implementation for fix #2).
+
+Recommended Fixes (priority order):
+1. **[CRITICAL-latent] Fix client-side PDF logo support for Vercel Blob URLs** in `src/lib/export-utils.ts:471-504`. Mirror `invoice-engine.ts:305-330` pattern. Add `logoUrl`/`brandLogoUrl` to `CompanyProfile` interface (lines 86-107). This is a one-time fix that prevents logo loss when `BLOB_READ_WRITE_TOKEN` is configured in production.
+2. **[HIGH] Fix `openingBalanceType` handling** in 3 customer reports: `customerLedger` (line 2477), `customerDueReport` (line 2530), `customerLedgerSummary` (line 2630). Apply same pattern as `supplierLedger` (line 1045).
+3. **[HIGH] Apply date filter to relation includes** in `customerDueReport` (line 2505-2513) and `customerLedgerSummary` (line 2605-2613). Add `date: dateFilter` to each relation's `where` clause.
+4. **[HIGH] Fix Category Wise Customer Due double-counting** in `src/app/api/mis-reports/route.ts:2410`. Either split due evenly across categories or use a separate "All Categories" bucket.
+5. **[MEDIUM] Fix CompanyData interface and loadCompany** in `src/components/SystemSettingsGroupPage.tsx:125-146, 305-338`. Add `logoUrl`/`brandLogoUrl` fields and populate them.
+6. **[MEDIUM] Standardize company profile API usage** in SystemSettingsGroupPage — replace 5 calls to `/api/company-profile` (lines 446, 1291, 1825, 2255, 2636) with `/api/company-branding` for consistent base64 normalization.
+7. **[MEDIUM] Include unassigned-SR sales in Sales Performance report** at `src/app/api/mis-reports/route.ts:810, 870` — aggregate under "Unassigned" bucket.
+8. **[MEDIUM] Simplify SR Commission srId lookup** at `src/app/api/mis-reports/route.ts:2296, 2325` — store `srId` in `srSalesMap` value object.
+9. **[MEDIUM] Fix TypeScript errors** in `src/app/api/mis-reports/route.ts` — make `groupRows` generic or type `rows` as `Record<string, unknown>[]`.
+10. **[LOW] Delete orphan `/api/reports/*` route files** after confirming no callers exist.
+- No code changes made by this audit (read-only audit task per scope). All 14 findings documented above for follow-up implementation. Critical fix (#1) should be prioritized before `BLOB_READ_WRITE_TOKEN` is enabled in production — otherwise all client-side PDF exports will silently lose the company logo.

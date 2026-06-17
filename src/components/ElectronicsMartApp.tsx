@@ -189,10 +189,12 @@ interface SidebarGroup {
 
 const ROLE_ACCESS: Record<UserRole, string[]> = {
   admin: ["*"],
-  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report", "system-settings"],
+  // Manager: operational modules but NOT System Settings (Admin-only per requirement)
+  manager: ["investment", "basic-modules", "staff", "customers-suppliers", "inventory", "account", "sms", "accounting-report", "financial-audit", "mis-report"],
   sr: ["basic-modules", "staff", "customers-suppliers", "inventory", "sms"],
   dealer: ["basic-modules", "customers-suppliers", "inventory"],
-  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "account", "accounting-report", "financial-audit", "mis-report", "system-settings", "investment"],
+  // VAT Auditor: financial/report modules but NOT System Settings (Admin-only per requirement)
+  vat_auditor: ["basic-modules", "customers-suppliers", "inventory", "account", "accounting-report", "financial-audit", "mis-report", "investment"],
 };
 
 // ROLE_COLORS and ROLE_LABELS imported from @/lib/constants
@@ -200,10 +202,12 @@ const ROLE_ACCESS: Record<UserRole, string[]> = {
 // Item-level RBAC: restrict specific sidebar items per role
 const ITEM_ACCESS_DENIED: Record<UserRole, string[]> = {
   admin: [],
-  manager: [],
+  // Manager denied System Settings items (Admin-only per requirement)
+  manager: ["company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache"],
   dealer: ["purchase-orders", "auto-po", "purchase-returns", "sales-returns", "replacements", "expenses", "incomes", "cash-collections", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "designations", "employees", "employee-leaves", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
   sr: ["purchase-orders", "auto-po", "purchase-returns", "expenses", "cash-deliveries", "bank-transactions", "expense-income-heads", "chart-of-accounts", "cash-in-hand", "trial-balance", "profit-loss", "balance-sheet", "suppliers", "dashboard-kpi", "ledger-auto-post", "inventory-aging", "product-lifecycle", "notifications-integrity", "employee-information-report", "product-information-report", "stock-details-report", "stock-summary-report", "stock-ledger-report", "stock-qty-report", "stock-forecast-product", "stock-forecast-concern", "supplier-ledger-report", "daily-purchase-report", "supplier-wise-purchase", "supplier-cash-delivery-report", "supplier-due-report", "model-wise-purchase", "vat-report", "daily-sales-report", "replacement-report", "model-wise-sales", "installment-collection", "upcoming-installment", "defaulting-customer", "default-customer-summary", "hire-account-details", "sr-wise-sales-report", "sr-wise-sales-details", "sr-wise-customer-due", "sr-wise-customer-summary", "sr-visit-report", "sr-wise-customer-status", "sr-wise-cash-collection", "sr-commission-report", "customer-wise-sales", "category-wise-customer-due", "customer-ledger-report", "customer-due-report", "customer-cash-collection", "customer-ledger-summary", "expense-report", "management-report", "advance-search", "bank-report", "bank-transaction-report", "bank-balance-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms"],
-  vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report"],
+  // VAT Auditor denied System Settings + SMS sending items (Admin-only per requirement)
+  vat_auditor: ["sms-inbox", "send-sms", "sms-bills", "sms-bill-payments", "sms-settings", "send-bulk-sms", "sms-report", "company-settings", "invoice-templates", "number-formats", "audit-trail", "performance-cache"],
 };
 
 function hasItemAccess(role: UserRole, itemKey: string): boolean {

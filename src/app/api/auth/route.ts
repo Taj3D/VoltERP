@@ -44,14 +44,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Auto-seed all default users if they don't exist
-    for (const userData of DEFAULT_USERS) {
-      const existing = await db.user.findUnique({ where: { email: userData.email } });
-      if (!existing) {
-        try {
-          // Hash the default password before storing
-          const hashedPassword = await hashPassword(userData.password);
-          await db.user.create({
+    // Auto-seed all default users if they don't exist (DEV ONLY — disabled in production)
+    // In production, users must be created via the admin panel or database seeding script
+    if (process.env.NODE_ENV !== 'production') {
+      for (const userData of DEFAULT_USERS) {
+        const existing = await db.user.findUnique({ where: { email: userData.email } });
+        if (!existing) {
+          try {
+            // Hash the default password before storing
+            const hashedPassword = await hashPassword(userData.password);
+            await db.user.create({
             data: {
               email: userData.email,
               name: userData.name,
@@ -65,6 +67,7 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+    } // end NODE_ENV !== 'production'
 
     // Now look up the user
     const user = await db.user.findUnique({ where: { email } });

@@ -92,6 +92,8 @@ export interface CompanyProfile {
   website?: string;
   logo?: string;       // Base64 data URL
   brandLogo?: string;  // Brand logo (high-res)
+  logoUrl?: string;    // Vercel Blob CDN URL (takes precedence over base64 logo)
+  brandLogoUrl?: string; // Vercel Blob CDN URL for brand logo (takes precedence)
   logoData?: string;   // Logo data (alternative field)
   logoWidth?: number;  // mm (default 30)
   logoHeight?: number; // mm (default 20)
@@ -467,19 +469,28 @@ function drawCorporateHeader(
   // Calculate left offset for text (after logo if present)
   let textStartX = margin;
 
-  // Company logo (if provided as base64 data URL)
-  if (company?.logo) {
+  // Company logo (if provided as base64 data URL OR Vercel Blob CDN URL)
+  // logoUrl / brandLogoUrl take precedence (Blob CDN URLs from production uploads)
+  const logoSrc = company?.logoUrl || company?.logo;
+  if (logoSrc) {
     const logoW = company.logoWidth || 30;
     const logoH = company.logoHeight || 20;
     const logoY = (headerHeight - logoH) / 2; // vertically centered in header
     try {
-      let logoUrl = company.logo;
-      if (!logoUrl.startsWith("data:")) {
+      let logoUrl = logoSrc;
+      if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+        // Blob CDN URL — jsPDF can load HTTP/HTTPS images directly in browser
+        // Note: This works in browser context; server-side PDFs use invoice-engine.ts
+        doc.addImage(logoUrl, margin, logoY, logoW, logoH);
+      } else if (!logoUrl.startsWith("data:")) {
         // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
         const isJpeg = logoUrl.startsWith("/9j/");
         logoUrl = `data:image/${isJpeg ? "jpeg" : "png"};base64,${logoUrl}`;
+        doc.addImage(logoUrl, margin, logoY, logoW, logoH);
+      } else {
+        // Already a data: URL
+        doc.addImage(logoUrl, margin, logoY, logoW, logoH);
       }
-      doc.addImage(logoUrl, margin, logoY, logoW, logoH);
     } catch {
       // If logo rendering fails, skip it silently
     }
@@ -487,17 +498,23 @@ function drawCorporateHeader(
   }
 
   // Brand logo on the right side (if provided)
-  if (company?.brandLogo) {
+  const brandSrc = company?.brandLogoUrl || company?.brandLogo;
+  if (brandSrc) {
     const brandW = company.logoWidth || 30;
     const brandH = company.logoHeight || 20;
     const brandY = (headerHeight - brandH) / 2;
     try {
-      let brandUrl = company.brandLogo;
-      if (!brandUrl.startsWith("data:")) {
+      let brandUrl = brandSrc;
+      if (brandUrl.startsWith("http://") || brandUrl.startsWith("https://")) {
+        // Blob CDN URL
+        doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
+      } else if (!brandUrl.startsWith("data:")) {
         const isBrandJpeg = brandUrl.startsWith("/9j/");
         brandUrl = `data:image/${isBrandJpeg ? "jpeg" : "png"};base64,${brandUrl}`;
+        doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
+      } else {
+        doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
       }
-      doc.addImage(brandUrl, pageWidth - margin - brandW - 2, brandY, brandW, brandH);
     } catch {
       // If brand logo fails, skip it
     }

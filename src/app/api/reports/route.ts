@@ -403,17 +403,29 @@ async function getSmsReport(searchParams: URLSearchParams) {
     byStatus[item.status] = item._count.status;
   }
 
-  // Daily grouping
-  const dailyMap = new Map<string, { date: string; count: number; cost: number }>();
+  // Daily grouping — includes delivered/failed breakdown for SMS Report UI
+  const dailyMap = new Map<string, { date: string; count: number; cost: number; delivered: number; failed: number; totalSent: number }>();
   for (const log of smsLogs) {
     const d = new Date(log.sentAt);
     const key = d.toISOString().split('T')[0];
+    const isDelivered = log.status === 'Delivered' || log.status === 'Sent';
+    const isFailed = log.status === 'Failed' || log.status === 'Error';
     const existing = dailyMap.get(key);
     if (existing) {
       existing.count += 1;
       existing.cost += log.cost;
+      existing.totalSent += 1;
+      if (isDelivered) existing.delivered += 1;
+      if (isFailed) existing.failed += 1;
     } else {
-      dailyMap.set(key, { date: key, count: 1, cost: log.cost });
+      dailyMap.set(key, {
+        date: key,
+        count: 1,
+        cost: log.cost,
+        totalSent: 1,
+        delivered: isDelivered ? 1 : 0,
+        failed: isFailed ? 1 : 0,
+      });
     }
   }
 
