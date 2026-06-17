@@ -11,14 +11,22 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, validateImageFields, stripHtml } from '@/lib/api-security';
 import { cachedFetch, invalidateByPrefix } from '@/lib/server-cache';
+import {
+  uploadImageToBlob,
+  deleteBlobByUrl,
+  logoBlobPath,
+  brandLogoBlobPath,
+  detectExtension,
+  detectContentType,
+  isBlobConfigured,
+} from '@/lib/blob-storage';
 
 // GET /api/company-branding
 // Returns the first active company's branding data for invoice generation.
 // RBAC: Requires 'system-config' group access (admin, manager, vat_auditor).
 //
-// PERFORMANCE: Cached server-side for 300s (5 min) to avoid repeatedly
-// transferring the ~190KB base64 logo payload from Turso on every page load.
-// Cache is auto-invalidated when PUT updates company branding.
+// PERFORMANCE: Cached server-side for 300s (5 min).
+// When logoUrl is set (Vercel Blob), response is ~2KB instead of ~192KB.
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'SystemConfig', 'GET');
   if (!security.authorized) return security.response;
@@ -39,8 +47,11 @@ export async function GET(request: NextRequest) {
           phone: true,
           mobile: true,
           email: true,
-          logo: true,
-          brandLogo: true,
+          logoUrl: true,
+          brandLogoUrl: true,
+          // PERF: Do NOT select legacy base64 logo/brandLogo fields here.
+          // They are ~192KB each and bloat the response.
+          // invoice-engine falls back to them only when logoUrl is absent.
           logoWidth: true,
           logoHeight: true,
           vatNumber: true,
@@ -62,7 +73,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Return company branding data matching InvoiceCompanyProfile interface
     return NextResponse.json({
       company: {
         id: company.id,
@@ -72,8 +82,13 @@ export async function GET(request: NextRequest) {
         phone: company.phone,
         mobile: company.mobile,
         email: company.email,
-        logo: company.logo,
-        brandLogo: company.brandLogo,
+        // Return CDN URLs (preferred) — frontend fetches image directly from Vercel edge
+        logoUrl: company.logoUrl,
+        brandLogoUrl: company.brandLogoUrl,
+        // Legacy base64 fields omitted from response for performance.
+        // Invoice engine fetches them separately only when generating PDFs.
+        logo: null,
+        brandLogo: null,
         logoWidth: company.logoWidth,
         logoHeight: company.logoHeight,
         vatNumber: company.vatNumber,
@@ -84,6 +99,7 @@ export async function GET(request: NextRequest) {
         showBarcode: company.showBarcode,
         showPayInWord: company.showPayInWord,
         website: company.website,
+        blobConfigured: isBlobConfigured(),
       },
     });
   } catch (error) {
@@ -125,7 +141,7 @@ export async function PUT(request: NextRequest) {
     if (body.thankYouMsg) body.thankYouMsg = stripHtml(body.thankYouMsg);
     if (body.systemNote) body.systemNote = stripHtml(body.systemNote);
 
-    // Validate image fields
+    // Validate image fields (still accept base64 from frontend — we upload to Blob below)
     const imgError = validateImageFields(body, ['logo', 'brandLogo']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
@@ -142,6 +158,58 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // ── Upload logos to Vercel Blob (if base64 provided) ──────────────────
+    // When Blob is configured: upload → store CDN URL in logoUrl, clear base64 logo
+    // When Blob NOT configured: store base64 in logo (legacy behavior, fallback)
+    let logoUrlValue: string | null | undefined = undefined;
+    let brandLogoUrlValue: string | null | undefined = undefined;
+    let logoBase64Value: string | null | undefined = undefined;
+    let brandLogoBase64Value: string | null | undefined = undefined;
+
+    if (body.logo !== undefined) {
+      if (body.logo && String(body.logo).startsWith('data:image')) {
+        // New logo uploaded — try Blob first
+        const ext = detectExtension(body.logo);
+        const contentType = detectContentType(body.logo);
+        const result = await uploadImageToBlob(body.logo, logoBlobPath(company.id, ext), contentType);
+        if (result.storedInBlob) {
+          logoUrlValue = result.url;
+          logoBase64Value = null; // clear legacy base64 to save DB space
+          // Delete previous blob if it existed
+          if (company.logoUrl) await deleteBlobByUrl(company.logoUrl);
+        } else {
+          // Fallback: store base64
+          logoBase64Value = result.base64;
+          logoUrlValue = null;
+        }
+      } else if (body.logo === '' || body.logo === null) {
+        // Logo cleared by user
+        logoUrlValue = null;
+        logoBase64Value = null;
+        if (company.logoUrl) await deleteBlobByUrl(company.logoUrl);
+      }
+    }
+
+    if (body.brandLogo !== undefined) {
+      if (body.brandLogo && String(body.brandLogo).startsWith('data:image')) {
+        const ext = detectExtension(body.brandLogo);
+        const contentType = detectContentType(body.brandLogo);
+        const result = await uploadImageToBlob(body.brandLogo, brandLogoBlobPath(company.id, ext), contentType);
+        if (result.storedInBlob) {
+          brandLogoUrlValue = result.url;
+          brandLogoBase64Value = null;
+          if (company.brandLogoUrl) await deleteBlobByUrl(company.brandLogoUrl);
+        } else {
+          brandLogoBase64Value = result.base64;
+          brandLogoUrlValue = null;
+        }
+      } else if (body.brandLogo === '' || body.brandLogo === null) {
+        brandLogoUrlValue = null;
+        brandLogoBase64Value = null;
+        if (company.brandLogoUrl) await deleteBlobByUrl(company.brandLogoUrl);
+      }
+    }
+
     // Update the company branding fields
     const updated = await db.$transaction(async (tx) => {
       const record = await tx.company.update({
@@ -153,8 +221,10 @@ export async function PUT(request: NextRequest) {
           ...(body.mobile !== undefined && { mobile: body.mobile || null }),
           ...(body.email !== undefined && { email: body.email || null }),
           ...(body.website !== undefined && { website: body.website || null }),
-          ...(body.logo !== undefined && { logo: body.logo || null }),
-          ...(body.brandLogo !== undefined && { brandLogo: body.brandLogo || null }),
+          ...(logoBase64Value !== undefined && { logo: logoBase64Value }),
+          ...(brandLogoBase64Value !== undefined && { brandLogo: brandLogoBase64Value }),
+          ...(logoUrlValue !== undefined && { logoUrl: logoUrlValue }),
+          ...(brandLogoUrlValue !== undefined && { brandLogoUrl: brandLogoUrlValue }),
           ...(body.logoWidth !== undefined && { logoWidth: parseFloat(String(body.logoWidth)) || 30 }),
           ...(body.logoHeight !== undefined && { logoHeight: parseFloat(String(body.logoHeight)) || 20 }),
           ...(body.vatNumber !== undefined && { vatNumber: body.vatNumber || null }),
@@ -175,7 +245,11 @@ export async function PUT(request: NextRequest) {
           recordLabel: record.name || record.code || record.id,
           userId: security.user?.id || 'system',
           userName: security.user?.name || 'System',
-          details: JSON.stringify({ action: 'Company branding updated', name: record.name }),
+          details: JSON.stringify({
+            action: 'Company branding updated',
+            name: record.name,
+            logoStoredIn: logoUrlValue !== undefined && logoUrlValue !== null ? 'vercel-blob' : (logoBase64Value ? 'base64' : 'unchanged'),
+          }),
         },
       });
 
@@ -194,8 +268,10 @@ export async function PUT(request: NextRequest) {
         phone: updated.phone,
         mobile: updated.mobile,
         email: updated.email,
-        logo: updated.logo,
-        brandLogo: updated.brandLogo,
+        logoUrl: updated.logoUrl,
+        brandLogoUrl: updated.brandLogoUrl,
+        logo: null, // don't return base64 in response (perf)
+        brandLogo: null,
         logoWidth: updated.logoWidth,
         logoHeight: updated.logoHeight,
         vatNumber: updated.vatNumber,
@@ -206,6 +282,7 @@ export async function PUT(request: NextRequest) {
         showBarcode: updated.showBarcode,
         showPayInWord: updated.showPayInWord,
         website: updated.website,
+        blobConfigured: isBlobConfigured(),
       },
     });
   } catch (error) {

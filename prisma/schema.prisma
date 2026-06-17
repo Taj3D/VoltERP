@@ -150,8 +150,10 @@ model Company {
   address                 String?
   phone                   String?
   email                   String?
-  logo                    String?
-  brandLogo               String? // Brand logo image (high-res)
+  logo                    String? // LEGACY: base64-encoded logo (kept for backward compat / backup)
+  brandLogo               String? // LEGACY: base64 brand logo (kept for backward compat / backup)
+  logoUrl                 String? // CDN URL from Vercel Blob (preferred — served via edge CDN)
+  brandLogoUrl            String? // CDN URL for brand logo from Vercel Blob
   mobile                  String? // Primary mobile number for invoices
   website                 String? // Company website
   vatNumber               String? // VAT/Tax registration number

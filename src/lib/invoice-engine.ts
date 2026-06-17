@@ -21,8 +21,10 @@ export interface InvoiceCompanyProfile {
   phone?: string;
   mobile?: string;
   email?: string;
-  logo?: string;
-  brandLogo?: string;
+  logo?: string;           // LEGACY: base64 string
+  brandLogo?: string;      // LEGACY: base64 string
+  logoUrl?: string;        // PREFERRED: Vercel Blob CDN URL
+  brandLogoUrl?: string;   // PREFERRED: Vercel Blob CDN URL
   logoWidth?: number;
   logoHeight?: number;
   vatNumber?: string;
@@ -288,7 +290,7 @@ function getSafeThankYouMsg(msg: string | undefined): string {
 // HELPER: Draw Company Header Section
 // ============================================================
 
-function drawCompanyHeader(
+async function drawCompanyHeader(
   doc: jsPDF,
   company: InvoiceCompanyProfile,
   template: InvoiceTemplateConfig,
@@ -300,10 +302,21 @@ function drawCompanyHeader(
   let textStartX = MARGIN_LEFT;
 
   // Draw company logo (left side)
-  if (company.logo && template.showLogo !== false) {
+  // Prefer CDN URL (logoUrl) over legacy base64 (logo).
+  // For URL-based logos, we need to fetch the image bytes at PDF generation time.
+  const logoSource = company.logoUrl || company.logo;
+  if (logoSource && template.showLogo !== false) {
     try {
-      let dataUrl = company.logo;
-      if (!dataUrl.startsWith("data:")) {
+      let dataUrl = logoSource;
+      if (logoSource.startsWith('http')) {
+        // Fetch image from Vercel Blob CDN and convert to data URL for jsPDF
+        const resp = await fetch(logoSource);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const mime = resp.headers.get('content-type') || 'image/png';
+          dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+        }
+      } else if (!dataUrl.startsWith("data:")) {
         // Detect format from base64 header bytes (JPEG starts with /9j/, PNG with iVBOR)
         const isJpeg = dataUrl.startsWith("/9j/");
         dataUrl = `data:image/${isJpeg ? "jpeg" : "png"};base64,${dataUrl}`;
@@ -317,10 +330,18 @@ function drawCompanyHeader(
   }
 
   // Draw brand logo on the right side
-  if (company.brandLogo && template.showBrandLogo !== false) {
+  const brandLogoSource = company.brandLogoUrl || company.brandLogo;
+  if (brandLogoSource && template.showBrandLogo !== false) {
     try {
-      let brandDataUrl = company.brandLogo;
-      if (!brandDataUrl.startsWith("data:")) {
+      let brandDataUrl = brandLogoSource;
+      if (brandLogoSource.startsWith('http')) {
+        const resp = await fetch(brandLogoSource);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const mime = resp.headers.get('content-type') || 'image/png';
+          brandDataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+        }
+      } else if (!brandDataUrl.startsWith("data:")) {
         const isBrandJpeg = brandDataUrl.startsWith("/9j/");
         brandDataUrl = `data:image/${isBrandJpeg ? "jpeg" : "png"};base64,${brandDataUrl}`;
       }
@@ -1055,7 +1076,7 @@ function checkPageOverflow(
 // CORE FUNCTION: Export Invoice PDF
 // ============================================================
 
-export function exportInvoicePDF(options: InvoicePDFOptions): void {
+export async function exportInvoicePDF(options: InvoicePDFOptions): Promise<void> {
   const {
     company: providedCompany,
     template,
@@ -1082,6 +1103,8 @@ export function exportInvoicePDF(options: InvoicePDFOptions): void {
         email: company?.email || cached.email,
         logo: company?.logo || cached.logo,
         brandLogo: company?.brandLogo || cached.brandLogo,
+        logoUrl: (company as any)?.logoUrl || (cached as any)?.logoUrl,
+        brandLogoUrl: (company as any)?.brandLogoUrl || (cached as any)?.brandLogoUrl,
         logoWidth: company?.logoWidth || cached.logoWidth,
         logoHeight: company?.logoHeight || cached.logoHeight,
         vatNumber: company?.vatNumber || cached.vatNumber,
@@ -1099,7 +1122,7 @@ export function exportInvoicePDF(options: InvoicePDFOptions): void {
     let currentPage = 1;
 
     // ── 1. Company Header Section ──
-    let y = drawCompanyHeader(doc, company, template, invoice.invoiceType);
+    let y = await drawCompanyHeader(doc, company, template, invoice.invoiceType);
 
     // ── 2. Metadata Grid Section ──
     const overflow = checkPageOverflow(doc, y, 40, company, invoice, currentPage);

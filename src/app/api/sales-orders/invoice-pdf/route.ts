@@ -22,6 +22,8 @@ interface InvoiceCompanyProfile {
   email?: string;
   logo?: string;
   brandLogo?: string;
+  logoUrl?: string;
+  brandLogoUrl?: string;
   logoWidth?: number;
   logoHeight?: number;
   vatNumber?: string;
@@ -141,21 +143,30 @@ function getSafeThankYouMsg(msg: string | undefined): string {
 // HELPER: Draw Company Header Section (Single Logo)
 // ============================================================
 
-function drawCompanyHeader(
+async function drawCompanyHeader(
   doc: jsPDF,
   company: InvoiceCompanyProfile,
   invoiceType: string
-): number {
+): Promise<number> {
   let y = MARGIN_TOP;
   const logoW = company.logoWidth || 30;
   const logoH = company.logoHeight || 20;
   let textStartX = MARGIN_LEFT;
 
-  // Draw company logo (left side only — no duplicate brand logo on right)
-  if (company.logo) {
+  // Draw company logo — prefer CDN URL (logoUrl), fall back to base64 (logo)
+  const logoSource = company.logoUrl || company.logo;
+  if (logoSource) {
     try {
-      let dataUrl = company.logo;
-      if (!dataUrl.startsWith('data:')) {
+      let dataUrl = logoSource;
+      if (logoSource.startsWith('http')) {
+        // Fetch from Vercel Blob CDN
+        const resp = await fetch(logoSource);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const mime = resp.headers.get('content-type') || 'image/png';
+          dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+        }
+      } else if (!dataUrl.startsWith('data:')) {
         const isJpeg = dataUrl.startsWith('/9j/');
         dataUrl = `data:image/${isJpeg ? 'jpeg' : 'png'};base64,${dataUrl}`;
       }
@@ -733,6 +744,8 @@ export async function GET(request: NextRequest) {
       email: company.email || undefined,
       logo: company.logo || undefined,
       brandLogo: company.brandLogo || undefined,
+      logoUrl: (company as any).logoUrl || undefined,
+      brandLogoUrl: (company as any).brandLogoUrl || undefined,
       logoWidth: company.logoWidth || 30,
       logoHeight: company.logoHeight || 20,
       vatNumber: company.vatNumber || undefined,
@@ -809,7 +822,7 @@ export async function GET(request: NextRequest) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
     // 1. Company Header (single logo)
-    let y = drawCompanyHeader(doc, companyProfile, invoice.invoiceType);
+    let y = await drawCompanyHeader(doc, companyProfile, invoice.invoiceType);
 
     // 2. Metadata Grid
     y = drawMetadataGrid(doc, invoice, y);

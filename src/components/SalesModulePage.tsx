@@ -439,7 +439,7 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
         printedBy,
         salesPerson: so.srId || "System",
       };
-      exportInvoicePDF({
+      await exportInvoicePDF({
         invoice: invoiceData,
         company: companyProfile,
         template: templateConfig,

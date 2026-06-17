@@ -2786,7 +2786,7 @@ export default function InventoryGroupPage({ currentPage, isVatAuditor: propVat,
         showAuthorizedBy: true,
         showPrintDate: true,
       };
-      exportInvoicePDF({
+      await exportInvoicePDF({
         invoice: invoiceData,
         company: companyProfile,
         template: templateConfig,
