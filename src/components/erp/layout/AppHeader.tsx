@@ -19,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { ROLES, ROLE_COLORS, ROLE_LABELS, type Role } from "@/lib/constants";
 import { toLatinDigits } from "@/lib/number-format";
+import { deduplicatedFetch, getCsrfToken } from "@/lib/api-client";
 
 // ────────────────────────────────────────────────────────────
 // TYPES
@@ -141,26 +142,48 @@ function TypeIcon({ type }: { type: string }) {
 }
 
 // ────────────────────────────────────────────────────────────
-// API FETCH HELPER — sends JWT Bearer token for RBAC
+// API FETCH HELPER — sends JWT Bearer token + CSRF for writes
+// Uses deduplicatedFetch for GET requests so that 26 simultaneous
+// notification pollers share ONE network request (single-flight).
 // ────────────────────────────────────────────────────────────
 async function notifFetch(path: string, opts?: RequestInit, _userEmail?: string, accessToken?: string) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (accessToken) {
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
-  const res = await fetch(path, { headers: { ...headers, ...(opts?.headers as Record<string, string>) }, ...opts });
-  if (!res.ok) {
-    // Silently handle expected auth/routing errors (401, 403, 404) during polling
-    // These are normal when session expires or endpoint is unavailable
-    if (res.status === 401 || res.status === 403 || res.status === 404) {
-      const silentErr: Error & { silent?: boolean } = new Error(`Silent ${res.status}`);
-      silentErr.silent = true;
-      throw silentErr;
+  const method = (opts?.method || "GET").toUpperCase();
+
+  // ── CSRF Token for Write Operations ──
+  // POST/PUT/DELETE require an X-CSRF-Token header (strict mode).
+  // Without this, the server returns 403 and the request fails silently.
+  if ((method === "POST" || method === "PUT" || method === "DELETE") && accessToken) {
+    const csrfToken = await getCsrfToken();
+    if (csrfToken) {
+      headers["X-CSRF-Token"] = csrfToken;
     }
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || "Request failed");
   }
-  return res.json();
+
+  const doFetch = async () => {
+    const res = await fetch(path, { headers: { ...headers, ...(opts?.headers as Record<string, string>) }, ...opts });
+    if (!res.ok) {
+      // Silently handle expected auth/routing errors (401, 403, 404) during polling
+      // These are normal when session expires or endpoint is unavailable
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        const silentErr: Error & { silent?: boolean } = new Error(`Silent ${res.status}`);
+        silentErr.silent = true;
+        throw silentErr;
+      }
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || "Request failed");
+    }
+    return res.json();
+  };
+
+  // Deduplicate GET requests only — writes always execute fresh
+  if (method === "GET") {
+    return deduplicatedFetch(path, method, doFetch);
+  }
+  return doFetch();
 }
 
 // ============================================================
@@ -193,6 +216,14 @@ export default function AppHeader({
   const [notifLoading, setNotifLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<"all" | "critical" | "warning">("all");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ── Access Token Ref ──
+  // Keep latest accessToken in a ref so loadNotifications (memoized on
+  // user?.email only) always reads the current token without re-creating
+  // the callback. This prevents stale-token fetches and effect re-runs.
+  const accessTokenRef = useRef<string | null | undefined>(accessToken);
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
 
   // ── User Menu State ──
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -247,18 +278,28 @@ export default function AppHeader({
     if (!user?.email) return;
     try {
       setNotifLoading(true);
-      // Auto-generate before fetching to ensure fresh alerts
+      // Auto-generate before fetching to ensure fresh alerts.
+      // This is best-effort — if it fails (e.g., CSRF, serverless instance
+      // mismatch), we still fetch the existing notification list below.
       if (generate) {
-        await notifFetch("/api/notifications", {
-          method: "POST",
-          body: JSON.stringify({ action: "generate" }),
-        }, user.email ?? undefined, accessToken);
+        try {
+          await notifFetch("/api/notifications", {
+            method: "POST",
+            body: JSON.stringify({ action: "generate" }),
+          }, user.email ?? undefined, accessTokenRef.current);
+        } catch (genErr) {
+          // Suppress — generation is optional. Continue to fetch list.
+          const isSilent = genErr instanceof Error && (genErr as Error & { silent?: boolean }).silent;
+          if (!isSilent) {
+            console.warn("Notification generate (non-blocking):", genErr instanceof Error ? genErr.message : genErr);
+          }
+        }
       }
       const res = await notifFetch(
         `/api/notifications?limit=50&isRead=false`,
         undefined,
         user.email ?? undefined,
-        accessToken
+        accessTokenRef.current
       );
       if (res.success) {
         setNotifications(res.data || []);
@@ -309,7 +350,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ id, action: "mark-read" }),
-      }, user.email ?? undefined, accessToken);
+      }, user.email ?? undefined, accessTokenRef.current);
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (err) {
@@ -327,7 +368,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ action: "mark-all-read" }),
-      }, user.email ?? undefined, accessToken);
+      }, user.email ?? undefined, accessTokenRef.current);
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
     } catch (err) {
@@ -344,7 +385,7 @@ export default function AppHeader({
       await notifFetch("/api/notifications", {
         method: "PUT",
         body: JSON.stringify({ id, action: "dismiss" }),
-      }, user.email ?? undefined, accessToken);
+      }, user.email ?? undefined, accessTokenRef.current);
       setNotifications(prev => prev.filter(n => n.id !== id));
       setUnreadCount(prev => {
         const dismissed = notifications.find(n => n.id === id);

@@ -142,6 +142,9 @@ export function clearAuthState() {
     clearTimeout(refreshTimerRef);
     refreshTimerRef = null;
   }
+  // Clear all in-flight GET request trackers so stale promises
+  // don't resolve into the next session after logout
+  inFlightRequests.clear();
   authState = { isAuthenticated: false, user: null, accessToken: null, refreshToken: null, tokenExpiry: null, csrfToken: null };
   localStorage.removeItem("ems_auth");
   authListeners.forEach(l => l());
@@ -199,7 +202,7 @@ export function initAuthState() {
  * The token from login is reusable within its validity period (1 hour).
  * Falls back to fetching from /api/csrf-token if no cached token is available.
  */
-async function getCsrfToken(): Promise<string | null> {
+export async function getCsrfToken(): Promise<string | null> {
   // Prefer token from login response (already cached in authState)
   if (authState.csrfToken) {
     return authState.csrfToken;
@@ -265,10 +268,82 @@ export function apiBustCache(path: string): number {
 }
 
 // ============================================================
+// IN-FLIGHT REQUEST DEDUPLICATION (Single-Flight Pattern)
+// ============================================================
+// When multiple components request the same GET URL simultaneously
+// (e.g., 26 dashboard widgets all fetching notifications), only ONE
+// network request is made. All callers share the same promise.
+// This prevents "thundering herd" issues that freeze the browser
+// on slow connections by saturating the 6-connection-per-origin limit.
+
+const inFlightRequests = new Map<string, Promise<any>>();
+
+function buildInFlightKey(path: string, method: string): string {
+  // Only deduplicate safe GET requests (no body). Writes always go through.
+  if (method !== "GET") return "";
+  // Strip query string order differences by sorting params — not needed here
+  // since callers use consistent URLs. Just use method + path.
+  return `${method}:${path}`;
+}
+
+/**
+ * Deduplicate an in-flight GET request.
+ * If a request to the same URL is already pending, returns the shared promise.
+ * Otherwise, executes the fetcher and stores its promise for subsequent callers.
+ */
+function deduplicateInFlight<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  if (!key) return fetcher();
+  const existing = inFlightRequests.get(key);
+  if (existing) {
+    return existing as Promise<T>;
+  }
+  const promise = fetcher().finally(() => {
+    // Clean up once settled (success or failure)
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, promise as Promise<any>);
+  return promise;
+}
+
+/**
+ * Cancel/clear all in-flight GET request trackers.
+ * Called on logout or auth state change to prevent stale promises.
+ */
+export function clearInFlightRequests(): void {
+  inFlightRequests.clear();
+}
+
+/**
+ * Public deduplicated fetch helper for components that manage their own
+ * auth headers (e.g., AppHeader's notification polling).
+ *
+ * Wraps a fetcher function so that simultaneous calls to the same GET URL
+ * share a single network request. Non-GET methods always execute fresh.
+ *
+ * @example
+ * const data = await deduplicatedFetch(
+ *   "/api/notifications?limit=50",
+ *   () => fetch("/api/notifications?limit=50", { headers }).then(r => r.json())
+ * )
+ */
+export function deduplicatedFetch<T>(url: string, method: string, fetcher: () => Promise<T>): Promise<T> {
+  const key = buildInFlightKey(url, method);
+  return deduplicateInFlight(key, fetcher);
+}
+
+// ============================================================
 // CANONICAL apiFetch (uncached — backward compatible)
 // ============================================================
 
 export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?: string; bustCache?: boolean }): Promise<any> {
+  // ── In-flight deduplication for GET requests ──
+  // If the same GET URL is already being fetched, share the promise.
+  // This prevents 26 simultaneous requests to the same endpoint
+  // (e.g., notifications) from saturating the browser's connection pool.
+  const _reqMethod = (opts?.method || "GET").toUpperCase();
+  const _inFlightKey = buildInFlightKey(path, _reqMethod);
+
+  return deduplicateInFlight(_inFlightKey, async () => {
   // Server-side RBAC: send JWT Bearer token in Authorization header
   const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
   if (authState.accessToken) {
@@ -389,6 +464,7 @@ export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?
     throw new Error(err.error || "Request failed");
   }
   return res.json();
+  }); // end deduplicateInFlight
 }
 
 // ============================================================
