@@ -1,7 +1,14 @@
 {
   "name": "volterp",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "private": false,
+  "description": "Electronics Mart IMS - Enterprise Inventory Management System",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "volta": {
+    "node": "20.0.0"
+  },
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "prisma generate && next build",
@@ -11,7 +18,11 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "version:patch": "bun run scripts/version-bump.mjs patch",
+    "version:minor": "bun run scripts/version-bump.mjs minor",
+    "version:major": "bun run scripts/version-bump.mjs major",
+    "release:tag": "bun run scripts/create-release.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

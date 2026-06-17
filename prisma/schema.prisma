@@ -235,6 +235,7 @@ model Company {
   fiscalYears             FiscalYear[]
   cheques                 Cheque[]
   systemBackups           SystemBackup[]
+  featureFlags            FeatureFlag[]
 }
 
 model Category {
@@ -2765,4 +2766,52 @@ model SystemBackup {
   @@index([status])
   @@index([backupCode])
   @@index([createdAt])
+}
+
+// ============================================================
+// FEATURE FLAGS (v3.0+)
+// Runtime-toggleable feature flags for safe rollouts.
+// Used by src/lib/feature-flags.ts
+// ============================================================
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique // e.g. "new_dashboard", "jwt_auth"
+  isEnabled   Boolean  @default(false)
+  description String?
+  category    String   @default("feature") // security, ui, feature, performance, experimental
+  sinceVersion String  @default("3.0.0") // Version when flag was introduced
+  // Per-company override (null = global default)
+  companyId   String? // Multi-tenant isolation
+  // Audit
+  updatedBy   String? // User ID who last modified
+  updatedByName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([isEnabled])
+  @@index([key])
+}
+
+// ============================================================
+// SCHEMA MIGRATION TRACKING (v3.0+)
+// Tracks which database migrations have been applied.
+// ============================================================
+
+model SchemaMigration {
+  id          String   @id @default(cuid())
+  version     String   @unique // e.g. "3.0.0", "3.0.1"
+  name        String // Human-readable name, e.g. "add_feature_flags_table"
+  checksum    String? // SHA-256 of migration SQL for integrity verification
+  appliedAt   DateTime @default(now())
+  appliedBy   String? // User ID or "system"
+  executionMs Int     @default(0) // How long the migration took
+  success     Boolean @default(true)
+  rollbackSql String? // SQL to undo this migration (for safe rollback)
+  notes       String? // Any notes about this migration
+
+  @@index([version])
+  @@index([appliedAt])
 }
