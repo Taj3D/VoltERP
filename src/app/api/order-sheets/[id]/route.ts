@@ -616,75 +616,86 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    const result = await db.$transaction(async (tx) => {
-      const record = await tx.orderSheet.findUnique({
-        where: { id },
-        include: { lines: true },
-      });
+    // Fetch record OUTSIDE the transaction (avoid long-held read locks)
+    const record = await db.orderSheet.findUnique({
+      where: { id },
+      include: { lines: true },
+    });
 
-      if (!record || !record.isActive) {
-        throw new Error('NOT_FOUND');
-      }
+    if (!record || !record.isActive) {
+      return NextResponse.json(
+        { error: 'Order sheet not found' },
+        { status: 404 }
+      );
+    }
 
-      // Cannot delete confirmed/processing orders
-      if (
-        record.status === 'Confirmed' ||
-        record.status === 'Processing' ||
-        record.status === 'Completed'
-      ) {
-        throw new Error(
-          `CANNOT_DELETE:${record.status}`
-        );
-      }
+    // Cannot delete confirmed/processing orders
+    if (
+      record.status === 'Confirmed' ||
+      record.status === 'Processing' ||
+      record.status === 'Completed'
+    ) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete order sheet with status "${record.status}". Only Draft or Cancelled orders can be deleted.`,
+        },
+        { status: 400 }
+      );
+    }
 
-      // Period close guard
-      const periodLock = await checkPeriodClose(record.date);
-      if (periodLock) {
-        throw new Error('PERIOD_LOCKED');
-      }
+    // Period close guard
+    const periodLock = await checkPeriodClose(record.date);
+    if (periodLock) {
+      return NextResponse.json(
+        { error: 'Cannot delete order sheet in a locked period' },
+        { status: 403 }
+      );
+    }
 
-      // Soft delete
+    // Soft delete + audit log inside transaction (best-effort audit)
+    await db.$transaction(async (tx) => {
       await tx.orderSheet.update({
         where: { id },
         data: { isActive: false },
       });
 
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          action: 'DELETE',
-          module: 'OrderSheets',
-          recordId: record.id,
-          recordLabel: record.sheetNo,
-          userId: security.user?.id || 'system',
-          userName: security.user?.name || 'System',
-          details: JSON.stringify({
-            sheetNo: record.sheetNo,
-            softDelete: true,
-            previousStatus: record.status,
-            lineCount: record.lines.length,
-          }),
-        },
-      });
-
-      // Activity log
-      await logUserActivity({
-          tx: tx,
-        action: 'DELETE',
-        module: 'Inv-OrderSheet-Pipeline',
-        recordId: record.id,
-        recordLabel: record.sheetNo,
-        userId: security.user?.id,
-        userName: security.user?.name,
-        details: `Soft-deleted order sheet ${record.sheetNo}`,
-      });
-
-      return record;
+      try {
+        await tx.auditLog.create({
+          data: {
+            action: 'DELETE',
+            module: 'OrderSheets',
+            recordId: record.id,
+            recordLabel: record.sheetNo,
+            userId: security.user?.id || 'system',
+            userName: security.user?.name || 'System',
+            details: JSON.stringify({
+              sheetNo: record.sheetNo,
+              softDelete: true,
+              previousStatus: record.status,
+              lineCount: record.lines.length,
+            }),
+          },
+        });
+      } catch (auditErr) {
+        // Non-blocking: audit failure should not roll back the delete
+        console.error('[OrderSheets] DELETE audit log failed:', auditErr);
+      }
     });
+
+    // Activity log outside transaction (non-blocking, uses its own try/catch)
+    logUserActivity({
+      action: 'DELETE',
+      module: 'Inv-OrderSheet-Pipeline',
+      recordId: record.id,
+      recordLabel: record.sheetNo,
+      userId: security.user?.id,
+      userName: security.user?.name,
+      details: `Soft-deleted order sheet ${record.sheetNo}`,
+    }).catch(() => {});
 
     return NextResponse.json({
       message: 'Order sheet deleted successfully',
-      sheetNo: result.sheetNo,
+      sheetNo: record.sheetNo,
     });
   } catch (error: any) {
     if (error?.message === 'NOT_FOUND') {
