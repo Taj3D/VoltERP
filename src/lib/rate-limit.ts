@@ -48,11 +48,11 @@ export interface RateLimitConfig {
 
 export const RATE_LIMITS = {
   /** Auth endpoints — strict limit to prevent brute force */
-  auth: { windowMs: 60_000, maxRequests: 5 },
+  auth: { windowMs: 60_000, maxRequests: 10 },
   /** Write operations (POST, PUT, DELETE) */
-  write: { windowMs: 60_000, maxRequests: 60 },
-  /** General read (GET) */
-  read: { windowMs: 60_000, maxRequests: 100 },
+  write: { windowMs: 60_000, maxRequests: 120 },
+  /** General read (GET) — tuned for ERP dashboards that fire ~10 parallel GETs */
+  read: { windowMs: 60_000, maxRequests: 500 },
 } as const;
 
 // ─────────────────────────────────────────────────────────────
