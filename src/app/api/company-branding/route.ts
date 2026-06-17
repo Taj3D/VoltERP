@@ -49,9 +49,11 @@ export async function GET(request: NextRequest) {
           email: true,
           logoUrl: true,
           brandLogoUrl: true,
-          // PERF: Do NOT select legacy base64 logo/brandLogo fields here.
-          // They are ~192KB each and bloat the response.
-          // invoice-engine falls back to them only when logoUrl is absent.
+          // PERF: Only select legacy base64 logo/brandLogo when Blob is NOT configured.
+          // When Blob IS configured, response is ~2KB (just URLs).
+          // When Blob is NOT configured, response is ~192KB (base64) but needed for
+          // client-side PDF generation and Company Settings preview.
+          ...(isBlobConfigured() ? {} : { logo: true, brandLogo: true }),
           logoWidth: true,
           logoHeight: true,
           vatNumber: true,
@@ -73,6 +75,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const blobReady = isBlobConfigured();
+    // Ensure base64 logos have the data: URL prefix so <img src> works in the browser.
+    // The DB stores raw base64 (without prefix) as a space optimization.
+    const normalizeBase64 = (val: string | null): string | null => {
+      if (!val) return null;
+      if (val.startsWith('data:')) return val;
+      // Detect format from header bytes (JPEG: /9j/, PNG: iVBOR, GIF: R0lGOD, WebP: UklGR)
+      let mime = 'image/png';
+      if (val.startsWith('/9j/')) mime = 'image/jpeg';
+      else if (val.startsWith('iVBOR')) mime = 'image/png';
+      else if (val.startsWith('R0lGOD')) mime = 'image/gif';
+      else if (val.startsWith('UklGR')) mime = 'image/webp';
+      return `data:${mime};base64,${val}`;
+    };
     return NextResponse.json({
       company: {
         id: company.id,
@@ -85,10 +101,11 @@ export async function GET(request: NextRequest) {
         // Return CDN URLs (preferred) — frontend fetches image directly from Vercel edge
         logoUrl: company.logoUrl,
         brandLogoUrl: company.brandLogoUrl,
-        // Legacy base64 fields omitted from response for performance.
-        // Invoice engine fetches them separately only when generating PDFs.
-        logo: null,
-        brandLogo: null,
+        // When Blob is configured: omit base64 (perf).
+        // When Blob is NOT configured: include base64 (with data: prefix) so client-side
+        // PDF engine and Company Settings preview can render the logo.
+        logo: blobReady ? null : normalizeBase64(company.logo as string | null),
+        brandLogo: blobReady ? null : normalizeBase64(company.brandLogo as string | null),
         logoWidth: company.logoWidth,
         logoHeight: company.logoHeight,
         vatNumber: company.vatNumber,
@@ -99,7 +116,7 @@ export async function GET(request: NextRequest) {
         showBarcode: company.showBarcode,
         showPayInWord: company.showPayInWord,
         website: company.website,
-        blobConfigured: isBlobConfigured(),
+        blobConfigured: blobReady,
       },
     });
   } catch (error) {

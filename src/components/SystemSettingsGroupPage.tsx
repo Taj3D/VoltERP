@@ -58,14 +58,17 @@ const fmt = (v: any, type?: string) => {
 };
 
 
-/** Validate Bangladesh phone number with +880 prefix */
+/** Validate phone number — accepts BD local, BD international, and generic international formats */
 function validateBDPhone(phone: string): { valid: boolean; message: string } {
   if (!phone) return { valid: true, message: "" };
   const stripped = phone.replace(/[\s\-()]/g, "");
-  if (/^\+?880\d{9,10}$/.test(stripped) || /^01\d{9}$/.test(stripped)) {
-    return { valid: true, message: "" };
-  }
-  return { valid: false, message: "Phone must use Bangladesh format: +880XXXXXXXXXX or 01XXXXXXXXX" };
+  // BD local: 01XXXXXXXXX (11 digits)
+  // BD international: +880XXXXXXXXXX (12-13 digits after +)
+  // Generic international: +<country><number> (8-15 digits total)
+  if (/^01\d{9}$/.test(stripped)) return { valid: true, message: "" };
+  if (/^\+?880\d{8,11}$/.test(stripped)) return { valid: true, message: "" };
+  if (/^\+\d{8,15}$/.test(stripped)) return { valid: true, message: "" };
+  return { valid: false, message: "Use format: +880XXXXXXXXXX, 01XXXXXXXXX, or +<country><number>" };
 }
 
 /** Validate email address format */
@@ -78,14 +81,13 @@ function validateEmail(email: string): { valid: boolean; message: string } {
   return { valid: false, message: "Please enter a valid email address" };
 }
 
-/** Validate Bangladesh BIN/VAT number */
+/** Validate BIN/VAT number — accepts alphanumeric codes (letters, digits, dashes) 4-25 chars */
 function validateVATNumber(vat: string): { valid: boolean; message: string } {
   if (!vat) return { valid: true, message: "" };
   const cleaned = vat.replace(/[\s\-]/g, "");
-  if (/^\d{9,15}$/.test(cleaned) || /^[A-Za-z]{0,3}\d{9,15}$/.test(cleaned)) {
-    return { valid: true, message: "" };
-  }
-  return { valid: false, message: "BIN/VAT number should be 9-15 digits" };
+  // Accept any alphanumeric tax ID 4-25 chars (BIN, VAT, TIN, NID, EIN, etc.)
+  if (/^[A-Za-z0-9]{4,25}$/.test(cleaned)) return { valid: true, message: "" };
+  return { valid: false, message: "BIN/VAT/TIN should be 4-25 alphanumeric characters" };
 }
 
 /** Convert file to base64 data URL */
@@ -367,26 +369,29 @@ function CompanySettingsTab({ isVatAuditor, userRole }: { isVatAuditor: boolean;
 
   // Save company branding via dedicated branding API (Admin-only)
   const handleSaveCompany = async () => {
-    if (!company) return;
+    if (!company) {
+      toast({ title: "Error", description: "Company data not loaded yet. Please wait and try again.", variant: "destructive" });
+      return;
+    }
     const phoneVal = companyEdits.phone !== undefined ? companyEdits.phone : company.phone;
     const mobileVal = companyEdits.mobile !== undefined ? companyEdits.mobile : company.mobile;
     if (phoneVal) {
       const v = validateBDPhone(phoneVal);
-      if (!v.valid) { setPhoneError(v.message); return; }
+      if (!v.valid) { setPhoneError(v.message); toast({ title: "Phone Invalid", description: v.message, variant: "destructive" }); return; }
     }
     if (mobileVal) {
       const v = validateBDPhone(mobileVal);
-      if (!v.valid) { setMobileError(v.message); return; }
+      if (!v.valid) { setMobileError(v.message); toast({ title: "Mobile Invalid", description: v.message, variant: "destructive" }); return; }
     }
     const emailVal = companyEdits.email !== undefined ? companyEdits.email : company.email;
     if (emailVal) {
       const v = validateEmail(emailVal);
-      if (!v.valid) { setEmailError(v.message); return; }
+      if (!v.valid) { setEmailError(v.message); toast({ title: "Email Invalid", description: v.message, variant: "destructive" }); return; }
     }
     const vatVal = companyEdits.vatNumber !== undefined ? companyEdits.vatNumber : company.vatNumber;
     if (vatVal) {
       const v = validateVATNumber(vatVal);
-      if (!v.valid) { setVatError(v.message); return; }
+      if (!v.valid) { setVatError(v.message); toast({ title: "VAT/BIN Invalid", description: v.message, variant: "destructive" }); return; }
     }
     setPhoneError("");
     setMobileError("");
