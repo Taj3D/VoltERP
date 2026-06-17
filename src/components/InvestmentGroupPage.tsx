@@ -662,7 +662,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
   // ============================================================
 
   const openHeadsCreate = () => {
-    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", companyId: "", profileImage: null, nidFrontImage: null, nidBackImage: null, isActive: true });
+    setHeadsFormData({ name: "", type: "Liability", openingBalance: 0, openingType: "None", description: "", companyId: "", profileImage: null, nidFrontImage: null, nidBackImage: null, logoUrl: null, isActive: true });
     setHeadsEdit(null);
     setHeadsForm(true);
   };
@@ -678,6 +678,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
       profileImage: item.profileImage || null,
       nidFrontImage: item.nidFrontImage || null,
       nidBackImage: item.nidBackImage || null,
+      logoUrl: item.logoUrl || null,
       isActive: item.isActive ?? true,
     });
     setHeadsEdit(item);
@@ -701,6 +702,7 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
         profileImage: headsFormData.profileImage || null,
         nidFrontImage: headsFormData.nidFrontImage || null,
         nidBackImage: headsFormData.nidBackImage || null,
+        logoUrl: headsFormData.logoUrl || null,
         isActive: headsFormData.isActive ?? true,
       };
       if (headsEdit) {
@@ -2381,6 +2383,15 @@ export default function InvestmentGroupPage({ initialTab }: InvestmentGroupPageP
                   onChange={(base64) => setHeadsFormData({ ...headsFormData, nidBackImage: base64 })}
                   label="NID Back"
                   placeholder="Upload NID back"
+                  onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <ImageUploadField
+                  value={headsFormData.logoUrl}
+                  onChange={(base64) => setHeadsFormData({ ...headsFormData, logoUrl: base64 })}
+                  label="Institutional Logo"
+                  placeholder="Upload institutional investor logo (bank, fund, partner org) — max 5MB"
                   onError={(msg) => toast({ title: "Upload Error", description: msg, variant: "destructive" })}
                 />
               </div>

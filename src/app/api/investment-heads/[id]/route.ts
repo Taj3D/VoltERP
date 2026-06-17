@@ -26,7 +26,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
-    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
     // Check existence first
@@ -45,6 +45,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           profileImage: body.profileImage !== undefined ? (body.profileImage || null) : undefined,
           nidFrontImage: body.nidFrontImage !== undefined ? (body.nidFrontImage || null) : undefined,
           nidBackImage: body.nidBackImage !== undefined ? (body.nidBackImage || null) : undefined,
+          logoUrl: body.logoUrl !== undefined ? (body.logoUrl || null) : undefined,
           isActive: body.isActive !== undefined ? body.isActive : undefined,
         },
       });

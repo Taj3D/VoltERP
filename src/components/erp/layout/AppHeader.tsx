@@ -755,18 +755,18 @@ export default function AppHeader({
                   user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"
                 } flex items-center justify-center text-white text-xs font-bold`}
               >
-                {user?.email?.charAt(0).toUpperCase() || "U"}
+                {(user?.displayName || user?.name || "U")?.charAt(0).toUpperCase()}
               </div>
-              <span className="text-sm font-medium hidden sm:inline max-w-[140px] truncate">{user?.email || "User"}</span>
+              <span className="text-sm font-medium hidden sm:inline max-w-[140px] truncate">{user?.displayName || user?.name || "User"}</span>
               <ChevronDown className="w-3 h-3" />
             </Button>
             {userMenuOpen && (
               <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#132240] border border-border rounded-lg shadow-lg py-1 z-50">
                 <div className="px-4 py-2 border-b">
-                  <p className="text-sm font-medium font-mono">
-                    {user?.email || "User"}
+                  <p className="text-sm font-medium">
+                    {user?.displayName || user?.name || "User"}
                   </p>
-                  <p className="text-xs text-muted-foreground">{user?.displayName || user?.name || ""}</p>
+                  <p className="text-xs text-muted-foreground">{user?.role ? ROLE_LABELS[user.role] : ""}</p>
                   {sessionTimeLeft && (
                     <div className={`flex items-center gap-1.5 mt-1.5 text-xs ${sessionWarning ? 'text-amber-500' : 'text-muted-foreground'}`}>
                       <Clock className="w-3 h-3" />

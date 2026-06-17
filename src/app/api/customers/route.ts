@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
         const row = body.data[i];
         try {
           // Image validation
-          const imgError = validateImageFields(row, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+          const imgError = validateImageFields(row, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
           if (imgError) { errors.push(`Row ${i + 1}: ${imgError}`); continue; }
 
           // Case-insensitive duplicate name check
@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
               nidFrontImage: row.nidFrontImage || null,
               nidBackImage: row.nidBackImage || null,
               nidNumber: row.nidNumber ? stripHtml(String(row.nidNumber)) : null,
+              logoUrl: nullIfEmpty(row.logoUrl),
               guarantorName: row.guarantorName ? stripHtml(String(row.guarantorName)) : null,
               guarantorContact: row.guarantorContact ? stripHtml(String(row.guarantorContact)) : null,
               guarantorAddress: row.guarantorAddress ? stripHtml(String(row.guarantorAddress)) : null,
@@ -268,7 +269,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
     // Phone/email validation
@@ -345,6 +346,7 @@ export async function POST(request: NextRequest) {
           nidFrontImage: body.nidFrontImage || null,
           nidBackImage: body.nidBackImage || null,
           nidNumber: body.nidNumber ? stripHtml(String(body.nidNumber)) : null,
+          logoUrl: nullIfEmpty(body.logoUrl),
           guarantorName: body.guarantorName ? stripHtml(String(body.guarantorName)) : null,
           guarantorContact: body.guarantorContact ? stripHtml(String(body.guarantorContact)) : null,
           guarantorAddress: body.guarantorAddress ? stripHtml(String(body.guarantorAddress)) : null,

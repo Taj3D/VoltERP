@@ -56,6 +56,7 @@ model InvestmentHead {
   profileImage   String? // Profile photo (base64 or URL)
   nidFrontImage  String? // National ID front card image
   nidBackImage   String? // National ID back card image
+  logoUrl        String? // Institutional investor logo URL (banks, funds, partner orgs)
   isActive       Boolean     @default(true)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -745,6 +746,7 @@ model Customer {
   nidFrontImage      String? // National ID front card image
   nidBackImage       String? // National ID back card image
   nidNumber          String? // National ID / Voter ID number
+  logoUrl            String? // Company/dealer logo URL (used when customerType = "Dealer")
   guarantorName      String? // Guarantor full name
   guarantorContact   String? // Guarantor phone number
   guarantorAddress   String? // Guarantor address

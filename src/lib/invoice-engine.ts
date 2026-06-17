@@ -540,31 +540,33 @@ function drawItemsTable(
   // Build dynamic columns based on template toggles
   const columns: Array<{ header: string; width: number; key: string; align: "left" | "right" | "center"; isCurrency?: boolean }> = [];
 
-  columns.push({ header: "SL", width: 10, key: "sl", align: "center" });
+  columns.push({ header: "SL", width: 8, key: "sl", align: "center" });
 
-  // Description is always shown (core requirement)
+  // Reference PDF layout: SL | Model | Color | Description | Qty | MRP | Dis. Amt | Unit Price | Amount
+  // All of Model, Color, Description can coexist (additive, not either/or).
+  if (template.showModel !== false) {
+    columns.push({ header: "Model", width: 20, key: "model", align: "left" });
+  }
+  if (template.showColor !== false) {
+    columns.push({ header: "Color", width: 16, key: "color", align: "left" });
+  }
   if (template.showDescription !== false) {
-    columns.push({ header: "Description", width: 75, key: "description", align: "left" });
-  } else {
-    // If description is hidden, show model or a generic column
-    if (template.showModel !== false) {
-      columns.push({ header: "Model", width: 75, key: "model", align: "left" });
-    }
+    columns.push({ header: "Description", width: 40, key: "description", align: "left" });
   }
 
-  columns.push({ header: "Qty", width: 18, key: "qty", align: "center" });
+  columns.push({ header: "Qty", width: 12, key: "qty", align: "center" });
 
   if (template.showMRP !== false) {
-    columns.push({ header: "MRP", width: 25, key: "mrp", align: "right", isCurrency: true });
+    columns.push({ header: "MRP", width: 22, key: "mrp", align: "right", isCurrency: true });
   }
   if (template.showDiscountAmt !== false) {
-    columns.push({ header: "Dis. Amt", width: 25, key: "discountAmt", align: "right", isCurrency: true });
+    columns.push({ header: "Dis. Amt", width: 22, key: "discountAmt", align: "right", isCurrency: true });
   }
   if (template.showUnitPrice !== false) {
-    columns.push({ header: "Unit Price", width: 30, key: "unitPrice", align: "right", isCurrency: true });
+    columns.push({ header: "Unit Price", width: 22, key: "unitPrice", align: "right", isCurrency: true });
   }
 
-  columns.push({ header: "Amount", width: 30, key: "amount", align: "right", isCurrency: true });
+  columns.push({ header: "Amount", width: 22, key: "amount", align: "right", isCurrency: true });
 
   // Recalculate column widths proportionally
   const totalSpecWidth = columns.reduce((sum, c) => sum + c.width, 0);
@@ -586,7 +588,8 @@ function drawItemsTable(
     for (const col of columns) {
       switch (col.key) {
         case "sl":
-          row.push(String(item.sl));
+          // Defense in depth: String(num) returns ASCII 0-9 by spec, but wrap anyway.
+          row.push(toLatinDigits(String(item.sl)));
           break;
         case "model":
           row.push(safeStr(item.model));
@@ -598,7 +601,7 @@ function drawItemsTable(
           row.push(safeStr(item.description, "Item"));
           break;
         case "qty":
-          row.push(String(item.qty));
+          row.push(toLatinDigits(String(item.qty)));
           break;
         case "mrp": {
           const masked = isFieldMasked("mrp", isVatAuditor, vatMaskedFields);
@@ -627,9 +630,14 @@ function drawItemsTable(
     return row;
   });
 
-  // Total row
+  // Total row — "Total" label goes in the first text column (Model, Color, or Description),
+  // matching the reference PDF where "Total :" appears in the description column.
   const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
   const totalAmount = items.reduce((sum, i) => sum + i.amount, 0);
+  const labelColKey =
+    columns.find((c) => c.key === "description")?.key ||
+    columns.find((c) => c.key === "model")?.key ||
+    columns.find((c) => c.key === "color")?.key;
   const totalRow: string[] = [];
   for (const col of columns) {
     switch (col.key) {
@@ -637,21 +645,17 @@ function drawItemsTable(
         totalRow.push("");
         break;
       case "qty":
-        totalRow.push(String(totalQty));
+        totalRow.push(toLatinDigits(String(totalQty)));
         break;
       case "amount": {
         const masked = isFieldMasked("amount", isVatAuditor, vatMaskedFields);
         totalRow.push(fmtCurrency(totalAmount, masked));
         break;
       }
+      case "description":
       case "model":
       case "color":
-      case "description":
-        if (col === columns.find((c) => c.key === "description") || (col.key === "model" && !columns.find((c) => c.key === "description"))) {
-          totalRow.push("Total");
-        } else {
-          totalRow.push("");
-        }
+        totalRow.push(col.key === labelColKey ? "Total" : "");
         break;
       default:
         totalRow.push("");
@@ -946,8 +950,9 @@ function drawFooterSection(
   doc.text(thankYouMsg, PAGE_WIDTH / 2 - thankYouWidth / 2, y);
   y += 7;
 
-  // Signature lines (3 columns: Customer, Prepared By, Authorized By)
-  const sigSectionWidth = CONTENT_WIDTH / 3;
+  // Signature lines (4 columns: Customer, Prepared By, Checked By, Authorized By)
+  // Matches reference PDF which has all 4 signature slots.
+  const sigSectionWidth = CONTENT_WIDTH / 4;
   const sigY = y + 12;
 
   doc.setDrawColor(150, 150, 150);
@@ -956,17 +961,18 @@ function drawFooterSection(
   const signatureItems: Array<{ label: string; x: number; show: boolean }> = [
     { label: "Customer's Signature", x: MARGIN_LEFT, show: template.showCustomerSignature !== false },
     { label: "Prepared By", x: MARGIN_LEFT + sigSectionWidth, show: template.showPreparedBy !== false },
-    { label: "Authorized By", x: MARGIN_LEFT + sigSectionWidth * 2, show: template.showAuthorizedBy !== false },
+    { label: "Checked By", x: MARGIN_LEFT + sigSectionWidth * 2, show: template.showCheckedBy !== false },
+    { label: "Authorized By", x: MARGIN_LEFT + sigSectionWidth * 3, show: template.showAuthorizedBy !== false },
   ];
 
   for (const sig of signatureItems) {
     if (sig.show) {
-      doc.line(sig.x, sigY, sig.x + sigSectionWidth - 15, sigY);
+      doc.line(sig.x, sigY, sig.x + sigSectionWidth - 10, sigY);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100, 100, 100);
       const labelWidth = doc.getTextWidth(sig.label);
-      doc.text(sig.label, sig.x + (sigSectionWidth - 15) / 2 - labelWidth / 2, sigY + 4);
+      doc.text(sig.label, sig.x + (sigSectionWidth - 10) / 2 - labelWidth / 2, sigY + 4);
     }
   }
 
@@ -992,11 +998,13 @@ function drawFooterSection(
     y += 4;
   }
 
-  // System-generated note
-  const systemNote = company.systemNote || "This is a system generated invoice.";
+  // System-generated note — red disclaimer per reference PDF.
+  // The default matches the reference Render_copy.pdf text exactly:
+  // "This is a system generated invoice no need to seal & signature."
+  const systemNote = company.systemNote || "This is a system generated invoice no need to seal & signature.";
   doc.setFontSize(7);
   doc.setFont("helvetica", "italic");
-  doc.setTextColor(130, 130, 130);
+  doc.setTextColor(200, 0, 0); // RED — matches reference PDF disclaimer color
   const noteWidth = doc.getTextWidth(systemNote);
   doc.text(systemNote, PAGE_WIDTH / 2 - noteWidth / 2, y);
   y += 4;

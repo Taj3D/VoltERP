@@ -2,6 +2,8 @@ import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiSecurity, validateImageFields } from '@/lib/api-security';
 
+const nullIfEmpty = (v: string | undefined | null) => (!v || !v.trim()) ? null : v.trim();
+
 export async function GET(request: NextRequest) {
   const security = await withApiSecurity(request, 'InvestmentHeads', 'GET');
   if (!security.authorized) return security.response;
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
     if (!body.name || !body.name.trim()) {
       return NextResponse.json({ error: "Investment head name is required" }, { status: 400 });
     }
-    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
     const item = await db.$transaction(async (tx) => {
       // Auto-generate code (collision-safe: findMany + Math.max)
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
           profileImage: body.profileImage || null,
           nidFrontImage: body.nidFrontImage || null,
           nidBackImage: body.nidBackImage || null,
+          logoUrl: nullIfEmpty(body.logoUrl),
           companyId: body.companyId || security.user.companyId || null,
           isActive: body.isActive ?? true,
         },

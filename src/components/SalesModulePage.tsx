@@ -407,14 +407,17 @@ export default function SalesModulePage({ currentPage, userRole, isVatAuditor }:
         };
         filename = `Challan_${invoiceNo || so.invoiceNo || soId}.pdf`;
       } else {
+        // Default Sales Invoice template — matches reference Render_copy.pdf:
+        // 9-column product table (SL, Model, Color, Description, Qty, MRP, Dis. Amt, Unit Price, Amount)
+        // 4 signature lines (Customer's Signature, Prepared By, Checked By, Authorized By)
         templateConfig = {
           showLogo: true, showBrandLogo: true, showMobile: true, showAddress: true,
           showVatNumber: true, showCustomerCode: true,
-          showPrevDue: false, showTotalDue: false, showModel: false, showColor: false,
+          showPrevDue: false, showTotalDue: false, showModel: true, showColor: true,
           showDescription: true, showMRP: true, showDiscountAmt: true, showUnitPrice: true,
           showDiscountPct: true, showPaymentDetails: true,
-          showCustomerSignature: true, showPreparedBy: true, showAuthorizedBy: true,
-          showPrintDate: true,
+          showCustomerSignature: true, showPreparedBy: true, showCheckedBy: true,
+          showAuthorizedBy: true, showPrintDate: true,
         };
         filename = `Invoice_${invoiceNo || so.invoiceNo || soId}.pdf`;
       }

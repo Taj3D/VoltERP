@@ -366,7 +366,8 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
     for (const col of columns) {
       switch (col.key) {
         case 'sl':
-          row.push(String(item.sl));
+          // Defense in depth: String(num) returns ASCII 0-9 by spec, but wrap anyway.
+          row.push(toLatinDigits(String(item.sl)));
           break;
         case 'model':
           row.push(safeStr(item.model));
@@ -378,7 +379,7 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
           row.push(safeStr(item.description, 'Item'));
           break;
         case 'qty':
-          row.push(String(item.qty));
+          row.push(toLatinDigits(String(item.qty)));
           break;
         case 'mrp':
           row.push(fmtCurrency(item.mrp));
@@ -412,7 +413,7 @@ function drawItemsTable(doc: jsPDF, items: InvoiceLineItem[], startY: number): n
         totalRow.push('Total');
         break;
       case 'qty':
-        totalRow.push(String(totalQty));
+        totalRow.push(toLatinDigits(String(totalQty)));
         break;
       case 'amount':
         totalRow.push(fmtCurrency(totalAmount));
@@ -677,13 +678,50 @@ function drawFooterSection(
   doc.text(systemParts.join('  |  '), MARGIN_LEFT + 2, y);
   y += 4;
 
-  // System-generated note
-  const systemNote = company.systemNote || 'This is a computer generated invoice.';
+  // System-generated note — red disclaimer per reference PDF.
+  // The default matches the reference Render_copy.pdf text exactly:
+  // "This is a system generated invoice no need to seal & signature."
+  const systemNote = company.systemNote || 'This is a system generated invoice no need to seal & signature.';
   doc.setFontSize(7);
   doc.setFont('helvetica', 'italic');
-  doc.setTextColor(130, 130, 130);
+  doc.setTextColor(200, 0, 0); // RED — matches reference PDF disclaimer color
   const noteWidth = doc.getTextWidth(systemNote);
   doc.text(systemNote, PAGE_WIDTH / 2 - noteWidth / 2, y);
+
+  // Barcode (matches reference PDF "Barcode:" line + visual barcode bars)
+  if (company.showBarcode && invoice.barcodeData) {
+    y += 6;
+    try {
+      // Label
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(10, 22, 40);
+      doc.text('Barcode:', MARGIN_LEFT + 2, y);
+
+      // Visual barcode bars
+      const barcodeX = MARGIN_LEFT + 22;
+      const barcodeY = y - 6;
+      const barcodeWidth = 70;
+      const barcodeHeight = 10;
+      const lineCount = Math.min(invoice.barcodeData.length * 3, 60);
+      const lineWidth = (barcodeWidth - 4) / lineCount;
+      doc.setDrawColor(0, 0, 0);
+      doc.setFillColor(0, 0, 0);
+      for (let i = 0; i < lineCount; i++) {
+        const x = barcodeX + 2 + i * lineWidth;
+        const isBar = (i + Math.floor(i / 3)) % 2 === 0;
+        if (isBar) {
+          doc.rect(x, barcodeY + 1, Math.max(lineWidth * 0.6, 0.3), barcodeHeight - 2, 'F');
+        }
+      }
+      // Barcode text value
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+      const barcodeText = toLatinDigits(invoice.barcodeData.substring(0, 30));
+      doc.text(barcodeText, barcodeX + barcodeWidth / 2 - doc.getTextWidth(barcodeText) / 2, barcodeY + barcodeHeight + 1);
+    } catch { /* skip barcode */ }
+  }
 
   return y + 5;
 }

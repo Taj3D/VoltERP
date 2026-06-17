@@ -58,7 +58,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
-    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage']);
+    const imgError = validateImageFields(body, ['profileImage', 'nidFrontImage', 'nidBackImage', 'logoUrl']);
     if (imgError) return NextResponse.json({ error: imgError }, { status: 400 });
 
     // Phone/email validation
@@ -111,6 +111,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (body.nidFrontImage !== undefined) updateData.nidFrontImage = body.nidFrontImage || null;
       if (body.nidBackImage !== undefined) updateData.nidBackImage = body.nidBackImage || null;
       if (body.nidNumber !== undefined) updateData.nidNumber = body.nidNumber ? stripHtml(String(body.nidNumber)) : null;
+      if (body.logoUrl !== undefined) updateData.logoUrl = nullIfEmpty(body.logoUrl);
       if (body.creditStatus !== undefined) updateData.creditStatus = body.creditStatus;
       if (body.guarantorName !== undefined) updateData.guarantorName = body.guarantorName ? stripHtml(String(body.guarantorName)) : null;
       if (body.guarantorContact !== undefined) updateData.guarantorContact = body.guarantorContact ? stripHtml(String(body.guarantorContact)) : null;

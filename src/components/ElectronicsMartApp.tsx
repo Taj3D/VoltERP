@@ -3024,7 +3024,7 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
         <div className="p-3 border-t border-white/10">
           <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
             <UserCircle className="w-4 h-4" />
-            <span className="truncate">{user?.email || "User"}</span>
+            <span className="truncate">{user?.displayName || user?.name || "User"}</span>
           </div>
         </div>
       )}
@@ -3032,9 +3032,9 @@ function Sidebar({ currentPage, onNavigate, collapsed, onToggle, embedded }: {
         <div className="p-2 border-t border-white/10 flex justify-center">
           <div
             className={`w-7 h-7 rounded-full ${user?.role ? ROLE_COLORS[user.role] : "bg-[#2563eb]"} flex items-center justify-center text-white text-[10px] font-bold`}
-            title={user?.email || "User"}
+            title={user?.displayName || user?.name || "User"}
           >
-            {user?.email?.charAt(0).toUpperCase() || "U"}
+            {(user?.displayName || user?.name || "U")?.charAt(0).toUpperCase()}
           </div>
         </div>
       )}

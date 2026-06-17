@@ -275,7 +275,9 @@ export async function withApiSecurity(
   }
 
   // ── JWT Authentication: Verify Bearer token from Authorization header ──
-  // Falls back to x-user-email header for backward compatibility during migration
+  // NOTE: The legacy `X-User-Email` header fallback has been fully removed
+  // (Phase 3 security migration). All clients must send `Authorization: Bearer <JWT>`.
+  // Requests without a valid JWT are rejected with 401 AUTH_REQUIRED below.
   const authHeader = request.headers.get('authorization');
   const bearerToken = extractBearerToken(authHeader);
 

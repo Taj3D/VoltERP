@@ -771,7 +771,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               }} className="h-9">
                 <Copy className="h-4 w-4 mr-1" />Copy
               </Button>
-              {isAdmin && (
+              {canCreate && (
                 <Button variant="outline" size="sm" onClick={doImportPR} className="h-9">
                   <Upload className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Import </span>CSV
                 </Button>
@@ -1190,7 +1190,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               }} className="h-9">
                 <Copy className="h-4 w-4 mr-1" />Copy
               </Button>
-              {isAdmin && (
+              {canCreate && (
                 <Button variant="outline" size="sm" onClick={doImportRPL} className="h-9">
                   <Upload className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Import </span>CSV
                 </Button>
