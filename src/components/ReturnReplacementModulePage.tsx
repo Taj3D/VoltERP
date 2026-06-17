@@ -748,10 +748,10 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
                 <RefreshCw className={`h-4 w-4 mr-1 ${prLoading ? "animate-spin" : ""}`} />Refresh
               </Button>
               <Button variant="outline" size="sm" onClick={() => doExportPR("csv")} className="h-9">
-                <Download className="h-4 w-4 mr-1" />CSV
+                <Download className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Export </span>CSV
               </Button>
               <Button variant="outline" size="sm" onClick={() => doExportPR("pdf")} className="h-9">
-                <FileDown className="h-4 w-4 mr-1" />PDF
+                <FileDown className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Export </span>PDF
               </Button>
               <Button variant="outline" size="sm" onClick={async () => {
                 const columns: ExportColumnDef[] = [
@@ -773,7 +773,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               </Button>
               {isAdmin && (
                 <Button variant="outline" size="sm" onClick={doImportPR} className="h-9">
-                  <Upload className="h-4 w-4 mr-1" />Import
+                  <Upload className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Import </span>CSV
                 </Button>
               )}
               {canCreate && (
@@ -1167,10 +1167,10 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
                 <RefreshCw className={`h-4 w-4 mr-1 ${rplLoading ? "animate-spin" : ""}`} />Refresh
               </Button>
               <Button variant="outline" size="sm" onClick={() => doExportRPL("csv")} className="h-9">
-                <Download className="h-4 w-4 mr-1" />CSV
+                <Download className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Export </span>CSV
               </Button>
               <Button variant="outline" size="sm" onClick={() => doExportRPL("pdf")} className="h-9">
-                <FileDown className="h-4 w-4 mr-1" />PDF
+                <FileDown className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Export </span>PDF
               </Button>
               <Button variant="outline" size="sm" onClick={async () => {
                 const columns: ExportColumnDef[] = [
@@ -1192,7 +1192,7 @@ export default function ReturnReplacementModulePage({ currentPage, userRole, isV
               </Button>
               {isAdmin && (
                 <Button variant="outline" size="sm" onClick={doImportRPL} className="h-9">
-                  <Upload className="h-4 w-4 mr-1" />Import
+                  <Upload className="h-4 w-4 mr-1" /><span className="hidden sm:inline">Import </span>CSV
                 </Button>
               )}
               {canCreate && (

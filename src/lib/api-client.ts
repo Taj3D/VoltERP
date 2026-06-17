@@ -313,6 +313,22 @@ export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?
   const res = await fetch(path, { headers: { ...authHeaders, ...opts?.headers as Record<string, string> }, ...opts });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
+
+    // ── Handle 403 with TOKEN_INVALID ──
+    // A 403 with errorCode TOKEN_INVALID means the JWT signature failed verification
+    // (e.g., JWT_SECRET was rotated, or the token is from an old session). This is
+    // functionally equivalent to "session expired" — clear auth state silently and
+    // return empty data. The auth listeners will redirect to the login page.
+    // Without this, every page load would throw "Invalid token: invalid token" and
+    // trigger scary red popups on every page.
+    if (res.status === 403 && err?.errorCode === 'TOKEN_INVALID') {
+      clearAuthState();
+      const method = (opts?.method || "GET").toUpperCase();
+      if (method === "GET") return [];
+      if (method === "POST") return { success: false, error: "Session expired" };
+      return { success: false };
+    }
+
     // If 401 with expired token, try to refresh once before forcing logout
     if (res.status === 401 && authState.refreshToken && err.expired) {
       try {
@@ -346,6 +362,9 @@ export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?
             if (retryRes.status === 401) {
               // Even after refresh, still 401 — force logout
               clearAuthState();
+              // Return empty data silently — auth state change will redirect to login.
+              // This prevents scary "Invalid token" popups on every page.
+              return Array.isArray(opts) ? [] : (opts?.method === "POST" ? { success: false } : []);
             }
             throw new Error(retryErr.error || "Request failed");
           }
@@ -358,6 +377,14 @@ export async function apiFetch(path: string, opts?: RequestInit & { cachePrefix?
     // If 401 without refresh possibility, force logout (session expired)
     if (res.status === 401) {
       clearAuthState();
+      // Return empty data silently instead of throwing a scary "Invalid token" error.
+      // The clearAuthState() call triggers auth listeners which re-render the app
+      // to show the login page. Throwing here would cause every page's catch block
+      // to show a red error toast like "Invalid token: invalid signature".
+      const method = (opts?.method || "GET").toUpperCase();
+      if (method === "GET") return [];
+      if (method === "POST") return { success: false, error: "Session expired" };
+      return { success: false };
     }
     throw new Error(err.error || "Request failed");
   }

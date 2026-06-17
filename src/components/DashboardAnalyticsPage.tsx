@@ -497,8 +497,31 @@ export default function DashboardAnalyticsPage({ onNavigate }: DashboardAnalytic
     setLastUpdated(new Date());
     setLoading(false);
 
+    // ── Suppress the "Partial Load" popup when the root cause is an auth issue ──
+    // If the user's JWT is invalid/expired, every dashboard section will fail with
+    // an auth error message. The apiFetch helper already clears auth state in this
+    // case, which redirects the user to the login page automatically. Showing a
+    // red "10 sections failed" popup on top of that redirect is scary and misleading.
+    // Detect auth-related failures and skip the popup — the user will be silently
+    // routed back to login.
     if (Object.keys(errors).length > 0) {
-      toast({ title: "Partial Load", description: `${Object.keys(errors).length} section(s) failed to load. Click Refresh to retry.`, variant: "destructive" });
+      const errorValues = Object.values(errors);
+      const allAuthErrors = errorValues.every(msg =>
+        typeof msg === 'string' && (
+          msg.toLowerCase().includes('token') ||
+          msg.toLowerCase().includes('authentication') ||
+          msg.toLowerCase().includes('unauthorized') ||
+          msg.toLowerCase().includes('session expired') ||
+          msg.toLowerCase().includes('rate limit')
+        )
+      );
+      if (!allAuthErrors) {
+        toast({
+          title: "Partial Load",
+          description: `${Object.keys(errors).length} section(s) failed to load. Click Refresh to retry.`,
+          variant: "destructive"
+        });
+      }
     }
   }, [isVatAuditor, dateParams, toast]);
 

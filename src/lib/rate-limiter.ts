@@ -102,12 +102,20 @@ interface ApiRateLimitEntry {
 
 const apiRateLimitStore = new Map<string, ApiRateLimitEntry>();
 
-/** General API rate limits per HTTP method */
+/** General API rate limits per HTTP method
+ *
+ * Tuned for an enterprise ERP where a single dashboard load fires ~10 parallel
+ * GETs (KPI, trend, category-turnover, stock-alerts, ratios, top-performers,
+ * payment-mix, receivables-aging, dashboard, daily-trend) plus periodic polling
+ * (notifications every 30s) plus module-page fetches (5-15 GETs per page click).
+ * With 100/min we hit the ceiling during normal navigation. 500/min per IP gives
+ * legitimate users a smooth experience while still blocking obvious abuse.
+ */
 const API_RATE_CONFIGS = {
-  GET:    { windowMs: 60_000, maxRequests: 100 },  // 100 reads per minute
-  POST:   { windowMs: 60_000, maxRequests: 30 },   // 30 creates per minute
-  PUT:    { windowMs: 60_000, maxRequests: 30 },    // 30 updates per minute
-  DELETE: { windowMs: 60_000, maxRequests: 15 },    // 15 deletes per minute
+  GET:    { windowMs: 60_000, maxRequests: 500 },  // 500 reads per minute per IP
+  POST:   { windowMs: 60_000, maxRequests: 120 },  // 120 creates per minute
+  PUT:    { windowMs: 60_000, maxRequests: 120 },  // 120 updates per minute
+  DELETE: { windowMs: 60_000, maxRequests: 60 },   // 60 deletes per minute
 } as const;
 
 /**

@@ -54,6 +54,16 @@ prompt
 qa-screenshots/
 test-screenshots/
 screenshots/
+verification-screenshots/
+tool-results/
+
+# Binary screenshots / PDFs in project root (keep public/ for served assets)
+/*.png
+/*.jpg
+/*.jpeg
+/*.pdf
+/*.bak
+/agent-ctx/
 
 # Skills directory
 /skills/

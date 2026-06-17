@@ -687,14 +687,14 @@ export default function InterestPercentageEnginePage({
                 <div className="flex gap-2 flex-wrap ml-auto">
                   {canCreateEdit && (
                     <Button variant="outline" size="sm" onClick={importCSV}>
-                      <FileUp className="w-4 h-4 mr-1" />Import
+                      <FileUp className="w-4 h-4 mr-1" />Import CSV
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={exportRateCSV}>
-                    <FileDown className="w-4 h-4 mr-1" />CSV
+                    <FileDown className="w-4 h-4 mr-1" />Export CSV
                   </Button>
                   <Button variant="outline" size="sm" onClick={exportRatePDF}>
-                    <FileDown className="w-4 h-4 mr-1" />PDF
+                    <FileDown className="w-4 h-4 mr-1" />Export PDF
                   </Button>
                   <Button variant="outline" size="sm" onClick={async () => {
                     const columns: ColumnDef[] = [
@@ -982,10 +982,10 @@ export default function InterestPercentageEnginePage({
                     </h4>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={exportAmortCSV}>
-                        <FileDown className="w-4 h-4 mr-1" />CSV
+                        <FileDown className="w-4 h-4 mr-1" />Export CSV
                       </Button>
                       <Button variant="outline" size="sm" onClick={exportAmortPDF}>
-                        <FileDown className="w-4 h-4 mr-1" />PDF
+                        <FileDown className="w-4 h-4 mr-1" />Export PDF
                       </Button>
                       <Button variant="outline" size="sm" onClick={async () => {
                         if (!amortResult) return;
