@@ -55,7 +55,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(maskedItems);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch employees' }, { status: 500 });
+    console.error('Employees GET error:', error);
+    return NextResponse.json({ error: 'Failed to fetch employees', detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 

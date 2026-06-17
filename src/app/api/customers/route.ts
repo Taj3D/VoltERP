@@ -143,7 +143,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(maskedItems);
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch customers' }, { status: 500 });
+    console.error('Customers GET error:', error);
+    return NextResponse.json({ error: 'Failed to fetch customers', detail: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 
