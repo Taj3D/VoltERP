@@ -3380,3 +3380,64 @@ Stage Summary:
   - Add Upstash Redis for shared user-cache + CSRF token store (solves per-instance cache issues).
   - Refactor `handleTopPerformers` to do customer/supplier name resolution in a single Promise.all round.
   - Consider moving `generateNotifications` to a Vercel Cron job running every 5-10min instead of on-demand.
+
+---
+Task ID: DEPLOY-01
+Agent: Z.ai Code (main)
+Task: User requested to commit the performance and hydration fixes to Git and deploy to Vercel production.
+
+Work Log:
+- Checked `git status` → working tree clean (changes were already auto-committed in 3 commits: b34f7e2, 9d8709e, 7677aca).
+- Verified the latest commit (7677aca) contains all 4 performance fixes:
+  - `src/components/erp/layout/AppHeader.tsx` (generateNotifications throttle)
+  - `src/lib/activity-logger.ts` (DASHBOARD_AUDIT_ENABLED flag)
+  - `src/lib/db.ts` (PrismaClient production caching)
+  - `src/lib/jwt-utils.ts` (JTI negative cache)
+  - Plus the earlier hydration fix in `src/app/layout.tsx`, `src/app/page.tsx`, `src/app/globals.css`, `src/components/boot-screen.tsx`
+- Ran `git fetch origin` → local main was 3 commits ahead of origin/main.
+- Pushed to GitHub: `git push origin main` → success (ca676d0..7677aca main -> main).
+- Created and pushed annotated tag `v3.1.0-perf` documenting all fixes.
+- Waited ~90s for Vercel auto-deployment to complete.
+- Verified production site (https://volterp-app.vercel.app/) via agent-browser:
+  - Login flow works (emart.amit / Test_123) — no console errors, no page errors.
+  - Dashboard renders with full data (revenue Tk. 16,500, top products, customers, suppliers, SR targets).
+  - Mobile responsiveness confirmed (iPhone 14 viewport).
+
+Production Performance Verification (warm Lambda instance):
+| Metric | Before Deploy | After Deploy | Improvement |
+|--------|---------------|--------------|-------------|
+| Page load (reload) | 831ms | 122ms | 6.8x faster |
+| `company-branding` API | 2,190ms | 9ms | 243x faster |
+| `notifications` (generate) | 11,223ms | 1,076ms (GET only) | 10x faster + no POST generate |
+| Dashboard nav (cached) | 14,629ms | 0ms (cached) | instant |
+| Customers page API | 2,414ms | 1,375ms | 1.8x faster |
+| POST generate on nav | every page | once/10min | eliminated |
+| Console errors | hydration mismatch | 0 | fixed |
+
+- Confirmed throttle working: `localStorage.getItem('emart:lastNotifGenerate')` returns timestamp on production.
+- Confirmed no POST `/api/notifications` generate calls on page navigation (only GET fetches).
+- Confirmed `company-branding` now returns in 9-19ms (PrismaClient cache hit on warm Lambda).
+- Remaining bottleneck: `dashboard-batch` still ~13s on first cold call (58 parallel DB queries × 150-200ms cross-region RTT Vercel DC ↔ Turso Tokyo). This is the cross-region latency issue documented in PERF-INVESTIGATION-01 — requires moving Turso to aws-us-east-1 or Vercel to hnd1 (Tokyo) to fully resolve. The 8s in-memory cache now makes repeat dashboard loads instant.
+
+Stage Summary:
+- **Deployment status**: ✅ Successfully pushed to GitHub (commit 7677aca) and auto-deployed to Vercel production.
+- **Tag**: `v3.1.0-perf` created and pushed for traceability.
+- **Production verification**: All fixes confirmed working on https://volterp-app.vercel.app/
+  - Hydration mismatch error: GONE
+  - Page load: 6.8x faster
+  - company-branding API: 243x faster (PrismaClient cache)
+  - notifications generate: eliminated on navigation (throttle)
+  - Dashboard data: renders correctly
+  - Mobile: responsive
+  - Zero console errors
+- **Files deployed**:
+  - `src/components/boot-screen.tsx` (NEW — hydration fix)
+  - `src/app/layout.tsx` (hydration fix)
+  - `src/app/page.tsx` (hydration fix)
+  - `src/app/globals.css` (boot screen CSS)
+  - `src/components/erp/layout/AppHeader.tsx` (notification throttle)
+  - `src/lib/jwt-utils.ts` (JTI negative cache)
+  - `src/lib/db.ts` (PrismaClient production caching)
+  - `src/lib/activity-logger.ts` (DASHBOARD_AUDIT_ENABLED flag)
+  - `.env` (DASHBOARD_AUDIT_ENABLED=false, CSRF_ENFORCE=false)
+- **Known remaining issue**: `dashboard-batch` cold call ~13s due to 58 parallel cross-region DB queries. Mitigated by 8s in-memory cache (repeat loads instant). Full fix requires DB region migration.
