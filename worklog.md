@@ -694,3 +694,50 @@ Stage Summary:
 - ✅ README.md documents the complete Vercel deployment flow
 - ⚠️ Before deploying on Vercel, user MUST: (1) create a Turso database, (2) push schema + seed data to Turso, (3) add DATABASE_URL + JWT_SECRET env vars in Vercel dashboard
 - ⚠️ Remaining audit items from previous sessions (popup on refresh, popup on module click, 45 errors, company branding in all PDFs, admin-editable company name/logo) are still pending — these do NOT block Vercel deployment but should be fixed in subsequent rounds
+
+---
+Task ID: VERCEL-DEPLOY
+Agent: Main (Z.ai Code)
+Task: Deploy VoltERP to Vercel (user provided GitHub PAT, Vercel token, Turso credentials)
+
+Work Log:
+- Inspected db.ts: already supports Turso via PrismaLibSQL adapter (detects libsql:// prefix)
+- Installed Vercel CLI globally (v54.14.0)
+- Turso CLI install failed (DNS get.turso.tech unreachable) — used @libsql/client directly instead
+- Generated Prisma migration SQL via `prisma migrate diff --from-empty --to-schema-datamodel` (3180 lines, 469 statements)
+- Created scripts/push-schema-turso.js: pushes DDL to Turso via @libsql/client (robust line-based splitter on ";\n")
+- Found Turso DB had stale partial schema (User table missing `designation` column) from earlier attempts
+- Created scripts/reset-turso.js: iteratively drops all tables (FK-safe, multi-pass), then re-pushes clean schema
+- Reset Turso: 92 tables dropped across 3 passes, then 90 tables + all indexes re-created cleanly
+- Updated scripts/seed-reference-data.js: auto-detects Turso (libsql://) and uses PrismaLibSQL adapter; falls back to local SQLite
+- Seeded Turso with all reference data: 12 categories, 12 brands, 10 colors, 9 units, 4 godowns, 7 departments, 7 designations, 8 banks, 25 chart-of-accounts, 8 expense/income heads, 7 payment options, 4 card types, 3 segments, 5 capacities, 17 products, 6 customers, 6 suppliers, 6 employees, 2 SR targets, 1 SMS settings, 1 SMS automation config
+- Created scripts/seed-users-turso.js: seeds 5 default users (admin/manager/sr/dealer/vat_auditor) with bcrypt-hashed passwords; dynamically fetches company ID from Turso
+- All 5 users created successfully in Turso, linked to company cmqhcp83r0000pxszrx10zjaq
+- Committed deployment scripts + pushed to GitHub (commit a0c90dd)
+- Vercel project `volterp-app` (prj_5DmP7hiRaI35xGbJQQAqtUMX9PLn) already existed and auto-deployed from GitHub push (status READY)
+- Deleted stale env vars (old DATABASE_URL, DATABASE_AUTH_TOKEN, DIRECT_URL) via Vercel API
+- Created fresh env vars on Vercel with user-provided Turso credentials:
+  - DATABASE_URL = libsql://volterp-db-taj3d.aws-ap-northeast-1.turso.io
+  - DATABASE_AUTH_TOKEN = (user-provided token)
+  - JWT_SECRET (preserved from before)
+- Triggered new production deployment via Vercel API (dpl_3S5DLubRFh5ajpiFjUSWoQ5CLsT8) → READY in ~3 min
+- Verified deployment:
+  - Site homepage: HTTP 200 (https://volterp-app.vercel.app)
+  - Login API (POST /api/auth): HTTP 200 — returns JWT access + refresh tokens
+  - All 5 role logins verified: admin/manager/sr/dealer/vat_auditor all return HTTP 200
+  - Dashboard API: HTTP 200
+  - Products API: HTTP 200
+  - Categories API: HTTP 200
+  - agent-browser verification: login page renders correctly → admin login succeeds → dashboard loads with full sidebar (Investment, Asset, Liability, Basic Modules, Core Config, Products, etc.) → product search box present (data flowing from Turso)
+  - Screenshot saved: vercel-deployed-dashboard.png
+
+Stage Summary:
+- ✅ VoltERP is LIVE at https://volterp-app.vercel.app
+- ✅ GitHub repo: https://github.com/Taj3D/VoltERP (commit a0c90dd, branch main)
+- ✅ Turso database: libsql://volterp-db-taj3d.aws-ap-northeast-1.turso.io (90 tables, fully seeded)
+- ✅ All 5 roles can log in with default credentials
+- ✅ Auto-deploy configured: every push to GitHub main branch triggers a new Vercel production deployment
+- ✅ Login credentials (unchanged): admin=emart.amit/Test_123, manager=emart.manager/Manager_123, sr=emart.sr/SR_123, dealer=emart.dealer/Dealer_123, vat=emart.vat/VAT_123
+- ⚠️ Reminder: change admin password after first login (Profile Center → Change Password)
+- ⚠️ Company branding logo should be uploaded via System Settings → Company Branding (base64 logo embedded in PDFs)
+- Pending audit items from previous sessions (popups, 45 errors, PDF branding on all pages) are tracked by the 15-min cron job (ID 210404) and will be addressed in subsequent rounds
